@@ -1,0 +1,152 @@
+services/downloader/test/spike-cookie-swap/setup-certs.sh
+  s_a29cc9316102a3::t_4869d51ac92d28 1-41
+services/downloader/test/spike-skip-locked/skip-locked.spec.ts
+  s_a29cc9316102a3::t_72651070dea0af 16
+  s_a29cc9316102a3::t_31b65a0171581d 1-15,17,19-31,42-86,143-148,169,182-191,193,226-227
+  s_a29cc9316102a3::t_6440985fdcc505 32-41
+  s_a29cc9316102a3::t_a56ad2afbcee9a 151,161-166,170-175,178,192,199,202-204,206-208,211-219
+  s_a29cc9316102a3::t_34be46fba19037 18
+  s_a29cc9316102a3::t_74ed2ca977eb20 87-142,149-150,152-160,167-168,176-177,179-181,194-198,200-201,205,209-210,220-225
+services/downloader/test/spike-skip-locked/concurrency-harness.ts
+  s_a29cc9316102a3::t_7b0ffc413c69f4 1-2,6,15,32-39,44,46-53,73,75-79,81-86,97,101-106,110,113,128-131,147,149-176
+  s_a29cc9316102a3::t_ed37053a02edde 3-5,7-14,16-31,40-43,45,54-72,74,80,87-96,98-100,107-109,111-112,114-127,132-146,148
+services/downloader/Dockerfile
+  s_a29cc9316102a3::t_e9b2f6a94436bb 1-31
+.gitignore
+  s_a29cc9316102a3::t_32b8e4a3db0ce0 11-15
+  s_a29cc9316102a3::t_e0b7f544371528 16-21
+services/downloader/test/spike-skip-locked/claim.ts
+  s_a29cc9316102a3::t_8521bedc59016a 7
+  s_a29cc9316102a3::t_5397db7245e047 28-29
+  s_a29cc9316102a3::t_ae9257bbd39e48 1-6,8-27,30-36
+services/downloader/src/config/env.ts
+  s_a29cc9316102a3::t_20f22026bb614e 16-31,34-38,40,42
+  s_a29cc9316102a3::t_73a2f0363ac6a8 58
+  s_a29cc9316102a3::t_de689b03ea8743 94
+  s_a29cc9316102a3::t_7dd22fa71361df 102-131
+  s_a29cc9316102a3::t_2fe49acad75f29 1-15,32-33,44-47,49-57,59-91,99-101
+  s_a29cc9316102a3::t_2da731a6e62e64 39,41,43,48
+  s_a29cc9316102a3::t_90b521364d2823 92-93
+  s_a29cc9316102a3::t_d3fcede2154dd4 95-98
+services/downloader/test/spike-cookie-swap/echo/echo_server.py
+  s_a29cc9316102a3::t_ef461968112a24 1-17,30-33,35-43,45-52,54,62-85,91-120
+  s_a29cc9316102a3::t_83bcab5deaa85e 18-29,34,44,53,55-61,86-90
+services/downloader/test/spike-cookie-swap/run.sh
+  s_a29cc9316102a3::t_0a3faeba1de2de 53
+  s_a29cc9316102a3::t_687a60d217b3de 79-101
+  s_a29cc9316102a3::t_d8c3034f70cd01 19
+  s_a29cc9316102a3::t_7a8de2925f6470 103-109,111
+  s_a29cc9316102a3::t_2e540f3f905b83 1-18,20-52,54-78,102,110,112-122
+pnpm-workspace.yaml
+  s_a29cc9316102a3::t_7db677e6c5e9f3 1-2
+services/downloader/test/spike-cookie-swap/helpers.ts
+  s_a29cc9316102a3::t_4925856305fb8a 125-174,178-179,197,208-209,225-232,234-235,238-253
+  s_a29cc9316102a3::t_be8b28d718a23a 199-206
+  s_a29cc9316102a3::t_f82ada5f30a268 210-224,233,236-237
+  s_a29cc9316102a3::t_4fb659b1ca024f 29-38,42-53
+  s_a29cc9316102a3::t_2a2f2a8310b66d 1-28,39-41,54-124
+  s_a29cc9316102a3::t_b2083f76f5a175 175-177,180-196,198,207
+.eslintrc.json
+  s_a29cc9316102a3::t_bf0e7c70ddfd75 1-12
+services/downloader/test/spike-cookie-swap/docker-compose.spike.yml
+  s_a29cc9316102a3::t_82a38935efd150 3-8
+  s_a29cc9316102a3::t_e2416a21eb7587 1-2,9-83
+services/downloader/test/spike-cookie-swap/cookie-swap.spike-test.ts
+  s_a29cc9316102a3::t_3532f32e9a4ff0 14-17,23,26,29,39-43,47-50,55-60,68-79,82,111,113-118,120,126,130,132-133,143,145,150,153-159,165-187,189-190,203-204,216-245,247,250-252,255-256,265-272,302-310,313-316
+  s_a29cc9316102a3::t_8230eee3c68515 112,119,121-125,127-129,131,134-142,144,146-149,151-152
+  s_a29cc9316102a3::t_6f257ba4715046 188,191-202
+  s_a29cc9316102a3::t_565865f8934f4a 1-13,18-22,25,27-28,30-38,44-46,51-54,61-67,80-81,83-110,160-164,205-209,246,248-249,253-254,257-264,273-301,311-312,317-322
+  s_a29cc9316102a3::t_6df0e66c3649bc 210-215
+  s_a29cc9316102a3::t_ba6668e4eb78e5 24
+services/downloader/test/compose-constraints.spec.ts
+  s_a29cc9316102a3::t_5ac89c8dd47713 1-48
+services/downloader/src/main.ts
+  s_a29cc9316102a3::t_24b9ad1589591c 1-3,5-8,10,28,33-38,43,45-47
+  s_a29cc9316102a3::t_79cc9dd237078a 44
+  s_a29cc9316102a3::t_628b41bd556293 4,9,11-27,29-32,39-42
+services/downloader/package.json
+  s_a29cc9316102a3::t_2debba1260dd74 1-9,12-16,20-28,30-34,37-38
+  s_a29cc9316102a3::t_5ac89c8dd47713 35-36
+  s_a29cc9316102a3::t_d23d18fcd76240 18
+  s_a29cc9316102a3::t_b04d708ddcdcb3 17,19,29
+  s_a29cc9316102a3::t_a981ca3532efd2 10-11
+docker-compose.yml
+  s_a29cc9316102a3::t_73e65175d4e398 9-14,17-30
+  s_a29cc9316102a3::t_bb1919616c5035 1-3,41,45-69,79-92,97-106,111-120
+  s_a29cc9316102a3::t_ef28e511ae3294 4-8,15-16,31-40,70-78,93-96,107-110
+  s_a29cc9316102a3::t_b1e2aec21bcedd 42-44
+services/downloader/test/spike-skip-locked/db.ts
+  s_a29cc9316102a3::t_90375323f6d880 1-34,68,70-74,76-77
+  s_a29cc9316102a3::t_d0b09743d6f76c 35-67,69,75
+services/downloader/test/bootstrap-failure.spec.ts
+  s_a29cc9316102a3::t_673bcced4c8d66 41-93
+  s_a29cc9316102a3::t_94fb3a456dc809 112-115
+  s_a29cc9316102a3::t_11744ec12d5f32 1-40
+  s_a29cc9316102a3::t_323a0e0ea38b7e 94-111,116-143
+services/downloader/test/spike-skip-locked/schema.ts
+  s_a29cc9316102a3::t_6b55772a4d027e 1-11
+services/downloader/test/spike-cookie-swap/jest.spike.config.js
+  s_a29cc9316102a3::t_4770ca191f3897 1-16
+.env.example
+  s_a29cc9316102a3::t_6a2cd7781c4656 1-11,18-32
+  s_a29cc9316102a3::t_a47ab39f450f63 12-17
+services/downloader/test/spike-cookie-swap/mutations/03-restart-parser.sh
+  s_a29cc9316102a3::t_2a6f11efaa743b 1-6,13-16,31-50
+  s_a29cc9316102a3::t_19db4b35aad486 7-12,17-30
+services/downloader/test/env.spec.ts
+  s_a29cc9316102a3::t_456c67bfabac21 1
+  s_a29cc9316102a3::t_bbb1014c1f1d4b 21
+  s_a29cc9316102a3::t_94fb3a456dc809 224-226
+  s_a29cc9316102a3::t_5d421c373b53dd 95,109,112-121,123,136-137,139-223,227-248
+  s_a29cc9316102a3::t_3d9a3f52a8ecc6 2-20,22-94,96-108,110-111,122,124-135,138,249-250
+tsconfig.base.json
+  s_a29cc9316102a3::t_716af4c8dd9204 15
+  s_a29cc9316102a3::t_876713119ddfde 1-14,16-17
+services/downloader/src/health/health.controller.ts
+  s_a29cc9316102a3::t_be307265e64da9 1-9
+services/downloader/test/spike-cookie-swap/tsconfig.spike.json
+  s_a29cc9316102a3::t_f23c7a2bbc6f82 1-8
+services/downloader/tsconfig.json
+  s_a29cc9316102a3::t_5b88ed0df6797f 1-10
+services/downloader/jest.config.js
+  s_a29cc9316102a3::t_4511890dea7d36 1-11
+services/downloader/test/spike-cookie-swap/mutations/01-wrong-key.sh
+  s_a29cc9316102a3::t_c36388828ee056 21-25
+  s_a29cc9316102a3::t_51f272172cc3e6 1-20,26-31
+package.json
+  s_a29cc9316102a3::t_34f1931300e998 5
+  s_a29cc9316102a3::t_44a15bdfc14817 1-4,6-16,19-25
+  s_a29cc9316102a3::t_bf0e7c70ddfd75 17-18
+services/downloader/test/health.e2e-spec.ts
+  s_a29cc9316102a3::t_461f7a833910e4 1-28
+services/downloader/test/spike-cookie-swap/README.md
+  s_a29cc9316102a3::t_4d574970402625 1-35,44-54,59,63-67,69,72-74,76-93,100,102-105,124-125,163-165,170-173,176-178,180-183,194
+  s_a29cc9316102a3::t_23d87e535fba93 36-43,55-58,60-62,68,70-71,75,94-99,101,106-123,126-162,166-169,174-175,179,184-193,195-198
+services/downloader/src/app.module.ts
+  s_a29cc9316102a3::t_d2c2744b38409a 1-7
+services/downloader/test/spike-cookie-swap/mutations/02-unreachable-redis.sh
+  s_a29cc9316102a3::t_abcfaa8e073ddb 1-23,29-34
+  s_a29cc9316102a3::t_8c09d5f71cb471 24-28
+.github/workflows/ci.yml
+  s_a29cc9316102a3::t_a993c3e374c518 212-274
+  s_a29cc9316102a3::t_cd1f3aaa53998a 7-10,162-211,275-282,290-309
+  s_a29cc9316102a3::t_be964ce45da84d 283-289
+pnpm-lock.yaml
+  s_a29cc9316102a3::t_82caec0a2baaed 1-4836
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "0b09d8cafd1708c37301b3563588cceaae514ff7",
+  "prompts": {},
+  "sessions": {
+    "s_a29cc9316102a3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "33a8fb4f-0c1f-45d1-a42c-14391c6be479",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
