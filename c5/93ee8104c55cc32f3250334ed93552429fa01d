@@ -1,0 +1,64 @@
+plans/260824-2152-douyin-downloader/phase-07-durability.md
+  s_f0786ceca44e6f::t_94204571b8bf5a 1-99
+plans/260824-2152-douyin-downloader/phase-08-web-ui.md
+  s_f0786ceca44e6f::t_94204571b8bf5a 1-75
+plans/260824-2152-douyin-downloader/phase-02-ports.md
+  s_f0786ceca44e6f::t_79422524faee68 1-80
+docs/journals/20260825-phase-00-five-more-false-greens.md
+  s_a29cc9316102a3::t_26c94dd4e3439a 1-41,43-57,60,62-71
+  s_a29cc9316102a3::t_2573c8cf4f0d85 42,58-59,61
+plans/260824-2152-douyin-downloader/phase-10-ops.md
+  s_f0786ceca44e6f::t_94204571b8bf5a 1-89
+plans/260824-2152-douyin-downloader/phase-06-download-lane.md
+  s_f0786ceca44e6f::t_a62b8ca8d3e750 1-77
+plans/260824-2152-douyin-downloader/phase-04-lane-framework.md
+  s_f0786ceca44e6f::t_a62b8ca8d3e750 1-88
+plans/260824-2152-douyin-downloader/phase-03-http-api.md
+  s_f0786ceca44e6f::t_a62b8ca8d3e750 1-91
+plans/260824-2152-douyin-downloader/plan.md
+  s_f0786ceca44e6f::t_a28436273b024c 1-3,5-75,78-83,85-111,113-126,132-165,171-188
+  s_a29cc9316102a3::t_bd4cfc18253468 112
+  s_a29cc9316102a3::t_e3ae64f56ba2d7 127-131
+  s_a29cc9316102a3::t_85f1291a19083b 4
+  s_a29cc9316102a3::t_a84007f3a8c4cf 76-77
+  s_a29cc9316102a3::t_47cb5d88d1d978 84
+  s_a29cc9316102a3::t_60737cc9f707fc 166-170
+plans/reports/260824-2139-solution-design-douyin-downloader.md
+  s_f0786ceca44e6f::t_5cb17f703f1c80 1-556
+plans/260824-2152-douyin-downloader/phase-00-skeleton-spike.md
+  s_f0786ceca44e6f::t_79422524faee68 1-3,5-84,92-94,100-107
+  s_a29cc9316102a3::t_99675d2a1e96d9 4
+  s_a29cc9316102a3::t_c45466cd059db3 85-91,95-99,108-127
+plans/260824-2152-douyin-downloader/phase-01-schema.md
+  s_f0786ceca44e6f::t_79422524faee68 1-99
+plans/260824-2152-douyin-downloader/phase-05-enumerate-lane.md
+  s_f0786ceca44e6f::t_a62b8ca8d3e750 1-88
+plans/260824-2152-douyin-downloader/phase-09-extension.md
+  s_f0786ceca44e6f::t_94204571b8bf5a 1-80
+plans/reports/260824-2126-douyin-downloader-brainstorm.md
+  s_f0786ceca44e6f::t_cbce887bc714dc 1-280
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "c593ee8104c55cc32f3250334ed93552429fa01d",
+  "prompts": {},
+  "sessions": {
+    "s_a29cc9316102a3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "33a8fb4f-0c1f-45d1-a42c-14391c6be479",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    },
+    "s_f0786ceca44e6f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d07cc822-e290-4f4a-a804-9a2f6ddc738d",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
