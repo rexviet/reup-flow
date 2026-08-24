@@ -1,0 +1,83 @@
+# SPIKE 2 (GATE) harness -- phase-00-skeleton-spike.md sec 0.5.
+#
+# This file is intentionally separate from any CI compose file and from the
+# FORK's own docker-compose.yml (src/Douyin_TikTok_Download_API/docker-compose.yml),
+# which uses network_mode: host -- incompatible with the static-IP bridge
+# network this harness needs for extra_hosts to work. The root repo's own
+# docker-compose.yml does NOT use network_mode: host (it publishes ports
+# per-service); it is unrelated to this constraint and is not touched here.
+# It brings up its own throwaway network/containers under the
+# `spike-cookie-swap` project name, on host ports that do not collide with
+# the root stack (postgres 5432 / redis 6379 / nest 3000): redis -> 16379,
+# parser -> 18080.
+#
+# SPIKE_REDIS_URL and SPIKE_FALLBACK_COOKIE are overridable from the shell so
+# the required mutations (point the parser at an unreachable Redis) can be
+# driven without editing this file -- see mutations/*.sh.
+name: spike-cookie-swap
+
+networks:
+  spikenet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.9.0/24
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: spike_cookie_redis
+    networks:
+      spikenet:
+        ipv4_address: 172.28.9.10
+    ports:
+      - "16379:6379"
+
+  echo:
+    image: python:3.11-slim
+    container_name: spike_cookie_echo
+    working_dir: /echo
+    volumes:
+      - ./echo:/echo:ro
+      - ./certs:/certs:ro
+      - ./data:/data
+    command: ["python3", "/echo/echo_server.py"]
+    networks:
+      spikenet:
+        ipv4_address: 172.28.9.20
+
+  # The real, unmodified parser fork. Built from src/Douyin_TikTok_Download_API
+  # with no bind-mount over its source and no edits to its Dockerfile -- only
+  # extra_hosts (network destination) and an entrypoint override that adds a
+  # trust anchor (trust store) are used to redirect it. See README.md.
+  parser:
+    build:
+      context: ../../../../src/Douyin_TikTok_Download_API
+      dockerfile: Dockerfile
+    container_name: spike_cookie_parser
+    depends_on:
+      - redis
+      - echo
+    environment:
+      REDIS_URL: ${SPIKE_REDIS_URL:-redis://172.28.9.10:6379/0}
+      DOUYIN_COOKIE_FALLBACK: ${SPIKE_FALLBACK_COOKIE:-spike_fallback_sentinel_C}
+    extra_hosts:
+      - "www.douyin.com:172.28.9.20"
+      - "www.iesdouyin.com:172.28.9.20"
+    volumes:
+      - ./certs/ca.pem:/spike-ca/ca.pem:ro
+    entrypoint:
+      - sh
+      - -c
+      - |
+        set -e
+        CERTIFI_PATH=$$(python3 -c "import certifi; print(certifi.where())")
+        echo "certifi bundle path: $$CERTIFI_PATH"
+        cat /spike-ca/ca.pem >> "$$CERTIFI_PATH"
+        echo "appended spike CA to certifi bundle"
+        exec ./start.sh
+    networks:
+      spikenet:
+        ipv4_address: 172.28.9.30
+    ports:
+      - "18080:80"

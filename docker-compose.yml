@@ -1,0 +1,120 @@
+services:
+  nest:
+    build:
+      # Context is the repo root, not services/downloader: this is a pnpm
+      # workspace and the lockfile lives at the root. A service-scoped context
+      # cannot see it, so installs would silently drift from the lockfile.
+      context: .
+      dockerfile: services/downloader/Dockerfile
+    # Deliberately NOT `env_file: .env`. That injects EVERY variable into this
+    # container, including DOUYIN_COOKIE_FALLBACK -- which in production is a
+    # live Douyin session cookie that only `parser` has any use for. The
+    # orchestrator must not hold a credential it never reads: one future crash
+    # reporter or console.log(process.env) would ship it off the box.
+    # Allowlist exactly what services/downloader/src/config/env.ts validates.
+    environment:
+      PORT: 3000
+      API_KEY: ${API_KEY}
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      PARSER_BASE_URL: ${PARSER_BASE_URL}
+      PROBE_SEC_USER_ID: ${PROBE_SEC_USER_ID}
+      DATA_DIR: ${DATA_DIR:-/data}
+      DOWNLOAD_CONCURRENCY: ${DOWNLOAD_CONCURRENCY:-6}
+      ENUMERATE_SLEEP_MS_MIN: ${ENUMERATE_SLEEP_MS_MIN:-3000}
+      ENUMERATE_SLEEP_MS_MAX: ${ENUMERATE_SLEEP_MS_MAX:-5000}
+      LEASE_SECONDS: ${LEASE_SECONDS:-300}
+      MAX_ATTEMPTS: ${MAX_ATTEMPTS:-3}
+      URL_TTL_SECONDS: ${URL_TTL_SECONDS:-7200}
+      DISK_RESERVE_BYTES: ${DISK_RESERVE_BYTES:-10737418240}
+      EST_BYTES_PER_VIDEO: ${EST_BYTES_PER_VIDEO:-31457280}
+    ports:
+      # The orchestrator API is the only thing meant to be reachable from the
+      # host. Contrast with `parser` below, which deliberately has none.
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:3000/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    volumes:
+      # DATA_DIR: downloaded media + working files live here inside the
+      # container; bind-mount a host dir so downloads survive a restart.
+      - ./data:${DATA_DIR:-/data}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      parser:
+        condition: service_started
+
+  parser:
+    build:
+      context: ./src/Douyin_TikTok_Download_API
+    # SECURITY: deliberately NO `ports:` key here. This service is an
+    # unauthenticated scraper (no auth in front of it) -- exposing it to the
+    # host, and therefore to whatever network the host is on, is the entire
+    # risk this compose file exists to prevent. It must only be reachable
+    # from other containers on the internal docker network (e.g. `nest`
+    # calling http://parser:80). If you are adding a `ports:` mapping here,
+    # stop and re-read plan §0.2 first.
+    environment:
+      REDIS_URL: ${REDIS_URL}
+      # Without Redis reachable, the parser's cookie_provider silently falls
+      # back to this value -- no error, no crash, just a stale/fixed cookie
+      # used for every request. That's why redis has a healthcheck below and
+      # parser waits on `service_healthy`, not just `service_started`.
+      DOUYIN_COOKIE_FALLBACK: ${DOUYIN_COOKIE_FALLBACK}
+    healthcheck:
+      # The image is python:3.11-slim based and ships neither curl nor wget,
+      # so probe with the interpreter that is guaranteed to be there.
+      test: ["CMD", "python3", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:80/docs', timeout=3).status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    depends_on:
+      redis:
+        # MUST be service_healthy, not service_started: a "started but not
+        # yet accepting connections" Redis looks identical to a missing one
+        # from the parser's perspective, and produces the same silent
+        # fallback described above.
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-reup}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-reup}
+      POSTGRES_DB: ${POSTGRES_DB:-reup}
+    ports:
+      # Exposed for host-run integration tests (the SKIP LOCKED spike drives two
+      # real concurrent transactions from jest on the host).
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-reup}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      # Exposed so host-run tests can write douyin:cookie:current the same way
+      # the nest service does.
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # No `web` service yet -- that's phase 8.
+
+volumes:
+  postgres_data:

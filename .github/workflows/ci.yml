@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+  schedule:
+    # Weekly, for the cookie-swap gate only -- see that job's comment.
+    - cron: "0 3 * * 1"
 
 env:
   GITLEAKS_VERSION: 8.30.1
@@ -155,3 +159,151 @@ jobs:
           assert p.read_text() == pathlib.Path("/tmp/cp.bak").read_text(), "restore failed"
           PY
           exit $fail
+
+  # Plan phase 0 todo: "CI: add a services/downloader job (lint + test)".
+  # The three jobs above are the phase-1 gates and are deliberately left
+  # untouched -- the phase 0 DoD requires all three to stay green.
+  downloader:
+    runs-on: ubuntu-latest
+    services:
+      # The SKIP LOCKED spike drives two genuinely concurrent transactions, so
+      # it needs a real Postgres. There is no mock substitute: the whole point
+      # of that gate is runtime lock behaviour, not generated SQL text.
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: reup
+          POSTGRES_PASSWORD: reup
+          POSTGRES_DB: reup
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U reup"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # pnpm version comes from the root package.json "packageManager" field.
+      # Pinned deliberately: an unpinned corepack resolves to whatever pnpm is
+      # newest, which silently changed the resolver between host and container
+      # once already and broke the image build.
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm -C services/downloader lint
+
+      # Includes the SPIKE 1 gate suite (test/spike-skip-locked). It stays in
+      # the default run on purpose: phase 1's claim query is built on exactly
+      # this shape, so a regression here must break the build, not a spike
+      # someone remembers to run by hand.
+      - name: Test
+        run: pnpm -C services/downloader test
+
+      # The SPIKE 1 gate is only worth its green if it still fails when the
+      # lock is removed. It did not, once: two tests named for concurrency
+      # passed with SKIP LOCKED gone, because Promise.all over drizzle
+      # transactions never actually overlapped them. Re-run the mutations
+      # CI-side so a future edit that quietly re-serialises the claimers, or
+      # defangs an assertion, is caught here rather than in production when
+      # two workers claim the same video.
+      - name: Mutation -- SKIP LOCKED gate must go red
+        run: |
+          set -u
+          CLAIM=services/downloader/test/spike-skip-locked/claim.ts
+          cp "$CLAIM" /tmp/claim.bak
+          fail=0
+
+          echo "--- mutation A: drop skipLocked, keep FOR UPDATE ---"
+          sed -i "s/\.for('update', { skipLocked: true })/.for('update')/" "$CLAIM"
+          if diff -q "$CLAIM" /tmp/claim.bak >/dev/null; then
+            echo "::error::mutation A did not apply -- the claim query shape changed, update this step"
+            exit 1
+          fi
+          if pnpm -C services/downloader test -- spike-skip-locked; then
+            echo "::error::Suite still passes without SKIP LOCKED -- the claim gate is vacuous."
+            fail=1
+          else
+            echo "OK: caught."
+          fi
+          cp /tmp/claim.bak "$CLAIM"
+
+          echo "--- mutation B: drop the row lock entirely ---"
+          perl -0pi -e "s/\n\s*\.for\('update', \{ skipLocked: true \}\)/\n/" "$CLAIM"
+          if diff -q "$CLAIM" /tmp/claim.bak >/dev/null; then
+            echo "::error::mutation B did not apply -- update this step"
+            exit 1
+          fi
+          if pnpm -C services/downloader test -- spike-skip-locked; then
+            echo "::error::Suite still passes with no row lock at all -- claims can double-issue."
+            fail=1
+          else
+            echo "OK: caught."
+          fi
+          cp /tmp/claim.bak "$CLAIM"
+
+          diff -q "$CLAIM" /tmp/claim.bak >/dev/null || { echo "::error::restore failed"; exit 1; }
+
+          echo "--- mutation C: parser must publish no host ports ---"
+          cp docker-compose.yml /tmp/dc.bak
+          perl -0pi -e 's/(  parser:\n    build:\n)/$1    ports:\n      - "8080:80"\n/' docker-compose.yml
+          if diff -q docker-compose.yml /tmp/dc.bak >/dev/null; then
+            echo "::error::mutation C did not apply -- compose layout changed, update this step"
+            cp /tmp/dc.bak docker-compose.yml
+            exit 1
+          fi
+          if pnpm -C services/downloader test -- compose-constraints; then
+            echo "::error::Compose guard is vacuous -- parser could be exposed to the host silently."
+            fail=1
+          else
+            echo "OK: caught."
+          fi
+          cp /tmp/dc.bak docker-compose.yml
+          diff -q docker-compose.yml /tmp/dc.bak >/dev/null || { echo "::error::restore failed"; exit 1; }
+
+          exit $fail
+
+  # SPIKE 2 gate -- the Redis -> parser cookie contract.
+  #
+  # NOT on every push/PR: it builds the parser fork's image, whose Dockerfile
+  # pins a CN PyPI mirror (mirrors.aliyun.com), so a mirror hiccup would fail
+  # PRs for reasons unrelated to the change under review. A known-flaky
+  # required gate gets ignored, and an ignored gate is worse than no gate.
+  # Weekly + manual instead; phase 10 folds this into the upstream-pull job.
+  downloader-cookie-swap-gate:
+    # Also runnable on demand for a specific PR by adding the `run-cookie-gate`
+    # label -- otherwise this gate could never run on the very PR that changes
+    # the cookie contract, and "weekly" would mean "after it already landed".
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.pull_request.labels.*.name, 'run-cookie-gate')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # Brings up its own compose project (redis + TLS echo + the real parser),
+      # runs the 5-step scenario, and always tears down via a trap.
+      - name: Cookie swap gate
+        run: pnpm -C services/downloader run test:spike-cookie-swap

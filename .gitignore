@@ -8,3 +8,14 @@ dist/
 
 # Agent scratch notes -- internal, and this tree feeds a public fork.
 .claude/agent-memory/
+
+# Throwaway TLS material generated at spike-test setup time (a local CA used to
+# impersonate www.douyin.com so we can read the parser's outbound Cookie header).
+# Generated per run, never committed -- a committed CA key is a real key.
+services/downloader/test/**/certs/
+
+# SPIKE 2 capture sink. Its whole purpose is to record whatever `Cookie` header
+# the parser sent, so it must never be tracked: point the harness at real
+# Douyin, or SIGKILL run.sh before its teardown trap truncates, and this file
+# holds a live session cookie. Root-anchored `/data/` above does NOT cover it.
+services/downloader/test/spike-cookie-swap/data/
