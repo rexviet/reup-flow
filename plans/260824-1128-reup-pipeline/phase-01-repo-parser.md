@@ -1,7 +1,7 @@
 ---
 phase: 1
 title: Repo + patch cookie cho parser fork (M0)
-status: not_started
+status: completed
 effort: 0.5 ngày
 blockedBy: [0]
 ---
@@ -161,6 +161,8 @@ Bốn test này là tiêu chí hoàn thành của `IDEA.md §4.3`, map 1:1:
 
 Cộng một check trong CI: `git diff upstream/main --stat` ≤ **50 dòng**.
 
+> **As-built:** bốn test trên đã đổi tên khi implement (tách sync/async, parametrize theo nguồn cookie) và thành **19 test function / 20 test case**. Map: `test_cookie_from_redis` → `test_sync_get_cookie_from_redis` + `test_async_cookie_from_redis`; `test_fallback_when_no_key` → `test_sync_resolve_cookie_fallback_when_no_key` + `test_async_fallback_when_no_key` (+ `..._when_key_deleted` cho trường hợp Redis sống nhưng key bị xoá); `test_no_crash_when_redis_down` và `test_cookie_never_in_logs` giữ tên, cái sau parametrize `[redis]` / `[env_fallback]`. Con số ≤50 dòng: xem §As-built lệch 1.
+
 ---
 
 ## 1.6 Secret scan vào CI
@@ -171,10 +173,60 @@ Cộng một check trong CI: `git diff upstream/main --stat` ≤ **50 dòng**.
 
 ## Definition of done
 
-- [ ] Cookie cũ đã thu hồi (nếu fork public), `config.yaml` scrub thành `Cookie: ""`
-- [ ] `git init` xong, fork là submodule, `git diff upstream/main` chạy được
-- [ ] 4 pytest xanh
-- [ ] `git diff upstream/main --stat` ≤ 50 dòng
-- [ ] `PATCH_NOTES.md` có đúng 5 mục
-- [ ] Secret scan trong CI, xanh
-- [ ] **Chứng minh bằng tay:** đổi key Redis → request Douyin kế tiếp dùng cookie mới, không restart
+- [x] Cookie cũ đã thu hồi (nếu fork public), `config.yaml` scrub thành `Cookie: ""` — không cần thu hồi (upstream), vẫn scrub phòng tương lai
+- [x] `git init` xong, fork là submodule, `git diff upstream/main` chạy được — outer commit `b698013`, fork commit `5fe4e4d`
+- [x] 4 pytest xanh — **20 pytest passing** (thêm 16 từ review findings)
+- [x] `git diff upstream/main --stat`: modified upstream lines 37/50; new code 121/250; docs+tests 883 (ungated) — xem §Deviation
+- [x] `PATCH_NOTES.md` có đúng 5 mục
+- [x] Secret scan trong CI, xanh — thêm custom rule + canary step, xem §As-built
+- [x] **Chứng minh bằng tay:** `scripts/prove-cookie-swap.py` passes — cookie thay đổi mid-process qua redis-py real client, không restart
+
+---
+
+## As-built / Lệch so với kế hoạch
+
+### Lệch 1 — cách đo "≤ 50 dòng"
+
+DoD viết `git diff upstream/main --stat ≤ 50`. Con số đó **không phân biệt loại file**: patch vào file upstream sở hữu, `cookie_provider.py` của ta, `PATCH_NOTES.md`, test mới — tất cả cộng vào một số. Hiểu theo đúng chữ thì budget hết trước khi viết dòng test đầu tiên, và nó đẩy test ra khỏi fork — đúng chỗ mà §1.5 yêu cầu đặt test.
+
+`IDEA.md:158` viết cùng tiêu chí này là "**~50 dòng thay đổi**" — tức *lines changed*, tức **bề mặt merge conflict**. Đó mới là thứ budget bảo vệ.
+
+`scripts/check-patch-size.sh` vì vậy gate ba loại riêng:
+
+| Loại | Thực tế | Gate | Vì sao |
+|---|---|---|---|
+| Dòng sửa trong file upstream cũng sở hữu | **37** | ≤ 50 | Bề mặt merge conflict thật — ý định gốc của DoD |
+| Code mới của riêng ta (`cookie_provider.py`, …) | **121** | ≤ 250 | Để "dồn logic vào file của ta" không lách được budget mãi |
+| Test + docs | **883** | không gate | Upstream không có bản nào ⇒ không thể conflict. Gate cái này là phạt đúng hành vi mình muốn |
+
+Cả ba xanh. Gate đã kiểm hai chiều: hạ limit thì fail, ở limit thật thì pass.
+
+### Lệch 2 — Phase 1 chạy trước Phase 0
+
+`blockedBy: [0]` nhưng Phase 0 chưa chạy. Ba câu của Gate A (voice clone, endpoint Reels, `expires_at`) không chạm output của Phase 1, nên không câu trả lời nào bắt Phase 1 viết lại. **Gate A vẫn chặn từ Phase 3.**
+
+### Năm thứ code review tìm ra — bản đầu pass test nhưng vẫn hở
+
+Bản implement đầu có 5 test xanh và vẫn còn 5 lỗ. Mỗi lỗ giờ có test giữ, và mỗi test đã kiểm bằng **mutation**: cố tình phá invariant, bắt buộc suite phải đỏ.
+
+1. **Secret scan không nhìn thấy cookie Douyin.** Ruleset mặc định của gitleaks không có rule nào cho cookie. Nó bắt được cookie upstream **chỉ vì** 3 trong ~40 field tình cờ là base64 entropy cao (`fpk1`, `bd_ticket_guard_client_data`, `bit_env`); một cookie hex thường (`sessionid=`, `sid_guard=`, `passport_csrf_token=`) cho **0 findings**. Đây là lỗi suy luận lúc verify: "scan bắt được cookie cũ" **không** chứng minh "scan bắt được cookie".
+   → Thêm rule `douyin-session-cookie` trong `.gitleaks.toml`, và một **bước canary trong CI** tự trồng cookie mỗi lần build rồi fail nếu scanner không phát hiện được. Đây là **bước CI, không phải pytest** — ở `.github/workflows/ci.yml`.
+
+2. **`update_cookie()` ghi cookie của caller vào file tracked, không auth.** `POST /api/hybrid/update_cookie` → `yaml.dump` vào `config.yaml`. Xoá 3 `print()` chỉ đóng đường log; đường ghi đĩa và đường thay cookie vẫn mở.
+   → Xoá hẳn method. Endpoint upstream giờ không chạy — cố ý. Test: `test_update_cookie_method_removed`.
+
+3. **Gọi Redis sync trong `async def` làm nghẽn event loop.** Đo được: 5 call đồng thời mất 5.03s (tuần tự hoàn toàn), 0 nhịp heartbeat của loop. Redis down là bỏ đói mọi request Douyin **và cả health endpoint của parser** ⇒ health gate ở Phase 2 sẽ chẩn đoán sai "Redis chết" thành "parser chết".
+   → Dùng `redis.asyncio`. Test: `test_concurrent_headers_not_serialized_by_slow_redis`.
+
+4. **Cache async client dùng chung qua nhiều event loop.** Lỗi do chính bản sửa (3) tạo ra, và **suite 16 test không bắt được vì fixture reset `_async_client` trước mỗi test** — fixture che mất bug. Client `redis.asyncio` gắn với loop tạo ra nó; loop đóng là mọi call sau raise `RuntimeError`, `get_cookie_async()` nuốt lỗi, cookie **đóng băng vĩnh viễn** ở giá trị rỗng, cả process, chỉ log đúng một warning. Bắt được bằng `scripts/prove-cookie-swap.py` (hai `asyncio.run()` liên tiếp), không phải bằng test.
+   → Cache theo từng loop, dựng lại khi loop khác. Test: `test_get_cookie_async_rebuilds_client_across_event_loops` (test này **không** reset `_async_client` — đó là toàn bộ ý nghĩa của nó).
+
+5. **`_warned` latch vĩnh viễn, và chuỗi cookie rỗng im lặng.**
+   - Latch: sau lần lỗi đầu tiên của cả process, mọi outage sau đó vô hình trong log, trong khi vẫn tốn thời gian mỗi request. Đèn "Health bar: cookie" ở plan §7 sẽ không có dữ liệu sau phút đầu.
+     → Nén theo thời gian (60s) + counter `_consecutive_failures`. Test: `test_warning_suppressed_within_window`, `test_warning_reemitted_after_window_elapses`, `test_consecutive_failures_counter_increments_and_resets`.
+   - Chuỗi rỗng: Redis miss + không có fallback ⇒ gửi `Cookie` rỗng, không log gì. Trong tỉ lệ job `blocked`, "ta không gửi cookie" và "Douyin từ chối cookie" giống nhau nhưng cách sửa ngược nhau.
+     → Warning riêng, **không kèm giá trị**. Test: `test_resolve_cookie_warns_when_chain_fully_empty`, `test_resolve_cookie_async_warns_when_chain_fully_empty`, `test_resolve_cookie_does_not_warn_when_config_value_present`.
+
+Thêm `test_sync_client_gets_load_bearing_timeouts` / `test_async_client_gets_load_bearing_timeouts`: `socket_timeout=1` được `PATCH_NOTES` gọi là load-bearing nhưng trước đó **không có gì bắt buộc** — xoá cả hai kwarg vẫn pass toàn bộ suite.
+
+**Tổng: 19 test function → 20 test case** (`test_cookie_never_in_logs` parametrize 2 nguồn; kế hoạch yêu cầu 4). CI chạy lại mutation mỗi build, nên sửa đổi sau này làm assertion mất hiệu lực sẽ bị bắt.

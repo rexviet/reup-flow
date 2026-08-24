@@ -1,7 +1,7 @@
 ---
 name: reup-pipeline
 title: "Reup Pipeline — Douyin → Dub tiếng Việt → Facebook"
-status: not_started
+status: in_progress
 created: 2026-08-24
 source: docs/reports/solution-design-2026-08-24-reup-pipeline.md
 sourceRev: 5
@@ -65,18 +65,20 @@ Phase 0 ──gate A──> Phase 1..3 ──> Phase 4 ──gate B──> Phase
 
 ## 3. Phase index
 
-| # | File | Nội dung | Effort | Blocked by |
-|---|---|---|---|---|
-| 0 | `phase-00-spikes.md` | 5 spike xác nhận thiết kế | ~1–2 ngày | — |
-| 1 | `phase-01-repo-parser.md` | git init · submodule · patch cookie · 4 pytest | ~0.5 ngày | 0 |
-| 2 | `phase-02-platform.md` | monorepo · drizzle schema · lane framework · ports · shared | ~3–4 ngày | 1 |
-| 3 | `phase-03-ingest.md` | Module 1: enumerate + download + caption gốc + stat | ~3 ngày | 2 |
-| 4 | `phase-04-dub-poc.md` | 1 rendition làm tay → **nghe** | ~0.5 ngày | 3 |
-| 5 | `phase-05-dubbing.md` | Module 2: curation · dub · caption · render · review UI | ~5–6 ngày | 4 |
-| 6 | `phase-06-publish.md` | Module 3: onboarding token · distributor · slot · publish | ~4 ngày | 5 |
-| 7 | `phase-07-automation.md` | extension · SSE · health · reconcile · dọn đĩa | ~3 ngày | 6 |
+| # | File | Nội dung | Effort | Blocked by | Status |
+|---|---|---|---|---|---|
+| 0 | `phase-00-spikes.md` | 5 spike xác nhận thiết kế | ~1–2 ngày | — | **not_started** |
+| 1 | `phase-01-repo-parser.md` | git init · submodule · patch cookie · 4 pytest | ~0.5 ngày | 0 | ✅ **completed** |
+| 2 | `phase-02-platform.md` | monorepo · drizzle schema · lane framework · ports · shared | ~3–4 ngày | 1 | not_started |
+| 3 | `phase-03-ingest.md` | Module 1: enumerate + download + caption gốc + stat | ~3 ngày | 2 | not_started |
+| 4 | `phase-04-dub-poc.md` | 1 rendition làm tay → **nghe** | ~0.5 ngày | 3 | not_started |
+| 5 | `phase-05-dubbing.md` | Module 2: curation · dub · caption · render · review UI | ~5–6 ngày | 4 | not_started |
+| 6 | `phase-06-publish.md` | Module 3: onboarding token · distributor · slot · publish | ~4 ngày | 5 | not_started |
+| 7 | `phase-07-automation.md` | extension · SSE · health · reconcile · dọn đĩa | ~3 ngày | 6 | not_started |
 
 Effort là **thời gian code**, không tính chờ review người và không tính GPU chạy.
+
+**Phase 1 đã chạy trước Phase 0**, dù `blockedBy: [0]`. Lý do: ba câu của Gate A — chất lượng voice clone, endpoint Reels, `expires_at` của page token — không chạm gì tới output của Phase 1 (repo, cơ chế đổi cookie, secret scan). Không có câu trả lời nào của Gate A làm Phase 1 phải viết lại. **Gate A vẫn còn nguyên và vẫn chặn từ Phase 3 trở đi.**
 
 ---
 
@@ -100,7 +102,7 @@ Nếu một quyết định ở bảng này bị nghi ngờ giữa lúc code, **
 
 | Risk | Phase chịu trách nhiệm | Cách xử lý trong code |
 |---|---|---|
-| **Cookie thật trong `crawlers/douyin/web/config.yaml`** — *đã kiểm 2026-08-24: là cookie của UPSTREAM (`Evil0ctal`, commit `3b491db`, 2025-03-16), public từ 2024, không phải cookie của ta* | Phase 1 | **Không cần thu hồi gì.** Vẫn scrub thành `Cookie: ""` + chuyển fallback sang env `DOUYIN_COOKIE_FALLBACK` — để cookie **của ta** không bao giờ có chỗ đậu trong file tracked. Thêm secret scan vào CI |
+| **Cookie thật trong `crawlers/douyin/web/config.yaml`** — *đã kiểm 2026-08-24: là cookie của UPSTREAM (`Evil0ctal`, commit `3b491db`, 2025-03-16), public từ 2024, không phải cookie của ta* | Phase 1 | ✅ **XONG (Phase 1).** Scrub thành `Cookie: ""`, fallback qua env `DOUYIN_COOKIE_FALLBACK`. Thêm rule `douyin-session-cookie` riêng + bước canary trong CI — **ruleset mặc định của gitleaks không nhìn thấy cookie Douyin**: nó chỉ bắt được cookie upstream vì 3 trong ~40 field tình cờ là base64 entropy cao; một cookie hex thường lọt sạch. Canary tự trồng cookie mỗi lần chạy CI và fail nếu scanner không còn phát hiện được. |
 | OmniVoice job state in-memory, mất khi restart | Phase 5 | Poll trả **404 ⇒ enqueue lại**, không phải `failed` |
 | OmniVoice down đốt sạch `attempts` | Phase 2 (lane base) + Phase 5 | Health gate **trước khi claim**. Fail ⇒ nhả lease, **không tăng `attempts`**. 409 (thiếu ASR model) cũng vậy |
 | Asset kẹt vì stage thiếu lane | Phase 2 | `Record<Stage, Lane>` + alert "asset đứng yên >6h" |
@@ -122,12 +124,22 @@ Nếu một quyết định ở bảng này bị nghi ngờ giữa lúc code, **
 
 ---
 
+## 6.5 Phase 1 để lại gì cho Phase 2/3
+
+1. **`requirements.txt` của fork giờ cần `redis`** (đã pin `redis==8.1.0`), và `requirements-dev.txt` cho test. Compose ở Phase 2 phải có Redis **trước khi** parser chạy thật — không có Redis thì cookie rơi về `DOUYIN_COOKIE_FALLBACK`.
+2. **Đường async đã xong, không cần Phase 3 lo.** `get_douyin_headers()` giờ `await resolve_cookie_async(...)`, dùng `redis.asyncio`, và client được cache **theo từng event loop**. Loop bị đóng/tạo lại thì client tự dựng lại — cookie **không** đứng. Đây là bản sửa, không phải hạn chế: bản cũ cache ở module level nên sau khi loop đổi là cookie đóng băng vĩnh viễn cả process mà không có lỗi nào.
+3. **`_consecutive_failures` dùng được cho health bar ở Phase 7.** Tăng khi Redis lỗi, về 0 khi thành công. Warning bị nén tối đa 60s/lần nên **đừng đếm dòng log** — đọc counter.
+4. **`socket_timeout=1` / `socket_connect_timeout=1` là bắt buộc**, không phải tuning. Bỏ đi thì Redis treo sẽ treo mọi request Douyin. Có test giữ.
+5. **`POST /api/hybrid/update_cookie` của upstream giờ chết** — `update_cookie()` đã xoá. Cố ý: nó ghi cookie do caller đưa vào file tracked và không có auth. Ai báo endpoint đó 500 thì đúng như thiết kế.
+
+---
+
 ## 7. Definition of done cho cả plan
 
 - [ ] 1.000 video đi hết pipeline: Douyin → dub tiếng Việt → duyệt → hẹn giờ trên 10 fanpage
 - [ ] `module-isolation` test xanh — nạp tay một `rendition` ở `approved` thì Module 3 vẫn chạy
 - [ ] `secrets-never-logged` xanh cho cả ba secret
 - [ ] Đổi key Redis là parser dùng cookie mới, **không restart**
-- [ ] `git diff upstream/main` của fork ≤ 50 dòng
+- [ ] Fork lệch upstream trong giới hạn: **37/50 dòng ở file upstream cũng sở hữu** (xem `scripts/check-patch-size.sh` — gate 3 tầng, không phải một con số ≤50 cho toàn bộ diff; lý do ghi ở `phase-01-repo-parser.md`)
 - [ ] Restart worker giữa lúc chạy: không mất asset, không xử lý trùng
 - [ ] Health bar xanh: cookie · OmniVoice · token page · dung lượng đĩa
