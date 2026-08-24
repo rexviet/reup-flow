@@ -1,0 +1,3 @@
+[submodule "src/Douyin_TikTok_Download_API"]
+	path = src/Douyin_TikTok_Download_API
+	url = https://github.com/rexviet/Douyin_TikTok_Download_API.git

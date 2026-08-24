@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+/data/
+
+# Local Python venv for the parser fork's test runner.
+.venv/
+
+# Agent scratch notes -- internal, and this tree feeds a public fork.
+.claude/agent-memory/

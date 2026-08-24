@@ -1,0 +1,157 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  GITLEAKS_VERSION: 8.30.1
+
+jobs:
+  # Plan phase 1 §1.6. The check that should have caught the cookie in the fork's
+  # config.yaml before a human had to go looking for it.
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Install gitleaks
+        run: |
+          curl -sSL -o /tmp/gl.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          tar -xzf /tmp/gl.tar.gz -C /tmp gitleaks
+          sudo install /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      # Meta-test, and the most important step in this job. gitleaks' default
+      # ruleset has NO Douyin cookie rule -- it only caught the pristine upstream
+      # cookie because 3 of that cookie's ~40 fields happen to be high-entropy
+      # base64. A plain-hex cookie scored zero findings. So before trusting a
+      # green scan, prove the scanner can still see a cookie at all.
+      - name: Prove the scanner detects a Douyin cookie
+        run: |
+          # The cookie field names are assembled at runtime from fragments, and
+          # the value is random hex. So this FILE contains no cookie literal --
+          # otherwise the "Scan our history" step below would flag ci.yml itself.
+          # Fake-looking values are not an option either: .gitleaks.toml
+          # deliberately allowlists values containing markers like "fake" or
+          # "sentinel" (so test fixtures don't trip it), and a canary carrying a
+          # marker would not be detected and would report a false all-clear.
+          f1="session""id"; f2="sid_""guard"; f3="passport_""csrf_token"
+          val=$(openssl rand -hex 16)
+          mkdir -p /tmp/canary/crawlers/douyin/web
+          printf 'TokenManager:\n  douyin:\n    headers:\n      Cookie: %s=%s; %s=%s; %s=%s\n' \
+            "$f1" "$val" "$f2" "$val" "$f3" "$val" \
+            > /tmp/canary/crawlers/douyin/web/config.yaml
+
+          if gitleaks dir /tmp/canary -c .gitleaks.toml --no-banner --redact; then
+            echo "::error::Secret scan is VACUOUS -- it did not detect a planted Douyin cookie."
+            echo "A green result from the steps below would be meaningless. Fix .gitleaks.toml."
+            exit 1
+          fi
+          echo "OK: scanner detects a planted cookie, so a green scan below means something."
+          rm -rf /tmp/canary
+
+      # Our own repo: full history. Clean since its first commit; keep it that way.
+      # --first-parent rather than --no-merges: --no-merges skips merge commits
+      # entirely, so content introduced only in a conflict resolution (an "evil
+      # merge") would never be scanned.
+      - name: Scan our history
+        run: gitleaks git . -c .gitleaks.toml --no-banner --redact --log-opts="--first-parent"
+
+      # The fork: working tree only. Its history permanently contains a cookie
+      # committed upstream (Evil0ctal, 3b491db) and already public in the upstream
+      # repo -- unrewritable, and not ours. The tree scan is what stops OUR cookie
+      # from ever landing in a tracked file. See .gitleaks.toml.
+      - name: Scan parser fork working tree
+        run: gitleaks dir src/Douyin_TikTok_Download_API -c .gitleaks.toml --no-banner --redact
+
+  # Plan phase 1 §1.5 + PATCH_NOTES item 5.
+  patch-size:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          # The script runs `git fetch upstream` + `git diff upstream/main` inside
+          # the submodule, which needs real history, not a shallow clone.
+          fetch-depth: 0
+      # Deliberately no ALLOW_DIRTY: a dirty tree makes the line counts lies,
+      # so CI must refuse to measure one.
+      - run: ./scripts/check-patch-size.sh
+
+  # Plan phase 1 §1.5. The tests that are this phase's acceptance criteria.
+  parser-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/Douyin_TikTok_Download_API
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install deps
+        run: |
+          python -m pip install -q --upgrade pip
+          python -m pip install -q -r requirements.txt -r requirements-dev.txt
+      - name: pytest
+        run: python -m pytest tests -v
+
+      # The tests are only worth their green if they still fail when the
+      # invariants break. Re-run the mutations CI-side so a future edit that
+      # quietly defangs an assertion is caught.
+      - name: Mutation check -- tests must fail when invariants break
+        run: |
+          set -u
+          cp crawlers/douyin/web/cookie_provider.py /tmp/cp.bak
+          fail=0
+
+          echo "--- mutation: log str(e) instead of exception class name ---"
+          sed -i 's/type(e)\.__name__/str(e)/' crawlers/douyin/web/cookie_provider.py
+          if python -m pytest tests -q >/dev/null 2>&1; then
+            echo "::error::Suite still passes when str(e) is logged -- leak guard is dead."
+            fail=1
+          else
+            echo "OK: caught."
+          fi
+          cp /tmp/cp.bak crawlers/douyin/web/cookie_provider.py
+
+          echo "--- mutation: drop the socket timeouts ---"
+          sed -i 's/^_REDIS_KW = .*/_REDIS_KW = {}/' crawlers/douyin/web/cookie_provider.py
+          grep -q '^_REDIS_KW = {}$' crawlers/douyin/web/cookie_provider.py \
+            || { echo "::error::mutation did not apply -- _REDIS_KW shape changed, update this step"; exit 1; }
+          if python -m pytest tests -q >/dev/null 2>&1; then
+            echo "::error::Suite still passes without socket timeouts -- a hung Redis will hang every request."
+            fail=1
+          else
+            echo "OK: caught."
+          fi
+          cp /tmp/cp.bak crawlers/douyin/web/cookie_provider.py
+
+          echo "--- mutation: drop the per-event-loop async client check ---"
+          sed -i 's/if _async_client is None or _async_loop is not running_loop:/if _async_client is None:/' \
+            crawlers/douyin/web/cookie_provider.py
+          if diff -q crawlers/douyin/web/cookie_provider.py /tmp/cp.bak >/dev/null; then
+            echo "::error::mutation did not apply -- the loop-cache guard shape changed, update this step"
+            fail=1
+          elif python -m pytest tests -q >/dev/null 2>&1; then
+            echo "::error::Suite still passes with a loop-unaware async client cache -- the cookie will silently freeze after a loop change."
+            fail=1
+          else
+            echo "OK: caught."
+          fi
+          cp /tmp/cp.bak crawlers/douyin/web/cookie_provider.py
+
+          python - <<'PY'
+          import pathlib
+          p = pathlib.Path("crawlers/douyin/web/cookie_provider.py")
+          assert p.read_text() == pathlib.Path("/tmp/cp.bak").read_text(), "restore failed"
+          PY
+          exit $fail

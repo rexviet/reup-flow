@@ -1,0 +1,62 @@
+# Secret-scan config for reup-flow (plan phase 1 §1.6).
+#
+# plan.md §0 item 3 names three secrets: the Douyin cookie (Redis), page tokens
+# (Postgres), and FB_APP_SECRET (env). gitleaks' default ruleset covers none of
+# them by name -- it caught the pristine upstream cookie only because 3 of that
+# cookie's ~40 fields happen to be high-entropy base64. A freshly harvested
+# cookie made of plain hex sails straight through `useDefault`. Hence the
+# explicit rule below. Do not rely on generic-api-key for cookies.
+#
+# Scope note: the parser fork at src/Douyin_TikTok_Download_API is upstream code.
+# Its *git history* permanently contains a cookie committed by the upstream author
+# (Evil0ctal, commit 3b491db, 2025-03-16), already public in the upstream repo and
+# unrewritable. So CI scans the fork's WORKING TREE. Our own repo gets a full
+# history scan.
+#
+# Every exemption is an anchored, audited path -- never a bare substring. gitleaks
+# matches `paths` as unanchored regexes, so `crawlers/tiktok/web/config\.yaml`
+# would also exempt `config.yaml.orig` and `config.yaml.bak` -- exactly the
+# artifacts a conflicted `git pull upstream` leaves behind.
+
+[extend]
+useDefault = true
+
+# ---------------------------------------------------------------------------
+# The rule that actually protects plan.md §0's first secret.
+# ---------------------------------------------------------------------------
+[[rules]]
+id = "douyin-session-cookie"
+description = "Douyin/TikTok session cookie field (sessionid, sid_guard, passport_csrf_token, ...)"
+regex = '''(?i)\b(sessionid|sessionid_ss|sid_guard|sid_tt|uid_tt|odin_tt|passport_csrf_token|passport_auth_status|passport_auth_mix_state)\s*=\s*[A-Za-z0-9%._-]{16,}'''
+keywords = ["sessionid", "sid_guard", "sid_tt", "uid_tt", "odin_tt", "passport_"]
+tags = ["cookie", "douyin", "session"]
+
+  # Obviously-synthetic values used by tests and proof scripts. Matched on the
+  # SECRET's own text, not on a path, so this cannot be widened by moving a file
+  # around. A real Douyin cookie is hex/base64 and contains none of these words.
+  [[rules.allowlists]]
+  description = "Synthetic cookie values in tests and proof scripts. Test fixtures MUST keep one of these markers in the value so a real pasted cookie still trips the scan."
+  regexTarget = "match"
+  regexes = [
+    '''(?i)(sentinel|super-secret|leaked|fake|dummy|example|placeholder|xyz789|abc123)''',
+  ]
+
+# ---------------------------------------------------------------------------
+# Exemptions
+# ---------------------------------------------------------------------------
+[[allowlists]]
+description = "Upstream config files for platforms this pipeline never calls. Audited 2026-08-24: dead upstream credentials, and several flagged values (msToken.url, msToken.strData) are functional protocol payloads upstream marks 'do not modify' -- scrubbing them would break upstream token generation and add permanent merge-conflict surface for zero gain. Anchored at the end with (^|/)...$ so backup/conflict artifacts (.orig, .bak) are NOT exempt. Listed one path at a time: if upstream adds another platform, the scan goes RED and a human decides. Deliberately NOT exempted: crawlers/douyin/web/config.yaml -- the one platform we use and the file we scrub, so a cookie can never land there unnoticed. crawlers/tiktok/app/config.yaml is also deliberately absent: it currently yields zero findings, and a file exemption that suppresses nothing today would silence whatever appears there tomorrow."
+paths = [
+  '''(^|/)crawlers/tiktok/web/config\.yaml$''',
+  '''(^|/)crawlers/bilibili/web/config\.yaml$''',
+]
+
+[[allowlists]]
+description = "One msToken literal in an upstream sample URL inside xbogus.py's `if __name__ == \"__main__\"` dev-harness block. Path AND secret shape are both pinned, so this exempts that one dead literal -- not the file. A cookie added to xbogus.py still trips the scan."
+matchCondition = "AND"
+paths = [
+  '''(^|/)crawlers/douyin/web/xbogus\.py$''',
+]
+regexes = [
+  '''msToken=[A-Za-z0-9_\-]{20,}''',
+]
