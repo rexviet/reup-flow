@@ -1,0 +1,33 @@
+plans/260824-1128-reup-pipeline/plan.md
+  s_431e625055da30::t_2d651099205b19 68-77
+  s_431e625055da30::t_095647b463b8fb 127,129-136,143
+  s_431e625055da30::t_d071506ae658b9 81-82,105
+  s_431e625055da30::t_b656b2f661dd24 4
+  s_431e625055da30::t_2e592ec3caf8d7 128
+plans/260824-1128-reup-pipeline/phase-01-repo-parser.md
+  s_431e625055da30::t_c22720e2516d71 164-165,232
+  s_431e625055da30::t_1f5abae63915ce 186,188,190,192,194,196-200,202,204,206,208,210,212-213,215-230
+  s_431e625055da30::t_57f16f8beca493 176-185,187,189,191,193,195,201,203,205,207,209,211,214
+  s_431e625055da30::t_db7edb485cb9c4 4
+  s_431e625055da30::t_08f804a7dfec6e 231
+scripts/check-patch-size.sh
+  s_431e625055da30::t_ce6cbb60d5ed3b 64-66,68-69,75,78
+  s_431e625055da30::t_8a8d3e9ddb0d76 7,9-25,30,63,71,74,77,81-82,93-96
+  s_431e625055da30::t_dd57c74ef18d5a 76
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "c9efcd17f12877bec127a23d10ef75da9ebc955f",
+  "prompts": {},
+  "sessions": {
+    "s_431e625055da30": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "516202aa-bec8-4519-8fdf-97b3c772a30a",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
