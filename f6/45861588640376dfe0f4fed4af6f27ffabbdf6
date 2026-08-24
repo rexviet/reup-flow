@@ -1,0 +1,20 @@
+docs/journals/20260824-phase-01-false-greens.md
+  s_431e625055da30::t_2ffa43296beeb3 4,10,14,16,18-19,28
+  s_431e625055da30::t_3849aa506a525a 1-3,5-9,11-13,15,17,20-27,29-95
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "f645861588640376dfe0f4fed4af6f27ffabbdf6",
+  "prompts": {},
+  "sessions": {
+    "s_431e625055da30": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "516202aa-bec8-4519-8fdf-97b3c772a30a",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
