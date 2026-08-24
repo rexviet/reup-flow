@@ -1,6 +1,7 @@
 import { Pool } from 'pg';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as schema from './schema';
+import { assertSafeDdlTarget } from '../support/pg-target-guard';
 
 /**
  * Host-reachable connection string for docker-compose's `postgres` service
@@ -33,36 +34,13 @@ export function db(pool: Pool): NodePgDatabase<typeof schema> {
 }
 
 /**
- * Refuses to run this spike's DDL (DROP/CREATE TABLE) unless the connection
- * string plainly targets a local test/spike database. `spike_items` is the
- * only table this file ever drops, but `SPIKE_DATABASE_URL` is fully
- * operator-controlled and defaults to the same `reup` database phase 1's
- * real tables can live in -- an errant env var pointing this at a shared
- * staging/production host must fail loudly here, not silently DROP TABLE
- * against infrastructure this spike doesn't own.
+ * Phase 1 promoted this guard to test/support/pg-target-guard.ts so the
+ * migration suite -- which drops the REAL tables, not just `spike_items` --
+ * is protected by exactly the same check. Kept as a thin local alias so the
+ * two call sites below read unchanged.
  */
 function assertSafeSpikeTarget(connectionString: string): void {
-  let parsed: URL;
-  try {
-    parsed = new URL(connectionString);
-  } catch (err) {
-    throw new Error(
-      `refusing to run spike DDL: SPIKE_DATABASE_URL is not a valid URL (${String(err)})`,
-    );
-  }
-  const host = parsed.hostname;
-  const database = parsed.pathname.replace(/^\//, '');
-  const isLocalHost = ['localhost', '127.0.0.1', '::1'].includes(host);
-  const looksLikeSpikeDb = database === 'reup' || /test|spike/i.test(database);
-  if (!isLocalHost || !looksLikeSpikeDb) {
-    throw new Error(
-      `refusing to run spike DDL against database "${database}" on host "${host}". ` +
-        'This spike only ever runs DROP/CREATE TABLE against a local test/spike ' +
-        'database (host localhost/127.0.0.1/::1, db name "reup" or containing ' +
-        '"test"/"spike"). Point SPIKE_DATABASE_URL at your local docker-compose ' +
-        'postgres, not a shared or remote environment.',
-    );
-  }
+  assertSafeDdlTarget(connectionString, 'SPIKE_DATABASE_URL');
 }
 
 export async function createSpikeTable(pool: Pool): Promise<void> {

@@ -15,7 +15,7 @@
 import type { Pool } from 'pg';
 import { TransactionRollbackError } from 'drizzle-orm';
 import { claimOne } from './claim';
-import { assertGenuineOverlap, runConcurrentlyHoldingLocks } from './concurrency-harness';
+import { assertGenuineOverlap, runConcurrentlyHoldingLocks } from '../support/concurrency-harness';
 import { spikeItems } from './schema';
 import {
   STATEMENT_TIMEOUT_MS,
@@ -159,7 +159,7 @@ describe('spike: Drizzle FOR UPDATE SKIP LOCKED (gate)', () => {
       // Real concurrency, not Promise.all-over-whole-transactions: every
       // claimer opens its transaction and parks before any of them runs
       // claimOne, and holds its claim open until every claimer has settled.
-      // See concurrency-harness.ts for why both the barrier AND the hold
+      // See ../support/concurrency-harness.ts for why both the barrier AND the hold
       // are needed -- proven: without the hold, this still passed with
       // SKIP LOCKED removed, because a released lock lets Postgres's
       // LockRows retry the next row and quietly self-heal.
@@ -216,7 +216,7 @@ describe('spike: Drizzle FOR UPDATE SKIP LOCKED (gate)', () => {
       // overlap" into a structural failure: contenders blocked on an
       // already-(held-open)-locked row have no release to wake up for and
       // hit CONCURRENCY_STATEMENT_TIMEOUT_MS instead -- see the
-      // mutation-proof note atop this suite and concurrency-harness.ts.
+      // mutation-proof note atop this suite and ../support/concurrency-harness.ts.
       expect(claimedIds).toHaveLength(N);
       expect(new Set(claimedIds).size).toBe(N);
       expect(emptyCount).toBe(2);

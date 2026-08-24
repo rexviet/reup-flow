@@ -209,6 +209,15 @@ jobs:
       - name: Test
         run: pnpm -C services/downloader test
 
+      # Phase 1 invariants (plan §5). Same rule as every mutation block in
+      # this file: each one prints the diff it actually applied, and a
+      # mutation that matches nothing is a hard error rather than a pass --
+      # an empty match has silently reported "caught" twice on this repo.
+      # The script lives in-tree rather than inline here so it is runnable
+      # locally against docker-compose, which is where it gets used.
+      - name: Mutation -- phase 1 schema/claim/reaper invariants must go red
+        run: bash services/downloader/test/mutations/phase-01.sh
+
       # The SPIKE 1 gate is only worth its green if it still fails when the
       # lock is removed. It did not, once: two tests named for concurrency
       # passed with SKIP LOCKED gone, because Promise.all over drizzle

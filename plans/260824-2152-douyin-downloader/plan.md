@@ -82,7 +82,7 @@ Lý do đặt thành gate: cả hai đều là *giả định về thư viện/h
 | # | File | Nội dung | Effort | Blocked by | Milestone |
 |---|---|---|---|---|---|
 | 0 | `phase-00-skeleton-spike.md` | pnpm workspace · compose 4 container · **2 spike gate** — **DONE** (`0b09d8c`), cả 2 gate PASS + mutation | ~0.5d | — | **GATE ✅** |
-| 1 | `phase-01-schema.md` | Drizzle schema + migration + claim/reaper query. **F1·F3·F5·F6 cột, F7 doc** | ~0.5d | 0 | M1 |
+| 1 | `phase-01-schema.md` | Drizzle schema + migration + claim/reaper query. **F1·F3·F5·F6 cột, F7 doc** — **DONE**, 8 mutation đỏ + test chống drift schema↔migration | ~0.5d | 0 | M1 ✅ |
 | 2 | `phase-02-ports.md` | `ParserClient` (bóc envelope) + `Storage` (`.tmp`→rename, `freeBytes`) | ~0.5d | 1 | M1 |
 | 3 | `phase-03-http-api.md` | jobs/videos controller · cookie endpoint · `X-Api-Key` · redaction · **ESLint boundary** | ~1d | 2 | M1 |
 | 4 | `phase-04-lane-framework.md` | `LaneRunner` base (bắt hết exception) · graceful shutdown · reaper (F3+F5) | ~0.5d | 2 | M1 |
@@ -108,8 +108,8 @@ Phase 8 và 9 chỉ cần Phase 3 (API), nên **làm song song được** với 
 | Loop rò exception không giết lane | 4 | Ném lỗi trong thân loop | Lane vẫn sống, test xanh; **bỏ `try/catch` → test đỏ** |
 | Reaper nhặt lại video mồ côi | 4 | Bỏ reaper `videos` | Test resume **đỏ** |
 | Reaper nhặt lại **job** mồ côi (F5) | 4 | Bỏ reaper `jobs` | Test resume enumerate **đỏ** |
-| `attempts` tăng lúc claim (F6) | 1 | Chuyển sang tăng lúc fail | Test crash-loop 3 lần **đỏ** |
-| Claim không trùng | 1 | Bỏ `SKIP LOCKED` / bỏ `FOR UPDATE` | Test 2 transaction song song **đỏ**. Phase 0 đã proof pattern này (2 mutation, cả 4 test đỏ) — **lưu ý cho phase 1**: barrier `Promise.all` không đủ, `LockRows` của Postgres tự thử row kế tiếp nên tự "chữa lành" thiếu `SKIP LOCKED` khi commit nhanh; claim thắng phải giữ transaction mở tới khi mọi contender kết thúc. Shape đã validate: `.for('update', { skipLocked: true })` + `inArray(column, subquerySelect)` |
+| `attempts` tăng lúc claim (F6) | 1 | Chuyển sang tăng lúc fail | Test crash-loop 3 lần **đỏ** — **DONE**, 7 test đỏ |
+| Claim không trùng | 1 | Bỏ `SKIP LOCKED` / bỏ `FOR UPDATE` | Test 2 transaction song song **đỏ**. Phase 0 đã proof pattern này (2 mutation, cả 4 test đỏ) — **lưu ý cho phase 1**: barrier `Promise.all` không đủ, `LockRows` của Postgres tự thử row kế tiếp nên tự "chữa lành" thiếu `SKIP LOCKED` khi commit nhanh; claim thắng phải giữ transaction mở tới khi mọi contender kết thúc. Shape đã validate: `.for('update', { skipLocked: true })` + `inArray(column, subquerySelect)`. **DONE ở phase 1** trên bảng `videos` và `jobs` thật, dùng lại nguyên harness của phase 0 |
 | Enumerate global 1 luồng (F2) | 5 | Đổi thành per-job | Test tần suất 2 job **đỏ** |
 | `blocked` ≠ `failed` | 5, 7 | Map `blocked` → `failed` | Test hồi phục cookie **đỏ** |
 | Ghi file atomic | 6 | Bỏ `.tmp` + `rename` | Test crash-giữa-ghi **đỏ** |
@@ -125,8 +125,8 @@ Phase 8 và 9 chỉ cần Phase 3 (API), nên **làm song song được** với 
 | Risk | Phase | Xử lý trong code |
 |---|---|---|
 | ~~Drizzle không diễn đạt được `SKIP LOCKED`~~ | 0 | **RESOLVED — gate PASS (`0b09d8c`).** Drizzle giữ nguyên |
-| Migration `claimOne` seq-scan dưới tải | 1 | `WHERE status='pending' ORDER BY ... LIMIT 1` cần partial index đã spec ở solution design §6, không thì seq-scan |
-| Fault-injection sót lại trong `main.ts` | 1 | `services/downloader/src/main.ts` có nhánh test-only `__TEST_ONLY_SIMULATE_BOOTSTRAP_ERROR__` (tắt khi `NODE_ENV=production`). Xoá khi DB/Redis client thật cho bootstrap catch-all lỗi thật để test |
+| ~~Migration `claimOne` seq-scan dưới tải~~ | 1 | **RESOLVED.** Partial index đã tạo; `claim-plan.spec.ts` EXPLAIN trên 50k row khẳng định planner dùng đúng index, và mỗi khẳng định đã được chứng minh đỏ được bằng cách xoá index |
+| Fault-injection sót lại trong `main.ts` | 1 → **2** | `services/downloader/src/main.ts` có nhánh test-only `__TEST_ONLY_SIMULATE_BOOTSTRAP_ERROR__` (tắt khi `NODE_ENV=production`). Xoá khi DB/Redis client thật cho bootstrap catch-all lỗi thật để test. **Vẫn còn sau phase 1**: phase 1 chỉ có repository thuần (nhận executor làm tham số), chưa wire client nào vào bootstrap — dời sang phase 2 |
 | `redactSecrets` ở `src/config/env.ts` là tạm | 3 | Stopgap, tầng logger phase 3 sẽ thay |
 | `start.py` fork chạy `uvicorn --reload` cả ở production | 10 | Chưa quyết — xem §8 câu hỏi mở |
 | Loop rò exception → lane chết âm thầm | 4 | `try/catch` toàn thân + metric "tick cuối lúc nào". Mutation test |

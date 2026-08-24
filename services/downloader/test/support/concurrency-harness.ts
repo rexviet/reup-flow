@@ -1,5 +1,6 @@
 /**
- * Barrier used by skip-locked.spec.ts to force genuine overlap between N
+ * Barrier used by the SKIP LOCKED spike (phase 0) and the `videos` claim
+ * suite (phase 1) to force genuine overlap between N
  * concurrent claimers, AND to force any genuinely-blocked contender to stay
  * blocked long enough to prove it -- rather than being let off the hook by
  * an early commit.
@@ -30,7 +31,6 @@
  * the query -- a loud, structural failure instead of a quiet, accidental
  * pass.
  */
-import type { SpikeExecutor } from './claim';
 
 export interface ClaimInterval {
   start: bigint;
@@ -46,8 +46,14 @@ export interface ConcurrentRunResult<T> {
   intervals: ClaimInterval[];
 }
 
-export interface TransactionalDb {
-  transaction<T>(fn: (tx: SpikeExecutor) => Promise<T>): Promise<T>;
+/**
+ * Structural view of whatever the caller's transaction-capable handle is
+ * (a Drizzle `NodePgDatabase`, in both callers today). Kept generic in
+ * `TTx` so this harness stays independent of any one schema's executor
+ * type -- phase 0's spike and phase 1's `videos` claim both drive it.
+ */
+export interface TransactionalDb<TTx> {
+  transaction<T>(fn: (tx: TTx) => Promise<T>): Promise<T>;
 }
 
 /**
@@ -71,9 +77,9 @@ export interface TransactionalDb {
  * `fn` call took, so the caller can assert genuine overlap with
  * {@link assertGenuineOverlap}.
  */
-export async function runConcurrentlyHoldingLocks<T>(
-  dbs: TransactionalDb[],
-  fn: (tx: SpikeExecutor) => Promise<T>,
+export async function runConcurrentlyHoldingLocks<TTx, T>(
+  dbs: TransactionalDb<TTx>[],
+  fn: (tx: TTx) => Promise<T>,
 ): Promise<ConcurrentRunResult<T>> {
   const n = dbs.length;
   if (n < 2) {
