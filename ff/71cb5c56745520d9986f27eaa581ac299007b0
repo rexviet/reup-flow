@@ -1,0 +1,19 @@
+plans/260824-2152-douyin-downloader/plan.md
+  s_1dcf1e7b3b01d3::t_b31dc5bd9bf598 87
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "ff71cb5c56745520d9986f27eaa581ac299007b0",
+  "prompts": {},
+  "sessions": {
+    "s_1dcf1e7b3b01d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "400c961e-3141-4bfb-a44e-bad890da39b1",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
