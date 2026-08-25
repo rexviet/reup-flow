@@ -84,7 +84,7 @@ Lý do đặt thành gate: cả hai đều là *giả định về thư viện/h
 | 0 | `phase-00-skeleton-spike.md` | pnpm workspace · compose 4 container · **2 spike gate** — **DONE** (`0b09d8c`), cả 2 gate PASS + mutation | ~0.5d | — | **GATE ✅** |
 | 1 | `phase-01-schema.md` | Drizzle schema + migration + claim/reaper query. **F1·F3·F5·F6 cột, F7 doc** — **DONE**, 8 mutation đỏ + test chống drift schema↔migration | ~0.5d | 0 | M1 ✅ |
 | 2 | `phase-02-ports.md` | `ParserClient` (bóc envelope) + `Storage` (`.tmp`→rename, `freeBytes`) — **DONE**, 15 mutation đỏ + 1 control xanh, integration với parser thật | ~0.5d | 1 | M1 ✅ |
-| 3 | `phase-03-http-api.md` | jobs/videos controller · cookie endpoint · `X-Api-Key` · redaction · **ESLint boundary** — **DONE**, 331 test + 17 mutation caught + 3 redaction escape fixed | ~1d | 2 | M1 |
+| 3 | `phase-03-http-api.md` | jobs/videos controller · cookie endpoint · `X-Api-Key` · redaction · **ESLint boundary** — **DONE**, 331 test + 18 mutation đỏ + 2 control xanh; review đối kháng bắt 3 escape redaction + 2 test không thể đỏ | ~1d | 2 | M1 ✅ |
 | 4 | `phase-04-lane-framework.md` | `LaneRunner` base (bắt hết exception) · graceful shutdown · reaper (F3+F5) | ~0.5d | 2 | M1 |
 | 5 | `phase-05-enumerate-lane.md` | global 1 luồng (F2) · checkpoint mỗi trang · blocked theo tín hiệu cấu trúc | ~0.5d | 4 | M1 |
 | 6 | `phase-06-download-lane.md` | claim SKIP LOCKED · F1 re-resolve phản ứng · stream → rename · finalize job | ~1d | 5 | **M1 gate** |
