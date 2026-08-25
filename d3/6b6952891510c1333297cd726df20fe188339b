@@ -1,0 +1,112 @@
+plans/260824-2152-douyin-downloader/phase-07-durability.md
+  s_a4338c40d5e2ec::t_1af5b096ba4d2d 4,61-65,75-83,87-94
+  s_a4338c40d5e2ec::t_364b50c78715b5 100,103
+  s_a4338c40d5e2ec::t_83bf71077648d8 211-216
+  s_a4338c40d5e2ec::t_da4d208c25d524 316-325
+  s_a4338c40d5e2ec::t_d643e50e057782 110-123
+  s_a4338c40d5e2ec::t_9453e1ab604555 194-210,228-235
+  s_a4338c40d5e2ec::t_923379474c447c 105-109,124-193,236-315
+  s_a4338c40d5e2ec::t_e8b1aacac75951 217-227
+services/downloader/src/lanes/lanes.module.ts
+  s_a4338c40d5e2ec::t_bb2a99ef46baeb 166
+  s_a4338c40d5e2ec::t_2677348c935607 13,65,73-77
+  s_a4338c40d5e2ec::t_7dc28ba01a43d8 18-19,148-165,167-168,171
+services/downloader/test/lanes/enumerate-global-concurrency.spec.ts
+  s_a4338c40d5e2ec::t_62cfa31001f4df 40,95-104,287
+services/downloader/test/lanes/recovery-loop.spec.ts
+  s_a4338c40d5e2ec::t_9a102b0110e547 1-154,156-157,177-282,284-395,397-420
+  s_a4338c40d5e2ec::t_a5ce7c0815fcaf 155,158-176,283,396
+services/downloader/test/parser/f4-probe.spec.ts
+  s_a4338c40d5e2ec::t_69081af1ea2c2c 1-158
+services/downloader/test/mutations/phase-07.sh
+  s_a4338c40d5e2ec::t_3472750f53f77b 1-81,89-274,276-277,280-415,417-418,420-441,443-458,460-464,469-658,760-767,769-779,781-796,798-838
+  s_a4338c40d5e2ec::t_d88c5c97a8bb9d 275,278-279,416,419
+  s_a4338c40d5e2ec::t_8b1fb7e1f7b249 710-714,716-725
+  s_a4338c40d5e2ec::t_450eb10a8a7163 442,459,465-468,768,780,797
+  s_a4338c40d5e2ec::t_158edca013de98 702,705
+  s_a4338c40d5e2ec::t_4af1a236206bf2 82-88
+  s_a4338c40d5e2ec::t_790c8224840f0c 689-694,696,715
+  s_a4338c40d5e2ec::t_54cc5bad349d85 659-688,695,697-701,703-704,706-709,726-759
+scripts/run-mutations.sh
+  s_a4338c40d5e2ec::t_aaeea1f1acb2ad 1-57,59-68,70-241
+  s_a4338c40d5e2ec::t_8b1fb7e1f7b249 58,69
+services/downloader/test/lanes/f4-probe.spec.ts
+  s_a4338c40d5e2ec::t_0c1802bf2ae199 352-382,396-398
+  s_a4338c40d5e2ec::t_0f174ba5f0f6b6 46-55,120,155,383-395
+  s_a4338c40d5e2ec::t_fcd509ac353994 1-45,56-119,121-154,156-351,399-419
+services/downloader/test/lanes/probe-health-wiring.spec.ts
+  s_a4338c40d5e2ec::t_47bb0b036c3085 1-19,21-49,52-57,66-69,75-110
+  s_a4338c40d5e2ec::t_60f52b734906e0 20,58-65
+  s_a4338c40d5e2ec::t_0c1802bf2ae199 70-74
+  s_a4338c40d5e2ec::t_03d0d4aec436f9 50-51
+services/downloader/test/db/jobs.repository.spec.ts
+  s_a4338c40d5e2ec::t_714bd55c4eeef3 605-613
+services/downloader/test/lanes/enumerate.lane.spec.ts
+  s_a4338c40d5e2ec::t_42ebaa2f0845f5 143,147-158,162-173,190,196,588-594,598,605-607,609-610
+  s_a4338c40d5e2ec::t_4588113bbaec45 26,29,46-47
+services/downloader/test/lanes/cookie-recovery.spec.ts
+  s_a4338c40d5e2ec::t_62cfa31001f4df 39-40,70,75,79-93,115,121
+services/downloader/src/db/videos.repository.ts
+  s_a4338c40d5e2ec::t_2818366501b10f 636
+  s_a4338c40d5e2ec::t_6a5e1ebfb191a9 586-635
+  s_a4338c40d5e2ec::t_f3341c5fa1a616 1,4,391-413,419-437
+  s_a4338c40d5e2ec::t_15becfad710c01 414,438-439,582-585
+services/downloader/src/parser/probe-health.ts
+  s_a4338c40d5e2ec::t_f3341c5fa1a616 53-62,80-91,103-105
+  s_a4338c40d5e2ec::t_8b1fb7e1f7b249 93-101
+  s_a4338c40d5e2ec::t_7dc28ba01a43d8 1,65-71,73-75,77,106
+  s_a4338c40d5e2ec::t_59ec06f41ac3e7 2-52,63-64,72,76,78-79,92,107-110,112-140
+  s_a4338c40d5e2ec::t_21648e719a20fc 102,111
+services/downloader/src/jobs/jobs.service.ts
+  s_a4338c40d5e2ec::t_815501b5b7e4ef 43-61,78-102,108
+  s_a4338c40d5e2ec::t_e1a3287bf2c862 109-110
+services/downloader/test/lanes/download-concurrency.spec.ts
+  s_a4338c40d5e2ec::t_ecc2a31943cd73 1-59,61-80,82-106,117-234,236-270,279-310,321-340,342-356,358,364-371
+  s_a4338c40d5e2ec::t_d9dc16c52a8b23 60,81,235,341,357,359-363
+  s_a4338c40d5e2ec::t_d88c5c97a8bb9d 107-116,271-278
+  s_a4338c40d5e2ec::t_47082861dae278 311-320
+services/downloader/src/db/jobs.repository.ts
+  s_a4338c40d5e2ec::t_03e8c807f0a3f7 255-300
+  s_a4338c40d5e2ec::t_6a5e1ebfb191a9 254,437-444,558-579
+  s_a4338c40d5e2ec::t_02763dc9e18718 580
+.github/workflows/ci.yml
+  s_a4338c40d5e2ec::t_2e2e8fbd34ee51 185-199,227-248
+services/downloader/src/parser/f4-probe.ts
+  s_a4338c40d5e2ec::t_83bf71077648d8 137
+  s_a4338c40d5e2ec::t_2b362e47220113 1-125,127-136,138-145,147-165
+  s_a4338c40d5e2ec::t_e8b1aacac75951 146
+  s_a4338c40d5e2ec::t_06968610dc9e80 126
+services/downloader/test/parser/probe-health.spec.ts
+  s_a4338c40d5e2ec::t_0c1802bf2ae199 61-62,79-80,97-98,102-121,123,132-138,147-148,163-164,175-176,215-216
+  s_a4338c40d5e2ec::t_c3fde6396122ad 66
+  s_a4338c40d5e2ec::t_8b1fb7e1f7b249 181-203
+  s_a4338c40d5e2ec::t_b52e0ce737b1b6 1-60,63-65,67-78,81-96,99-101,139-146,149-162,165-174,177-180,204-214,217-221
+  s_a4338c40d5e2ec::t_790c8224840f0c 122,124-131
+services/downloader/test/db/cancel-retry-revival.spec.ts
+  s_a4338c40d5e2ec::t_bf646f23d0794e 233-280
+  s_a4338c40d5e2ec::t_54b6e8a7899003 1-232,281-317
+services/downloader/src/lanes/enumerate.lane.ts
+  s_a4338c40d5e2ec::t_7544cc7418c9a3 249-262,401-427,436,438-439,441-452
+  s_a4338c40d5e2ec::t_483d2c14c4f575 46-58
+  s_a4338c40d5e2ec::t_5213cc4db9eee3 6,68-78,89-93,135
+  s_a4338c40d5e2ec::t_f3341c5fa1a616 272,278,379-383,385-400,428-435,437,440,453-460
+  s_a4338c40d5e2ec::t_518f8017dde9b0 384,461
+services/downloader/test/jobs/jobs.service.revival.spec.ts
+  s_a4338c40d5e2ec::t_f44742006a48cf 1-177
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "d36b6952891510c1333297cd726df20fe188339b",
+  "prompts": {},
+  "sessions": {
+    "s_a4338c40d5e2ec": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a84b385e-7edc-4867-93c0-d4b85127f7aa",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
