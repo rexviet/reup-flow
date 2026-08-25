@@ -21,6 +21,18 @@ export interface PutResult {
  * offered shape is "hand me the whole stream and I will commit it or leave
  * nothing behind".
  */
+/**
+ * Asked once, immediately before the rename, with the whole body already on
+ * disk and verified: may this still be committed?
+ *
+ * `false` means "no" -- the temp file is deleted and `put` answers `null`.
+ * This is the download lane's ownership re-check (phase 6): a worker the
+ * reaper already replaced must decline rather than commit its bytes over the
+ * replacement's. Throwing (a database that just went away) is treated as a
+ * failed put, not as a decline.
+ */
+export type BeforeCommit = () => Promise<boolean>;
+
 export interface Storage {
   /**
    * Streams `stream` to `key`, atomically.
@@ -35,30 +47,30 @@ export interface Storage {
    */
   put(key: string, stream: Readable, expectedBytes?: number): Promise<PutResult>;
   /**
-   * NOTE FOR PHASE 6 -- the shape of the lease check, decided here while it
-   * is still free.
+   * PHASE 6 -- the same put, with an ownership re-check wired into the commit.
    *
-   * The risk register requires the download lane to re-check its lease
-   * immediately before the rename, so a worker the reaper already replaced
-   * (F3) declines to commit. `put()` owns the rename, so the check has to
-   * arrive as a `beforeCommit?: () => Promise<boolean>` argument.
+   * The risk register's "Reaper nhả video, 2 worker commit 1 file" is closed
+   * here, because `put` owns the rename and the rename is the only commit
+   * point. Phase 2 wrote down the two traps this addition falls into, and both
+   * are answered by the signature:
    *
-   * That addition is NOT purely additive, and the two traps are worth naming
-   * now rather than discovering under a deadline:
-   *
-   *   1. On `false` there is no `PutResult` to return -- the file was never
-   *      committed. The return type has to widen to `PutResult | null`, or
-   *      the method has to throw a distinguishable error. Either way every
-   *      existing caller is affected, so decide it before there are many.
-   *   2. A declined commit must still unlink the temp file. Today's cleanup
-   *      runs only on the throw path (`local-disk.storage.ts`), so a plain
-   *      `if (!ok) return null` would leak a full-size file per reaped
-   *      download -- invisible to `exists()` and silently eating the space
-   *      `freeBytes()` promises the phase-10 preflight.
-   *
-   * Deliberately not implemented yet: nothing calls it, and a hook with no
-   * caller is a hook with no test.
+   *   1. A declined commit has no `PutResult`, so THIS overload -- and only
+   *      this one -- answers `PutResult | null`. Callers that pass no hook keep
+   *      the narrow return type, which is why this is an overload rather than a
+   *      widened single signature.
+   *   2. A declined commit still unlinks the temp file. Phase 2's cleanup ran
+   *      only on the throw path, so a plain `if (!ok) return null` would leak a
+   *      FULL-SIZE video per reaped download -- invisible to `exists()`, and
+   *      eating exactly the space `freeBytes()` promises the phase-10
+   *      preflight. `test/storage/before-commit.spec.ts` asserts the file's
+   *      ABSENCE ON DISK, not that a cleanup function was called.
    */
+  put(
+    key: string,
+    stream: Readable,
+    expectedBytes: number | undefined,
+    beforeCommit: BeforeCommit,
+  ): Promise<PutResult | null>;
   /** True only for a COMMITTED file -- never for one still being written. */
   exists(key: string): Promise<boolean>;
   /** Bytes available to an unprivileged writer. Feeds the phase-10 preflight. */

@@ -1,7 +1,7 @@
 ---
 phase: 6
 title: Download lane + M1 gate
-status: not_started
+status: completed
 effort: ~1d
 blockedBy: [5]
 milestone: "M1 (gate)"
@@ -47,25 +47,25 @@ milestone: "M1 (gate)"
 
 ## Todo
 
-- [ ] `download.lane.ts`, N instance
-- [ ] Claim + lease + heartbeat cho file lớn
-- [ ] F1: dùng URL cache, re-resolve khi hết hạn **hoặc** 403/410
-- [ ] Stream → `.tmp` duy nhất → verify → **kiểm lease** → `rename`
-- [ ] Kiểm job cancelled trước và trong lúc tải
-- [ ] Finalize job khi hết việc
-- [ ] Retry 3 lần backoff → `failed`, không kill job
+- [x] `download.lane.ts`, N instance
+- [x] Claim + lease + heartbeat cho file lớn
+- [x] F1: dùng URL cache, re-resolve khi hết hạn **hoặc** 403/410
+- [x] Stream → `.tmp` duy nhất → verify → **kiểm lease** → `rename`
+- [x] Kiểm job cancelled trước và trong lúc tải
+- [x] Finalize job khi hết việc
+- [x] Retry 3 lần backoff → `failed`, không kill job
 
 ## DoD — đồng thời là **M1 gate**
 
-- [ ] **Tải xong 1 profile <50 video từ đầu đến cuối**, số file trên đĩa khớp `downloaded_count`
-- [ ] `URL_TTL_SECONDS` đủ dài → **0 lần gọi `fetchOneVideo`** (đếm request, chứng minh F1 hoạt động)
-- [ ] Đặt `url_expires_at` vào quá khứ → re-resolve rồi tải được
-- [ ] Fake CDN trả 403 → re-resolve 1 lần rồi thành công
-- [ ] Kill process giữa download → restart → **không tải lại file đã done**
-- [ ] Cancel giữa lúc tải → dừng, `.tmp` được dọn, không có file cụt
-- [ ] Không có `.tmp` sót lại sau khi mọi job xong
-- [ ] **Mutation:** bỏ kiểm lease trước `rename` → test 2-writer **đỏ**
-- [ ] **Mutation:** bỏ verify content-length → test file cụt **đỏ**
+- [x] **Tải xong 1 profile <50 video từ đầu đến cuối**, số file trên đĩa khớp `downloaded_count`
+- [x] `URL_TTL_SECONDS` đủ dài → **0 lần gọi `fetchOneVideo`** (đếm request, chứng minh F1 hoạt động)
+- [x] Đặt `url_expires_at` vào quá khứ → re-resolve rồi tải được
+- [x] Fake CDN trả 403 → re-resolve 1 lần rồi thành công
+- [x] Kill process giữa download → restart → **không tải lại file đã done**
+- [x] Cancel giữa lúc tải → dừng, `.tmp` được dọn, không có file cụt
+- [x] Không có `.tmp` sót lại sau khi mọi job xong
+- [x] **Mutation:** bỏ kiểm lease trước `rename` → test 2-writer **đỏ**
+- [x] **Mutation:** bỏ verify content-length → test file cụt **đỏ**
 
 ## Risks
 

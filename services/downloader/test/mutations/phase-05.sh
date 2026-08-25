@@ -207,14 +207,20 @@ run_mutation "register TWO enumerate lanes (F2 -> per-job concurrency)" \
 import pathlib
 p = pathlib.Path("src/lanes/lanes.module.ts")
 s = p.read_text()
-old = """      useFactory: (reaper: ReaperLane, enumerate: EnumerateLane): LaneRunner[] => [
-        reaper,
-        enumerate,
-      ],"""
-new = """      useFactory: (reaper: ReaperLane, enumerate: EnumerateLane): LaneRunner[] => [
+old = """      useFactory: (
+        reaper: ReaperLane,
+        enumerate: EnumerateLane,
+        downloads: DownloadLane[],
+      ): LaneRunner[] => [reaper, enumerate, ...downloads],"""
+new = """      useFactory: (
+        reaper: ReaperLane,
+        enumerate: EnumerateLane,
+        downloads: DownloadLane[],
+      ): LaneRunner[] => [
         reaper,
         enumerate,
         new EnumerateLane(enumerate.logger, enumerate[\x27db\x27], enumerate[\x27parser\x27], enumerate[\x27opts\x27]),
+        ...downloads,
       ],"""
 assert old in s, "LANES factory shape changed"
 p.write_text(s.replace(old, new, 1))
@@ -231,14 +237,20 @@ run_control "register a second REAPER (the enumerate rate must not care)" \
 import pathlib
 p = pathlib.Path("src/lanes/lanes.module.ts")
 s = p.read_text()
-old = """      useFactory: (reaper: ReaperLane, enumerate: EnumerateLane): LaneRunner[] => [
-        reaper,
-        enumerate,
-      ],"""
-new = """      useFactory: (reaper: ReaperLane, enumerate: EnumerateLane): LaneRunner[] => [
+old = """      useFactory: (
+        reaper: ReaperLane,
+        enumerate: EnumerateLane,
+        downloads: DownloadLane[],
+      ): LaneRunner[] => [reaper, enumerate, ...downloads],"""
+new = """      useFactory: (
+        reaper: ReaperLane,
+        enumerate: EnumerateLane,
+        downloads: DownloadLane[],
+      ): LaneRunner[] => [
         reaper,
         new ReaperLane(reaper.logger, reaper[\x27db\x27], reaper[\x27storage\x27], reaper[\x27opts\x27]),
         enumerate,
+        ...downloads,
       ],"""
 assert old in s, "LANES factory shape changed"
 p.write_text(s.replace(old, new, 1))
@@ -650,13 +662,18 @@ run_mutation "drop the enumerate lane from the LANES array entirely" \
 import pathlib
 p = pathlib.Path("src/lanes/lanes.module.ts")
 s = p.read_text()
-old = """      useFactory: (reaper: ReaperLane, enumerate: EnumerateLane): LaneRunner[] => [
-        reaper,
-        enumerate,
-      ],"""
-new = """      useFactory: (reaper: ReaperLane, enumerate: EnumerateLane): LaneRunner[] => {
+old = """      useFactory: (
+        reaper: ReaperLane,
+        enumerate: EnumerateLane,
+        downloads: DownloadLane[],
+      ): LaneRunner[] => [reaper, enumerate, ...downloads],"""
+new = """      useFactory: (
+        reaper: ReaperLane,
+        enumerate: EnumerateLane,
+        downloads: DownloadLane[],
+      ): LaneRunner[] => {
         void enumerate;
-        return [reaper];
+        return [reaper, ...downloads];
       },"""
 assert old in s
 p.write_text(s.replace(old, new, 1))

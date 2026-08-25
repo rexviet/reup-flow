@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { CDN_CLIENT } from '../cdn/cdn.module';
+import type { CdnClient } from '../cdn/cdn.client';
 import { ENV } from '../config/config.module';
 import type { Env } from '../config/env';
 import { DB } from '../db/db.module';
@@ -7,10 +9,11 @@ import { RedactingLogger } from '../logging/redact.logger';
 import { PARSER_CLIENT } from '../parser/parser.module';
 import { STORAGE } from '../storage/storage.module';
 import type { Storage } from '../storage/storage.interface';
+import { DownloadLane, type VideoUrlSource } from './download.lane';
 import { EnumerateLane, type PostPageSource } from './enumerate.lane';
 import { LaneSupervisor } from './lane.supervisor';
 import type { LaneLogger, LaneRunner } from './lane.runner';
-import { LANE_LOGGER, LANES } from './lanes.tokens';
+import { DOWNLOAD_LANES, LANE_LOGGER, LANES } from './lanes.tokens';
 import { ReaperLane } from './reaper.lane';
 
 /**
@@ -68,8 +71,47 @@ import { ReaperLane } from './reaper.lane';
         }),
     },
     {
+      /**
+       * `DOWNLOAD_CONCURRENCY` download lanes, and the ARRAY is the limit.
+       *
+       * §6.1: "Concurrency = số loop, không phải semaphore." Six independent
+       * loops cannot exceed six concurrent downloads, by construction -- there
+       * is no counter to miscount and no place to acquire twice. That is the
+       * same argument as F2 one line below, reaching the opposite number for a
+       * reason that is measured rather than guessed: `*.douyinvod.com` serves
+       * bytes and is not behind the risk control that rate-limits the web API by
+       * IP (IDEA.md §3.1 vs §3.2), so 4-8 streams are safe where 2 enumerate
+       * loops are a ban.
+       *
+       * The index is 1-based and only names the lane. Six loops all called
+       * `download` would make §4.1's staleness alert say "a lane is stuck"
+       * without saying which -- and one wedged socket out of six is exactly what
+       * that alert is for.
+       */
+      provide: DOWNLOAD_LANES,
+      inject: [LANE_LOGGER, DB, PARSER_CLIENT, CDN_CLIENT, STORAGE, ENV],
+      useFactory: (
+        logger: LaneLogger,
+        db: Executor,
+        parser: VideoUrlSource,
+        cdn: CdnClient,
+        storage: Storage,
+        env: Env,
+      ): DownloadLane[] =>
+        Array.from(
+          { length: env.DOWNLOAD_CONCURRENCY },
+          (_unused, i) =>
+            new DownloadLane(logger, db, parser, cdn, storage, {
+              index: i + 1,
+              leaseSeconds: env.LEASE_SECONDS,
+              maxAttempts: env.MAX_ATTEMPTS,
+              urlTtlSeconds: env.URL_TTL_SECONDS,
+            }),
+        ),
+    },
+    {
       provide: LANES,
-      inject: [ReaperLane, EnumerateLane],
+      inject: [ReaperLane, EnumerateLane, DOWNLOAD_LANES],
       // Exactly one reaper: a second would double every sweep's work for no
       // gain, since the sweeps are idempotent and the only effect is
       // contention.
@@ -90,10 +132,11 @@ import { ReaperLane } from './reaper.lane';
       // rate at which the cookie gets banned.
       // `test/lanes/enumerate-global-concurrency.spec.ts` measures the request
       // rate through this exact array so the diff cannot pass silently.
-      useFactory: (reaper: ReaperLane, enumerate: EnumerateLane): LaneRunner[] => [
-        reaper,
-        enumerate,
-      ],
+      useFactory: (
+        reaper: ReaperLane,
+        enumerate: EnumerateLane,
+        downloads: DownloadLane[],
+      ): LaneRunner[] => [reaper, enumerate, ...downloads],
     },
     LaneSupervisor,
   ],

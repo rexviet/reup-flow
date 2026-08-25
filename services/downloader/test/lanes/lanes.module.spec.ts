@@ -18,6 +18,7 @@
  */
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../../src/app.module';
+import { DOWNLOAD_IDLE_MS, DownloadLane } from '../../src/lanes/download.lane';
 import {
   ENUMERATE_IDLE_MS,
   EnumerateLane,
@@ -46,6 +47,10 @@ beforeAll(async () => {
     REDIS_URL: 'redis://localhost:6379/9',
     PARSER_BASE_URL: 'http://parser:80',
     PROBE_SEC_USER_ID: 'probe-sec-user-id',
+    // Deliberately NOT the default of 6: what is under test is that the array
+    // is built from this variable, and a test run at the default cannot tell
+    // "reads the env var" from "hard-codes 6".
+    DOWNLOAD_CONCURRENCY: '4',
     // OFF: this suite inspects what the container built and must not start a
     // reaper sweeping the live stack's `public` schema as a side effect.
     LANES_ENABLED: 'false',
@@ -89,11 +94,36 @@ describe('the production LANES array', () => {
     expect(lanes.filter((lane) => lane instanceof EnumerateLane)).toHaveLength(1);
   });
 
-  it('contains nothing else yet', () => {
-    // Phase 6 adds DOWNLOAD_CONCURRENCY download lanes here. Until then, an
-    // extra entry is a mistake, and an entry that vanished is a queue that
+  it('contains exactly DOWNLOAD_CONCURRENCY download lanes -- §6.1', () => {
+    // Concurrency IS the number of loops (solution design §4). There is no
+    // semaphore to miscount and no runtime check: six concurrent downloads are
+    // six entries in this array, which is why "how many at once?" is a diff.
+    //
+    // Six is safe where enumerate's one is not, and that is not a guess:
+    // `*.douyinvod.com` serves bytes and is not behind the risk control that
+    // rate-limits the web API by IP (IDEA.md §3.1 vs §3.2).
+    expect(lanes.filter((lane) => lane instanceof DownloadLane)).toHaveLength(4);
+  });
+
+  it('contains nothing else', () => {
+    // An extra entry is a mistake; an entry that vanished is a queue that
     // silently never drains.
-    expect(lanes).toHaveLength(2);
+    expect(lanes).toHaveLength(6);
+  });
+
+  it('gives every download lane its own name, so the staleness alert can name it', () => {
+    // §4.1's alert says WHICH lane stopped ticking. Four identically-named
+    // loops would report "a lane is stuck" -- and one wedged socket out of six
+    // is exactly the case that alert exists for.
+    const names = lanes.filter((l) => l instanceof DownloadLane).map((l) => l.name);
+    expect(new Set(names).size).toBe(names.length);
+    expect(names.sort()).toEqual(['download-1', 'download-2', 'download-3', 'download-4']);
+  });
+
+  it('gives the download lanes their 1-second idle poll', () => {
+    for (const lane of lanes.filter((l) => l instanceof DownloadLane)) {
+      expect(lane.idleDelayMs).toBe(DOWNLOAD_IDLE_MS);
+    }
   });
 
   it('gives the reaper its 60-second cadence', () => {
@@ -113,6 +143,10 @@ describe('the production LANES array', () => {
     // starting lanes nobody can observe, and reporting staleness for lanes
     // nobody started.
     expect(supervisor.staleLanes().map((lane) => lane.name).sort()).toEqual([
+      'download-1',
+      'download-2',
+      'download-3',
+      'download-4',
       'enumerate',
       'reaper',
     ]);

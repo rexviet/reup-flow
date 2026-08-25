@@ -1,4 +1,4 @@
-import { and, count, desc, eq, inArray, lt, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gt, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 import type { Executor } from './executor';
 import { redactor } from '../redaction/redactor';
 import { videos, type Video } from './schema';
@@ -10,7 +10,23 @@ export interface ClaimOptions {
   maxAttempts: number;
 }
 
-export type GiveBackOptions = Pick<ClaimOptions, 'maxAttempts'>;
+export type GiveBackOptions = Pick<ClaimOptions, 'maxAttempts'> & {
+  /**
+   * PHASE 6 -- the claim token (`attempts` at claim time; see `ownsClaim`).
+   *
+   * Supplied, the give-back only lands if THIS claim still owns the row. That
+   * is the note `lane.runner.ts` leaves for phases 5 and 6: `release` runs
+   * after the drain, the drain can time out, so in the worst case it runs while
+   * a tick is still in flight -- and an unguarded `UPDATE ... SET status =
+   * 'pending'` would then hand back a row a DIFFERENT worker has since claimed.
+   * The window used to be closed by arithmetic (a drain is seconds, a lease is
+   * 300), and arithmetic is not a guard.
+   *
+   * Omitted, the write is unconditional, which is what the reaper and the
+   * phase-4 shutdown harness want: they act precisely on rows nobody owns.
+   */
+  attempts?: number;
+};
 
 /**
  * Where a claimed video goes when it is handed back.
@@ -183,6 +199,226 @@ export async function markDone(
 }
 
 /**
+ * PHASE 6 -- the claim token, and the four statements built on it.
+ *
+ * The risk register's "Reaper nhả video, 2 worker commit 1 file" needs one
+ * thing this schema has no column for: a way for a worker to ask "is this row
+ * still MINE?". A live lease is not enough -- `lease_expires_at > now()` is
+ * equally true of the REPLACEMENT's lease, which is exactly the case the check
+ * exists to catch, and is why `markDone` above refuses to pretend a bare lease
+ * check is protection.
+ *
+ * `attempts` is that token, and it is free. F6 increments it inside the claim
+ * UPDATE, so every claim of a row carries a different number and no two live
+ * claims can share one. `(aweme_id, attempts)` therefore names a CLAIM rather
+ * than a row, and `status = 'downloading' AND attempts = $token AND
+ * lease_expires_at > now()` is "my claim, still live" -- judged entirely by the
+ * database clock, like every other lease comparison in this file.
+ *
+ * THE ONE WINDOW IT DOES NOT CLOSE, written down rather than assumed away:
+ * `resetFailedForProfile` sets `attempts = 0`, so tokens 1..MAX_ATTEMPTS become
+ * available again. A straggler holding token 1 could in principle match a claim
+ * issued after such a reset. Getting there takes MAX_ATTEMPTS full lease
+ * expiries (25 minutes at the defaults) with the straggler still streaming,
+ * plus an operator pressing /retry, plus the replacement claiming inside the
+ * straggler's remaining lease. Closing it properly wants a `claim_token uuid`
+ * column, which is a migration; this is where that note lives if one is ever
+ * added.
+ */
+function ownsClaim(awemeId: string, attempts: number) {
+  return and(
+    eq(videos.awemeId, awemeId),
+    eq(videos.status, 'downloading'),
+    eq(videos.attempts, attempts),
+    gt(videos.leaseExpiresAt, sql`now()`),
+  );
+}
+
+/**
+ * Where a give-back may land: this claim, or the row unconditionally.
+ *
+ * The unconditional form is not a fallback, it is what the reaper and the
+ * phase-4 shutdown harness need -- they act on rows whose owner is gone, so
+ * there is no live claim to match. See `GiveBackOptions.attempts`.
+ */
+function giveBackTarget(awemeId: string, opts: GiveBackOptions) {
+  return opts.attempts === undefined
+    ? eq(videos.awemeId, awemeId)
+    : ownsClaim(awemeId, opts.attempts);
+}
+
+/**
+ * The pre-rename check. True only if this exact claim is still live.
+ *
+ * Called from inside `Storage.put`, between the last byte and the `rename`
+ * (see the `BeforeCommit` note in storage.interface.ts). A `false` here means
+ * the reaper handed this video to somebody else while we were downloading it:
+ * the bytes are complete, but they must not become the committed file, because
+ * the replacement is writing the same key right now and only one rename can be
+ * last.
+ *
+ * A read, not an UPDATE, on purpose. Nothing about deciding "may I commit"
+ * should also change the row -- the commit itself is `markDone`, and a check
+ * that mutated would make the mutation test for this guard (phase-06.sh) unable
+ * to distinguish the check from the commit.
+ */
+export async function holdsClaim(
+  exec: Executor,
+  awemeId: string,
+  attempts: number,
+): Promise<boolean> {
+  const rows = await exec
+    .select({ awemeId: videos.awemeId })
+    .from(videos)
+    .where(ownsClaim(awemeId, attempts));
+  return rows.length > 0;
+}
+
+/**
+ * The heartbeat: pushes this claim's lease out by `leaseSeconds` again.
+ *
+ * A 200MB video on a slow CDN can outlive `LEASE_SECONDS`, and the reaper
+ * cannot tell "still downloading" from "worker died" -- both look like a
+ * `downloading` row whose lease lapsed. So a live download says so, and the
+ * only proof it can offer is that it is still transferring bytes; the lane
+ * calls this from the stream's progress, never on a timer alone.
+ *
+ * Gated on `ownsClaim`, so a worker whose lease ALREADY lapsed cannot renew
+ * itself back into ownership: by then the reaper may have handed the row over,
+ * and taking it back underneath the replacement is the two-writers race
+ * arrived at from the other side. `false` means "you no longer hold this" and
+ * the lane stops.
+ */
+export async function renewLease(
+  exec: Executor,
+  awemeId: string,
+  attempts: number,
+  leaseSeconds: number,
+): Promise<boolean> {
+  const updated = await exec
+    .update(videos)
+    .set({ leaseExpiresAt: sql`now() + make_interval(secs => ${leaseSeconds})` })
+    .where(ownsClaim(awemeId, attempts))
+    .returning({ awemeId: videos.awemeId });
+  return updated.length > 0;
+}
+
+/**
+ * F1 -- is the cached `play_addr` still usable?
+ *
+ * Two conditions, and the second one is not redundant: a row can carry an
+ * expiry with no address at all (nothing says Douyin attached a `play_addr` to
+ * every `aweme_list` item), and a timestamp-only check would send the lane to
+ * GET `null`.
+ *
+ * Compared in SQL against `now()` rather than in the lane against `Date.now()`.
+ * Same rule as every lease in this schema (see the `tstz` note in schema.ts):
+ * the expiry was WRITTEN from the database clock, so it has to be READ against
+ * the same one, or a host a minute out of step re-resolves URLs that are fine
+ * -- spending the request budget F1 exists to protect -- or trusts URLs that
+ * are not.
+ *
+ * One extra round trip per download, deliberately. It is a primary-key lookup
+ * against Postgres, next to transferring a video over the internet, and the
+ * alternative was widening `claimOne` -- the one query in this file that is
+ * EXPLAIN-pinned (`test/db/claim-plan.spec.ts`) and mutation-tested for
+ * SKIP LOCKED. Forking it into a second, download-only variant would leave
+ * those guards testing a query production no longer runs.
+ */
+export async function isUrlFresh(exec: Executor, awemeId: string): Promise<boolean> {
+  const rows = await exec
+    .select({ awemeId: videos.awemeId })
+    .from(videos)
+    .where(
+      and(
+        eq(videos.awemeId, awemeId),
+        isNotNull(videos.playAddr),
+        gt(videos.urlExpiresAt, sql`now()`),
+      ),
+    );
+  return rows.length > 0;
+}
+
+/**
+ * F1's reactive half: a freshly resolved address, cached with a new TTL.
+ *
+ * Writes ONLY the two URL columns. It runs mid-download on a row this worker is
+ * holding, so touching `status`, `attempts` or the lease would make it a second
+ * writer on the claim -- and `attempts` in particular is the claim token, so
+ * moving it here would have this function silently invalidate the caller's own
+ * commit check.
+ *
+ * Not gated on `ownsClaim`: caching a URL that Douyin just issued is useful to
+ * whoever ends up downloading this video, including a replacement worker, and
+ * refusing to write it would make a reaped worker's one useful side effect
+ * disappear. The columns it writes are advisory by construction -- the whole
+ * point of F1 is that the URL is re-resolved when it stops working.
+ */
+export async function saveResolvedUrl(
+  exec: Executor,
+  awemeId: string,
+  playAddr: string,
+  urlTtlSeconds: number,
+): Promise<void> {
+  await exec
+    .update(videos)
+    .set({
+      playAddr,
+      urlExpiresAt: sql`now() + make_interval(secs => ${urlTtlSeconds})`,
+    })
+    .where(eq(videos.awemeId, awemeId));
+}
+
+/**
+ * The job that wanted this video was cancelled: `skipped`, not `failed`.
+ *
+ * The distinction is the same one `markBlocked` makes for jobs, for the same
+ * reason -- the status is what an operator reads to decide whether anything is
+ * wrong. `failed` with an error would put a cancelled job's videos in every
+ * "what broke?" listing forever, and `/retry` would dutifully bring them back.
+ * `last_error` is left null on purpose: nothing went wrong.
+ *
+ * Gated on `ownsClaim` like every other write this worker makes to its claim.
+ */
+export async function markSkipped(
+  exec: Executor,
+  awemeId: string,
+  attempts: number,
+): Promise<boolean> {
+  const updated = await exec
+    .update(videos)
+    .set({ status: 'skipped', leaseExpiresAt: null })
+    .where(ownsClaim(awemeId, attempts))
+    .returning({ awemeId: videos.awemeId });
+  return updated.length > 0;
+}
+
+/**
+ * Step 8's question: does this profile still owe work?
+ *
+ * `pending` or `downloading` -- the two statuses that mean somebody still has
+ * to do something. `done`, `failed` and `skipped` have all settled, which is
+ * why a job with failures still reaches `completed` rather than hanging (phase
+ * 6 §6.3: "đi tiếp, không kill cả job").
+ *
+ * Profile-scoped because `videos` has no `job_id` and must never gain one
+ * (F7 -- see the long note on the table in schema.ts). This is the same
+ * predicate `jobs.repository.ts`'s `finalizeSettled` uses as a correlated
+ * subquery; the reaper is the safety net for exactly the race this check can
+ * lose.
+ */
+export async function hasWorkForProfile(exec: Executor, secUserId: string): Promise<boolean> {
+  const rows = await exec
+    .select({ awemeId: videos.awemeId })
+    .from(videos)
+    .where(
+      and(eq(videos.secUserId, secUserId), inArray(videos.status, ['pending', 'downloading'])),
+    )
+    .limit(1);
+  return rows.length > 0;
+}
+
+/**
  * Records a reported failure and hands the video back (or gives up on it).
  *
  * `error` is redacted BEFORE it is written, not just before it is read back
@@ -201,15 +437,17 @@ export async function markFailed(
   awemeId: string,
   error: string,
   opts: GiveBackOptions,
-): Promise<void> {
-  await exec
+): Promise<boolean> {
+  const updated = await exec
     .update(videos)
     .set({
       status: giveBackStatus(opts.maxAttempts),
       lastError: redactor.redact(error),
       leaseExpiresAt: null,
     })
-    .where(eq(videos.awemeId, awemeId));
+    .where(giveBackTarget(awemeId, opts))
+    .returning({ awemeId: videos.awemeId });
+  return updated.length > 0;
 }
 
 /**
@@ -222,11 +460,13 @@ export async function release(
   exec: Executor,
   awemeId: string,
   opts: GiveBackOptions,
-): Promise<void> {
-  await exec
+): Promise<boolean> {
+  const updated = await exec
     .update(videos)
     .set({ status: giveBackStatus(opts.maxAttempts), leaseExpiresAt: null })
-    .where(eq(videos.awemeId, awemeId));
+    .where(giveBackTarget(awemeId, opts))
+    .returning({ awemeId: videos.awemeId });
+  return updated.length > 0;
 }
 
 /**

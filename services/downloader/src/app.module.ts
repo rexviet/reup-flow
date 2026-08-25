@@ -6,6 +6,7 @@ import { DbModule } from "./db/db.module";
 import { RedisModule } from "./redis/redis.module";
 import { ApiKeyGuard } from "./auth/api-key.guard";
 import { ParserModule } from "./parser/parser.module";
+import { CdnModule } from "./cdn/cdn.module";
 import { JobsModule } from "./jobs/jobs.module";
 import { VideosModule } from "./videos/videos.module";
 import { CookieModule } from "./cookie/cookie.module";
@@ -19,9 +20,9 @@ import { LanesModule } from "./lanes/lanes.module";
  * be added and forget to protect itself. `@Public()` is the only opt-out,
  * and only `HealthController` uses it.
  *
- * ConfigModule/DbModule/RedisModule/ParserModule/StorageModule are all
+ * ConfigModule/DbModule/RedisModule/ParserModule/CdnModule/StorageModule are all
  * `@Global()`; importing them here once is what makes `ENV`/`DB`/`PG_POOL`/
- * `REDIS`/`PARSER_CLIENT`/`STORAGE` available to every feature module
+ * `REDIS`/`PARSER_CLIENT`/`CDN_CLIENT`/`STORAGE` available to every feature module
  * (jobs/videos/cookie) and to the lanes without each of them re-importing
  * these explicitly.
  *
@@ -43,6 +44,7 @@ import { LanesModule } from "./lanes/lanes.module";
     DbModule,
     RedisModule,
     ParserModule,
+    CdnModule,
     StorageModule,
     LanesModule,
     JobsModule,

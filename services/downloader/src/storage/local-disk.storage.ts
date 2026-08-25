@@ -14,7 +14,7 @@ import {
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { Transform, type Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import type { PutResult, Storage } from './storage.interface';
+import type { BeforeCommit, PutResult, Storage } from './storage.interface';
 
 /**
  * `Storage` over a plain directory (`DATA_DIR`).
@@ -89,7 +89,19 @@ export class LocalDiskStorage implements Storage {
    * reaped worker declines to commit at all -- but the file it wrote was
    * always whole either way.
    */
-  async put(key: string, stream: Readable, expectedBytes?: number): Promise<PutResult> {
+  async put(key: string, stream: Readable, expectedBytes?: number): Promise<PutResult>;
+  async put(
+    key: string,
+    stream: Readable,
+    expectedBytes: number | undefined,
+    beforeCommit: BeforeCommit,
+  ): Promise<PutResult | null>;
+  async put(
+    key: string,
+    stream: Readable,
+    expectedBytes?: number,
+    beforeCommit?: BeforeCommit,
+  ): Promise<PutResult | null> {
     const path = this.resolveKey(key);
     await mkdir(dirname(path), { recursive: true });
     await this.assertParentInsideRoot(path, key);
@@ -149,6 +161,30 @@ export class LocalDiskStorage implements Storage {
         await flush.sync();
       } finally {
         await flush.close();
+      }
+
+      // THE OWNERSHIP RE-CHECK, and it has to be exactly here.
+      //
+      // Later than this there is nothing left to decline -- the rename below IS
+      // the commit. Earlier than this it would be answering about a download
+      // that had not finished, so the answer would already be stale by the time
+      // it mattered. Between the two is the window the reaper can hand this
+      // video to somebody else in (F3), and shrinking that window to one
+      // `rename` is the whole guard.
+      //
+      // After the fsync, not before: the fsync can take a while on a full-size
+      // video, and every millisecond between the check and the rename is
+      // window. The bytes are durable either way; the only question this
+      // ordering changes is how stale the answer is allowed to be.
+      //
+      // Declined is NOT an error. It is the correct, expected outcome for a
+      // worker that was reaped mid-download, and the caller needs to tell it
+      // apart from a failure -- so `null`, and the temp file goes with it. A
+      // declined put that left the file behind would leak a full-size video per
+      // reaped download; see the note on this overload in storage.interface.ts.
+      if (beforeCommit && !(await beforeCommit())) {
+        await unlink(tmpPath).catch(() => undefined);
+        return null;
       }
 
       // THE COMMIT POINT. Everything above this line is invisible under the

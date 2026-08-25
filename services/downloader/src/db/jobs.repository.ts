@@ -318,7 +318,23 @@ export async function reapOrphans(exec: Executor): Promise<Job[]> {
  * long comment on `videos` in schema.ts (F7) for why `videos` has no `job_id`
  * and why this is the honest number.
  */
-export async function finalizeSettled(exec: Executor): Promise<Job[]> {
+export interface FinalizeOptions {
+  /**
+   * Restrict the sweep to one profile -- phase 6 step 8, where the lane that
+   * finished a profile's last video finalizes THAT job and nothing else.
+   *
+   * Omitted, it sweeps every profile, which is the reaper's safety net (see
+   * above). One function rather than two because the predicate is the whole
+   * substance and two copies of it would drift: the copy nobody reads is
+   * always the stale one.
+   */
+  secUserId?: string;
+}
+
+export async function finalizeSettled(
+  exec: Executor,
+  opts: FinalizeOptions = {},
+): Promise<Job[]> {
   /** Videos for THIS job's profile that still owe work. */
   const outstanding = exec
     .select({ one: sql`1` })
@@ -347,8 +363,56 @@ export async function finalizeSettled(exec: Executor): Promise<Job[]> {
       )`,
       updatedAt: sql`now()`,
     })
-    .where(and(eq(jobs.status, 'downloading'), notExists(outstanding)))
+    .where(
+      and(
+        eq(jobs.status, 'downloading'),
+        notExists(outstanding),
+        ...(opts.secUserId === undefined ? [] : [eq(jobs.secUserId, opts.secUserId)]),
+      ),
+    )
     .returning();
+}
+
+/**
+ * PHASE 6 step 2 -- has the job that wanted this video been cancelled?
+ *
+ * `videos` has no `job_id` and must never gain one (F7 -- see the long note on
+ * the table in schema.ts), so this is answered from PROFILE state, and the
+ * shape of the answer matters more than it looks.
+ *
+ * "Any cancelled job for this profile" is the WRONG reading: one cancel would
+ * then silently skip every future job's videos for that profile forever. And
+ * "no live job for this profile" on its own is also wrong -- a profile whose
+ * only job is `blocked` or `failed` is waiting for /retry, and `skipped` is a
+ * status nothing resets (`resetFailedForProfile` touches only `failed`). So it
+ * is the CONJUNCTION: somebody cancelled, and nobody else is still asking.
+ *
+ * TODO(phase-7): `cancelled` is not in `RETRYABLE_STATUSES`, so a cancelled
+ * job's `skipped` videos have no way back -- a NEW job on the profile
+ * re-enumerates them, `upsertMany` correctly does nothing (F7), and they stay
+ * skipped. Phase 7 owns retry/cancel; the fix belongs there, either by making
+ * `/retry` reset `skipped` too or by having a new job clear them.
+ */
+export async function isProfileCancelled(exec: Executor, secUserId: string): Promise<boolean> {
+  const live = exec
+    .select({ one: sql`1` })
+    .from(jobs)
+    .where(
+      and(
+        eq(jobs.secUserId, secUserId),
+        inArray(jobs.status, ['pending', 'enumerating', 'downloading']),
+      ),
+    );
+
+  const rows = await exec
+    .select({ id: jobs.id })
+    .from(jobs)
+    .where(
+      and(eq(jobs.secUserId, secUserId), eq(jobs.status, 'cancelled'), notExists(live)),
+    )
+    .limit(1);
+
+  return rows.length > 0;
 }
 
 /**

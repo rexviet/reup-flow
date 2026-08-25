@@ -496,8 +496,22 @@ run_mutation "finalize jobs in ANY status, not only downloading" \
 import pathlib
 p = pathlib.Path("src/db/jobs.repository.ts")
 s = p.read_text()
-s = s.replace(".where(and(eq(jobs.status, \x27downloading\x27), notExists(outstanding)))",
-              ".where(notExists(outstanding))")
+# Phase 6 gave the WHERE clause an optional profile scope, so the one-line
+# form this used to match is gone. A mutation whose text no longer occurs
+# matches NOTHING, which `_apply` treats as a hard error rather than a pass
+# (rule 1) -- keeping this string in step with the query is the whole reason
+# that rule exists.
+old = """      and(
+        eq(jobs.status, \x27downloading\x27),
+        notExists(outstanding),
+        ...(opts.secUserId === undefined ? [] : [eq(jobs.secUserId, opts.secUserId)]),
+      ),"""
+new = """      and(
+        notExists(outstanding),
+        ...(opts.secUserId === undefined ? [] : [eq(jobs.secUserId, opts.secUserId)]),
+      ),"""
+assert old in s, "the finalizeSettled WHERE clause changed shape"
+s = s.replace(old, new, 1)
 p.write_text(s)
 '
 
@@ -507,8 +521,17 @@ run_mutation "finalize a job while videos are still outstanding" \
 import pathlib
 p = pathlib.Path("src/db/jobs.repository.ts")
 s = p.read_text()
-s = s.replace(".where(and(eq(jobs.status, \x27downloading\x27), notExists(outstanding)))",
-              ".where(eq(jobs.status, \x27downloading\x27))")
+old = """      and(
+        eq(jobs.status, \x27downloading\x27),
+        notExists(outstanding),
+        ...(opts.secUserId === undefined ? [] : [eq(jobs.secUserId, opts.secUserId)]),
+      ),"""
+new = """      and(
+        eq(jobs.status, \x27downloading\x27),
+        ...(opts.secUserId === undefined ? [] : [eq(jobs.secUserId, opts.secUserId)]),
+      ),"""
+assert old in s, "the finalizeSettled WHERE clause changed shape"
+s = s.replace(old, new, 1)
 p.write_text(s)
 '
 
@@ -573,8 +596,29 @@ run_mutation "hand the supervisor an EMPTY lane array" \
 import pathlib
 p = pathlib.Path("src/lanes/lanes.module.ts")
 s = p.read_text()
-s = s.replace("useFactory: (reaper: ReaperLane): LaneRunner[] => [reaper],",
-              "useFactory: (reaper: ReaperLane): LaneRunner[] => { void reaper; return []; },")
+# The factory grew an argument in phase 5 (enumerate) and another in phase 6
+# (the download lanes). A mutation whose `old` text no longer exists matches
+# NOTHING, and `_apply` reports that as a hard error rather than a pass -- rule
+# 1. That is why this string has to be kept in step with the module: a stale
+# mutation is a guard nobody is watching, and it fails silently in the one
+# direction that looks like success.
+old = """      useFactory: (
+        reaper: ReaperLane,
+        enumerate: EnumerateLane,
+        downloads: DownloadLane[],
+      ): LaneRunner[] => [reaper, enumerate, ...downloads],"""
+new = """      useFactory: (
+        reaper: ReaperLane,
+        enumerate: EnumerateLane,
+        downloads: DownloadLane[],
+      ): LaneRunner[] => {
+        void reaper;
+        void enumerate;
+        void downloads;
+        return [];
+      },"""
+assert old in s, "LANES factory shape changed"
+s = s.replace(old, new, 1)
 p.write_text(s)
 '
 
