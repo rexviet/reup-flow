@@ -1,0 +1,97 @@
+services/web/src/main.tsx
+  s_a4338c40d5e2ec::t_5f5eee3b0ab870 1-10
+services/web/src/api/client.test.ts
+  s_a4338c40d5e2ec::t_670cb3ee0efc58 1-88
+services/web/index.html
+  s_a4338c40d5e2ec::t_a55f161e455c86 1-12
+services/web/src/hooks/usePolling.test.ts
+  s_a4338c40d5e2ec::t_0416efee2b062a 2-39,45-55,61-96
+  s_a4338c40d5e2ec::t_9e8f0f7e23a369 40-44
+  s_a4338c40d5e2ec::t_3d66865d508f84 1
+  s_a4338c40d5e2ec::t_6bd36134f3a5c6 56-60
+services/web/.gitignore
+  s_a4338c40d5e2ec::t_40ea42a6712d27 1-5
+services/web/src/components/CookieBadge.tsx
+  s_a4338c40d5e2ec::t_8ee096e823bb8d 1-26,28-74
+  s_a4338c40d5e2ec::t_9ef8583dfd31ad 27
+services/web/src/components/JobCard.test.tsx
+  s_a4338c40d5e2ec::t_1d63584c54a285 1-67
+services/web/src/components/JobCard.tsx
+  s_a4338c40d5e2ec::t_70b88c787f246d 1-69
+services/web/tsconfig.node.json
+  s_a4338c40d5e2ec::t_5f017bb1df4521 1-11
+services/web/src/vite-env.d.ts
+  s_a4338c40d5e2ec::t_7c8ff5d3d1c9bf 1-18
+services/web/src/api/types.ts
+  s_a4338c40d5e2ec::t_d0419536f60646 1-72
+services/web/.env.example
+  s_a4338c40d5e2ec::t_466ef1953fcbc6 1-3
+services/web/tsconfig.json
+  s_a4338c40d5e2ec::t_bc2ec0262cb634 1-24
+services/web/vite.config.ts
+  s_a4338c40d5e2ec::t_897c0ebbfbdeb1 1-14
+services/web/src/index.css
+  s_a4338c40d5e2ec::t_5daaab60a05630 1-3
+services/web/src/hooks/usePolling.ts
+  s_a4338c40d5e2ec::t_d551709be49ff8 1-62
+services/web/src/test/setup.ts
+  s_a4338c40d5e2ec::t_7910148a188056 1
+services/web/tailwind.config.js
+  s_a4338c40d5e2ec::t_e68f13eaec176c 1-8
+services/web/src/components/ProgressBars.test.tsx
+  s_a4338c40d5e2ec::t_147ae087991fbc 1-59,66-105
+  s_a4338c40d5e2ec::t_446637b25541c1 60-65
+services/web/src/components/ProgressBars.tsx
+  s_a4338c40d5e2ec::t_ba698349402f8c 1-22,27,31-94
+  s_a4338c40d5e2ec::t_d9859f8a3d28c4 23-26,28-30
+services/web/src/components/JobForm.test.tsx
+  s_a4338c40d5e2ec::t_4d311467d8e58a 53-55
+  s_a4338c40d5e2ec::t_f190a80b305418 2-52,56-57
+  s_a4338c40d5e2ec::t_afeb7da6b6fc4f 1
+services/web/README.md
+  s_a4338c40d5e2ec::t_35611b25eefb78 1-175
+services/web/src/api/client.ts
+  s_a4338c40d5e2ec::t_e35c07bd08a854 1-79
+services/web/src/components/JobForm.tsx
+  s_a4338c40d5e2ec::t_c721db2c21ecaa 1-63
+services/web/package.json
+  s_a4338c40d5e2ec::t_02ed6fd424b09e 1-7,9-21,23-38
+  s_a4338c40d5e2ec::t_2ff93397e87a50 8
+  s_a4338c40d5e2ec::t_aee7d353f87a8e 22
+plans/260824-2152-douyin-downloader/phase-08-web-ui.md
+  s_a4338c40d5e2ec::t_0d04de3a083ca0 4
+  s_a4338c40d5e2ec::t_6cae7ab3f9f8c1 51-62,66-82
+services/web/src/components/CookieBadge.test.tsx
+  s_a4338c40d5e2ec::t_5c31a12d4a8d71 1-40
+services/web/src/App.tsx
+  s_a4338c40d5e2ec::t_6487377ba3e154 1-75
+services/web/nginx.conf
+  s_a4338c40d5e2ec::t_62dec37dbf4a2a 1-13
+services/web/postcss.config.js
+  s_a4338c40d5e2ec::t_232e0455c2977c 1-6
+services/web/eslint.config.js
+  s_a4338c40d5e2ec::t_0ae5de1f2ddfa3 1-41,51
+  s_a4338c40d5e2ec::t_4b64c6bd5c76e8 42-50
+services/web/Dockerfile
+  s_a4338c40d5e2ec::t_3f19d42ebb409d 1-27
+services/web/src/App.test.tsx
+  s_a4338c40d5e2ec::t_2f26c3003f2515 1-42,44-62,66-67,70,72-73,75-83,98,104-105,108-109,112,115-116
+  s_a4338c40d5e2ec::t_65e7ac6d345212 43,63,65,68-69,71,74,84-97,99-103,106-107,110-111,113-114
+  s_a4338c40d5e2ec::t_add295050c4d97 64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "172825cb3033f6ad0bc132e085c7037ff433d5e0",
+  "prompts": {},
+  "sessions": {
+    "s_a4338c40d5e2ec": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a84b385e-7edc-4867-93c0-d4b85127f7aa",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
