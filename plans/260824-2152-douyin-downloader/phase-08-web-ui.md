@@ -1,7 +1,7 @@
 ---
 phase: 8
 title: Web UI
-status: not_started
+status: done_with_concerns
 effort: ~1d
 blockedBy: [3]
 milestone: M2
@@ -48,23 +48,38 @@ Lệch có chủ ý so với IDEA.md §9 M1. Cookie push bằng `curl` → `POST
 
 ## Todo
 
-- [ ] Vite + React + Tailwind trong `services/downloader/web` hoặc `services/web`
-- [ ] Form tạo job
-- [ ] List job + polling 1s
-- [ ] Hai thanh riêng, thanh 1 indeterminate
-- [ ] Badge cookie 3 trạng thái
-- [ ] Cancel / retry
-- [ ] Nhãn "0 video mới" (F7)
-- [ ] Compose: thêm service `web`
+- [x] Vite + React + Tailwind trong `services/web`
+- [x] Form tạo job
+- [x] List job + polling 1s
+- [x] Hai thanh riêng, thanh 1 indeterminate
+- [x] Badge cookie 3 trạng thái
+- [x] Cancel / retry
+- [x] Nhãn "0 video mới" (F7)
+- [ ] Compose: thêm service `web` — **hoãn có chủ ý**. `docker-compose.yml` là file
+      dùng chung giữa 3 agent chạy song song trong cùng working tree; agent phase 8
+      không sửa file này. Block YAML cần thêm + lý do (Vite inline env lúc build,
+      không phải runtime) nằm ở `services/web/README.md` §"Deploy" cho agent điều
+      phối áp dụng.
 
 ## DoD
 
-- [ ] Dán URL → job xuất hiện, tiến độ chạy
-- [ ] Thanh enumerate indeterminate cho tới khi `total_videos` có giá trị
-- [ ] Xoá key cookie trong Redis → badge **đỏ** trong ≤2s
-- [ ] Cookie push 40′ trước → badge **vàng**
-- [ ] Chạy lại profile đã xong → hiện `340/340` + nhãn "0 video mới"
-- [ ] Polling tiếp tục sau khi mất mạng tạm rồi có lại (không cần code reconnect)
+- [x] Dán URL → job xuất hiện, tiến độ chạy — verify bằng test tích hợp
+      `src/App.test.tsx` (mock API, fixture đúng shape thật), **không** verify
+      live: container `nest` đang chạy trong compose stack build từ trước khi
+      phase này bắt đầu (`/api/jobs` 404), và không được rebuild/restart theo
+      ràng buộc chia sẻ stack với 2 agent khác. Xem README §"Manual verification".
+- [x] Thanh enumerate indeterminate cho tới khi `total_videos` có giá trị —
+      test + mutation đỏ đã chứng minh (`ProgressBars.test.tsx`)
+- [ ] Xoá key cookie trong Redis → badge **đỏ** trong ≤2s — logic đã unit-test
+      (`cookieBadgeState`, mutation đỏ), polling 1s đã test, nhưng **chưa verify
+      live** vì lý do container nêu trên
+- [ ] Cookie push 40′ trước → badge **vàng** — cùng lý do, chưa verify live
+- [x] Chạy lại profile đã xong → hiện `340/340` + nhãn "0 video mới" — verify
+      bằng fixture mô phỏng đúng F7 (`total_videos`/`downloaded_count` đầy đủ từ
+      job trước, `enumerated_count` job hiện tại = 0), mutation đỏ đã chứng minh;
+      chưa chạy được với dữ liệu Douyin thật
+- [x] Polling tiếp tục sau khi mất mạng tạm rồi có lại (không cần code
+      reconnect) — `usePolling.test.ts`, mutation đỏ đã chứng minh
 
 ## Risks
 
