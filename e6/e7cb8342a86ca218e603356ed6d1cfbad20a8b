@@ -1,0 +1,104 @@
+services/downloader/src/storage/local-disk.storage.ts
+  s_c81f9e3ea08628::t_5b5b92b8c4213d 3,64,134-139,176-177,179,192-205,207-227
+  s_c81f9e3ea08628::t_41f3fbe5b37f64 1,4-6,9-21,41-63,65-67,69-81,83,117-122,124-131,140-147,150-156,158-164,166-172,175,178,180-182,184-191,206,228-245
+  s_c81f9e3ea08628::t_768592594cb73a 2,84-116
+  s_c81f9e3ea08628::t_66f2e978998c24 7-8,35,40,132-133,148-149,157,173-174,183,246
+  s_c81f9e3ea08628::t_ca1edd9bdbbe0e 22-34,36-39,165
+  s_c81f9e3ea08628::t_60f7eb820644ab 68,82,123
+services/downloader/test/mutations/phase-02.sh
+  s_c81f9e3ea08628::t_43cf9523c49207 140-162
+  s_c81f9e3ea08628::t_e705e88205d47d 198-204
+  s_c81f9e3ea08628::t_bdf0556021803b 267-269,277
+  s_c81f9e3ea08628::t_de2700d5406d76 1-139,163-197,205-266,270-276,278-280,371-377
+  s_c81f9e3ea08628::t_d0c550f24f8408 281-370
+services/downloader/package.json
+  s_c81f9e3ea08628::t_7807ba0cccc515 11
+  s_c81f9e3ea08628::t_e28418fb36e69a 23
+services/downloader/test/support/fake-parser.ts
+  s_c81f9e3ea08628::t_e42183c56c429f 23,39-45,53-54
+  s_c81f9e3ea08628::t_846fc5a306149d 1-22,24-38,46-52,55-113
+services/downloader/test/parser/parser.client.integration.spec.ts
+  s_c81f9e3ea08628::t_7807ba0cccc515 9-10,12,18,30-35,37-38,43-44,68-79,129,139,169,172-178
+  s_c81f9e3ea08628::t_b0ff251406c5c0 2-8,11,13-17,19-29,36,39-42,45-46,54-55,80-128,130-138,140-168,170-171,179-188
+  s_c81f9e3ea08628::t_9d8605404f2c76 1
+  s_c81f9e3ea08628::t_bb09a1bf6c9676 47-53,56-67
+services/downloader/src/parser/parser.client.ts
+  s_c81f9e3ea08628::t_5beabc9f9e3cf6 2,6,60-68,70,88-90,103,105-116,118-124,209-221,223-225,236-237,239-250,253-287,289,291,336-342,344-353
+  s_c81f9e3ea08628::t_15616e85ca306c 51-53,55-56,125-139,330-335
+  s_c81f9e3ea08628::t_9910417727a6fe 3,57-59,104,117,207,222,288,290
+  s_c81f9e3ea08628::t_9549404d1ab7ea 15-21,23-24,144-169,184-185,189,292-305,324-325
+  s_c81f9e3ea08628::t_7d31989eff9c96 45-47,49-50,190-202
+  s_c81f9e3ea08628::t_a4aace26fe7a72 1,8-12,71-87,91-102,170-183,186-187,226-235,238,251-252,313-323,326-329
+  s_c81f9e3ea08628::t_78b242fa82375d 22,25-44,48,54,140-143,188,203-206,306-312
+  s_c81f9e3ea08628::t_cf651d3ecaa654 4-5,7,13-14,69,208,343,354
+services/downloader/test/parser/parser.client.spec.ts
+  s_c81f9e3ea08628::t_287375e5b3f0ad 303-360,451-452
+  s_c81f9e3ea08628::t_76c68fc314b9df 3,361-450
+  s_c81f9e3ea08628::t_85776a50c636ee 117,135,204,215,232,250
+  s_c81f9e3ea08628::t_f313b10379f733 219-231,233-249,251-302
+  s_c81f9e3ea08628::t_18f0301f3d42af 4,136-203,205-214,216
+  s_c81f9e3ea08628::t_0ebc77082ad866 112-116,118-134,217-218
+  s_c81f9e3ea08628::t_cf651d3ecaa654 1,5-30,110-111,453
+  s_c81f9e3ea08628::t_ea3a424f32b15e 2,31-109
+services/downloader/test/storage/local-disk.storage.spec.ts
+  s_c81f9e3ea08628::t_3fc2e0afa325c9 112-121,123-129,136-137,139-140,142-151
+  s_c81f9e3ea08628::t_b903d7da582fcb 252-268
+  s_c81f9e3ea08628::t_7f0ff984d7c081 3-86,88-93,97,99-111,122,130-135,138,141,152-208,239-251,269-288,290-295
+  s_c81f9e3ea08628::t_9d8605404f2c76 1,87,289
+  s_c81f9e3ea08628::t_fdeb97727a685f 2,94-96,98,209-238
+services/downloader/test/support/parser-forward.ts
+  s_c81f9e3ea08628::t_7807ba0cccc515 2-86
+  s_c81f9e3ea08628::t_b0ff251406c5c0 87-112
+  s_c81f9e3ea08628::t_9d8605404f2c76 1
+services/downloader/test/env.spec.ts
+  s_c81f9e3ea08628::t_01998880a7e8be 251-273
+services/downloader/jest.integration.config.js
+  s_c81f9e3ea08628::t_7807ba0cccc515 1-18
+services/downloader/test/support/db.ts
+  s_c81f9e3ea08628::t_b92dd7ec8d8c79 23-24,33-53,57
+services/downloader/jest.config.js
+  s_c81f9e3ea08628::t_7807ba0cccc515 9-11
+services/downloader/src/config/env.ts
+  s_c81f9e3ea08628::t_d2c479cd887cb9 32-50,72-74
+  s_c81f9e3ea08628::t_752bdd9f6e8fad 65-71
+services/downloader/test/support/crash-writer.ts
+  s_c81f9e3ea08628::t_7f0ff984d7c081 1-23
+services/downloader/src/storage/storage.interface.ts
+  s_c81f9e3ea08628::t_866debee759df4 37-61
+  s_c81f9e3ea08628::t_66f2e978998c24 1-36,62-79
+services/downloader/test/spike-skip-locked/db.ts
+  s_c81f9e3ea08628::t_1e6d978912036f 5,25-41,45,67-69,73,75
+services/downloader/test/support/streams.ts
+  s_c81f9e3ea08628::t_ced28344ee758d 1-57,65,67,70-71,73-74,76-77,82-87,92-106
+  s_c81f9e3ea08628::t_3fc2e0afa325c9 58-64,66,68-69,72,75,78-81,88-91
+plans/260824-2152-douyin-downloader/phase-02-ports.md
+  s_c81f9e3ea08628::t_101e82f6972ba6 81-83,130,132,138,140,142,144,146,151,153
+  s_c81f9e3ea08628::t_be36287492a633 84-104,118-129,131,133-137,139,141,143,145,147-150,152,154
+  s_c81f9e3ea08628::t_65a44755346ba5 4,59-64,68-72
+  s_c81f9e3ea08628::t_848a70f67b7b2d 105-117
+plans/260824-2152-douyin-downloader/plan.md
+  s_c81f9e3ea08628::t_be36287492a633 86
+  s_c81f9e3ea08628::t_e775c5b303272e 115
+  s_c81f9e3ea08628::t_7bcf3cf122c97f 121-122,131
+  s_c81f9e3ea08628::t_866debee759df4 135-136
+services/downloader/src/parser/parser.errors.ts
+  s_c81f9e3ea08628::t_3fd9578b018fcc 1-89
+pnpm-lock.yaml
+  s_c81f9e3ea08628::t_6b688648d91960 65-67,2260-2263,4770-4771
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "e6e7cb8342a86ca218e603356ed6d1cfbad20a8b",
+  "prompts": {},
+  "sessions": {
+    "s_c81f9e3ea08628": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b2818047-ce65-48a3-996c-ea754551928e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
