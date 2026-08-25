@@ -86,7 +86,7 @@ Lý do đặt thành gate: cả hai đều là *giả định về thư viện/h
 | 2 | `phase-02-ports.md` | `ParserClient` (bóc envelope) + `Storage` (`.tmp`→rename, `freeBytes`) — **DONE**, 15 mutation đỏ + 1 control xanh, integration với parser thật | ~0.5d | 1 | M1 ✅ |
 | 3 | `phase-03-http-api.md` | jobs/videos controller · cookie endpoint · `X-Api-Key` · redaction · **ESLint boundary** — **DONE**, 331 test + 18 mutation đỏ + 2 control xanh; review đối kháng bắt 3 escape redaction + 2 test không thể đỏ | ~1d | 2 | M1 ✅ |
 | 4 | `phase-04-lane-framework.md` | `LaneRunner` base (bắt hết exception) · graceful shutdown · reaper (F3+F5+finalize+dọn `.tmp`) — **DONE**, 20 mutation đỏ (19 test + 1 ESLint) + 2 control xanh; bắt được 4 bug thật, nặng nhất là `onModuleDestroy` đóng pool trước khi lane nhả lease | ~0.5d | 2 | M1 ✅ |
-| 5 | `phase-05-enumerate-lane.md` | global 1 luồng (F2) · checkpoint mỗi trang · blocked theo tín hiệu cấu trúc | ~0.5d | 4 | M1 |
+| 5 | `phase-05-enumerate-lane.md` | global 1 luồng (F2) · checkpoint mỗi trang · blocked theo tín hiệu cấu trúc — **DONE**, 32 mutation đỏ + 2 control xanh; tìm ra bug phase 4 đã ship (`greatest()` trên `max_cursor` sai hướng vì cursor Douyin **giảm** dần), và review đối kháng chứng minh **4 assertion không thể đỏ** + 1 guard pacing không có test nào | ~0.5d | 4 | M1 ✅ |
 | 6 | `phase-06-download-lane.md` | claim SKIP LOCKED · F1 re-resolve phản ứng · stream → rename · finalize job | ~1d | 5 | **M1 gate** |
 | 7 | `phase-07-durability.md` | **F4 probe** · retry/cancel · rate-limit test · **bộ mutation test** | ~1.5d | 6 | **M2** |
 | 8 | `phase-08-web-ui.md` | React+Vite+Tailwind · hai thanh riêng · badge cookie · polling 1s | ~1d | 3 | M2 |
@@ -110,11 +110,12 @@ Phase 8 và 9 chỉ cần Phase 3 (API), nên **làm song song được** với 
 | Reaper nhặt lại **job** mồ côi (F5) | 4 | Bỏ reaper `jobs` | Test resume enumerate **đỏ** — **DONE** |
 | `attempts` tăng lúc claim (F6) | 1 | Chuyển sang tăng lúc fail | Test crash-loop 3 lần **đỏ** — **DONE**, 7 test đỏ |
 | Claim không trùng | 1 | Bỏ `SKIP LOCKED` / bỏ `FOR UPDATE` | Test 2 transaction song song **đỏ**. Phase 0 đã proof pattern này (2 mutation, cả 4 test đỏ) — **lưu ý cho phase 1**: barrier `Promise.all` không đủ, `LockRows` của Postgres tự thử row kế tiếp nên tự "chữa lành" thiếu `SKIP LOCKED` khi commit nhanh; claim thắng phải giữ transaction mở tới khi mọi contender kết thúc. Shape đã validate: `.for('update', { skipLocked: true })` + `inArray(column, subquerySelect)`. **DONE ở phase 1** trên bảng `videos` và `jobs` thật, dùng lại nguyên harness của phase 0 |
-| Enumerate global 1 luồng (F2) | 5 | Đổi thành per-job | Test tần suất 2 job **đỏ** |
-| `blocked` ≠ `failed` | 5, 7 | Map `blocked` → `failed` | Test hồi phục cookie **đỏ** |
+| Enumerate global 1 luồng (F2) | 5 | Đổi thành per-job | Test tần suất 2 job **đỏ** — **DONE**. Đo `maxInFlight` của parser qua **mảng `LANES` production** (F2 là thuộc tính của mảng, không phải của class), kèm **positive control** phải báo 2 khi thật sự có 2 lane: "max in-flight = 1" chỉ là bằng chứng nếu dụng cụ đo *nhìn thấy được* số 2. Kèm **control phải-xanh**: thêm reaper thứ hai ⇒ suite tần suất enumerate **vẫn xanh**, chứng minh nó đo request chứ không đo độ dài mảng |
+| `blocked` ≠ `failed` | 5, 7 | Map `blocked` → `failed` | Test hồi phục cookie **đỏ** — **DONE ở phase 5**, nhưng chỉ sau khi bỏ phiên bản hiển nhiên của nó: `RETRYABLE_STATUSES` chứa **cả hai**, nên test chỉ đi hết luồng recovery **vẫn xanh** khi map sang `failed`. Neo vào (a) chính cái từ — cả hai retryable nên status **là** chỉ dẫn remediation — và (b) `CANCELLABLE_STATUSES` chứa `blocked` mà loại `failed`, là hệ quả *hành vi* của cái từ. Control phải-xanh: đổi lời log ⇒ vẫn xanh |
 | Ghi file atomic | 6 | Bỏ `.tmp` + `rename` | Test crash-giữa-ghi **đỏ** — **DONE ở phase 2** (`Storage` sinh ra ở đó, nên guard sinh ra cùng chỗ): 2 mutation (`.tmp`+rename, tên `.tmp` cố định) đều đỏ, crash test dùng `SIGKILL` thật ở tiến trình con. **Hai bài học**: (a) mutation "tên cố định" ban đầu đỏ vì cờ `wx` chặn writer thứ hai chứ không vì corruption — chữa bằng **control phải-xanh**: gỡ *chỉ* `wx`, giữ tên duy nhất ⇒ suite vẫn xanh. (b) **Kể cả sau đó nó vẫn đỏ vì lý do sai**: writer thua `rename` trên temp file đã bị dời đi, ăn `ENOENT`, chết **trước** assertion về nội dung. Thêm đúng thứ phase 6 sẽ thêm — `rename` khoan dung `ENOENT` — thì test **flaky-green 3/6**. Gốc rễ: hai payload cùng độ dài, ghi cùng offset, nên file dùng chung vẫn có thể trông đồng nhất. Sửa: hai writer **độ dài khác nhau** + đòi file bằng **byte-for-byte** một trong hai payload, và thêm mutation mô phỏng sẵn hình dạng phase 6 |
 | Cookie không vào log | 3 | Thêm `log(cookie)` **và riêng biệt** `console.log(cookie)` | **Cả hai** phải **đỏ** — **DONE**, 2 mutation bắt được |
-| Checkpoint mỗi trang | 5 | Chuyển checkpoint ra sau vòng lặp | Test resume giữa enumerate **đỏ** |
+| Checkpoint mỗi trang | 5 | Chuyển checkpoint ra sau vòng lặp | Test resume giữa enumerate **đỏ** — **DONE**. Quan sát từ **bên trong** lời gọi parser (trang N+1 đọc row ra), vì "đã ghi rồi" chỉ có nghĩa ở đúng điểm đó |
+| `max_cursor` tiến theo **tiến độ**, không theo giá trị số | 5 | Đặt `greatest()` trở lại | Test cursor **giảm dần** **đỏ** — **DONE**, đo ở cả tầng repository và **qua lane**. Đây là bug phase 4 đã ship: cursor Douyin là `create_time` của item **cũ nhất** trong trang và profile phân trang **mới nhất trước**, nên cursor **giảm**; `greatest` đóng băng checkpoint ở trang 1 trong khi `enumerated_count` vẫn tăng và lease vẫn renew — **không quan sát nào thấy sai**. Không test nào bắt được vì fake parser tự do trả số **tăng**: fixture dễ hơn thực tế là một dạng false-green riêng |
 
 **Luật thi hành:** mỗi mutation phải in ra **diff nó thật sự áp được**. Mutation match rỗng ⇒ coi như **chưa chạy**, không phải "đã pass". Đây là cái bẫy đã sập hai lần ở phase 1.
 
@@ -128,7 +129,15 @@ Phase 8 và 9 chỉ cần Phase 3 (API), nên **làm song song được** với 
 
 **Luật thứ sáu (thêm ở phase 4): một mutation có thể *treo* thay vì fail.** Mutation "bỏ `setImmediate` sau tick `'worked'`" không làm test đỏ — nó làm event loop ngừng quay, nên **timeout của chính jest cũng không nổ** và suite đứng vĩnh viễn tại đó. Sửa ở hai đầu: (a) harness có timeout riêng và coi hang là **một outcome riêng** — hang là catch hợp lệ cho must-fail, là *thất bại* cho control, không bao giờ gộp vào "đỏ" chung (nếu gộp thì "Postgres sập" sẽ trông như 16 mutation thành công); (b) test tự sửa để **đỏ được**: cap số tick của lane giả + probe bằng `setImmediate` chứ không `setTimeout`, vì event loop bị đói cũng làm đói luôn cái đo nó. **Một mutation không bắt được là một guard không được canh.**
 
-**Hệ quả đáng nhớ:** harness là thứ chấm điểm mọi guard khác, nên bug trong nó vô hình theo đúng nghĩa đen — nó hỏng bằng cách báo cáo sự tự tin. Sáu lần rồi. Trước khi tin một lượt chạy, kiểm từng mutation có đổi đúng file nó khai, có chạy **khác 0** test, và có **kết thúc**.
+**Luật thứ bảy (thêm ở phase 5): fixture dễ hơn thực tế là một dạng false-green riêng, và mutation "vẫn xanh" là kênh duy nhất bắt được comment đang nói dối.**
+
+Hai chuyện ở phase 5, cùng một gốc: *test chỉ chứng minh được điều fixture cho phép nó chứng minh.*
+
+(a) `checkpoint` của phase 4 dùng `greatest()` trên `max_cursor`. Cursor Douyin **giảm** dần, nên guard đó đóng băng checkpoint ở trang 1 — nhưng mọi fake parser trong repo trả cursor **tăng**, nên **không mutation nào, không test nào** bắt được. Sửa: fixture phải mô phỏng *hướng* thật, và mutation đặt `greatest()` trở lại phải đo **qua lane** chứ không chỉ ở repository.
+
+(b) `upsertMany` có `Map` dedupe kèm comment nói `ON CONFLICT` sẽ raise "cannot affect row a second time". Mutation phá `Map` **vẫn xanh** ⇒ comment sai. Đo thật: `DO NOTHING` trả 1 row không lỗi, chỉ `DO UPDATE` mới raise. `Map` là dead code. Nếu "mutation stayed green" bị coi là chuyện nhỏ thì cái comment sai đó sống mãi và trở thành lý do người sau *không* dám đổi clause.
+
+**Hệ quả đáng nhớ:** harness là thứ chấm điểm mọi guard khác, nên bug trong nó vô hình theo đúng nghĩa đen — nó hỏng bằng cách báo cáo sự tự tin. Bảy lần rồi. Trước khi tin một lượt chạy, kiểm từng mutation có đổi đúng file nó khai, có chạy **khác 0** test, có **kết thúc**, và — với guard nào dựa vào hình dạng dữ liệu bên ngoài — fixture có mô phỏng đúng *hình dạng đó* hay chỉ mô phỏng một phiên bản dễ hơn.
 
 ---
 
@@ -147,7 +156,7 @@ Phase 8 và 9 chỉ cần Phase 3 (API), nên **làm song song được** với 
 | Reaper nhả video mà worker vẫn đang tải → 2 writer 1 file | 6 | `.tmp` mang tên **duy nhất theo lượt claim**; `rename` là điểm commit duy nhất; **kiểm lease trước khi `rename`**, hết lease thì tự huỷ |
 | Chẩn đoán `blocked` sai (F4) | 7 | Ưu tiên tín hiệu cấu trúc (`aweme_list` rỗng + `has_more=1`, là HTTP 200 và **chắc chắn**); probe chỉ dùng sau 3× 400 |
 | Cookie lọt vào log | 3 | **RESOLVED.** Redaction layer (`redactor.ts`, `stdio-redaction.ts`, `redact.logger.ts`) phủ cả logging + stdout/stderr. 2 mutation (logger.log / console.log riêng) đều bắt được |
-| Cookie bị ban giữa job | 5, 7 | `blocked` + giữ `max_cursor`. Không phải `failed` |
+| Cookie bị ban giữa job | 5, 7 | **RESOLVED ở phase 5** cho tín hiệu cấu trúc: `blocked` + giữ `max_cursor`, không phải `failed`. 3× 400 cũng park ở `blocked` nhưng **nói rõ nguyên nhân là UNKNOWN** kèm `TODO(phase-7)` — probe F4 là phase 7 |
 | Douyin đổi `a_bogus` | 10 | CI job hàng tuần: fetch upstream → `check-patch-size.sh` → pytest fork → grep `PATCH_NOTES.md` §5 → mở issue nếu lệch |
 | Upstream hoist header thành constant lúc import | 10 | Cookie **đóng băng lúc process start, không có exception**. Watch tỉ lệ job `blocked`, không watch exception |
 | Đầy đĩa giữa job | 10 | Preflight `total_videos × 30MB > freeBytes − 10GB` → từ chối. Chạy **sau** enumerate |
@@ -190,13 +199,13 @@ Ghi ra để không ai "sửa lại cho đúng spec" rồi tạo bug.
 - [ ] Đổi cookie trong Redis → parser dùng cookie mới ở request kế tiếp, **không restart**
 - [ ] Job profile 200+ video hoàn tất, số file trong storage khớp `downloaded_count`
 - [ ] Kill process giữa pha download → restart → tiếp tục, **không tải lại file đã xong**
-- [ ] Kill process giữa pha **enumerate** → restart → tiếp từ `max_cursor` (F5)
+- [x] Kill process giữa pha **enumerate** → restart → tiếp từ `max_cursor` (F5) — **DONE ở phase 5**
 - [ ] Chạy lại cùng profile lần 2 → **chỉ tải video mới**
 - [ ] Cookie hết hạn giữa job → `blocked` (không `failed`) → push cookie mới → `/retry` → tiếp từ checkpoint
 - [ ] Profile private → `failed` kèm lý do rõ, **không phải** `blocked` (F4)
 - [ ] Cookie không xuất hiện trong bất kỳ log / API response nào
 - [ ] `docker compose up` từ máy sạch chạy được
 - [ ] Parser **không** expose ra ngoài internal network (không có `ports:`)
-- [ ] Enumerate 2 job song song → tổng tần suất request vẫn = 1 luồng (F2)
+- [x] Enumerate 2 job song song → tổng tần suất request vẫn = 1 luồng (F2) — **DONE ở phase 5**, đo qua mảng `LANES` production + positive control
 - [x] Test kiến trúc xanh: nạp tay một row `jobs` ở `pending` thì lane vẫn chạy (chứng minh HTTP layer và lane chỉ nối qua DB) — **DONE ở phase 4**
 - [ ] **Toàn bộ 10 mutation ở §5 đã chạy, mỗi cái in diff áp được, mỗi cái đỏ**
