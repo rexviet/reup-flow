@@ -85,7 +85,7 @@ Lý do đặt thành gate: cả hai đều là *giả định về thư viện/h
 | 1 | `phase-01-schema.md` | Drizzle schema + migration + claim/reaper query. **F1·F3·F5·F6 cột, F7 doc** — **DONE**, 8 mutation đỏ + test chống drift schema↔migration | ~0.5d | 0 | M1 ✅ |
 | 2 | `phase-02-ports.md` | `ParserClient` (bóc envelope) + `Storage` (`.tmp`→rename, `freeBytes`) — **DONE**, 15 mutation đỏ + 1 control xanh, integration với parser thật | ~0.5d | 1 | M1 ✅ |
 | 3 | `phase-03-http-api.md` | jobs/videos controller · cookie endpoint · `X-Api-Key` · redaction · **ESLint boundary** — **DONE**, 331 test + 18 mutation đỏ + 2 control xanh; review đối kháng bắt 3 escape redaction + 2 test không thể đỏ | ~1d | 2 | M1 ✅ |
-| 4 | `phase-04-lane-framework.md` | `LaneRunner` base (bắt hết exception) · graceful shutdown · reaper (F3+F5) | ~0.5d | 2 | M1 |
+| 4 | `phase-04-lane-framework.md` | `LaneRunner` base (bắt hết exception) · graceful shutdown · reaper (F3+F5+finalize+dọn `.tmp`) — **DONE**, 20 mutation đỏ (19 test + 1 ESLint) + 2 control xanh; bắt được 4 bug thật, nặng nhất là `onModuleDestroy` đóng pool trước khi lane nhả lease | ~0.5d | 2 | M1 ✅ |
 | 5 | `phase-05-enumerate-lane.md` | global 1 luồng (F2) · checkpoint mỗi trang · blocked theo tín hiệu cấu trúc | ~0.5d | 4 | M1 |
 | 6 | `phase-06-download-lane.md` | claim SKIP LOCKED · F1 re-resolve phản ứng · stream → rename · finalize job | ~1d | 5 | **M1 gate** |
 | 7 | `phase-07-durability.md` | **F4 probe** · retry/cancel · rate-limit test · **bộ mutation test** | ~1.5d | 6 | **M2** |
@@ -105,9 +105,9 @@ Phase 8 và 9 chỉ cần Phase 3 (API), nên **làm song song được** với 
 
 | Invariant | Phase | Mutation | Kỳ vọng |
 |---|---|---|---|
-| Loop rò exception không giết lane | 4 | Ném lỗi trong thân loop | Lane vẫn sống, test xanh; **bỏ `try/catch` → test đỏ** |
-| Reaper nhặt lại video mồ côi | 4 | Bỏ reaper `videos` | Test resume **đỏ** |
-| Reaper nhặt lại **job** mồ côi (F5) | 4 | Bỏ reaper `jobs` | Test resume enumerate **đỏ** |
+| Loop rò exception không giết lane | 4 | Ném lỗi trong thân loop | Lane vẫn sống, test xanh; **bỏ `try/catch` → test đỏ** — **DONE**, 6 test đỏ |
+| Reaper nhặt lại video mồ côi | 4 | Bỏ reaper `videos` | Test resume **đỏ** — **DONE**, kèm **control**: bỏ sweep này thì test SIGTERM-nhả-lease phải **vẫn xanh**, nếu không thì nó đang đo reaper chứ không đo "ngay lập tức" |
+| Reaper nhặt lại **job** mồ côi (F5) | 4 | Bỏ reaper `jobs` | Test resume enumerate **đỏ** — **DONE** |
 | `attempts` tăng lúc claim (F6) | 1 | Chuyển sang tăng lúc fail | Test crash-loop 3 lần **đỏ** — **DONE**, 7 test đỏ |
 | Claim không trùng | 1 | Bỏ `SKIP LOCKED` / bỏ `FOR UPDATE` | Test 2 transaction song song **đỏ**. Phase 0 đã proof pattern này (2 mutation, cả 4 test đỏ) — **lưu ý cho phase 1**: barrier `Promise.all` không đủ, `LockRows` của Postgres tự thử row kế tiếp nên tự "chữa lành" thiếu `SKIP LOCKED` khi commit nhanh; claim thắng phải giữ transaction mở tới khi mọi contender kết thúc. Shape đã validate: `.for('update', { skipLocked: true })` + `inArray(column, subquerySelect)`. **DONE ở phase 1** trên bảng `videos` và `jobs` thật, dùng lại nguyên harness của phase 0 |
 | Enumerate global 1 luồng (F2) | 5 | Đổi thành per-job | Test tần suất 2 job **đỏ** |
@@ -124,7 +124,11 @@ Phase 8 và 9 chỉ cần Phase 3 (API), nên **làm song song được** với 
 
 **Luật thứ tư (thêm ở phase 3): một cơ chế restore duy nhất, áp cho *mọi* file, và phải verify.** Mutation đụng hai file thì (a) đòi **mọi** file được liệt kê phải đổi — "ít nhất một file đổi" cho phép mutation áp một nửa rồi vẫn tự báo "caught"; và (b) không dùng `git checkout --` để trả file về: với file git **chưa track** — ở một phase mới thì đó là *tất cả* — nó im lặng không làm gì, mutation sống tiếp hết lượt chạy, và mọi khẳng định sau đó đo trên một build đã hỏng.
 
-**Hệ quả đáng nhớ:** harness là thứ chấm điểm mọi guard khác, nên bug trong nó vô hình theo đúng nghĩa đen — nó hỏng bằng cách báo cáo sự tự tin. Trước khi tin một lượt chạy, kiểm từng mutation có đổi đúng file nó khai và có chạy **khác 0** test.
+**Luật thứ năm (thêm ở phase 4): harness bị *kill* phải không để lại cây nguồn nhiễm độc.** Luật 1–4 đều giả định script chạy tới được lệnh `restore` của chính nó. Một watchdog `pkill` giữa `_apply` và `restore` để lại mutation nằm nguyên trong file **chưa track** — mà ở một phase mới thì đó là *mọi* file, và `git checkout` không có gì để trả về. Lượt chạy kế tiếp đo trên build đã hỏng: mutation thứ hai báo `matched nothing`, mọi kết quả sau đó vô nghĩa. Sửa: snapshot **pristine** mọi file mục tiêu trước khi chạy, `trap ... EXIT INT TERM` restore, và **in ra** là đã phải restore (restore im lặng không phân biệt được với không restore).
+
+**Luật thứ sáu (thêm ở phase 4): một mutation có thể *treo* thay vì fail.** Mutation "bỏ `setImmediate` sau tick `'worked'`" không làm test đỏ — nó làm event loop ngừng quay, nên **timeout của chính jest cũng không nổ** và suite đứng vĩnh viễn tại đó. Sửa ở hai đầu: (a) harness có timeout riêng và coi hang là **một outcome riêng** — hang là catch hợp lệ cho must-fail, là *thất bại* cho control, không bao giờ gộp vào "đỏ" chung (nếu gộp thì "Postgres sập" sẽ trông như 16 mutation thành công); (b) test tự sửa để **đỏ được**: cap số tick của lane giả + probe bằng `setImmediate` chứ không `setTimeout`, vì event loop bị đói cũng làm đói luôn cái đo nó. **Một mutation không bắt được là một guard không được canh.**
+
+**Hệ quả đáng nhớ:** harness là thứ chấm điểm mọi guard khác, nên bug trong nó vô hình theo đúng nghĩa đen — nó hỏng bằng cách báo cáo sự tự tin. Sáu lần rồi. Trước khi tin một lượt chạy, kiểm từng mutation có đổi đúng file nó khai, có chạy **khác 0** test, và có **kết thúc**.
 
 ---
 
@@ -137,8 +141,8 @@ Phase 8 và 9 chỉ cần Phase 3 (API), nên **làm song song được** với 
 | Fault-injection sót lại trong `main.ts` | 1 → 2 → **3** | `services/downloader/src/main.ts` có nhánh test-only `__TEST_ONLY_SIMULATE_BOOTSTRAP_ERROR__` (tắt khi `NODE_ENV=production`). Xoá khi DB/Redis client thật cho bootstrap catch-all lỗi thật để test. **Vẫn còn sau phase 2**: phase 2 chỉ thêm hai port do *lane* dựng (`ParserClient`, `Storage`), `NestFactory` vẫn không mở kết nối nào; và test D-3 cần một lỗi **có nhúng DSN**, thứ chỉ lỗi kết nối DB/Redis sinh ra — dời sang phase 3 |
 | `redactSecrets` ở `src/config/env.ts` là tạm | 3 | **RESOLVED.** Tầng logger phase 3 thay thế (`redact.logger.ts` + stdio patch). Stopgap xoá |
 | `start.py` fork chạy `uvicorn --reload` cả ở production | 10 | Chưa quyết — xem §8 câu hỏi mở |
-| Loop rò exception → lane chết âm thầm | 4 | `try/catch` toàn thân + metric "tick cuối lúc nào". Mutation test |
-| `.tmp` mồ côi không ai dọn | **4** | Một worker bị `SIGKILL` giữa chừng để lại `{key}.{uuid}.tmp` **vĩnh viễn** — `local-disk.storage.spec.ts` khẳng định đó là hành vi đúng (không được commit gì), nhưng **không có code nào xoá nó**. Reaper phase 4 hồi phục *row DB*, không hồi phục *bytes*. Qua một vòng crash-loop chúng tích lại ở kích thước video đầy đủ, `exists()` không thấy, mà vẫn ăn đúng phần đĩa `freeBytes()` hứa với preflight phase 10. Reaper phase 4 phải dọn luôn `.tmp` quá hạn của key nó nhả |
+| ~~Loop rò exception → lane chết âm thầm~~ | 4 | **RESOLVED.** `try/catch` toàn thân + `lastTickAt` + watchdog 5 phút ở `LaneSupervisor` (một `setInterval` unref'd, **không** phải một lane — lane không tự canh được cái chết của chính nó). Mutation đỏ. **Bug kèm theo, cùng họ:** một tick `'worked'` chỉ `await` microtask sẽ làm đói event loop, và vì API + lane chung process thì đó là `/health` im lặng + SIGTERM handler không chạy — sửa bằng `setImmediate` mỗi tick, có mutation |
+| ~~`.tmp` mồ côi không ai dọn~~ | **4** | **RESOLVED.** `Storage.removeStaleTemp(olderThanMs)` + sweep thứ tư của reaper, cutoff = một `LEASE_SECONDS` đo bằng **mtime** (file đang được ghi thì mtime còn chạy) cộng registry in-flight trong process, nên sweep cutoff-0 vẫn không đụng download đang sống. Xoá `.tmp` của writer còn sống làm `rename` của nó ăn ENOENT — đúng lỗi journal phase 2 mất một ngày. Lý do cũ: | Một worker bị `SIGKILL` giữa chừng để lại `{key}.{uuid}.tmp` **vĩnh viễn** — `local-disk.storage.spec.ts` khẳng định đó là hành vi đúng (không được commit gì), nhưng **không có code nào xoá nó**. Reaper phase 4 hồi phục *row DB*, không hồi phục *bytes*. Qua một vòng crash-loop chúng tích lại ở kích thước video đầy đủ, `exists()` không thấy, mà vẫn ăn đúng phần đĩa `freeBytes()` hứa với preflight phase 10. Reaper phase 4 phải dọn luôn `.tmp` quá hạn của key nó nhả |
 | Ai đó gọi `setGlobalDispatcher(new RetryAgent(...))` ở file khác | ~~2~~ | **RESOLVED ở phase 2.** `undici.request` dùng dispatcher **toàn cục** nếu không được đưa dispatcher riêng, nên một thư viện bất kỳ trong process biến 1 lời gọi parser thành 4 — **không đụng một dòng nào của `parser.client.ts`**, tức là không mutation nào của phase 2 bắt được. `ParserClient` giờ sở hữu `Agent` riêng và có `close()` cho graceful shutdown phase 4. Có test + mutation |
 | Reaper nhả video mà worker vẫn đang tải → 2 writer 1 file | 6 | `.tmp` mang tên **duy nhất theo lượt claim**; `rename` là điểm commit duy nhất; **kiểm lease trước khi `rename`**, hết lease thì tự huỷ |
 | Chẩn đoán `blocked` sai (F4) | 7 | Ưu tiên tín hiệu cấu trúc (`aweme_list` rỗng + `has_more=1`, là HTTP 200 và **chắc chắn**); probe chỉ dùng sau 3× 400 |
@@ -194,5 +198,5 @@ Ghi ra để không ai "sửa lại cho đúng spec" rồi tạo bug.
 - [ ] `docker compose up` từ máy sạch chạy được
 - [ ] Parser **không** expose ra ngoài internal network (không có `ports:`)
 - [ ] Enumerate 2 job song song → tổng tần suất request vẫn = 1 luồng (F2)
-- [ ] Test kiến trúc xanh: nạp tay một row `jobs` ở `pending` thì lane vẫn chạy (chứng minh HTTP layer và lane chỉ nối qua DB)
+- [x] Test kiến trúc xanh: nạp tay một row `jobs` ở `pending` thì lane vẫn chạy (chứng minh HTTP layer và lane chỉ nối qua DB) — **DONE ở phase 4**
 - [ ] **Toàn bộ 10 mutation ở §5 đã chạy, mỗi cái in diff áp được, mỗi cái đỏ**
