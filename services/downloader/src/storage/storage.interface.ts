@@ -65,6 +65,18 @@ export interface Storage {
   freeBytes(): Promise<number>;
   /** Removes a committed file. A missing file is not an error. */
   remove(key: string): Promise<void>;
+  /**
+   * Deletes every uncommitted temp file nothing has written to for
+   * `olderThanMs`, returning the paths removed.
+   *
+   * On the interface rather than only on the local-disk class because the
+   * problem is not local-disk-specific: any backend that commits by moving a
+   * staged object leaves the staged object behind when a worker is killed, and
+   * the reaper (phase 4 §4.3) needs one call it can make without knowing which
+   * backend it is talking to. See the implementation for why the cutoff is read
+   * off MTIME.
+   */
+  removeStaleTemp(olderThanMs: number): Promise<string[]>;
 }
 
 /**

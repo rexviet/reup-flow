@@ -18,6 +18,11 @@ describe("GET /health (e2e)", () => {
       REDIS_URL: "redis://localhost:6379",
       PARSER_BASE_URL: "http://parser:80",
       PROBE_SEC_USER_ID: "probe-sec-user-id",
+      // Lanes OFF. This suite boots the real AppModule against the live
+      // compose stack's `public` schema; with lanes on, a 60s reaper would
+      // start sweeping those tables and DATA_DIR as a side effect of asking an
+      // HTTP question. See env.ts's LANES_ENABLED.
+      LANES_ENABLED: "false",
     });
 
     const moduleRef = await Test.createTestingModule({

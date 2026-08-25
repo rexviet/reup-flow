@@ -40,6 +40,16 @@ describe("docker-compose.yml load-bearing constraints", () => {
     expect(nestEnv).not.toContain("POSTGRES_PASSWORD");
   });
 
+  it("nest is told explicitly whether it runs the lanes", () => {
+    // Phase 4 §4.2. env.ts defaults LANES_ENABLED to true, so omitting it here
+    // would still work -- and that is the problem: the ONE line an operator
+    // edits to split this into an API-only node plus a lane node (plan §0
+    // principle 1) would not exist in the file they are editing. A default
+    // that has to be discovered by reading TypeScript is a default nobody
+    // finds under pressure.
+    expect(compose.services.nest.environment.LANES_ENABLED).toBeDefined();
+  });
+
   it("every service has a healthcheck, so `up` failing is visible", () => {
     for (const name of ["nest", "parser", "postgres", "redis"]) {
       expect(compose.services[name].healthcheck).toBeDefined();

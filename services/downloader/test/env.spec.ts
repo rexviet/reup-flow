@@ -261,3 +261,34 @@ describe("PARSER_BASE_URL", () => {
     expect(parseEnv(validEnv({ PARSER_BASE_URL: value })).PARSER_BASE_URL).toBe(value);
   });
 });
+
+describe("LANES_ENABLED (phase 4 §4.2)", () => {
+  it("defaults to true, so `docker compose up` does work without extra configuration", () => {
+    expect(parseEnv(validEnv()).LANES_ENABLED).toBe(true);
+  });
+
+  it.each([["false"], ["FALSE"], ["0"], ["no"], ["off"], [" false "]])(
+    "reads %p as false",
+    (raw) => {
+      // THE case this exists for. `z.coerce.boolean()` applies JavaScript
+      // truthiness, under which the string "false" -- the single most likely
+      // way anybody writes this in a compose file -- is `true`. So are "0" and
+      // "no". A variable whose entire purpose is turning the lanes off would
+      // have left them on, in the direction nobody checks, with the process
+      // looking healthy the whole time.
+      expect(parseEnv(validEnv({ LANES_ENABLED: raw })).LANES_ENABLED).toBe(false);
+    },
+  );
+
+  it.each([["true"], ["TRUE"], ["1"], ["yes"], ["on"]])("reads %p as true", (raw) => {
+    expect(parseEnv(validEnv({ LANES_ENABLED: raw })).LANES_ENABLED).toBe(true);
+  });
+
+  it.each([["flase"], ["maybe"], [""], ["2"]])("REJECTS the unrecognised value %p", (raw) => {
+    // A typo must fail at boot, where parseEnv names the variable, rather than
+    // silently taking a default. Either default is wrong here: `true` runs
+    // lanes on a node meant to be API-only, `false` leaves a queue with nobody
+    // draining it. Both are silent.
+    expect(() => parseEnv(validEnv({ LANES_ENABLED: raw }))).toThrow(/LANES_ENABLED/);
+  });
+});

@@ -67,6 +67,15 @@ describe("bootstrap succeeds (real process, positive control)", () => {
           REDIS_URL: "redis://localhost:6379",
           PARSER_BASE_URL: "http://parser:80",
           PROBE_SEC_USER_ID: "probe-sec-user-id",
+          // Lanes OFF. The subject here is BOOTSTRAP -- "a valid env produces
+          // a process that starts and stays quiet" -- and this assertion
+          // demands stderr be empty to the byte. With lanes on, the reaper
+          // starts sweeping the live compose stack's `public` schema, which
+          // has no tables (migrations are applied per-run into a test schema,
+          // never into `public`), so every 60s tick correctly logs a failed
+          // query and this control goes red for a reason that has nothing to
+          // do with bootstrap. See env.ts's LANES_ENABLED.
+          LANES_ENABLED: "false",
           // Port 0 = let the OS pick a free one, so this never collides with
           // a dev server or with CI running suites in parallel.
           PORT: "0",

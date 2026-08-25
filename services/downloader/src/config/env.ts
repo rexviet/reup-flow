@@ -30,6 +30,36 @@ function boundedInt(label: string, min: number, max: number) {
 }
 
 /**
+ * An env var read as a boolean.
+ *
+ * NOT `z.coerce.boolean()`, which is a trap here: it applies JavaScript
+ * truthiness, so the string `"false"` -- the single most likely way anybody
+ * writes this in a compose file or a `.env` -- coerces to `true`. So does
+ * `"0"`, and so does `"no"`. A var whose whole purpose is to turn the lanes
+ * off would silently leave them on.
+ *
+ * An explicit allowlist instead, and an unrecognised value is an error rather
+ * than a default: a typo'd `LANES_ENABLE=flase` must fail at boot, where
+ * `parseEnv` reports it, not six hours later when someone wonders why this
+ * node is processing jobs.
+ */
+function booleanFlag(label: string) {
+  return z
+    .union([z.boolean(), z.string()])
+    .transform((value, ctx) => {
+      if (typeof value === "boolean") return value;
+      const normalised = value.trim().toLowerCase();
+      if (["true", "1", "yes", "on"].includes(normalised)) return true;
+      if (["false", "0", "no", "off"].includes(normalised)) return false;
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `${label} must be one of true/false/1/0/yes/no/on/off`,
+      });
+      return z.NEVER;
+    });
+}
+
+/**
  * Whether a value can serve as the base of `new URL(path, base)`.
  *
  * `z.string().url()` is not enough here, and the gap is not obvious:
@@ -93,6 +123,20 @@ export const envSchema = z
     DISK_RESERVE_BYTES: positiveInt("DISK_RESERVE_BYTES").default(10737418240),
     EST_BYTES_PER_VIDEO: positiveInt("EST_BYTES_PER_VIDEO").default(31457280),
     PORT: boundedInt("PORT", 0, 65535).default(3000),
+    /**
+     * Whether THIS process runs the lanes (phase 4 §4.2). Default true, so
+     * `docker compose up` needs no extra configuration to do any work.
+     *
+     * The switch is what makes plan §0 principle 1 -- "Postgres is the only
+     * channel between the HTTP layer and a lane" -- cash out today rather
+     * than in principle. With it false the process is an API-only node;
+     * lanes run wherever it is true, in this process or another one, with no
+     * logic changed either way. That was the property principle 1 was for.
+     *
+     * It is also how every `AppModule`-based e2e test avoids starting a
+     * reaper against the live compose stack as a side effect of booting.
+     */
+    LANES_ENABLED: booleanFlag("LANES_ENABLED").default(true),
   })
   .superRefine((val, ctx) => {
     if (val.ENUMERATE_SLEEP_MS_MIN > val.ENUMERATE_SLEEP_MS_MAX) {

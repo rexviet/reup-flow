@@ -63,5 +63,29 @@ export async function createApp(): Promise<{ app: INestApplication; env: Env }> 
   const app = await NestFactory.create(AppModule, {
     logger: new RedactingLogger("Bootstrap"),
   });
+  configureApp(app);
   return { app, env };
+}
+
+/**
+ * Everything that must be done to a built app before it serves traffic.
+ *
+ * Split out of `createApp` for the same reason `createApp` itself exists: a
+ * test that needs the production wiring with ONE provider swapped has to build
+ * its own testing module, and it must be able to apply this configuration
+ * without re-implementing it. One definition, two callers, no drift -- exactly
+ * the argument in `createApp`'s own comment.
+ *
+ * `enableShutdownHooks()` is the load-bearing line. Without it Nest installs
+ * no signal listeners at all, so `SIGTERM` kills the process outright:
+ * `onApplicationShutdown` never fires, `LaneSupervisor` never stops a lane,
+ * and every claim the lanes were holding keeps its lease for the full
+ * `LEASE_SECONDS`. The restarted process then sits next to work it is not
+ * allowed to touch for five minutes -- which is precisely the symptom §4.2's
+ * DoD line forbids, and it is invisible in every in-process test because
+ * those call `app.close()` directly. `test/lanes/sigterm-shutdown.e2e-spec.ts`
+ * drives a real signal at a real child process to cover it.
+ */
+export function configureApp(app: INestApplication): void {
+  app.enableShutdownHooks();
 }

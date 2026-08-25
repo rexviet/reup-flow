@@ -28,6 +28,13 @@ services:
       URL_TTL_SECONDS: ${URL_TTL_SECONDS:-7200}
       DISK_RESERVE_BYTES: ${DISK_RESERVE_BYTES:-10737418240}
       EST_BYTES_PER_VIDEO: ${EST_BYTES_PER_VIDEO:-31457280}
+      # Whether THIS container runs the lanes (phase 4 §4.2). Stated explicitly
+      # rather than left to env.ts's default of true, because this is the line
+      # an operator edits to split the process in two: one `nest` with lanes
+      # off serving HTTP, one with lanes on doing the work. Plan §0 principle 1
+      # exists to make that split cost no code change, and this is where it
+      # gets made.
+      LANES_ENABLED: ${LANES_ENABLED:-true}
     ports:
       # The orchestrator API is the only thing meant to be reachable from the
       # host. Contrast with `parser` below, which deliberately has none.

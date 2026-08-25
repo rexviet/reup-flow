@@ -1,4 +1,10 @@
-import { Global, Inject, Module, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import {
+  Global,
+  Inject,
+  Module,
+  type OnApplicationShutdown,
+  type OnModuleInit,
+} from '@nestjs/common';
 import { Pool } from 'pg';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as schema from './schema';
@@ -59,7 +65,7 @@ function describeConnectionError(err: unknown): string {
   ],
   exports: [PG_POOL, DB],
 })
-export class DbModule implements OnModuleInit, OnModuleDestroy {
+export class DbModule implements OnModuleInit, OnApplicationShutdown {
   constructor(
     @Inject(PG_POOL) private readonly pool: Pool,
     @Inject(ENV) private readonly env: Env,
@@ -86,7 +92,28 @@ export class DbModule implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async onModuleDestroy(): Promise<void> {
+  /**
+   * WHY `OnApplicationShutdown` AND NOT `OnModuleDestroy` (phase 4 §4.2).
+   *
+   * Nest tears down in a fixed order: every `onModuleDestroy`, then every
+   * `beforeApplicationShutdown`, then every `onApplicationShutdown`. The lanes
+   * are stopped in `LaneSupervisor.beforeApplicationShutdown`, and stopping a
+   * lane means draining the tick in flight and then RELEASING its lease -- a
+   * write. So any connection a lane needs must still be open through the middle
+   * phase and may only be closed in the last one.
+   *
+   * This was `onModuleDestroy`, and it was a real bug with a five-minute blast
+   * radius: `pool.end()` ran first, the supervisor's release then failed with
+   * "Cannot use a pool after calling end", the lease was never handed back, and
+   * the restarted process sat next to work it was not allowed to claim for the
+   * whole of `LEASE_SECONDS` -- exactly the symptom §4.2 exists to prevent.
+   *
+   * Every in-process test of shutdown stayed green throughout, because they
+   * drive the hook or `app.close()` and never look at whether the release
+   * SUCCEEDED. What caught it was `test/lanes/sigterm-shutdown.e2e-spec.ts`
+   * asserting the row afterwards. Do not move this back.
+   */
+  async onApplicationShutdown(): Promise<void> {
     await this.pool.end();
   }
 }

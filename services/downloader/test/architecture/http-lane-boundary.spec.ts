@@ -22,6 +22,9 @@
  *      this is the strongest version available today, and it is
  *      deliberately written against `jobsRepository.claimOne`, the actual
  *      function the lane will call, not a reimplementation of its query.
+ *      PHASE 4 completes it: a real `ReaperLane`, driven by `runOnce()`, now
+ *      acts on a row this file inserted with plain `pg` -- see the second
+ *      test in that block.
  *
  *   2. A static scan of every `.ts` file under `src/jobs`, `src/videos`,
  *      and `src/cookie` (tolerated absent -- another agent creates it in
@@ -29,9 +32,13 @@
  *      a dynamic `import(`, or a static `import ... from` position.
  */
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { Pool } from 'pg';
 import { claimOne } from '../../src/db/jobs.repository';
+import { ReaperLane } from '../../src/lanes/reaper.lane';
+import { LocalDiskStorage } from '../../src/storage/local-disk.storage';
 import {
   applyForwardMigration,
   createEmptySchema,
@@ -77,6 +84,51 @@ describe('raw-SQL round trip (plan §0 principle 1: Postgres is the only channel
 
     expect(claimed?.id).toBe(insertedId);
     expect(claimed?.status).toBe('enumerating');
+  });
+
+  it('a REAL lane acts on a row inserted by plain SQL, with no HTTP layer anywhere in the picture', async () => {
+    // Phase 4's half of this DoD item, and the stronger version of the test
+    // above: not "the function a lane will call", but an actual lane instance,
+    // ticked by hand.
+    //
+    // The whole causal chain here is `INSERT` -> lane. There is no controller,
+    // no service, no Nest container, and nothing told the lane the row existed.
+    // If the HTTP layer were the thing that woke lanes up -- a direct call, an
+    // event, an injected reference -- this test could not pass, because none of
+    // it is present. That is what plan §0 principle 1 buys: moving the lanes
+    // into their own process later changes no logic, because the lanes already
+    // learn about work the only way they ever will, by reading Postgres.
+    //
+    // `runOnce()` called directly, with no scheduler, is reason 3 for choosing
+    // Approach 1 (solution design §4).
+    const root = await mkdtemp(join(tmpdir(), 'reup-arch-'));
+    try {
+      await pool.query('INSERT INTO profiles (sec_user_id) VALUES ($1)', ['arch-lane-profile']);
+      // Straight into `enumerating` with a lease already in the past: a job
+      // whose lane died mid-enumerate (F5), written by hand rather than by
+      // getting a lane to crash.
+      const inserted = await pool.query(
+        `INSERT INTO jobs (sec_user_id, status, lease_expires_at, max_cursor)
+         VALUES ($1, 'enumerating', now() - interval '1 hour', 999) RETURNING id`,
+        ['arch-lane-profile'],
+      );
+      const jobId: string = inserted.rows[0].id;
+
+      const lane = new ReaperLane(
+        { error: () => undefined, warn: () => undefined, log: () => undefined },
+        db,
+        new LocalDiskStorage(root),
+        { leaseSeconds: 300, maxAttempts: 3 },
+      );
+      await lane.runOnce(new AbortController().signal);
+
+      const after = await pool.query('SELECT status, max_cursor FROM jobs WHERE id = $1', [jobId]);
+      expect(after.rows[0].status).toBe('pending');
+      // Checkpoint intact, so enumeration resumes rather than re-paging.
+      expect(Number(after.rows[0].max_cursor)).toBe(999);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
 
@@ -139,12 +191,19 @@ describe('static scan for a lane reference (plan §0 principle 1)', () => {
  * HOW it got there (indirection, string-building, a barrel re-export all
  * still have to actually `require()`/`import()` the file to run it).
  *
- * `src/lanes/` does not exist yet -- that is phase 4's job -- so today this
- * assertion is trivially satisfiable (the filter always returns an empty
- * array because there is nothing under `lanes/` for ANYTHING to load). It is
- * written now, rather than deferred to phase 4, so it becomes load-bearing
- * the moment a lane module exists: any future bypass of the regex above
- * still has to explain why its loaded module shows up here.
+ * PHASE 4 UPDATE. When this was written `src/lanes/` did not exist, so the
+ * assertion was trivially satisfiable -- the filter returned an empty array
+ * because there was nothing under `lanes/` for anything to load. It exists
+ * now, and so this is load-bearing for the first time.
+ *
+ * It is worth being precise about what the regex above does and does not cover,
+ * because the phase-3 mutation that "proved" this block was actually caught by
+ * the regex, not by this. `test/mutations/phase-04.sh` fixes that with a
+ * mutation shaped to slip past a text scan entirely: a module-scope
+ * `require(computedPath)` where the path is built by concatenation, so no
+ * string literal containing `lanes` ever sits next to `require(`. The regex
+ * cannot see it; `require.cache` cannot miss it, because running the module is
+ * what puts it there.
  */
 describe('module-graph proof (plan §0 principle 1): requiring the HTTP-layer feature modules never pulls in a lanes/ module', () => {
   const FEATURE_MODULES = [

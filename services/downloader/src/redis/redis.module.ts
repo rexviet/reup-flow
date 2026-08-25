@@ -1,4 +1,10 @@
-import { Global, Inject, Module, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
+import {
+  Global,
+  Inject,
+  Module,
+  type OnApplicationShutdown,
+  type OnModuleInit,
+} from "@nestjs/common";
 import Redis from "ioredis";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
@@ -48,7 +54,7 @@ const MAX_CONNECT_RETRIES = 3;
   ],
   exports: [REDIS],
 })
-export class RedisModule implements OnModuleInit, OnModuleDestroy {
+export class RedisModule implements OnModuleInit, OnApplicationShutdown {
   constructor(
     @Inject(REDIS) private readonly client: Redis,
     @Inject(ENV) private readonly env: Env,
@@ -60,7 +66,7 @@ export class RedisModule implements OnModuleInit, OnModuleDestroy {
       await this.client.ping();
     } catch (err) {
       const cause = err instanceof Error ? err.message : String(err);
-      // Nest never calls OnModuleDestroy for a module whose OnModuleInit
+      // Nest never calls OnApplicationShutdown for a module whose OnModuleInit
       // threw, so this is the only chance to release the client -- without
       // it, a failed boot probe leaves a half-connected ioredis instance
       // (and its retry timers) dangling for the remainder of the process.
@@ -76,7 +82,32 @@ export class RedisModule implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async onModuleDestroy(): Promise<void> {
+  /**
+   * WHY `OnApplicationShutdown` AND NOT `OnModuleDestroy` (phase 4 §4.2).
+   *
+   * Nest tears down in a fixed order: every `onModuleDestroy`, then every
+   * `beforeApplicationShutdown`, then every `onApplicationShutdown`. The lanes
+   * are stopped in `LaneSupervisor.beforeApplicationShutdown`, and stopping a
+   * lane means draining the tick in flight and then RELEASING its lease -- a
+   * write. So any connection a lane needs must still be open through the middle
+   * phase and may only be closed in the last one.
+   *
+   * This was `onModuleDestroy`, and it was a real bug with a five-minute blast
+   * radius: `pool.end()` ran first, the supervisor's release then failed with
+   * "Cannot use a pool after calling end", the lease was never handed back, and
+   * the restarted process sat next to work it was not allowed to claim for the
+   * whole of `LEASE_SECONDS` -- exactly the symptom §4.2 exists to prevent.
+   *
+   * Every in-process test of shutdown stayed green throughout, because they
+   * drive the hook or `app.close()` and never look at whether the release
+   * SUCCEEDED. What caught it was `test/lanes/sigterm-shutdown.e2e-spec.ts`
+   * asserting the row afterwards. Do not move this back.
+   */
+  // No lane touches Redis directly today -- the parser reads the cookie from
+  // it, out of process -- so this one is moved for consistency rather than
+  // necessity. Leaving it a phase behind the others would be a trap for the
+  // first lane that ever does need a cookie value.
+  async onApplicationShutdown(): Promise<void> {
     this.client.disconnect();
   }
 }

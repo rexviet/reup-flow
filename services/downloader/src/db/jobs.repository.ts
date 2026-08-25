@@ -1,6 +1,6 @@
-import { and, count, desc, eq, inArray, lt, sql } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, lt, notExists, sql } from 'drizzle-orm';
 import type { Executor } from './executor';
-import { jobs, profiles, type Job } from './schema';
+import { jobs, profiles, videos, type Job } from './schema';
 
 export interface ClaimOptions {
   /** How long a claim is valid before the reaper may hand it to someone else. */
@@ -109,6 +109,66 @@ export async function reapOrphans(exec: Executor): Promise<Job[]> {
     .update(jobs)
     .set({ status: 'pending', leaseExpiresAt: null, updatedAt: sql`now()` })
     .where(and(eq(jobs.status, 'enumerating'), lt(jobs.leaseExpiresAt, sql`now()`)))
+    .returning();
+}
+
+/**
+ * Phase 4 §4.3 -- finishes any `downloading` job whose videos have all
+ * settled. The reaper's safety net, not the normal path.
+ *
+ * The normal path is phase 6 step 8: whichever download lane finishes the last
+ * video for a profile flips the job to `completed`. That check can lose. Two
+ * lanes finishing the profile's last two videos at the same moment can both
+ * look, both see one row still outstanding (each other's), and both correctly
+ * decline -- so nobody finalizes. The job then sits at `downloading` forever
+ * with every video `done`: to an operator a stuck job, to the UI a progress
+ * bar frozen at 100%, and to the lane nothing at all, because there is no work
+ * left for it to notice. Reaper sweep, 60s, done.
+ *
+ * `downloading` ONLY. `enumerating` is deliberately excluded and the reason is
+ * not symmetry: a job whose lane died mid-enumerate has no videos yet, so
+ * "every video has settled" is vacuously true and this would mark it complete
+ * having never read a single page. Those jobs belong to `reapOrphans` (F5),
+ * which puts them back to `pending` so enumeration resumes from `max_cursor`.
+ *
+ * The counters are recomputed here from PROFILE state rather than left at
+ * whatever the lanes last wrote. A job that reaches `completed` through this
+ * path reached it because the normal update did NOT run, so its counters are
+ * exactly the ones most likely to be stale -- and "completed, 0 downloaded"
+ * is a bug report waiting to happen. Profile-scoped, not job-scoped: see the
+ * long comment on `videos` in schema.ts (F7) for why `videos` has no `job_id`
+ * and why this is the honest number.
+ */
+export async function finalizeSettled(exec: Executor): Promise<Job[]> {
+  /** Videos for THIS job's profile that still owe work. */
+  const outstanding = exec
+    .select({ one: sql`1` })
+    .from(videos)
+    .where(
+      and(
+        eq(videos.secUserId, jobs.secUserId),
+        inArray(videos.status, ['pending', 'downloading']),
+      ),
+    );
+
+  const countForProfile = (status: string) => sql<number>`(
+    select count(*) from ${videos}
+     where ${videos.secUserId} = ${jobs.secUserId}
+       and ${videos.status} = ${status}
+  )`;
+
+  return exec
+    .update(jobs)
+    .set({
+      status: 'completed',
+      downloadedCount: countForProfile('done'),
+      failedCount: countForProfile('failed'),
+      totalVideos: sql<number>`(
+        select count(*) from ${videos} where ${videos.secUserId} = ${jobs.secUserId}
+      )`,
+      updatedAt: sql`now()`,
+    })
+    .where(and(eq(jobs.status, 'downloading'), notExists(outstanding)))
     .returning();
 }
 

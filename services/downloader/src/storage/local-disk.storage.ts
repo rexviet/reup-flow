@@ -1,6 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
-import { access, mkdir, open, realpath, rename, statfs, unlink } from 'node:fs/promises';
+import {
+  access,
+  mkdir,
+  open,
+  readdir,
+  realpath,
+  rename,
+  stat,
+  statfs,
+  unlink,
+} from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { Transform, type Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -32,7 +42,28 @@ export interface StorageSyscalls {
   statfs: typeof statfs;
 }
 
+/** Suffix that marks a file as written-but-not-committed. */
+const TEMP_SUFFIX = '.tmp';
+
 export class LocalDiskStorage implements Storage {
+  /**
+   * Temp paths this instance is writing RIGHT NOW.
+   *
+   * `removeStaleTemp` consults it and skips anything listed, whatever the
+   * file's age says. That makes the sweep safe even at a cutoff of zero, which
+   * matters because "delete every temp file" is what an operator reaching for
+   * a manual cleanup actually runs.
+   *
+   * In-memory is not a compromise here, it is complete for the case that
+   * exists: the API, the lanes, and the reaper all live in ONE process by
+   * design (plan §Stack), so every writer that could be racing this sweep is a
+   * writer this Set knows about. If lanes are ever split into their own process
+   * -- which plan §0 principle 1 is built to make cheap -- this stops being
+   * authoritative and the mtime cutoff becomes the only guard, which is why
+   * that cutoff is a real check and not a formality.
+   */
+  private readonly inFlight = new Set<string>();
+
   constructor(
     private readonly root: string,
     private readonly syscalls: StorageSyscalls = { statfs },
@@ -66,6 +97,10 @@ export class LocalDiskStorage implements Storage {
     // randomUUID, not the key, not a pid, not a timestamp: two workers on the
     // same key inside the same millisecond is the exact case this exists for.
     const tmpPath = `${path}.${randomUUID()}.tmp`;
+
+    // Registered BEFORE the file exists, so there is no window in which a
+    // sweep can see the file without seeing the claim on it.
+    this.inFlight.add(tmpPath);
 
     let bytes = 0;
     const count = new Transform({
@@ -126,6 +161,8 @@ export class LocalDiskStorage implements Storage {
       // correctness rests on the rename rather than on this cleanup.
       await unlink(tmpPath).catch(() => undefined);
       throw err;
+    } finally {
+      this.inFlight.delete(tmpPath);
     }
 
     return { path, bytes };
@@ -169,6 +206,82 @@ export class LocalDiskStorage implements Storage {
         if (!isNotFound(err) || parent === target) throw err;
         target = parent;
       }
+    }
+  }
+
+  /**
+   * Deletes every uncommitted temp file nothing has written to for
+   * `olderThanMs`. Returns the paths it removed.
+   *
+   * Closes the risk register's "`.tmp` mồ côi không ai dọn" (plan §6, assigned
+   * to phase 4). `local-disk.storage.spec.ts` already asserts that a
+   * `SIGKILL`ed writer leaves its temp file behind and commits nothing --
+   * correct, and why the temp name is unique per put. Nothing deleted it
+   * afterwards. The lease reaper recovers the database ROW; the bytes stay,
+   * one full-size video per crash, invisible to `exists()` because they are
+   * not under the final key, and eating exactly the space `freeBytes()`
+   * promises the phase-10 preflight. A crash-loop accumulates them until the
+   * disk is full and the preflight is measuring a lie.
+   *
+   * MTIME, not creation time, and that is the design rather than a detail. A
+   * temp file whose writer is alive is being written to, so its mtime keeps
+   * moving; a cutoff of one lease reads as "nothing has touched this for
+   * longer than its writer would have had to renew for". That is the same
+   * evidence the row-level reaper acts on, read off the filesystem instead of
+   * off Postgres. Deleting a live download's temp file is not harmless: the
+   * writer keeps filling an unlinked inode and then fails its `rename` with
+   * ENOENT, which is the exact failure phase 2's journal records losing a day
+   * to.
+   *
+   * Errors on individual entries are swallowed, deliberately. The purpose is
+   * reclaiming space, and abandoning the sweep at the first unreadable entry
+   * is how a full disk stays full.
+   */
+  async removeStaleTemp(olderThanMs: number): Promise<string[]> {
+    const cutoff = Date.now() - olderThanMs;
+    const removed: string[] = [];
+    // No key list to work from -- a crashed worker's key is recorded nowhere --
+    // so the sweep walks DATA_DIR itself.
+    for await (const path of this.walk(resolve(this.root))) {
+      if (!path.endsWith(TEMP_SUFFIX)) continue;
+      if (this.inFlight.has(path)) continue;
+      try {
+        const info = await stat(path);
+        // `<=` rather than `<`: a file whose mtime is exactly the cutoff has
+        // not been touched within the window either.
+        if (info.mtimeMs > cutoff) continue;
+        await unlink(path);
+        removed.push(path);
+      } catch {
+        // Gone already, a directory, or unreadable -- next.
+      }
+    }
+    return removed;
+  }
+
+  /**
+   * Yields every regular-file path under `dir`, recursively.
+   *
+   * A missing directory yields nothing rather than throwing: same reasoning as
+   * `freeBytes`, a fresh deployment has no DATA_DIR until the first download
+   * and the 60s reaper starts long before that. Asking must not be an error and
+   * must not create directories as a side effect of asking.
+   *
+   * `withFileTypes` and no symlink following: a symlink under DATA_DIR is not
+   * something this sweep should chase, and following one could walk out of the
+   * root or into a cycle.
+   */
+  private async *walk(dir: string): AsyncGenerator<string> {
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const full = resolve(dir, entry.name);
+      if (entry.isDirectory()) yield* this.walk(full);
+      else if (entry.isFile()) yield full;
     }
   }
 

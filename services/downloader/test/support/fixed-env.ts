@@ -24,6 +24,10 @@ export function fixedEnv(overrides: Partial<Env> = {}): Env {
     DISK_RESERVE_BYTES: 10737418240,
     EST_BYTES_PER_VIDEO: 31457280,
     PORT: 3000,
+    // Lanes OFF by default in tests. A test that wants them says so; nothing
+    // should start a 60s reaper against the live compose stack merely by
+    // building an Env.
+    LANES_ENABLED: false,
     ...overrides,
   };
 }

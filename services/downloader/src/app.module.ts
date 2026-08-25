@@ -9,6 +9,8 @@ import { ParserModule } from "./parser/parser.module";
 import { JobsModule } from "./jobs/jobs.module";
 import { VideosModule } from "./videos/videos.module";
 import { CookieModule } from "./cookie/cookie.module";
+import { StorageModule } from "./storage/storage.module";
+import { LanesModule } from "./lanes/lanes.module";
 
 /**
  * `ApiKeyGuard` is registered here as `APP_GUARD` -- the one place that
@@ -17,10 +19,23 @@ import { CookieModule } from "./cookie/cookie.module";
  * be added and forget to protect itself. `@Public()` is the only opt-out,
  * and only `HealthController` uses it.
  *
- * ConfigModule/DbModule/RedisModule/ParserModule are all `@Global()`;
- * importing them here once is what makes `ENV`/`DB`/`PG_POOL`/`REDIS`/
- * `PARSER_CLIENT` available to every feature module (jobs/videos/cookie)
- * without each of them re-importing these explicitly.
+ * ConfigModule/DbModule/RedisModule/ParserModule/StorageModule are all
+ * `@Global()`; importing them here once is what makes `ENV`/`DB`/`PG_POOL`/
+ * `REDIS`/`PARSER_CLIENT`/`STORAGE` available to every feature module
+ * (jobs/videos/cookie) and to the lanes without each of them re-importing
+ * these explicitly.
+ *
+ * This is also the ONE place the HTTP layer and the lane layer meet -- and
+ * they meet only by being siblings here. `LanesModule` and the
+ * jobs/videos/cookie modules never import each other (plan §0 principle 1);
+ * Postgres is the only channel between them. `.eslintrc.json` enforces that
+ * at lint time and `test/architecture/http-lane-boundary.spec.ts` enforces it
+ * at test time, including the dynamic-import and computed-`require` bypasses
+ * lint cannot see.
+ *
+ * Whether the lanes in `LanesModule` actually RUN in this process is
+ * `LANES_ENABLED`'s decision, made by `LaneSupervisor` at bootstrap -- see
+ * env.ts. Importing the module is not the same as starting the loops.
  */
 @Module({
   imports: [
@@ -28,6 +43,8 @@ import { CookieModule } from "./cookie/cookie.module";
     DbModule,
     RedisModule,
     ParserModule,
+    StorageModule,
+    LanesModule,
     JobsModule,
     VideosModule,
     CookieModule,
