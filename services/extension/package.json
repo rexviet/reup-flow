@@ -1,0 +1,13 @@
+{
+  "name": "@reup-flow/extension",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Chrome MV3 extension that pushes HttpOnly douyin.com cookies to the downloader backend (phase 9).",
+  "scripts": {
+    "test": "jest",
+    "test:mutations": "bash test/mutations/phase-09.sh"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  }
+}

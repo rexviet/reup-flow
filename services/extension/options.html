@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Douyin Cookie Pusher — Settings</title>
+<style>
+  body { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 480px; margin: 32px auto; color: #1a1a1a; }
+  h1 { font-size: 18px; }
+  label { display: block; margin-top: 16px; font-weight: 600; }
+  input[type="text"], input[type="password"] { width: 100%; box-sizing: border-box; padding: 6px 8px; margin-top: 4px; font: inherit; }
+  button { margin-top: 16px; margin-right: 8px; padding: 8px 16px; font: inherit; cursor: pointer; }
+  #savedNotice { color: #2e7d32; margin-left: 8px; }
+  #permissionNotice { color: #c62828; margin-top: 8px; display: block; }
+  .panel { margin-top: 24px; padding: 12px; border: 1px solid #ccc; border-radius: 6px; }
+  .panel h2 { margin: 0 0 8px; font-size: 14px; }
+  #statusLabel { font-weight: 700; }
+  .status-ok { color: #2e7d32; }
+  .status-error { color: #c62828; }
+  .status-skipped { color: #ef6c00; }
+  .status-never-pushed-yet { color: #757575; }
+  #messageLabel { display: block; margin-top: 4px; word-break: break-word; }
+</style>
+</head>
+<body>
+  <h1>Douyin Cookie Pusher</h1>
+  <p>This extension reads Douyin's HttpOnly session cookies (via <code>chrome.cookies</code>, which
+     <code>document.cookie</code> cannot see) and pushes them to the downloader backend every 20 minutes.</p>
+
+  <label for="backendUrl">Backend URL</label>
+  <input type="text" id="backendUrl" placeholder="http://localhost:3000" />
+
+  <label for="apiKey">API key</label>
+  <input type="password" id="apiKey" placeholder="X-Api-Key value" />
+
+  <button id="save" type="button">Save</button>
+  <button id="pushNow" type="button">Push now</button>
+  <span id="savedNotice"></span>
+  <span id="permissionNotice"></span>
+
+  <div class="panel">
+    <h2>Last push result</h2>
+    <div><span id="statusLabel">never pushed yet</span></div>
+    <div id="timeLabel"></div>
+    <div id="messageLabel"></div>
+  </div>
+
+  <script src="lib/storage.js"></script>
+  <script src="lib/options-view.js"></script>
+  <script src="lib/backend-permission.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>
