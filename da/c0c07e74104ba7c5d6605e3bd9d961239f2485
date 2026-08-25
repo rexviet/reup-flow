@@ -1,0 +1,23 @@
+plans/260824-2152-douyin-downloader/phase-05-enumerate-lane.md
+  s_979c236eef5072::t_48ea6c923bf2b7 4,63-70,74-86,149-216
+  s_979c236eef5072::t_cf1e21e846e295 87-148
+plans/260824-2152-douyin-downloader/plan.md
+  s_979c236eef5072::t_cf1e21e846e295 89
+  s_979c236eef5072::t_34317992fa4ef0 113-114,117-118,132-140,159,202,209
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "dac0c07e74104ba7c5d6605e3bd9d961239f2485",
+  "prompts": {},
+  "sessions": {
+    "s_979c236eef5072": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cc19791f-9ed6-47d5-aa16-2f9a5e92812e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
