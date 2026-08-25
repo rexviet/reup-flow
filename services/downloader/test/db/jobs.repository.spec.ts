@@ -8,7 +8,17 @@
  */
 import { eq } from 'drizzle-orm';
 import type { Pool } from 'pg';
-import { checkpoint, claimOne, reapOrphans } from '../../src/db/jobs.repository';
+import {
+  cancel,
+  checkpoint,
+  claimOne,
+  create,
+  findById,
+  list,
+  reapOrphans,
+  retry,
+  upsertProfile,
+} from '../../src/db/jobs.repository';
 import { jobs, profiles, type Job } from '../../src/db/schema';
 import {
   applyForwardMigration,
@@ -222,4 +232,136 @@ describe('reapOrphans (F5)', () => {
     expect(reclaimed!.maxCursor).toBe(1234);
     expect(reclaimed!.enumeratedCount).toBe(40);
   });
+});
+
+/**
+ * Phase 3 (group B) -- the HTTP-facing job operations. Unlike claim/checkpoint
+ * /reapOrphans above, none of these are on the lane's hot path; they exist so
+ * `jobs.controller.ts` never has to hand-roll SQL or hold the `HTTP layer
+ * writes a row and stops` invariant (plan §0 principle 1) by convention alone.
+ */
+describe('upsertProfile', () => {
+  it('inserts a new profile row', async () => {
+    await upsertProfile(db, 'profile-new');
+
+    const [row] = await db.select().from(profiles).where(eq(profiles.secUserId, 'profile-new'));
+    expect(row).toBeDefined();
+  });
+
+  it('is a no-op on a profile that already exists -- jobs.sec_user_id has an FK to profiles, so a plain INSERT on a repeat job for the same profile would fail with a foreign-key-adjacent unique violation instead of silently succeeding', async () => {
+    await upsertProfile(db, 'profile-new');
+
+    await expect(upsertProfile(db, 'profile-new')).resolves.toBeUndefined();
+    const rows = await db.select().from(profiles).where(eq(profiles.secUserId, 'profile-new'));
+    expect(rows).toHaveLength(1);
+  });
+});
+
+describe('create', () => {
+  it('inserts a pending job for the given profile', async () => {
+    await upsertProfile(db, 'profile-new');
+
+    const job = await create(db, 'profile-new');
+
+    expect(job.status).toBe('pending');
+    expect(job.secUserId).toBe('profile-new');
+    expect(await findById(db, job.id)).toEqual(job);
+  });
+});
+
+describe('list', () => {
+  it('returns jobs newest first, paginated, with a total unaffected by the page', async () => {
+    await upsertProfile(db, 'profile-new');
+    const ids: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const job = await create(db, 'profile-new');
+      // Force distinct, known createdAt ordering -- inserts issued back to
+      // back can otherwise land in the same millisecond, which would make
+      // "newest first" ambiguous and the assertion below flaky.
+      await pool.query('UPDATE jobs SET created_at = $1 WHERE id = $2', [
+        new Date(Date.UTC(2026, 0, 1) + i * 60_000),
+        job.id,
+      ]);
+      ids.push(job.id);
+    }
+
+    const page = await list(db, { limit: 2, offset: 0 });
+
+    expect(page.total).toBe(3);
+    expect(page.items.map((j) => j.id)).toEqual([ids[2], ids[1]]);
+
+    const nextPage = await list(db, { limit: 2, offset: 2 });
+    expect(nextPage.items.map((j) => j.id)).toEqual([ids[0]]);
+  });
+});
+
+describe('findById', () => {
+  it('returns null for an id that does not exist', async () => {
+    expect(await findById(db, '00000000-0000-0000-0000-000000000000')).toBeNull();
+  });
+});
+
+describe('cancel', () => {
+  it('cancels a pending job', async () => {
+    await upsertProfile(db, 'profile-new');
+    const job = await create(db, 'profile-new');
+
+    const cancelled = await cancel(db, job.id);
+
+    expect(cancelled?.status).toBe('cancelled');
+  });
+
+  it.each(['enumerating', 'downloading', 'blocked'])('cancels a job in status %s', async (status) => {
+    await upsertProfile(db, 'profile-new');
+    const job = await create(db, 'profile-new');
+    await pool.query('UPDATE jobs SET status = $1 WHERE id = $2', [status, job.id]);
+
+    expect((await cancel(db, job.id))?.status).toBe('cancelled');
+  });
+
+  it.each(['completed', 'failed', 'cancelled'])(
+    'refuses to cancel a job already in the terminal status %s',
+    async (status) => {
+      await upsertProfile(db, 'profile-new');
+      const job = await create(db, 'profile-new');
+      await pool.query('UPDATE jobs SET status = $1 WHERE id = $2', [status, job.id]);
+
+      expect(await cancel(db, job.id)).toBeNull();
+      // The row is untouched -- a WHERE clause matching no candidate status
+      // must not apply any partial effect.
+      expect((await findById(db, job.id))?.status).toBe(status);
+    },
+  );
+
+  it('returns null for an id that does not exist at all -- the caller tells "no such job" apart from "wrong state" with findById', async () => {
+    expect(await cancel(db, '00000000-0000-0000-0000-000000000000')).toBeNull();
+  });
+});
+
+describe('retry', () => {
+  it.each(['blocked', 'failed'])('resets a job in status %s back to pending', async (status) => {
+    await upsertProfile(db, 'profile-new');
+    const job = await create(db, 'profile-new');
+    await pool.query(
+      "UPDATE jobs SET status = $1, error = 'boom', lease_expires_at = now() + interval '1 hour' WHERE id = $2",
+      [status, job.id],
+    );
+
+    const retried = await retry(db, job.id);
+
+    expect(retried?.status).toBe('pending');
+    expect(retried?.error).toBeNull();
+    expect(retried?.leaseExpiresAt).toBeNull();
+  });
+
+  it.each(['pending', 'enumerating', 'downloading', 'completed', 'cancelled'])(
+    'refuses to retry a job in status %s',
+    async (status) => {
+      await upsertProfile(db, 'profile-new');
+      const job = await create(db, 'profile-new');
+      await pool.query('UPDATE jobs SET status = $1 WHERE id = $2', [status, job.id]);
+
+      expect(await retry(db, job.id)).toBeNull();
+    },
+  );
 });

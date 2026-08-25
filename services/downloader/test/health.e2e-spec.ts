@@ -5,8 +5,21 @@ import { AppModule } from "../src/app.module";
 
 describe("GET /health (e2e)", () => {
   let app: INestApplication;
+  const originalEnv = { ...process.env };
 
   beforeAll(async () => {
+    // AppModule now wires ConfigModule/DbModule/RedisModule for real (group
+    // A), so booting it needs a complete, valid env pointing at the live
+    // docker-compose stack -- the same one bootstrap-failure.spec.ts's
+    // positive control uses.
+    Object.assign(process.env, {
+      API_KEY: "test-key-not-real",
+      DATABASE_URL: "postgres://reup:reup@localhost:5432/reup",
+      REDIS_URL: "redis://localhost:6379",
+      PARSER_BASE_URL: "http://parser:80",
+      PROBE_SEC_USER_ID: "probe-sec-user-id",
+    });
+
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
@@ -17,12 +30,19 @@ describe("GET /health (e2e)", () => {
 
   afterAll(async () => {
     await app.close();
+    process.env = { ...originalEnv };
   });
 
-  it("returns 200 with a status ok body", async () => {
-    const res = await request(app.getHttpServer()).get("/health");
-
-    expect(res.status).toBe(200);
-    expect(res.body).toEqual({ status: "ok" });
+  it("returns 200 with a status ok body and requires NO X-Api-Key header", () => {
+    // /health must stay reachable with no header at all: docker-compose.yml's
+    // healthcheck probes it with `wget` and no header (see
+    // test/compose-constraints.spec.ts), which is why HealthController is
+    // the one route marked @Public().
+    return request(app.getHttpServer())
+      .get("/health")
+      .then((res) => {
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({ status: "ok" });
+      });
   });
 });

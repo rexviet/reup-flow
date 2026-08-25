@@ -1,6 +1,6 @@
-import { and, eq, inArray, lt, sql } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, lt, sql } from 'drizzle-orm';
 import type { Executor } from './executor';
-import { jobs, type Job } from './schema';
+import { jobs, profiles, type Job } from './schema';
 
 export interface ClaimOptions {
   /** How long a claim is valid before the reaper may hand it to someone else. */
@@ -110,4 +110,122 @@ export async function reapOrphans(exec: Executor): Promise<Job[]> {
     .set({ status: 'pending', leaseExpiresAt: null, updatedAt: sql`now()` })
     .where(and(eq(jobs.status, 'enumerating'), lt(jobs.leaseExpiresAt, sql`now()`)))
     .returning();
+}
+
+/**
+ * Phase 3 (HTTP layer) -- the rest of this file, below, is what
+ * `jobs.controller.ts` writes rows through. None of it is on the lane's hot
+ * path; it exists so the controller never has to hand-roll SQL, which is
+ * what would make the "controller only ever writes a row" invariant (plan §0
+ * principle 1) a matter of discipline instead of a matter of what functions
+ * exist to call.
+ */
+
+/**
+ * `insert ... on conflict (sec_user_id) do nothing`.
+ *
+ * `jobs.sec_user_id` has a FK to `profiles`, so a job on a profile that has
+ * never been seen before fails at insert with a foreign-key violation unless
+ * the profile row exists first. A second job on an already-known profile is
+ * the common case (F7 -- profiles are the whole point of incremental
+ * re-runs), so this has to be idempotent rather than a plain INSERT that
+ * would throw a unique-violation on every repeat job.
+ */
+export async function upsertProfile(exec: Executor, secUserId: string): Promise<void> {
+  await exec.insert(profiles).values({ secUserId }).onConflictDoNothing();
+}
+
+/** Inserts a new `pending` job. Caller (jobs.service.ts) is responsible for
+ * having called `upsertProfile` first in the SAME transaction -- see the
+ * note there. */
+export async function create(exec: Executor, secUserId: string): Promise<Job> {
+  const [job] = await exec.insert(jobs).values({ secUserId }).returning();
+  // Postgres's own contract for a single-row RETURNING INSERT guarantees
+  // exactly one row back; this is defensive against a future refactor that
+  // turns this into a batch insert, not a case this can hit today.
+  if (!job) throw new Error('insert into jobs returned no row');
+  return job;
+}
+
+export interface PageOptions {
+  limit: number;
+  offset: number;
+}
+
+export interface Page<T> {
+  items: T[];
+  total: number;
+}
+
+/** Newest first -- what an operator watching the jobs list actually wants,
+ * and what `jobs_status_created_idx` covers well enough even unfiltered. */
+export async function list(exec: Executor, opts: PageOptions): Promise<Page<Job>> {
+  const items = await exec
+    .select()
+    .from(jobs)
+    .orderBy(desc(jobs.createdAt))
+    .limit(opts.limit)
+    .offset(opts.offset);
+  const [row] = await exec.select({ value: count() }).from(jobs);
+  return { items, total: Number(row?.value ?? 0) };
+}
+
+export async function findById(exec: Executor, id: string): Promise<Job | null> {
+  const [row] = await exec.select().from(jobs).where(eq(jobs.id, id));
+  return row ?? null;
+}
+
+/** States `cancel` may act from. Matches phase-03 §3.1 exactly; a job that
+ * has already finished (`completed`/`failed`/`cancelled`) has nothing left
+ * to cancel. */
+const CANCELLABLE_STATUSES = ['pending', 'enumerating', 'downloading', 'blocked'] as const;
+
+/**
+ * Cancels a job, but only out of a non-terminal status.
+ *
+ * A single conditional UPDATE (status IN (...) in the WHERE clause), not a
+ * read-then-write: two requests racing the same job (an operator double-
+ * clicking cancel, or a cancel racing a lane's own status change) cannot
+ * both observe "still cancellable" and then both write.
+ *
+ * Returns `null` for BOTH "no such job" and "job exists but is not in a
+ * cancellable state" -- the caller (jobs.controller.ts) tells those apart by
+ * calling `findById` when this returns null, which is what lets it answer
+ * 404 vs 409.
+ */
+export async function cancel(exec: Executor, id: string): Promise<Job | null> {
+  const [row] = await exec
+    .update(jobs)
+    .set({ status: 'cancelled', updatedAt: sql`now()` })
+    .where(and(eq(jobs.id, id), inArray(jobs.status, CANCELLABLE_STATUSES)))
+    .returning();
+  return row ?? null;
+}
+
+/** States `retry` may act from -- see phase-03 §3.1: only a job that got
+ * stuck (`blocked` on a cookie problem) or gave up (`failed`) can be retried. */
+const RETRYABLE_STATUSES = ['blocked', 'failed'] as const;
+
+/**
+ * Resets a stuck or failed job back to `pending` so the enumerate lane picks
+ * it up again. Clears `error` (a stale reason would otherwise sit on the job
+ * forever, outliving the problem it described) and `lease_expires_at` (this
+ * job holds no lease right now; leaving a stale one would let the reaper
+ * "recover" a job nobody is enumerating).
+ *
+ * Same conditional-UPDATE / null-means-either-thing shape as `cancel` above,
+ * and for the identical reason -- see that function's comment.
+ *
+ * Deliberately does NOT reset any video rows; that is
+ * `videos.repository.ts`'s `resetFailedForProfile`, called separately by
+ * `jobs.service.ts` in the same transaction as this. Two different tables,
+ * two different repositories, one caller decides how they compose.
+ */
+export async function retry(exec: Executor, id: string): Promise<Job | null> {
+  const [row] = await exec
+    .update(jobs)
+    .set({ status: 'pending', error: null, leaseExpiresAt: null, updatedAt: sql`now()` })
+    .where(and(eq(jobs.id, id), inArray(jobs.status, RETRYABLE_STATUSES)))
+    .returning();
+  return row ?? null;
 }

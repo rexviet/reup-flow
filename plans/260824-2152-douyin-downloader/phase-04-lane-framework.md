@@ -78,6 +78,7 @@ Reaper cũng là lưới an toàn cho finalize job (phase 6): job mà mọi vide
 - [ ] **Mutation:** bỏ `try/catch` trong thân loop → test lane-survives **đỏ**
 - [ ] **Mutation:** bỏ reaper `videos` → test resume download **đỏ**
 - [ ] **Mutation:** bỏ reaper `jobs` → test resume **enumerate** **đỏ** *(F5 — cái này brainstorm bỏ sót)*
+- [ ] **Test kiến trúc xanh:** nạp tay một row `jobs` ở `pending` bằng SQL thuần (không qua API) → lane vẫn chạy đủ (chứng minh HTTP layer + lane chỉ nối qua DB, không gọi trực tiếp), và assertion require-cache kiểm `lanes/**` không được load. Mutation: cho lane-module gọi trực tiếp từ controller → test **đỏ** *(phần còn lại của phase 3 DoD, đã dời vì lane chưa tồn tại)*
 
 ## Risks
 

@@ -8,5 +8,27 @@
   "ignorePatterns": ["dist/", "node_modules/", "src/Douyin_TikTok_Download_API/"],
   "rules": {
     "@typescript-eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_" }]
-  }
+  },
+  "overrides": [
+    {
+      "files": [
+        "services/downloader/src/jobs/**",
+        "services/downloader/src/videos/**",
+        "services/downloader/src/cookie/**"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/lanes/**", "**/lanes"],
+                "message": "The HTTP layer never calls a lane (plan.md §0 principle 1): Postgres is the only channel between the two. A controller/service under jobs/, videos/, or cookie/ must write a row and stop -- the lane picks it up on its own poll."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
 }

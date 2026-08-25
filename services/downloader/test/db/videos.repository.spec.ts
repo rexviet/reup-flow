@@ -11,10 +11,13 @@ import { eq } from 'drizzle-orm';
 import type { Pool } from 'pg';
 import {
   claimOne,
+  countByStatusForProfile,
+  listByProfile,
   markDone,
   markFailed,
   reapOrphans,
   release,
+  resetFailedForProfile,
 } from '../../src/db/videos.repository';
 import { videos, type Video } from '../../src/db/schema';
 import {
@@ -230,6 +233,26 @@ describe('finishing a claim', () => {
     expect(await claimOne(db, OPTS)).toBeNull();
   });
 
+  // FIX 3 (review): phase-3's own risk register names this exact leak --
+  // "cookie vào error của job rồi ra API response" -- and nothing redacted
+  // the WRITE path. `error` here stands in for attacker/Douyin-influenced
+  // text a later phase (6/7) will pass through unchecked (an upstream error
+  // body, a rejected-request message); redacting at write time means the
+  // secret never sits in the database at all, so an operator running `psql`
+  // -- or a future export/backup -- can never see it either. See the
+  // matching read-path test on `toVideoResponse` for why BOTH sides matter.
+  it('markFailed redacts a cookie-shaped error before it reaches the row', async () => {
+    await seedPending(1);
+    await claimOne(db, OPTS);
+    const leaked = 'upstream said: sessionid=sentinel-fake-leaked-in-error-0123456789';
+
+    await markFailed(db, 'v0', leaked, OPTS);
+
+    const row = await readVideo('v0');
+    expect(row.lastError).not.toContain('sentinel-fake-leaked-in-error-0123456789');
+    expect(row.lastError).toContain('sessionid=[redacted]');
+  });
+
   it('release hands work back without recording an error', async () => {
     await seedPending(1);
     await claimOne(db, OPTS);
@@ -297,5 +320,111 @@ describe('reapOrphans (F3)', () => {
     expect(row.status).toBe('failed');
     expect(row.attempts).toBe(MAX_ATTEMPTS);
     expect(row.lastError).toMatch(/attempt/i);
+  });
+});
+
+/**
+ * Phase 3 (group B) -- `/retry` support. `resetFailedForProfile` is the
+ * companion to `jobs.repository.ts`'s `retry`: a job moving `blocked|failed`
+ * -> `pending` is only half the story, because failed VIDEOS are what
+ * actually need to run again.
+ */
+describe('resetFailedForProfile', () => {
+  it('resets every failed video for the profile to pending, with attempts zeroed', async () => {
+    await seedPending(2);
+    await pool.query(
+      "UPDATE videos SET status = 'failed', attempts = $1, last_error = 'boom', lease_expires_at = now() WHERE aweme_id = 'v0'",
+      [MAX_ATTEMPTS],
+    );
+
+    const resetCount = await resetFailedForProfile(db, 'profile-1');
+
+    expect(resetCount).toBe(1);
+    const row = await readVideo('v0');
+    expect(row.status).toBe('pending');
+    expect(row.attempts).toBe(0);
+    expect(row.lastError).toBeNull();
+    expect(row.leaseExpiresAt).toBeNull();
+    // v1 was never failed -- must be left exactly alone.
+    expect((await readVideo('v1')).status).toBe('pending');
+  });
+
+  it('does not touch videos that are not failed, and returns 0', async () => {
+    await seedPending(1);
+
+    expect(await resetFailedForProfile(db, 'profile-1')).toBe(0);
+    expect((await readVideo('v0')).status).toBe('pending');
+  });
+
+  it(
+    'is the only thing that makes an exhausted video claimable again (F6): zeroing ' +
+      'attempts is the whole point, not a cleanup detail -- claimOne filters on ' +
+      'attempts < maxAttempts, so a status-only reset would produce a row that is ' +
+      'pending forever and never claimable',
+    async () => {
+      await seedPending(1);
+      await pool.query("UPDATE videos SET status = 'failed', attempts = $1 WHERE aweme_id = 'v0'", [
+        MAX_ATTEMPTS,
+      ]);
+
+      await resetFailedForProfile(db, 'profile-1');
+      const claimed = await claimOne(db, OPTS);
+
+      expect(claimed?.awemeId).toBe('v0');
+      expect(claimed?.attempts).toBe(1);
+    },
+  );
+});
+
+describe('listByProfile', () => {
+  it('lists a profiles videos newest first, paginated, with a total unaffected by the page', async () => {
+    await seedPending(3);
+
+    const page = await listByProfile(db, 'profile-1', { limit: 2, offset: 0 });
+
+    expect(page.total).toBe(3);
+    expect(page.items.map((v) => v.awemeId)).toEqual(['v2', 'v1']);
+
+    const next = await listByProfile(db, 'profile-1', { limit: 2, offset: 2 });
+    expect(next.items.map((v) => v.awemeId)).toEqual(['v0']);
+  });
+
+  it('filters by status when one is given', async () => {
+    await seedPending(2);
+    await pool.query("UPDATE videos SET status = 'done' WHERE aweme_id = 'v0'");
+
+    const page = await listByProfile(db, 'profile-1', { limit: 20, offset: 0, status: 'done' });
+
+    expect(page.items.map((v) => v.awemeId)).toEqual(['v0']);
+    expect(page.total).toBe(1);
+  });
+
+  it('never returns another profiles videos', async () => {
+    await seedPending(1);
+    await db
+      .insert(videos)
+      .values({ awemeId: 'other-profile-video', secUserId: 'profile-2', createTime: new Date() });
+
+    const page = await listByProfile(db, 'profile-1', { limit: 20, offset: 0 });
+
+    expect(page.items.map((v) => v.awemeId)).toEqual(['v0']);
+  });
+});
+
+describe('countByStatusForProfile', () => {
+  it('groups counts by status, scoped to one profile (F7 -- progress is measured against profile state)', async () => {
+    await seedPending(3);
+    await pool.query("UPDATE videos SET status = 'done' WHERE aweme_id IN ('v0', 'v1')");
+    await db
+      .insert(videos)
+      .values({ awemeId: 'other-profile-done', secUserId: 'profile-2', createTime: new Date(), status: 'done' });
+
+    const counts = await countByStatusForProfile(db, 'profile-1');
+
+    expect(counts).toEqual({ done: 2, pending: 1 });
+  });
+
+  it('returns an empty object for a profile with no videos', async () => {
+    expect(await countByStatusForProfile(db, 'nobody')).toEqual({});
   });
 });

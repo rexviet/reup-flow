@@ -1,5 +1,6 @@
-import { and, eq, inArray, lt, sql } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, lt, sql } from 'drizzle-orm';
 import type { Executor } from './executor';
+import { redactor } from '../redaction/redactor';
 import { videos, type Video } from './schema';
 
 export interface ClaimOptions {
@@ -106,7 +107,20 @@ export async function markDone(
     .where(eq(videos.awemeId, awemeId));
 }
 
-/** Records a reported failure and hands the video back (or gives up on it). */
+/**
+ * Records a reported failure and hands the video back (or gives up on it).
+ *
+ * `error` is redacted BEFORE it is written, not just before it is read back
+ * out through `videos.mapper.ts` -- plan §0 principle 3 and phase-3's own
+ * risk register ("cookie vào error của job rồi ra API response"). Phase 6/7
+ * will call this with attacker/Douyin-influenced text (a rejected-request
+ * message, an upstream error body) this repository never controls, so
+ * scrubbing only on the way out would still leave the raw secret sitting in
+ * the row -- readable by anyone with `psql`, or by a future export/backup
+ * that reads the column directly instead of going through the mapper. See
+ * the matching read-side redaction in `videos.mapper.ts`'s `toVideoResponse`
+ * for why BOTH sides are scrubbed rather than relying on either alone.
+ */
 export async function markFailed(
   exec: Executor,
   awemeId: string,
@@ -117,7 +131,7 @@ export async function markFailed(
     .update(videos)
     .set({
       status: giveBackStatus(opts.maxAttempts),
-      lastError: error,
+      lastError: redactor.redact(error),
       leaseExpiresAt: null,
     })
     .where(eq(videos.awemeId, awemeId));
@@ -153,15 +167,119 @@ export async function release(
  * still live.
  */
 export async function reapOrphans(exec: Executor, opts: GiveBackOptions): Promise<Video[]> {
+  // Redacted through the same call as markFailed even though today's message
+  // is a fixed string built only from `opts.maxAttempts` (a number, never a
+  // secret): this is the other write path phase-3's risk register names
+  // ("Redact phủ cả đường ghi jobs.error" -- and the videos equivalent), and
+  // leaving it unguarded would mean the invariant holds only by the CASE
+  // branch happening to never carry attacker text yet. A later phase adding
+  // upstream detail to this message inherits the guard for free instead of
+  // needing to remember it.
+  const giveUpMessage = redactor.redact(
+    `gave up after ${opts.maxAttempts} attempts: lease expired without completing`,
+  );
   return exec
     .update(videos)
     .set({
       status: giveBackStatus(opts.maxAttempts),
       leaseExpiresAt: null,
       lastError: sql`CASE WHEN ${videos.attempts} >= ${opts.maxAttempts}
-        THEN ${`gave up after ${opts.maxAttempts} attempts: lease expired without completing`}
+        THEN ${giveUpMessage}
         ELSE ${videos.lastError} END`,
     })
     .where(and(eq(videos.status, 'downloading'), lt(videos.leaseExpiresAt, sql`now()`)))
     .returning();
+}
+
+/**
+ * Phase 3 (HTTP layer) -- what `jobs.controller.ts`'s `/retry` route and
+ * `videos.controller.ts`'s browse route are built on. Below this point
+ * nothing is on the lane's claim/reap hot path.
+ */
+
+/**
+ * `/retry` support -- resets every `failed` video for a profile back to
+ * `pending`, ready to be claimed again.
+ *
+ * `attempts = 0` is not a cleanup nicety, it is THE reason this function
+ * exists rather than a bare `UPDATE videos SET status = 'pending'`. F6 made
+ * `claimOne` filter on `attempts < maxAttempts`; a status-only reset produces
+ * a row that reads `pending` in every listing and progress count, yet is
+ * invisible to the one query that ever picks up pending work. It would sit
+ * there forever, looking like outstanding work that no lane will ever touch.
+ * If you are about to "simplify" this by dropping the attempts reset,
+ * re-read videos.repository.ts's `claimOne` first.
+ *
+ * `lease_expires_at` is cleared for the same reason `release`/`markFailed`
+ * clear it: a video that is about to become `pending` again holds no lease,
+ * and a stale one left behind would eventually let the reaper "recover" a
+ * video nobody is downloading.
+ */
+export async function resetFailedForProfile(exec: Executor, secUserId: string): Promise<number> {
+  const rows = await exec
+    .update(videos)
+    .set({ status: 'pending', attempts: 0, lastError: null, leaseExpiresAt: null })
+    .where(and(eq(videos.secUserId, secUserId), eq(videos.status, 'failed')))
+    .returning({ awemeId: videos.awemeId });
+  return rows.length;
+}
+
+export interface ListByProfileOptions {
+  limit: number;
+  offset: number;
+  status?: string;
+}
+
+export interface Page<T> {
+  items: T[];
+  total: number;
+}
+
+/**
+ * Browse endpoint for one profile's videos, newest first -- exactly the
+ * order `videos_profile_recent_idx` was built to serve (schema.ts), so this
+ * query is index-only even for a profile with tens of thousands of rows.
+ */
+export async function listByProfile(
+  exec: Executor,
+  secUserId: string,
+  opts: ListByProfileOptions,
+): Promise<Page<Video>> {
+  const where = opts.status
+    ? and(eq(videos.secUserId, secUserId), eq(videos.status, opts.status))
+    : eq(videos.secUserId, secUserId);
+
+  const items = await exec
+    .select()
+    .from(videos)
+    .where(where)
+    .orderBy(desc(videos.createTime))
+    .limit(opts.limit)
+    .offset(opts.offset);
+  const [row] = await exec.select({ value: count() }).from(videos).where(where);
+  return { items, total: Number(row?.value ?? 0) };
+}
+
+/**
+ * F7 -- job progress, counted from PROFILE state, not from a per-job delta.
+ *
+ * `videos` has no `job_id` (see the long comment on the table in schema.ts):
+ * `aweme_id` is the global key, so a video downloaded by an earlier job is
+ * already `done` before a new job on the same profile ever runs. Grouping by
+ * status here, scoped to the profile rather than to any one job, is what
+ * makes a job detail response say "340/340 already done" truthfully the
+ * instant a second job starts -- that is correct, not a bug, and counting
+ * per-job instead would require a join table this schema deliberately does
+ * not have.
+ */
+export async function countByStatusForProfile(
+  exec: Executor,
+  secUserId: string,
+): Promise<Record<string, number>> {
+  const rows = await exec
+    .select({ status: videos.status, value: count() })
+    .from(videos)
+    .where(eq(videos.secUserId, secUserId))
+    .groupBy(videos.status);
+  return Object.fromEntries(rows.map((row) => [row.status, Number(row.value)]));
 }

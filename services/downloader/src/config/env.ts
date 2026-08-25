@@ -53,9 +53,18 @@ export const envSchema = z
     // Constrained to a plausible credential charset (not just "non-empty")
     // so that an invalid API_KEY produces a genuine zod issue on the
     // API_KEY path -- see the API_KEY-secrecy sweep in env.spec.ts.
+    //
+    // FIX 8 (review): floored at 16 characters, not just "present". A
+    // 1-character API_KEY passed the charset check with nothing enforcing a
+    // minimum length at all -- trivially brute-forceable, and short enough
+    // that `redaction/redactor.ts`'s `registerSecret` would silently refuse
+    // to register it (its own floor is `MIN_REGISTERED_SECRET_LENGTH`, 8),
+    // leaving the key both guessable AND unprotected by the exact-value
+    // registry the moment it appeared in a log line. 16 is comfortably above
+    // that registry floor with headroom to spare.
     API_KEY: z
       .string()
-      .min(1, "API_KEY is required")
+      .min(16, "API_KEY must be at least 16 characters")
       .regex(
         /^[A-Za-z0-9_-]+$/,
         "API_KEY must contain only letters, digits, underscores, or hyphens"
@@ -128,32 +137,3 @@ export function parseEnv(source: NodeJS.ProcessEnv = process.env): Env {
   return result.data;
 }
 
-/**
- * Env vars whose values are secrets and must never reach stderr/logs
- * verbatim. Used only by {@link redactSecrets}.
- */
-const REDACTABLE_ENV_KEYS = [
-  "API_KEY",
-  "DATABASE_URL",
-  "REDIS_URL",
-  "DOUYIN_COOKIE_FALLBACK",
-] as const;
-
-/**
- * Boundary redactor (D-3) for main.ts's non-EnvValidationError bootstrap
- * catch-all. Infra clients (DB/Redis, wired up starting phase 1) commonly
- * embed the connection string -- including the password -- in a connection
- * error's message or stack. This scrubs known-secret env values before the
- * error is written to stderr. This is a boundary stopgap only: phase 3's
- * logger layer replaces it with the real redaction implementation.
- */
-export function redactSecrets(
-  text: string,
-  source: NodeJS.ProcessEnv = process.env
-): string {
-  return REDACTABLE_ENV_KEYS.reduce((acc, key) => {
-    const value = source[key];
-    if (!value) return acc;
-    return acc.split(value).join("[redacted]");
-  }, text);
-}

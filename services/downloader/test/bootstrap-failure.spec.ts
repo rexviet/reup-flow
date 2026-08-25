@@ -94,26 +94,31 @@ describe("bootstrap succeeds (real process, positive control)", () => {
 
 /**
  * D-3: the non-EnvValidationError bootstrap catch-all in main.ts used to
- * write `err.stack` to stderr unfiltered. Phase 1 wires up real DB/Redis
- * clients at bootstrap, and a connection error commonly embeds the DSN --
- * including the password -- in its message/stack. Since that real trigger
- * doesn't exist yet, main.ts exposes an explicit, env-gated test-only fault
- * injection point (`__TEST_ONLY_SIMULATE_BOOTSTRAP_ERROR__`) that throws a
- * generic Error embedding DATABASE_URL, exercising the exact catch-all path
- * a real connection error would hit. This spawns the real process so a
- * removed redactor call is provably caught (mutation-verified: deleting the
- * `redactSecrets(...)` call in main.ts's catch-all leaves the password in
- * stderr and turns this test red).
+ * write `err.stack` to stderr unfiltered. Group A (phase 3) wired up real
+ * DB/Redis clients at bootstrap (src/db/db.module.ts, src/redis/redis.module.ts),
+ * each running an `OnModuleInit` probe that deliberately embeds its own DSN
+ * in its thrown message on a connection failure (plan §0.3: the defence is
+ * the redaction layer, not call-site discipline -- see the comment on that
+ * throw in db.module.ts). This test points DATABASE_URL at a real, unused
+ * port so `NestFactory.create(AppModule)` -- called for real, no fault
+ * injection -- drives a genuine ECONNREFUSED through that exact path, with
+ * main.ts's stdio patch (installed first, before anything else can write)
+ * as the only thing standing between the DSN and stderr. Mutation-verified:
+ * deleting either `redactor.registerSecret(env.DATABASE_URL)` in main.ts or
+ * the DSN-in-message throw in db.module.ts leaves the password in stderr
+ * and turns this test red.
  */
 describe("bootstrap catch-all redacts secrets on non-config errors (D-3, real process)", () => {
-  it("redacts the DATABASE_URL password from a simulated bootstrap error", () => {
+  it("redacts the DATABASE_URL password from a genuine Postgres connection failure", () => {
     const entry = path.join(__dirname, "..", "src", "main.ts");
     const cwd = path.join(__dirname, "..");
     // Obviously fake + low entropy on purpose: this string lands in git
     // history, and a realistic-looking one trips gitleaks' generic-api-key.
     // It only has to be unique enough to search stderr for.
     const password = "fake-placeholder-password-unique";
-    const databaseUrl = `postgres://reup:${password}@localhost:5432/reup`;
+    // Port 5433: nothing listens there in the compose stack (postgres is on
+    // 5432), so this is a genuine ECONNREFUSED, not a mocked failure.
+    const databaseUrl = `postgres://reup:${password}@localhost:5433/reup`;
 
     const result = spawnSync(
       process.execPath,
@@ -127,7 +132,6 @@ describe("bootstrap catch-all redacts secrets on non-config errors (D-3, real pr
           REDIS_URL: "redis://localhost:6379",
           PARSER_BASE_URL: "http://parser:80",
           PROBE_SEC_USER_ID: "probe-sec-user-id",
-          __TEST_ONLY_SIMULATE_BOOTSTRAP_ERROR__: "1",
         },
         encoding: "utf-8",
         timeout: 20000,

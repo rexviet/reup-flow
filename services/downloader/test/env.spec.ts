@@ -1,4 +1,4 @@
-import { parseEnv, redactSecrets } from "../src/config/env";
+import { parseEnv } from "../src/config/env";
 
 const API_KEY_SENTINEL = "sk-canary-do-not-leak-9f3ac21e";
 
@@ -196,6 +196,27 @@ describe("parseEnv required variables (FG-3)", () => {
   });
 });
 
+describe("API_KEY minimum length (FIX 8, review)", () => {
+  // A 1-character API_KEY used to pass the regex-only shape check
+  // (`^[A-Za-z0-9_-]+$`) with nothing enforcing a floor at all -- trivially
+  // brute-forceable, and short enough that
+  // `src/redaction/redactor.ts`'s `registerSecret` would silently refuse to
+  // register it (it requires `MIN_REGISTERED_SECRET_LENGTH`, 8, characters),
+  // leaving the key both guessable AND unprotected by the exact-value
+  // registry the moment it appeared in a log line.
+  it.each(["a", "1234567890123456".slice(0, 15)])(
+    "rejects an API_KEY under 16 characters (length %#)",
+    (value) => {
+      expect(() => parseEnv(validEnv({ API_KEY: value }))).toThrow(/API_KEY/);
+    },
+  );
+
+  it("accepts an API_KEY of exactly 16 characters", () => {
+    const sixteen = "abcdEFGH01234567".slice(0, 16);
+    expect(parseEnv(validEnv({ API_KEY: sixteen })).API_KEY).toBe(sixteen);
+  });
+});
+
 describe("parseEnv PORT (D-6)", () => {
   it.each(["-1", "65536", "abc", "3.5"])(
     "throws naming PORT when PORT=%s",
@@ -215,37 +236,6 @@ describe("parseEnv PORT (D-6)", () => {
   it("defaults PORT to 3000 when absent", () => {
     const env = validEnv({ PORT: undefined });
     expect(parseEnv(env).PORT).toBe(3000);
-  });
-});
-
-describe("redactSecrets (D-3)", () => {
-  it("replaces every configured secret value with [redacted]", () => {
-    const source: NodeJS.ProcessEnv = {
-      // Deliberately low-entropy and obviously fake: a realistic-looking key
-      // here trips gitleaks' generic-api-key rule once this file enters history.
-      API_KEY: "fake-placeholder-api-key",
-      DATABASE_URL: "postgres://user:p4ss@localhost:5432/reup",
-      REDIS_URL: "redis://:r3dispass@localhost:6379",
-      DOUYIN_COOKIE_FALLBACK: "sessionid=super-secret-cookie",
-    };
-    const text =
-      `connect ECONNREFUSED using ${source.DATABASE_URL} ` +
-      `and ${source.REDIS_URL}, api key ${source.API_KEY}, ` +
-      `cookie ${source.DOUYIN_COOKIE_FALLBACK}`;
-
-    const redacted = redactSecrets(text, source);
-
-    expect(redacted).not.toContain("p4ss");
-    expect(redacted).not.toContain("r3dispass");
-    expect(redacted).not.toContain("sk-live-abc123");
-    expect(redacted).not.toContain("super-secret-cookie");
-    expect(redacted).toContain("[redacted]");
-    expect(redacted).toContain("ECONNREFUSED");
-  });
-
-  it("leaves text unchanged when no configured secret is present in the source", () => {
-    const text = "plain error with no secrets";
-    expect(redactSecrets(text, {})).toBe(text);
   });
 });
 
