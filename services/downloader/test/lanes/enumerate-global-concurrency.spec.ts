@@ -37,7 +37,7 @@ import {
 import type { LaneRunner } from '../../src/lanes/lane.runner';
 import { LANES } from '../../src/lanes/lanes.tokens';
 import { PARSER_CLIENT } from '../../src/parser/parser.module';
-import type { UserPostPage } from '../../src/parser/parser.client';
+import type { UserPostPage, UserProfile } from '../../src/parser/parser.client';
 import {
   applyForwardMigration,
   createEmptySchema,
@@ -91,6 +91,16 @@ class ConcurrencyProbe implements PostPageSource {
    * one debugging round on first write.)
    */
   async close(): Promise<void> {}
+
+  /**
+   * The F4 probe seam. THROWS, because this suite measures the request rate of
+   * the HAPPY path: a probe answering here would be a request this instrument
+   * counts as enumerate traffic, quietly loosening the very number the DoD line
+   * pins ("tổng tần suất request vẫn = 1 luồng").
+   */
+  async fetchUserProfile(): Promise<UserProfile> {
+    throw new Error('the F4 probe must not run while measuring the happy-path request rate');
+  }
 
   /**
    * Full reset -- `inFlight` included, and that one is not housekeeping.
@@ -274,6 +284,7 @@ describe('positive control: the instrument can see overlap', () => {
           urlTtlSeconds: 7200,
           sleepMsMin: SLEEP_MIN_MS,
           sleepMsMax: SLEEP_MAX_MS,
+          probeSecUserId: 'probe-sec-user-id',
         },
       );
     expect(template).toBeInstanceOf(EnumerateLane);

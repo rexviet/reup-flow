@@ -36,8 +36,8 @@ import { eq } from 'drizzle-orm';
 import type { Pool } from 'pg';
 import { cancel, retry } from '../../src/db/jobs.repository';
 import { jobs, profiles, videos, type Job } from '../../src/db/schema';
-import { EnumerateLane, type PostPageSource } from '../../src/lanes/enumerate.lane';
-import type { UserPostPage } from '../../src/parser/parser.client';
+import { EnumerateLane, type EnumerateParser } from '../../src/lanes/enumerate.lane';
+import type { UserPostPage, UserProfile } from '../../src/parser/parser.client';
 import {
   applyForwardMigration,
   createEmptySchema,
@@ -67,13 +67,29 @@ const quietLogger = { error: () => {}, warn: () => {}, log: () => {} };
  * `aweme_list: []`, `has_more: 1`. That is the structural signal of §5.3 -- a
  * certain diagnosis, which is why phase 5 acts on it with no probe.
  */
-class RotatableCookieSource implements PostPageSource {
+class RotatableCookieSource implements EnumerateParser {
   revoked = false;
   /** Revoke the cookie once this many pages have been served. */
   revokeAfter = Number.POSITIVE_INFINITY;
   readonly cursors: number[] = [];
+  readonly probeCalls: string[] = [];
 
   constructor(private readonly pagesByCursor: Map<number, UserPostPage>) {}
+
+  /**
+   * THROWS. Every path in this file reaches `blocked` through the STRUCTURAL
+   * signal (empty `aweme_list` + `has_more`), which is an HTTP 200 and a certain
+   * diagnosis -- so §7.1 tier 1 says it must cost no probe at all. A benign stub
+   * here would make that claim unobservable in the one file whose whole subject
+   * is the recovery those tiers exist to route.
+   */
+  async fetchUserProfile(secUserId: string): Promise<UserProfile> {
+    this.probeCalls.push(secUserId);
+    throw new Error(
+      'the F4 probe must not run on the structural blocked signal: that verdict is already ' +
+        'certain, so the request would buy an answer we have',
+    );
+  }
 
   async fetchUserPostPage(_secUserId: string, maxCursor: number): Promise<UserPostPage> {
     this.cursors.push(maxCursor);
@@ -96,12 +112,13 @@ function item(id: string, when: number): Record<string, unknown> {
   };
 }
 
-function laneFor(source: PostPageSource): EnumerateLane {
+function laneFor(source: EnumerateParser): EnumerateLane {
   return new EnumerateLane(quietLogger, db, source, {
     leaseSeconds: 300,
     urlTtlSeconds: 7200,
     sleepMsMin: 1,
     sleepMsMax: 2,
+    probeSecUserId: 'MS4wLjABAAAA_probe_target',
   });
 }
 

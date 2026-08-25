@@ -23,10 +23,10 @@ import {
   ENUMERATE_PAGE_SIZE,
   EnumerateLane,
   MAX_CONSECUTIVE_REJECTIONS,
-  type PostPageSource,
+  type EnumerateParser,
 } from '../../src/lanes/enumerate.lane';
 import { ParserRejectedError, ParserUnavailableError } from '../../src/parser/parser.errors';
-import type { Aweme, UserPostPage } from '../../src/parser/parser.client';
+import type { Aweme, UserPostPage, UserProfile } from '../../src/parser/parser.client';
 import {
   applyForwardMigration,
   createEmptySchema,
@@ -43,6 +43,8 @@ const SCHEMA = testSchemaName('enumerate');
 const PROFILE = 'MS4wLjABAAAA_enumerate';
 const LEASE_SECONDS = 300;
 const URL_TTL_SECONDS = 7200;
+/** The F4 probe target. Any value: no test here lets a probe reach a network. */
+const PROBE_SEC_USER_ID = 'MS4wLjABAAAA_probe_target';
 /** Compressed pacing. The SHAPE (a sleep between pages) is not compressed. */
 const SLEEP_MIN_MS = 60;
 const SLEEP_MAX_MS = 90;
@@ -138,12 +140,36 @@ type Script = (UserPostPage | Error)[];
  * a call in flight so overlap between two lanes is observable at all -- see
  * enumerate-global-concurrency.spec.ts.
  */
-class ScriptedSource implements PostPageSource {
+class ScriptedSource implements EnumerateParser {
   readonly calls: Call[] = [];
   beforeCall?: (index: number) => Promise<void> | void;
   holdMs = 0;
+  /**
+   * What the phase-7 F4 probe gets back, and `null` -- the default -- means
+   * "THIS TEST ASSERTS THE PROBE IS NEVER CALLED".
+   *
+   * Deliberately not a benign stub. A stub that quietly answered would turn
+   * every test in this file into one that cannot notice a probe being spent on
+   * the happy path, and a probe on the happy path is one extra request per job
+   * against an IP-based rate limit (F2). plan §5's memory entry for this shape:
+   * "a neutralised seam is a vacuous test".
+   */
+  probeAnswer: UserProfile | Error | null = null;
+  readonly probeCalls: string[] = [];
 
   constructor(private readonly script: Script) {}
+
+  async fetchUserProfile(secUserId: string): Promise<UserProfile> {
+    this.probeCalls.push(secUserId);
+    if (this.probeAnswer === null) {
+      throw new Error(
+        'the F4 probe was called by a test that did not script one -- either the lane is ' +
+          'probing on a path that must not cost a request, or this test needs probeAnswer set',
+      );
+    }
+    if (this.probeAnswer instanceof Error) throw this.probeAnswer;
+    return this.probeAnswer;
+  }
 
   async fetchUserPostPage(
     secUserId: string,
@@ -161,12 +187,13 @@ class ScriptedSource implements PostPageSource {
   }
 }
 
-function laneFor(source: PostPageSource, overrides: Record<string, unknown> = {}): EnumerateLane {
+function laneFor(source: EnumerateParser, overrides: Record<string, unknown> = {}): EnumerateLane {
   return new EnumerateLane(recordingLogger, db, source, {
     leaseSeconds: LEASE_SECONDS,
     urlTtlSeconds: URL_TTL_SECONDS,
     sleepMsMin: SLEEP_MIN_MS,
     sleepMsMax: SLEEP_MAX_MS,
+    probeSecUserId: PROBE_SEC_USER_ID,
     ...overrides,
   });
 }
@@ -558,22 +585,29 @@ describe('HTTP 400 -- counted, never diagnosed (§5.3, deferred to phase 7)', ()
     expect(source.calls.map((c) => c.maxCursor)).toEqual([0, PAGE_1_CURSOR, PAGE_1_CURSOR]);
   });
 
-  it('stops at blocked after three consecutive 400s, keeping the checkpoint', async () => {
+  it('stops after three consecutive 400s, keeping the checkpoint', async () => {
+    // Phase 5 owned the COUNTING; phase 7 owns the verdict. What survives from
+    // phase 5 unchanged is what this test asserts: three consecutive 400s end
+    // the tick, the checkpoint is kept, and the same page was re-asked exactly
+    // three times. WHICH status is written is now the probe's answer, and that
+    // is test/lanes/f4-probe.spec.ts's subject -- so this scripts a probe that
+    // makes the outcome deterministic rather than restating it.
     expect(MAX_CONSECUTIVE_REJECTIONS).toBe(3);
     const id = await seedJob({ maxCursor: PAGE_1_CURSOR, enumeratedCount: 20 });
     const source = new ScriptedSource([rejected(), rejected(), rejected()]);
+    source.probeAnswer = { nickname: null, statusCode: 2190 };
 
     await expect(laneFor(source).runOnce(fresh())).resolves.toBe('worked');
 
     const job = await readJob(id);
     expect(job.status).toBe('blocked');
     expect(job.maxCursor).toBe(PAGE_1_CURSOR);
-    // Phase 5 refuses to name a cause: the parser squashes every failure into
-    // an information-free 400 (F4), so guessing here would report `blocked` for
-    // a private profile and send someone to rotate a good cookie. The reason
-    // string must say the cause is UNKNOWN.
-    expect(job.error).toMatch(/unknown|not diagnos/i);
+    // The reason is no longer "cause unknown" -- the probe is the observation
+    // that removed the unknown. It must name a remediation.
+    expect(job.error).toMatch(/fresh cookie/i);
     expect(source.calls).toHaveLength(3);
+    // ONE probe for three 400s, not one per 400.
+    expect(source.probeCalls).toEqual([PROBE_SEC_USER_ID]);
   });
 
   it('resets the 400 counter on any successful page', async () => {

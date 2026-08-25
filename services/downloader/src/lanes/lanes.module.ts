@@ -10,11 +10,13 @@ import { PARSER_CLIENT } from '../parser/parser.module';
 import { STORAGE } from '../storage/storage.module';
 import type { Storage } from '../storage/storage.interface';
 import { DownloadLane, type VideoUrlSource } from './download.lane';
-import { EnumerateLane, type PostPageSource } from './enumerate.lane';
+import { EnumerateLane, type EnumerateParser } from './enumerate.lane';
 import { LaneSupervisor } from './lane.supervisor';
 import type { LaneLogger, LaneRunner } from './lane.runner';
 import { DOWNLOAD_LANES, LANE_LOGGER, LANES } from './lanes.tokens';
 import { ReaperLane } from './reaper.lane';
+import { ProbeHealthCheck } from '../parser/probe-health';
+import type { ProbeSource } from '../parser/f4-probe';
 
 /**
  * The lane layer.
@@ -60,7 +62,7 @@ import { ReaperLane } from './reaper.lane';
       useFactory: (
         logger: LaneLogger,
         db: Executor,
-        parser: PostPageSource,
+        parser: EnumerateParser,
         env: Env,
       ): EnumerateLane =>
         new EnumerateLane(logger, db, parser, {
@@ -68,6 +70,11 @@ import { ReaperLane } from './reaper.lane';
           urlTtlSeconds: env.URL_TTL_SECONDS,
           sleepMsMin: env.ENUMERATE_SLEEP_MS_MIN,
           sleepMsMax: env.ENUMERATE_SLEEP_MS_MAX,
+          // F4. Wired from env rather than hardcoded because the one profile
+          // that is "known public" is an operational fact, not a constant --
+          // and a probe target that has gone private inverts F4 silently, which
+          // is what `ProbeHealthCheck` watches for at boot.
+          probeSecUserId: env.PROBE_SEC_USER_ID,
         }),
     },
     {
@@ -138,8 +145,29 @@ import { ReaperLane } from './reaper.lane';
         downloads: DownloadLane[],
       ): LaneRunner[] => [reaper, enumerate, ...downloads],
     },
+    {
+      /**
+       * F4's boot-time sanity check on the probe target (phase-07 Risks row 1).
+       *
+       * Registered HERE, in the lane module, because that is where its enabling
+       * condition lives: only a process that runs lanes ever diagnoses anything,
+       * so only such a process should spend the request. `LANES_ENABLED` gates
+       * it for exactly the same reason it gates the lanes themselves.
+       *
+       * A factory rather than a class provider, so `enabled` and
+       * `probeSecUserId` are read from env in one visible place instead of
+       * through decorators that would then have to be kept in step with it.
+       */
+      provide: ProbeHealthCheck,
+      inject: [LANE_LOGGER, PARSER_CLIENT, ENV],
+      useFactory: (logger: LaneLogger, parser: ProbeSource, env: Env): ProbeHealthCheck =>
+        new ProbeHealthCheck(logger, parser, {
+          probeSecUserId: env.PROBE_SEC_USER_ID,
+          enabled: env.LANES_ENABLED,
+        }),
+    },
     LaneSupervisor,
   ],
-  exports: [LANES],
+  exports: [LANES, ProbeHealthCheck],
 })
 export class LanesModule {}

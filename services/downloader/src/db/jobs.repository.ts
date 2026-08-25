@@ -252,6 +252,53 @@ export async function markBlocked(
 }
 
 /**
+ * PHASE 7 (F4) -- the OTHER verdict, and the reason `markBlocked` above is not
+ * the only ending an enumerate failure can have.
+ *
+ * `failed` means "this profile is not gettable and a new cookie will change
+ * nothing". It is written on exactly one piece of evidence: a probe of a
+ * KNOWN-PUBLIC profile succeeded with the same cookie (`f4-probe.ts`), which
+ * rules out every global explanation -- banned cookie, stale `a_bogus`,
+ * unreachable parser -- and leaves the target profile itself.
+ *
+ * Getting the choice between this and `markBlocked` wrong does not break the
+ * machine; it sends a person to do the wrong thing. `blocked` on a private
+ * profile has an operator rotating a working cookie; `failed` on a banned
+ * cookie has them telling a user their profile is gone. That asymmetry is why
+ * the probe exists at all (plan §2 F4) and why this function refuses to be a
+ * fallback: nothing calls it on a guess.
+ *
+ * `max_cursor` is deliberately kept, exactly as `markBlocked` keeps it. `failed`
+ * is in `RETRYABLE_STATUSES`, so a profile that comes back -- unblocked by its
+ * owner, say -- resumes from the checkpoint instead of re-spending the whole F2
+ * request budget. A "terminal" status that threw the checkpoint away would make
+ * the retry it explicitly permits expensive for no reason.
+ *
+ * Same `status = 'enumerating'` gate and same redact-on-write as `markBlocked`;
+ * see those comments. The reason text originates in a parser error, so plan §0
+ * principle 3 applies on the way IN, not merely on the way out through the
+ * mapper.
+ */
+export async function markFailed(
+  exec: Executor,
+  jobId: string,
+  reason: string,
+): Promise<boolean> {
+  const updated = await exec
+    .update(jobs)
+    .set({
+      status: 'failed',
+      error: redactor.redact(reason),
+      leaseExpiresAt: null,
+      updatedAt: sql`now()`,
+    })
+    .where(and(eq(jobs.id, jobId), eq(jobs.status, 'enumerating')))
+    .returning({ id: jobs.id });
+
+  return updated.length > 0;
+}
+
+/**
  * §4.2's "nhả lease" for a job: put it straight back on the queue.
  *
  * Called on graceful shutdown and after a tick that failed, so the next process
@@ -387,11 +434,14 @@ export async function finalizeSettled(
  * status nothing resets (`resetFailedForProfile` touches only `failed`). So it
  * is the CONJUNCTION: somebody cancelled, and nobody else is still asking.
  *
- * TODO(phase-7): `cancelled` is not in `RETRYABLE_STATUSES`, so a cancelled
- * job's `skipped` videos have no way back -- a NEW job on the profile
- * re-enumerates them, `upsertMany` correctly does nothing (F7), and they stay
- * skipped. Phase 7 owns retry/cancel; the fix belongs there, either by making
- * `/retry` reset `skipped` too or by having a new job clear them.
+ * RESOLVED IN PHASE 7 (this used to carry a `TODO(phase-7)`): `skipped` was a
+ * status nothing reset, so a cancelled profile was un-downloadable forever --
+ * and silently, because `skipped` counts as settled, so the next job reported
+ * `completed` with zero downloads. BOTH ways back are now implemented, because
+ * they answer different intents: `cancelled` joined `RETRYABLE_STATUSES` (retry
+ * that job), and `jobs.service.ts` calls `reviveSkippedForProfile` when a new
+ * job is created for the profile (somebody wants it again). Either way this
+ * function's conjunction then answers `false`, because a live job exists.
  */
 export async function isProfileCancelled(exec: Executor, secUserId: string): Promise<boolean> {
   const live = exec
@@ -505,9 +555,29 @@ export async function cancel(exec: Executor, id: string): Promise<Job | null> {
   return row ?? null;
 }
 
-/** States `retry` may act from -- see phase-03 §3.1: only a job that got
- * stuck (`blocked` on a cookie problem) or gave up (`failed`) can be retried. */
-const RETRYABLE_STATUSES = ['blocked', 'failed'] as const;
+/**
+ * States `retry` may act from.
+ *
+ * phase-03 §3.1 listed `blocked` (stuck on a cookie problem) and `failed` (gave
+ * up). Phase 7 adds `cancelled`, and it is a fix rather than a feature: cancel
+ * has the download lane mark the profile's outstanding videos `skipped`, and
+ * `skipped` was a status nothing in the system reset. So a cancelled profile was
+ * permanently un-downloadable -- a new job re-enumerated it, `upsertMany`
+ * correctly did nothing (F7), `claimOne` never looks at `skipped`, and because
+ * `skipped` counts as settled the new job reported `completed` with zero
+ * downloads and no error. See `videos.repository.ts`'s
+ * `reviveSkippedForProfile`.
+ *
+ * `cancelled` is NOT terminal for the same reason `blocked` is not: both are
+ * states an operator put the job into and can change their mind about. What
+ * stays terminal is `completed` -- there is nothing to retry -- and
+ * `enumerating`/`downloading`, which are somebody else's claim.
+ *
+ * This does not disturb the `blocked` vs `failed` distinction plan §5 anchors on
+ * (both were already retryable; the WORD is the remediation signal, and
+ * `CANCELLABLE_STATUSES` is the behavioural half).
+ */
+const RETRYABLE_STATUSES = ['blocked', 'failed', 'cancelled'] as const;
 
 /**
  * Resets a stuck or failed job back to `pending` so the enumerate lane picks

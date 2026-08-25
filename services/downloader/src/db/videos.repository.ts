@@ -1,7 +1,7 @@
-import { and, count, desc, eq, gt, inArray, isNotNull, lt, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gt, inArray, isNotNull, lt, notExists, sql } from 'drizzle-orm';
 import type { Executor } from './executor';
 import { redactor } from '../redaction/redactor';
-import { videos, type Video } from './schema';
+import { jobs, videos, type Video } from './schema';
 
 export interface ClaimOptions {
   /** How long a claim is valid before the reaper may hand it to someone else. */
@@ -388,9 +388,53 @@ export async function markSkipped(
   const updated = await exec
     .update(videos)
     .set({ status: 'skipped', leaseExpiresAt: null })
-    .where(ownsClaim(awemeId, attempts))
+    // PHASE 7 -- AND NO LIVE JOB WANTS THIS PROFILE, asked in SQL rather than
+    // read first.
+    //
+    // The lane reads `isProfileCancelled` before it claims and again before it
+    // commits, but neither read is atomic with THIS write, and the gap is a real
+    // sequence with an unrecoverable ending:
+    //
+    //   1. job A is cancelled.
+    //   2. a lane claims video V; the row is now `downloading`.
+    //   3. job B is created for the same profile. `reviveSkippedForProfile` runs
+    //      inside that transaction and finds nothing: V is `downloading`, not
+    //      `skipped`.
+    //   4. the lane writes `skipped` here. `ownsClaim` is satisfied, so it lands.
+    //
+    // V is now `skipped` under a LIVE job. `claimOne` never looks at `skipped`,
+    // and `skipped` counts as SETTLED -- so job B finalizes as `completed` with V
+    // missing and every counter agreeing. That is phase 6's handover bug rebuilt
+    // out of a race, and no status anywhere looks wrong.
+    //
+    // Making it a predicate closes it without a lock: if a job appeared, this
+    // affects no row, `markSkipped` answers false, the lane treats the claim as
+    // lost, and the row stays `downloading` for the reaper to hand back (F3).
+    // Slower by one lease at worst; the alternative loses the video for good.
+    .where(and(ownsClaim(awemeId, attempts), notExists(liveJobForVideoProfile(exec))))
     .returning({ awemeId: videos.awemeId });
   return updated.length > 0;
+}
+
+/**
+ * "Somebody still wants this profile", correlated to the `videos` row being
+ * updated.
+ *
+ * The positive half of `jobs.repository.ts`'s `isProfileCancelled` conjunction,
+ * expressed here so it can be used inside a WHERE. Profile-scoped via the
+ * correlated `videos.secUserId`, because `videos` has no `job_id` and must never
+ * gain one (F7).
+ */
+function liveJobForVideoProfile(exec: Executor) {
+  return exec
+    .select({ one: sql`1` })
+    .from(jobs)
+    .where(
+      and(
+        eq(jobs.secUserId, videos.secUserId),
+        inArray(jobs.status, ['pending', 'enumerating', 'downloading']),
+      ),
+    );
 }
 
 /**
@@ -535,6 +579,61 @@ export async function resetFailedForProfile(exec: Executor, secUserId: string): 
     .update(videos)
     .set({ status: 'pending', attempts: 0, lastError: null, leaseExpiresAt: null })
     .where(and(eq(videos.secUserId, secUserId), eq(videos.status, 'failed')))
+    .returning({ awemeId: videos.awemeId });
+  return rows.length;
+}
+
+/**
+ * PHASE 7 -- the way back for a CANCELLED job's videos.
+ *
+ * Separate from `resetFailedForProfile` above, deliberately, and not a widened
+ * WHERE on it: `failed` and `skipped` mean opposite things. `failed` is "we
+ * tried and could not", so resetting it is a retry. `skipped` is "nothing went
+ * wrong, nobody wanted it" (see `markSkipped`), so resetting it is somebody
+ * ASKING AGAIN. Folding them together would leave one function whose name is
+ * true of half of what it does -- and a `resetFailedForProfile` that quietly
+ * un-skips rows is precisely the sort of comment-that-lies plan §5 rule 7 is
+ * about.
+ *
+ * WHY THIS EXISTS AT ALL -- phase 6's handover, and it was a data-loss bug with
+ * no guard on it:
+ *
+ *   cancel -> the lane marks outstanding videos `skipped` -> nothing resets
+ *   `skipped` -> a new job re-enumerates and `upsertMany` correctly does nothing
+ *   (F7) -> `claimOne` only ever looks at `pending`.
+ *
+ * So those videos were unreachable forever. And because `skipped` counts as
+ * SETTLED (`hasWorkForProfile` ignores it, `finalizeSettled`'s
+ * `notExists(outstanding)` is satisfied by it), the next job on that profile
+ * walked to `completed` with `downloaded_count = 0` and no error anywhere. Every
+ * number agreed; the archive was simply missing the videos. That is the same
+ * shape as phase 6's zero-byte commit, and like that one it had no mutation
+ * because it had no guard.
+ *
+ * Called from TWO places, answering two different operator intents, both of
+ * which mean "the cancel no longer applies":
+ *
+ *   - `/retry` on the cancelled job -- "actually, carry on with that".
+ *   - creating a NEW job for the profile -- "somebody wants this profile again",
+ *     which is also what stops the false `completed` above.
+ *
+ * `attempts = 0` for the same reason `resetFailedForProfile` does it: the claim
+ * filters on `attempts < maxAttempts`, so a row skipped on its last attempt
+ * would come back reading `pending` in every listing while staying invisible to
+ * the only query that picks up work.
+ *
+ * `last_error` is NOT cleared, because `markSkipped` never set one -- nothing
+ * went wrong. Writing null over null would suggest there had been something to
+ * clear.
+ */
+export async function reviveSkippedForProfile(
+  exec: Executor,
+  secUserId: string,
+): Promise<number> {
+  const rows = await exec
+    .update(videos)
+    .set({ status: 'pending', attempts: 0, leaseExpiresAt: null })
+    .where(and(eq(videos.secUserId, secUserId), eq(videos.status, 'skipped')))
     .returning({ awemeId: videos.awemeId });
   return rows.length;
 }

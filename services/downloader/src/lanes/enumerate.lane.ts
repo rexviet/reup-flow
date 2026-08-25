@@ -3,6 +3,7 @@ import * as jobsRepository from '../db/jobs.repository';
 import * as videosRepository from '../db/videos.repository';
 import type { Job } from '../db/schema';
 import { ParserRejectedError } from '../parser/parser.errors';
+import { probeCookie, type ProbeSource } from '../parser/f4-probe';
 import type { UserPostPage } from '../parser/parser.client';
 import { toVideoUpsert } from './aweme.mapper';
 import { LaneRunner, type LaneLogger, type TickOutcome } from './lane.runner';
@@ -42,6 +43,19 @@ export interface PostPageSource {
   fetchUserPostPage(secUserId: string, maxCursor: number, count: number): Promise<UserPostPage>;
 }
 
+/**
+ * Everything this lane asks of a parser: pages, and -- since phase 7 -- the F4
+ * probe.
+ *
+ * Composed rather than folded into `PostPageSource` so that each half still says
+ * what it is, and REQUIRED rather than optional. An optional probe would mean a
+ * lane wired without one silently degrades to phase 5's "cause UNKNOWN" park,
+ * and the mutation that unwires it in `lanes.module.ts` would leave every test
+ * in this file green -- a guard nobody is watching, which is the failure mode
+ * plan §5 is a list of.
+ */
+export type EnumerateParser = PostPageSource & ProbeSource;
+
 export interface EnumerateLaneOptions {
   /** `LEASE_SECONDS`. Renewed on every page (see `checkpoint`). */
   leaseSeconds: number;
@@ -51,6 +65,17 @@ export interface EnumerateLaneOptions {
   sleepMsMin: number;
   /** `ENUMERATE_SLEEP_MS_MAX` -- ceiling of the same. */
   sleepMsMax: number;
+  /**
+   * `PROBE_SEC_USER_ID` -- the known-public profile the F4 probe asks about.
+   *
+   * Not optional, and not defaulted to anything: a probe pointed at a profile
+   * that is itself private or deleted can never answer `cookie-healthy`, so
+   * every 3x400 would be reported as `blocked` and F4 would be silently
+   * inverted. See `ProbeHealthCheck` for the boot-time check that says so out
+   * loud, and phase-07's risk register for why that check is loud rather than
+   * fatal.
+   */
+  probeSecUserId: string;
   /** Test seam for the jitter. Never set in production. */
   random?: () => number;
 }
@@ -61,6 +86,11 @@ type EnumerateOutcome =
   | 'finished'
   /** The cookie is being refused. Park at `blocked`, keep the checkpoint. */
   | 'blocked'
+  /**
+   * F4: the probe proved the cookie good, so this PROFILE is the problem.
+   * `failed`, keeping the checkpoint -- see `jobsRepository.markFailed`.
+   */
+  | 'failed'
   /** Reaped, cancelled, or finished by somebody else. Touch nothing. */
   | 'lost'
   /** Shutdown. Keep holding the claim so `stop()` hands it back. */
@@ -102,7 +132,7 @@ export class EnumerateLane extends LaneRunner {
   constructor(
     logger: LaneLogger,
     private readonly db: Executor,
-    private readonly parser: PostPageSource,
+    private readonly parser: EnumerateParser,
     private readonly opts: EnumerateLaneOptions,
   ) {
     super(logger);
@@ -216,21 +246,20 @@ export class EnumerateLane extends LaneRunner {
           continue;
         }
 
-        // TODO(phase-7): F4's probe goes here. Phase 5 deliberately does NOT
-        // guess. Three 400s could be a banned cookie, a private profile, a
-        // deleted account, or a crawler bug, and the response is different for
-        // each -- so this parks the job with the cause stated as UNKNOWN rather
-        // than sending an operator to rotate a cookie that may be fine. Phase 7
-        // adds the one observation that can tell them apart: a probe of a
-        // known-public profile with the same cookie.
-        await this.park(
-          job,
-          `stopped after ${MAX_CONSECUTIVE_REJECTIONS} consecutive HTTP 400s from the parser. ` +
-            `The cause is not diagnosed: the parser returns 400 for every internal failure with ` +
-            `no detail, so this could be a refused cookie, a private profile, or a deleted ` +
-            `account. The checkpoint is kept, so /retry resumes from here.`,
-        );
-        return 'blocked';
+        // F4 -- THE PROBE. Phase 5 parked here with the cause stated as
+        // UNKNOWN, because a 400 from the fork carries no diagnostic
+        // information at all (`parser.errors.ts`) and guessing would send an
+        // operator to rotate a cookie that may be fine. Phase 7 adds the one
+        // observation the failing call cannot supply: ask the SAME parser, with
+        // the SAME cookie, about a profile that is KNOWN to be public. Whatever
+        // happens to that request is about the cookie, the signing, or the
+        // network -- it cannot be about the profile that just failed.
+        //
+        // This costs exactly ONE extra request and only ever on this path,
+        // which is why §7.1 puts it third: the structural signal below is an
+        // HTTP 200 and certain, and the retries above are cheaper. See
+        // `f4-probe.ts` for the five outcomes and what each one means.
+        return this.diagnose(job, cursor);
       }
 
       // §5.3 -- the STRUCTURAL signal, and the only diagnosis this phase makes.
@@ -240,13 +269,13 @@ export class EnumerateLane extends LaneRunner {
       // the end of a profile whose item count divides exactly by the page size,
       // and calling that a banned cookie would be the F4 mistake in reverse.
       if (page.awemeList.length === 0 && page.hasMore) {
-        await this.park(
+        const parked = await this.park(
           job,
           'the profile page came back empty while still reporting more pages, which means the ' +
             'cookie is being refused. The checkpoint is kept, so pushing a fresh cookie and ' +
             'calling /retry resumes from here.',
         );
-        return 'blocked';
+        return parked ? 'blocked' : this.lost(job);
       }
 
       // Douyin's cursor is the create_time of the OLDEST item in the page and a
@@ -347,9 +376,89 @@ export class EnumerateLane extends LaneRunner {
    * rather than write the profile off. `markBlocked` keeps `max_cursor`, which
    * is what makes the recovery cheap.
    */
-  private async park(job: Job, reason: string): Promise<void> {
-    await jobsRepository.markBlocked(this.db, job.id, reason);
-    this.logger.warn(`lane ${this.name}: job ${job.id} is BLOCKED (not failed): ${reason}`);
+  private async park(job: Job, reason: string): Promise<boolean> {
+    const parked = await jobsRepository.markBlocked(this.db, job.id, reason);
+    if (parked) {
+      this.logger.warn(`lane ${this.name}: job ${job.id} is BLOCKED (not failed): ${reason}`);
+    }
+    return parked;
+  }
+
+  /**
+   * The claim went away before we could record a verdict.
+   *
+   * Reaped, cancelled, or finished by somebody else -- so the row belongs to
+   * someone now and the one thing not to do is write over it. Said out loud
+   * because the alternative is a diagnosis that was reached, cost a probe, and
+   * then vanished with nothing anywhere explaining why the job carried on.
+   */
+  private lost(job: Job): EnumerateOutcome {
+    this.logger.warn(
+      `lane ${this.name}: reached a verdict for job ${job.id} but the claim was already ` +
+        `gone (reaped, cancelled, or finished elsewhere), so nothing was written`,
+    );
+    return 'lost';
+  }
+
+  /**
+   * F4 -- runs the probe and writes whichever verdict it supports.
+   *
+   * The ONLY place in this service that turns "three 400s" into a diagnosis, and
+   * the branch is one line because the whole judgement lives in
+   * `probeCookie`: `global` means the fault is the cookie / the signing / the
+   * network, so the job is `blocked` and an operator has something to fix;
+   * `!global` means the probe RULED THOSE OUT, so the job is `failed` and
+   * nobody touches a working cookie.
+   *
+   * Both endings keep `max_cursor`, so either way /retry resumes from here
+   * rather than re-spending the F2 request budget.
+   *
+   * A probe that throws something other than a `ParserError` is not caught: that
+   * is a bug on this side, and burying it in a story about Douyin is precisely
+   * what F4 exists to stop.
+   */
+  private async diagnose(job: Job, cursor: number): Promise<EnumerateOutcome> {
+    const probe = await probeCookie(this.parser, this.opts.probeSecUserId);
+    const preamble =
+      `stopped after ${MAX_CONSECUTIVE_REJECTIONS} consecutive HTTP 400s from the parser at ` +
+      `cursor ${cursor}. The 400 itself carries no detail, so a probe of a known-public profile ` +
+      `was run with the same cookie: `;
+    const trailer = ' The checkpoint is kept, so /retry resumes from here.';
+
+    // Each writer reports whether it actually landed, and `lost` is the honest
+    // answer when it did not. THE PROBE IS WHY THIS MATTERS NOW: it is a network
+    // call with a 30s budget and it does not renew the lease, so the reaper has a
+    // real window in which to hand this job to somebody else while we wait. Both
+    // writers are gated on `status = 'enumerating'`, so the write then quietly
+    // affects nothing -- and the phase-5 version of this code logged "job X is
+    // BLOCKED" regardless, which is a log line asserting the opposite of what
+    // happened about a job that is `pending` under a new claim.
+    if (!probe.global) {
+      if (!(await this.giveUp(job, preamble + probe.reason + trailer))) return this.lost(job);
+      return 'failed';
+    }
+    if (!(await this.park(job, preamble + probe.reason + trailer))) return this.lost(job);
+    return 'blocked';
+  }
+
+  /**
+   * Writes `failed` -- the verdict that says a new cookie will change nothing.
+   *
+   * Separate from `park` rather than a parameter of it, because the two are
+   * different instructions to a human and the log line has to say which one was
+   * chosen and WHY. A single function with a status argument would make the two
+   * call sites look interchangeable, and they are the exact pair F4 exists to
+   * keep apart.
+   */
+  private async giveUp(job: Job, reason: string): Promise<boolean> {
+    const failed = await jobsRepository.markFailed(this.db, job.id, reason);
+    if (failed) {
+      this.logger.warn(
+        `lane ${this.name}: job ${job.id} FAILED (not blocked -- the probe proved the cookie is ` +
+          `still good, so rotating it would not help): ${reason}`,
+      );
+    }
+    return failed;
   }
 
   /**

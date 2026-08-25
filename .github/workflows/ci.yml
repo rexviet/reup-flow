@@ -182,6 +182,21 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      # Added with the phase-7 mutation runner. The cookie suites (phase 3) and
+      # the AppModule-booting lane suites talk to a real Redis, and the runner
+      # executes every harness rather than only phase 1's -- so patterns that
+      # were never selected in CI before are selected now. Without this they
+      # would fail for a missing dependency, which reads exactly like a caught
+      # mutation and is the "red for the wrong reason" plan §5 warns about.
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -209,14 +224,28 @@ jobs:
       - name: Test
         run: pnpm -C services/downloader test
 
-      # Phase 1 invariants (plan §5). Same rule as every mutation block in
-      # this file: each one prints the diff it actually applied, and a
-      # mutation that matches nothing is a hard error rather than a pass --
-      # an empty match has silently reported "caught" twice on this repo.
-      # The script lives in-tree rather than inline here so it is runnable
-      # locally against docker-compose, which is where it gets used.
-      - name: Mutation -- phase 1 schema/claim/reaper invariants must go red
-        run: bash services/downloader/test/mutations/phase-01.sh
+      # EVERY mutation harness, not just phase 1's (plan §5).
+      #
+      # This step used to run `phase-01.sh` alone, and that gap had already cost
+      # something concrete: phase 5 changed the `LANES` factory and the WHERE
+      # clause of `finalizeSettled` without updating `phase-04.sh`, so two of
+      # phase 4's mutations stopped applying. `phase-04.sh` exited 1 with
+      # "matched nothing" -- correctly, loudly, and to nobody, because CI never
+      # ran it. Five later phases each reported a clean run of their own suite
+      # while two of phase 4's guards were unwatched; a human found it by hand.
+      #
+      # `run-mutations.sh` adds the checks no individual harness can make: it
+      # runs them all, compares each one's outcome count against a DECLARED
+      # manifest (so a deleted or hollowed-out mutation fails the build instead
+      # of just reporting a smaller number), treats "matched nothing" as its own
+      # hard failure, and verifies the source tree is byte-identical afterwards
+      # -- because a mutation left in place invalidates every measurement after
+      # it, including the other harnesses in the same run.
+      #
+      # It lives in-tree rather than inline here so it is runnable locally
+      # against docker-compose, which is where it gets used most.
+      - name: Mutation -- every harness must go red where it says it does
+        run: bash scripts/run-mutations.sh
 
       # The SPIKE 1 gate is only worth its green if it still fails when the
       # lock is removed. It did not, once: two tests named for concurrency

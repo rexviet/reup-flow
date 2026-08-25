@@ -602,7 +602,15 @@ describe('retry', () => {
     expect(retried?.leaseExpiresAt).toBeNull();
   });
 
-  it.each(['pending', 'enumerating', 'downloading', 'completed', 'cancelled'])(
+  // `cancelled` was in this list until phase 7 removed it, and the removal is a
+  // FIX rather than a loosening: cancel has the download lane mark the profile's
+  // outstanding videos `skipped`, and `skipped` was a status nothing reset, so a
+  // cancelled profile could never be downloaded again -- silently, because
+  // `skipped` counts as settled and the next job therefore reported `completed`
+  // with zero downloads. See test/db/cancel-retry-revival.spec.ts and
+  // `reviveSkippedForProfile`. What stays un-retryable is `completed` (nothing to
+  // retry) and the two in-flight statuses (somebody else's claim).
+  it.each(['pending', 'enumerating', 'downloading', 'completed'])(
     'refuses to retry a job in status %s',
     async (status) => {
       await upsertProfile(db, 'profile-new');
