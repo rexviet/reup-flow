@@ -1,0 +1,98 @@
+services/downloader/src/app.module.ts
+  s_a4338c40d5e2ec::t_462ae3edb6e523 9,23,25,47
+services/downloader/test/support/download-crash-child.ts
+  s_a4338c40d5e2ec::t_972ac23c3107d0 1-74
+services/downloader/test/lanes/download-commit-race.spec.ts
+  s_a4338c40d5e2ec::t_d2143837d587e9 525
+  s_a4338c40d5e2ec::t_16d5f0ef4025db 1-416,458-524,526-563
+  s_a4338c40d5e2ec::t_8b07ac3156c251 417-439,442-443,445-457
+  s_a4338c40d5e2ec::t_b5ac81d13d9819 440-441,444
+services/downloader/src/cdn/cdn.module.ts
+  s_a4338c40d5e2ec::t_3551f4b4799480 1-48
+services/downloader/test/cdn/cdn.module.spec.ts
+  s_a4338c40d5e2ec::t_18dca22947cdb7 27-40,42-46
+  s_a4338c40d5e2ec::t_fd40114143d92e 41
+  s_a4338c40d5e2ec::t_dc9904f57a1fda 1-26,47-58
+services/downloader/src/storage/local-disk.storage.ts
+  s_a4338c40d5e2ec::t_28aa64e736f118 166-187
+  s_a4338c40d5e2ec::t_a3b0129603e919 92-104
+  s_a4338c40d5e2ec::t_26863243551462 17,188-189
+services/downloader/src/storage/storage.interface.ts
+  s_a4338c40d5e2ec::t_18dca22947cdb7 65-66
+  s_a4338c40d5e2ec::t_eb2a0789cef4af 24-35,50,52-55,57-64,68-73
+services/downloader/test/storage/before-commit.spec.ts
+  s_a4338c40d5e2ec::t_876eee68be6a18 1-142,155-156,162-163
+  s_a4338c40d5e2ec::t_9bde39ecf1260e 143-154,157-161
+plans/260824-2152-douyin-downloader/phase-06-download-lane.md
+  s_a4338c40d5e2ec::t_46bfd1bb753b08 4,50-56,60-68
+services/downloader/src/db/jobs.repository.ts
+  s_a4338c40d5e2ec::t_0a51e695682c76 321-337,366-372,376-416
+  s_a4338c40d5e2ec::t_c3f626fd9995e1 417
+services/downloader/src/lanes/download.lane.ts
+  s_a4338c40d5e2ec::t_755f508e175f8d 1-152,167-178,180-185,187,219-221,228-291,294-326,329-344,358-404,417-428,431-436,443-497,499,514-520,523,525-537,539-553,561-608,610-635
+  s_a4338c40d5e2ec::t_a2d37ede687d96 179,186,188-194,222-227,609
+  s_a4338c40d5e2ec::t_31096801205401 429-430,498,500-513,521-522,524,538,554-560
+  s_a4338c40d5e2ec::t_131a34117e6edd 153-166,200-209,292-293,327-328,345-357,405-416,437-442
+  s_a4338c40d5e2ec::t_c7dbd840502638 195-199,210-218
+services/downloader/src/lanes/lanes.module.ts
+  s_a4338c40d5e2ec::t_462ae3edb6e523 2-3,12,16,73-111,114,135-138
+  s_a4338c40d5e2ec::t_5bccbe0628f1d8 139
+services/downloader/test/mutations/phase-04.sh
+  s_a4338c40d5e2ec::t_115f16a67dbf87 599-621
+  s_a4338c40d5e2ec::t_0925e4550ffdf9 499-514,524-534
+services/downloader/test/support/fake-cdn.ts
+  s_a4338c40d5e2ec::t_41ffd749215921 159,164
+  s_a4338c40d5e2ec::t_f90125bb126a14 1-148,158,160-163,165-182
+  s_a4338c40d5e2ec::t_fbdf91c624b6e4 149-157
+services/downloader/src/lanes/lanes.tokens.ts
+  s_a4338c40d5e2ec::t_462ae3edb6e523 15-25
+services/downloader/src/cdn/cdn.client.ts
+  s_a4338c40d5e2ec::t_10ca16b9e50bb1 1-190
+services/downloader/test/cdn/cdn.client.spec.ts
+  s_a4338c40d5e2ec::t_6fd3d29f1709ac 1-217
+services/downloader/src/db/videos.repository.ts
+  s_a4338c40d5e2ec::t_618c77c3f4360b 1,201-237,251-418
+  s_a4338c40d5e2ec::t_204c6e7fe1fb23 238-250
+  s_a4338c40d5e2ec::t_3e116eccd32dde 419-420
+  s_a4338c40d5e2ec::t_3e492c0207d33d 13-29,440-441,448-450,463-464,467-469
+services/downloader/test/mutations/phase-06.sh
+  s_a4338c40d5e2ec::t_44b92929b8962e 1-119,141-142,144-147,149-157,171-264,266-268,271-472,519-552
+  s_a4338c40d5e2ec::t_afe2a44f356837 129-140,148,158-170,265,269-270,473-518
+  s_a4338c40d5e2ec::t_30c1043d4c0274 120-128,143
+services/downloader/test/mutations/phase-05.sh
+  s_a4338c40d5e2ec::t_115f16a67dbf87 210-219,223,240-249,253,665-674,676
+services/downloader/test/db/download-claim.repository.spec.ts
+  s_a4338c40d5e2ec::t_5871c05f315988 25,27,314-377
+  s_a4338c40d5e2ec::t_413e3c21bd3666 1-24,26,28-313,378-379
+services/downloader/test/lanes/download.lane.spec.ts
+  s_a4338c40d5e2ec::t_5871c05f315988 346-404
+  s_a4338c40d5e2ec::t_56cf62efa64a0d 1-292,294-295,300,302-345,405-477,482-504,506-508,510,516-630
+  s_a4338c40d5e2ec::t_41ffd749215921 293,296-299,301
+  s_a4338c40d5e2ec::t_a2d37ede687d96 478-481,505,509,511-515
+services/downloader/test/db/download-finalize.repository.spec.ts
+  s_a4338c40d5e2ec::t_678c3d7bc7c21f 1-186
+services/downloader/test/lanes/download-e2e.spec.ts
+  s_a4338c40d5e2ec::t_5876b8f1cbd71e 133-137
+  s_a4338c40d5e2ec::t_8455f4bd497ed2 368-378
+  s_a4338c40d5e2ec::t_18dca22947cdb7 444-448,453-454
+  s_a4338c40d5e2ec::t_6b39c301464176 20,403-413
+  s_a4338c40d5e2ec::t_b79dace2da8f28 1-19,21-132,138-367,379-402,414-443,449-452,455-457
+services/downloader/test/lanes/lanes.module.spec.ts
+  s_a4338c40d5e2ec::t_7578dc354cf4a6 21,50-53,97-109,111-126,146-149
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "c8d38c53b0e3c421f9b90bdb1581e71d898c18a5",
+  "prompts": {},
+  "sessions": {
+    "s_a4338c40d5e2ec": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a84b385e-7edc-4867-93c0-d4b85127f7aa",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
