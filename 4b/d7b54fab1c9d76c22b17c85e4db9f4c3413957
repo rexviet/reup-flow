@@ -1,0 +1,22 @@
+plans/260824-2152-douyin-downloader/plan.md
+  s_a4338c40d5e2ec::t_e6377c9fdcc95c 91,114,163,165
+  s_a4338c40d5e2ec::t_a8839de0de6cad 212-213,215,219
+docs/journals/20260825-phase-07-probe-fail-was-three-different-answers.md
+  s_a4338c40d5e2ec::t_a485439dbf2f7f 1-70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "4bd7b54fab1c9d76c22b17c85e4db9f4c3413957",
+  "prompts": {},
+  "sessions": {
+    "s_a4338c40d5e2ec": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a84b385e-7edc-4867-93c0-d4b85127f7aa",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
