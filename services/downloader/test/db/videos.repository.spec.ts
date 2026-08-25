@@ -12,6 +12,7 @@ import type { Pool } from 'pg';
 import {
   claimOne,
   countByStatusForProfile,
+  upsertMany,
   listByProfile,
   markDone,
   markFailed,
@@ -426,5 +427,119 @@ describe('countByStatusForProfile', () => {
 
   it('returns an empty object for a profile with no videos', async () => {
     expect(await countByStatusForProfile(db, 'nobody')).toEqual({});
+  });
+});
+
+/**
+ * Phase 5 -- the enumerate lane's only write to this table.
+ *
+ * Two invariants live in one statement, and both are load-bearing:
+ *
+ *   ON CONFLICT DO NOTHING  is what makes an incremental re-run free (F7).
+ *                           `aweme_id` is the global key, so a second job over
+ *                           the same profile must re-insert nothing.
+ *   play_addr + url_expires_at  are written HERE, from the enumerate response
+ *                           (F1). Resolving them per video later costs ~525
+ *                           requests for a 500-video profile against ~25,
+ *                           which is the difference between working and being
+ *                           rate-limited into a ban.
+ */
+describe('upsertMany (phase 5)', () => {
+  const row = (awemeId: string, overrides: Record<string, unknown> = {}) => ({
+    awemeId,
+    secUserId: 'profile-1',
+    desc: `clip ${awemeId}`,
+    createTime: new Date(Date.UTC(2026, 0, 2)),
+    durationMs: 15_000,
+    playAddr: `https://cdn.example/${awemeId}.mp4`,
+    ...overrides,
+  });
+
+  it('inserts new videos with play_addr and a url_expires_at in the future (F1)', async () => {
+    const inserted = await upsertMany(db, [row('a1'), row('a2')], { urlTtlSeconds: 7200 });
+
+    expect(inserted).toBe(2);
+    const stored = await readVideo('a1');
+    expect(stored.playAddr).toBe('https://cdn.example/a1.mp4');
+    // Present IMMEDIATELY after enumerate -- not filled in later by the
+    // download lane. That is the whole of F1's saving.
+    expect(stored.urlExpiresAt).not.toBeNull();
+    expect(stored.urlExpiresAt!.getTime()).toBeGreaterThan(Date.now());
+    expect(stored.status).toBe('pending');
+    expect(stored.desc).toBe('clip a1');
+    expect(stored.durationMs).toBe(15_000);
+  });
+
+  it('computes url_expires_at from the DATABASE clock, not this process clock', async () => {
+    // Same rule as every lease in this schema. Two lane hosts with a few
+    // seconds of skew must not disagree about whether a cached URL is still
+    // usable, or phase 6 re-resolves URLs that were fine and skips ones that
+    // were not.
+    const ttl = 3600;
+    const before = Date.now();
+    await upsertMany(db, [row('a-clock')], { urlTtlSeconds: ttl });
+    const [{ dbnow }] = (await pool.query('SELECT now() AS dbnow')).rows as { dbnow: Date }[];
+
+    const stored = await readVideo('a-clock');
+    const drift = Math.abs(stored.urlExpiresAt!.getTime() - (dbnow.getTime() + ttl * 1000));
+    expect(drift).toBeLessThan(2_000);
+    // And it is genuinely a TTL ahead, not just "some timestamp".
+    expect(stored.urlExpiresAt!.getTime()).toBeGreaterThan(before + ttl * 1000 - 5_000);
+  });
+
+  it('inserts nothing on a re-run of the same page (ON CONFLICT DO NOTHING)', async () => {
+    await upsertMany(db, [row('a1'), row('a2')], { urlTtlSeconds: 7200 });
+
+    const inserted = await upsertMany(db, [row('a1'), row('a2')], { urlTtlSeconds: 7200 });
+
+    expect(inserted).toBe(0);
+    expect(await countByStatusForProfile(db, 'profile-1')).toEqual({ pending: 2 });
+  });
+
+  it('counts only the rows it actually inserted when a page half-overlaps', async () => {
+    // The normal incremental case: a profile gained two videos since last time,
+    // and the first page carries them alongside twenty it already has. The
+    // return value is what the lane reports, so it has to be the new ones.
+    await upsertMany(db, [row('old-1'), row('old-2')], { urlTtlSeconds: 7200 });
+
+    expect(
+      await upsertMany(db, [row('old-1'), row('new-1'), row('old-2')], { urlTtlSeconds: 7200 }),
+    ).toBe(1);
+  });
+
+  it('leaves a video that is already done completely untouched', async () => {
+    // The reason DO NOTHING beats DO UPDATE here. A re-run re-enumerates rows
+    // whose files are already on disk; overwriting their status, or resetting
+    // `attempts`, would re-download the entire archive on every job -- which is
+    // exactly the dedupe F7 exists to provide.
+    await upsertMany(db, [row('a-done')], { urlTtlSeconds: 7200 });
+    await markDone(db, 'a-done', '/data/douyin/profile-1/a-done.mp4');
+
+    await upsertMany(db, [row('a-done', { playAddr: 'https://cdn.example/CHANGED.mp4' })], {
+      urlTtlSeconds: 7200,
+    });
+
+    const stored = await readVideo('a-done');
+    expect(stored.status).toBe('done');
+    expect(stored.storagePath).toBe('/data/douyin/profile-1/a-done.mp4');
+    expect(stored.playAddr).toBe('https://cdn.example/a-done.mp4');
+  });
+
+  it('is a no-op on an empty page rather than invalid SQL', async () => {
+    // Drizzle emits `insert into ... values ()` for an empty array, which
+    // Postgres rejects. The lane reaches this on the last page of a profile
+    // whose item count is an exact multiple of the page size, so it is a
+    // routine path, not a defensive one.
+    await expect(upsertMany(db, [], { urlTtlSeconds: 7200 })).resolves.toBe(0);
+  });
+
+  it('survives a page that repeats an item, inserting it once', async () => {
+    // Douyin has been seen to repeat an item across a cursor boundary. `DO
+    // NOTHING` handles that inside one statement -- measured, not assumed. It is
+    // also the second, independent reason `DO UPDATE` is not an option: the same
+    // input makes `DO UPDATE` raise "cannot affect row a second time", turning a
+    // repeated item from a non-event into a failed tick.
+    expect(await upsertMany(db, [row('dup'), row('dup')], { urlTtlSeconds: 7200 })).toBe(1);
+    expect(await countByStatusForProfile(db, 'profile-1')).toEqual({ pending: 1 });
   });
 });

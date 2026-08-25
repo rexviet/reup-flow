@@ -1,5 +1,6 @@
 import { and, count, desc, eq, inArray, lt, notExists, sql } from 'drizzle-orm';
 import type { Executor } from './executor';
+import { redactor } from '../redaction/redactor';
 import { jobs, profiles, videos, type Job } from './schema';
 
 export interface ClaimOptions {
@@ -64,16 +65,65 @@ export async function claimOne(exec: Executor, opts: ClaimOptions): Promise<Job 
  * checkpointed has not. Splitting them would let a wedged lane hold a job
  * indefinitely by renewing a lease it is not earning.
  *
- * Returns false when the job is no longer being enumerated -- it was
- * reaped, cancelled, or finished -- which is the caller's signal to stop
- * rather than keep paging a job it no longer holds.
+ * Returns false when this checkpoint DID NOT LAND -- either the job is no
+ * longer being enumerated (reaped, cancelled, finished) or the write was
+ * rejected as stale by the rule below. Both mean the same thing to the
+ * caller: stop paging.
  *
- * Both counters move FORWARD ONLY. A lane that was reaped can still be
- * mid-flight when its replacement has already paged past it; without
- * GREATEST, that straggler's late checkpoint would rewind the cursor and
- * make the replacement re-enumerate pages it already has. Monotonicity is
- * what makes the handover safe without an ownership token, and a cursor
- * that only ever advances is the correct semantics for paging anyway.
+ * Including the stale case is the point, and the first version got it wrong.
+ * It discarded the straggler's cursor but still answered `true`, which tells
+ * a lane that has just been overtaken "still yours, keep going" -- two
+ * concurrent request streams against an endpoint that rate-limits by IP, for
+ * as long as the straggler survives. That is a live F2 violation produced by
+ * the code written to protect the checkpoint. The predicate was already being
+ * computed for the SET clause, so it moved into the WHERE as well and the
+ * lane's existing `if (!stillOurs) return 'lost'` path now stops the
+ * straggler dead.
+ *
+ * A consequence worth knowing: every checkpoint must carry strictly more
+ * items than the last, so the lane must not checkpoint a page that added
+ * nothing. It doesn't -- an empty page is either the blocked signal or the
+ * end of the profile, and both leave the loop before reaching here.
+ *
+ * PROGRESS MOVES FORWARD ONLY, and `enumerated_count` -- not the cursor --
+ * is what measures it.
+ *
+ * A lane that was reaped can still be mid-flight when its replacement has
+ * already paged past it. That straggler's late checkpoint must not rewind
+ * the cursor and make the replacement re-enumerate pages it already has;
+ * monotonicity is what makes the handover safe without an ownership token.
+ *
+ * The first version of this expressed that as `max_cursor = greatest(old,
+ * new)` -- monotonic in the cursor's own NUMERIC value. Phase 5 found that
+ * to be an assumption about Douyin's paging that Douyin does not honour:
+ * `aweme/post` returns `max_cursor` as the create_time (ms) of the OLDEST
+ * item in the page, and a profile pages newest-first, so THE CURSOR DROPS ON
+ * EVERY PAGE. Under GREATEST the checkpoint freezes at page one's value for
+ * the rest of the job while `enumerated_count` keeps climbing and the lease
+ * keeps renewing -- healthy in every observable way, and a restart re-pages
+ * the profile from page two, spending exactly the F2 request budget the
+ * checkpoint exists to protect. No test in this repo could have caught it
+ * either: a fake parser is free to hand back ascending numbers.
+ *
+ * So the cursor is written only when the checkpoint that carries it has seen
+ * STRICTLY MORE items than the row already records. `enumerated_count` only
+ * ever grows, whichever direction Douyin's cursor moves, so "more items" is
+ * "further along" by construction -- and a straggler, which has by
+ * definition seen fewer, still cannot rewind anything. Strictly greater, not
+ * greater-or-equal: two lanes at the same count have no ordering between
+ * them, so the second to arrive must not overwrite the first.
+ *
+ * If you are about to "simplify" this back to `greatest(max_cursor, ...)`,
+ * read the paragraph above first -- and note that the test which proves it
+ * has to hand back a DESCENDING cursor to mean anything.
+ *
+ * THE YARDSTICK ONLY WORKS BECAUSE `enumerated_count` HAS ONE WRITER. This
+ * function is the only thing in the codebase that assigns it: `retry`,
+ * `cancel`, `reapOrphans` and `finalizeSettled` all deliberately leave it
+ * alone. A future writer that reset it -- a phase-7 retry path zeroing
+ * progress, say -- would freeze the cursor again in exactly the way the
+ * paragraph above describes, from the other end. Add one and this rule needs
+ * an ownership token instead.
  */
 export async function checkpoint(
   exec: Executor,
@@ -83,11 +133,140 @@ export async function checkpoint(
   const updated = await exec
     .update(jobs)
     .set({
-      maxCursor: sql`greatest(${jobs.maxCursor}, ${input.maxCursor})`,
+      maxCursor: sql`CASE WHEN ${input.enumeratedCount} > ${jobs.enumeratedCount}
+        THEN ${input.maxCursor}::bigint
+        ELSE ${jobs.maxCursor} END`,
       enumeratedCount: sql`greatest(${jobs.enumeratedCount}, ${input.enumeratedCount})`,
       leaseExpiresAt: leaseFromNow(input.leaseSeconds),
       updatedAt: sql`now()`,
     })
+    .where(
+      and(
+        eq(jobs.id, jobId),
+        eq(jobs.status, 'enumerating'),
+        // The same predicate the SET clause uses. Here it turns "this write was
+        // discarded" into a NO ROWS answer, which is what lets the caller tell a
+        // straggler to stop. It also means a rejected checkpoint does not renew
+        // the lease -- renewing on the strength of work that was refused would
+        // hold the job away from the replacement for another LEASE_SECONDS.
+        lt(jobs.enumeratedCount, input.enumeratedCount),
+      ),
+    )
+    .returning({ id: jobs.id });
+
+  return updated.length > 0;
+}
+
+/**
+ * Phase 5 -- the three ways an enumerate claim ends: finished, blocked, or
+ * handed back.
+ *
+ * All three are conditional UPDATEs gated on `status = 'enumerating'`, and each
+ * returns whether it actually wrote a row. That gate is the same one `cancel`
+ * and `retry` use, for the same reason: a lane that was reaped mid-flight must
+ * not be able to write over a row that now belongs to somebody else. `false`
+ * means the claim is gone -- reaped, cancelled, or already finished -- and the
+ * caller's business with this job is over.
+ *
+ * The residual window the gate does NOT close: if the row was reaped AND
+ * re-claimed, its status is `enumerating` again and these cannot tell the new
+ * claim from the old one. Closing that properly needs an ownership token, which
+ * `lane.runner.ts` assigns to phase 6 (the lease re-check before `rename`);
+ * the same token belongs here when it lands. Today the window is bounded by
+ * arithmetic -- a drain is seconds, a lease is `LEASE_SECONDS` -- and
+ * arithmetic is not a guard, which is why it is written down rather than
+ * assumed away.
+ */
+
+/**
+ * Enumerate finished cleanly: the job moves on to the download phase.
+ *
+ * `total_videos` is counted in SQL from PROFILE state rather than accepted from
+ * the lane. A lane adding up page sizes would double-count everything a
+ * previous job on the same profile already had -- `videos` is keyed globally on
+ * `aweme_id` (F7), so a re-run legitimately re-enumerates rows it is not going
+ * to insert. Counting here makes `total_videos` agree with the number of rows
+ * that actually exist, which is what every progress reading is measured
+ * against.
+ *
+ * The lease is cleared rather than left to expire: this lane is done with the
+ * job, and a stale lease would have the reaper spend a sweep deciding it is not
+ * an orphan.
+ */
+export async function finishEnumerate(exec: Executor, jobId: string): Promise<boolean> {
+  const updated = await exec
+    .update(jobs)
+    .set({
+      status: 'downloading',
+      totalVideos: sql<number>`(
+        select count(*) from ${videos} where ${videos.secUserId} = ${jobs.secUserId}
+      )`,
+      leaseExpiresAt: null,
+      updatedAt: sql`now()`,
+    })
+    .where(and(eq(jobs.id, jobId), eq(jobs.status, 'enumerating')))
+    .returning({ id: jobs.id });
+
+  return updated.length > 0;
+}
+
+/**
+ * The cookie is being refused: stop, but keep everything needed to resume.
+ *
+ * `blocked`, NEVER `failed`, and the distinction is the entire remediation
+ * signal. Both statuses are retryable (`RETRYABLE_STATUSES` below), so the word
+ * itself is what tells an operator WHICH action to take: `blocked` means rotate
+ * the cookie and the job will carry on, `failed` means this profile is not
+ * gettable and a new cookie will change nothing. Reporting a banned cookie as
+ * `failed` -- or a private profile as `blocked` -- sends someone to do the
+ * wrong thing, which is why phase 5 only ever calls this on a structural
+ * signal and leaves cause-guessing to phase 7's probe (F4).
+ *
+ * `max_cursor` is deliberately NOT touched. That is what makes the recovery
+ * cheap: push a fresh cookie, `/retry`, and enumeration resumes at the
+ * checkpoint instead of spending the whole F2 request budget again.
+ *
+ * The reason is redacted on the way IN, exactly as `videos.repository.ts`'s
+ * `markFailed` does it and for the identical reason (plan §0 principle 3): the
+ * text phase 7 will pass here comes from Douyin or from a parser error, and
+ * scrubbing only in the mapper would leave the raw secret in a column that
+ * `psql` and any backup read directly.
+ */
+export async function markBlocked(
+  exec: Executor,
+  jobId: string,
+  reason: string,
+): Promise<boolean> {
+  const updated = await exec
+    .update(jobs)
+    .set({
+      status: 'blocked',
+      error: redactor.redact(reason),
+      leaseExpiresAt: null,
+      updatedAt: sql`now()`,
+    })
+    .where(and(eq(jobs.id, jobId), eq(jobs.status, 'enumerating')))
+    .returning({ id: jobs.id });
+
+  return updated.length > 0;
+}
+
+/**
+ * §4.2's "nhả lease" for a job: put it straight back on the queue.
+ *
+ * Called on graceful shutdown and after a tick that failed, so the next process
+ * -- or the next tick -- can claim it immediately rather than idling beside it
+ * until the lease expires. The checkpoint is kept, so whoever picks it up
+ * resumes from `max_cursor`.
+ *
+ * `reapOrphans` does the same thing on the timer; this is the fast path for the
+ * case where we know we are letting go, and the difference between the two is
+ * `LEASE_SECONDS` of a lane doing nothing.
+ */
+export async function releaseClaim(exec: Executor, jobId: string): Promise<boolean> {
+  const updated = await exec
+    .update(jobs)
+    .set({ status: 'pending', leaseExpiresAt: null, updatedAt: sql`now()` })
     .where(and(eq(jobs.id, jobId), eq(jobs.status, 'enumerating')))
     .returning({ id: jobs.id });
 

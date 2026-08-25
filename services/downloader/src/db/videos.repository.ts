@@ -31,6 +31,81 @@ function giveBackStatus(maxAttempts: number) {
   return sql`CASE WHEN ${videos.attempts} >= ${maxAttempts} THEN 'failed' ELSE 'pending' END`;
 }
 
+/** One row the enumerate lane extracted from an `aweme_list` item. */
+export interface VideoUpsert {
+  awemeId: string;
+  secUserId: string;
+  desc: string | null;
+  createTime: Date;
+  durationMs: number | null;
+  /** F1 -- the URL Douyin already attached to the enumerate response. */
+  playAddr: string | null;
+}
+
+export interface UpsertOptions {
+  /** `URL_TTL_SECONDS`. How long the cached `play_addr` is assumed good for. */
+  urlTtlSeconds: number;
+}
+
+/**
+ * The enumerate lane's only write to this table: one page of a profile,
+ * inserted, skipping anything already known. Returns how many rows were
+ * genuinely NEW.
+ *
+ * `ON CONFLICT (aweme_id) DO NOTHING`, not `DO UPDATE`, and that is F7's whole
+ * mechanism rather than a detail. `aweme_id` is the global key across every job
+ * and every run, so a re-run legitimately re-enumerates rows whose files are
+ * already on disk. `DO NOTHING` makes that free. `DO UPDATE` would overwrite
+ * their `status` and reset `attempts`, re-downloading the entire archive on
+ * every job -- destroying exactly the dedupe the key exists to provide.
+ *
+ * `play_addr` and `url_expires_at` are written HERE, from the enumerate
+ * response (F1). That is the saving the whole design is arranged around:
+ * resolving a URL per video costs ~525 requests for a 500-video profile against
+ * ~25, and Douyin rate-limits by IP. Anything that moved this to download time
+ * would put the service back on the path to a ban.
+ *
+ * `url_expires_at` is computed from `now()` in Postgres, never from
+ * `Date.now()`, for the same reason every lease in this schema is (see the
+ * `tstz` note in schema.ts): two lane hosts with a few seconds of skew must not
+ * disagree about whether a cached URL is still usable.
+ *
+ * `DO NOTHING` also tolerates a duplicate WITHIN one statement -- two rows with
+ * the same `aweme_id` in a single page insert once and return one row. That is
+ * measured, not assumed (Postgres 16, `INSERT ... VALUES ('a',1),('a',2) ON
+ * CONFLICT DO NOTHING` returns 1), and it matters because Douyin has been seen
+ * to repeat an item across a cursor boundary. It is also the second,
+ * independent reason `DO UPDATE` is not an option here: the same input makes
+ * `DO UPDATE` raise "ON CONFLICT DO UPDATE command cannot affect row a second
+ * time", so switching the clause would turn a repeated item from a non-event
+ * into a failed tick.
+ *
+ * An EMPTY page is the one shape that does need handling: drizzle emits
+ * `values ()`, which Postgres rejects. The lane reaches it on the last page of
+ * a profile whose item count is an exact multiple of the page size, so it is a
+ * routine path rather than a defensive one.
+ */
+export async function upsertMany(
+  exec: Executor,
+  rows: VideoUpsert[],
+  opts: UpsertOptions,
+): Promise<number> {
+  if (rows.length === 0) return 0;
+
+  const inserted = await exec
+    .insert(videos)
+    .values(
+      rows.map((row) => ({
+        ...row,
+        urlExpiresAt: sql`now() + make_interval(secs => ${opts.urlTtlSeconds})`,
+      })),
+    )
+    .onConflictDoNothing()
+    .returning({ awemeId: videos.awemeId });
+
+  return inserted.length;
+}
+
 /**
  * Claims one video for download, oldest first.
  *

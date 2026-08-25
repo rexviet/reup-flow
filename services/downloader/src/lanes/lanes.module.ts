@@ -4,8 +4,10 @@ import type { Env } from '../config/env';
 import { DB } from '../db/db.module';
 import type { Executor } from '../db/executor';
 import { RedactingLogger } from '../logging/redact.logger';
+import { PARSER_CLIENT } from '../parser/parser.module';
 import { STORAGE } from '../storage/storage.module';
 import type { Storage } from '../storage/storage.interface';
+import { EnumerateLane, type PostPageSource } from './enumerate.lane';
 import { LaneSupervisor } from './lane.supervisor';
 import type { LaneLogger, LaneRunner } from './lane.runner';
 import { LANE_LOGGER, LANES } from './lanes.tokens';
@@ -50,11 +52,48 @@ import { ReaperLane } from './reaper.lane';
         }),
     },
     {
+      provide: EnumerateLane,
+      inject: [LANE_LOGGER, DB, PARSER_CLIENT, ENV],
+      useFactory: (
+        logger: LaneLogger,
+        db: Executor,
+        parser: PostPageSource,
+        env: Env,
+      ): EnumerateLane =>
+        new EnumerateLane(logger, db, parser, {
+          leaseSeconds: env.LEASE_SECONDS,
+          urlTtlSeconds: env.URL_TTL_SECONDS,
+          sleepMsMin: env.ENUMERATE_SLEEP_MS_MIN,
+          sleepMsMax: env.ENUMERATE_SLEEP_MS_MAX,
+        }),
+    },
+    {
       provide: LANES,
-      inject: [ReaperLane],
-      // Exactly one reaper. A second would double every sweep's work for no
-      // gain: the sweeps are idempotent, so the only effect is contention.
-      useFactory: (reaper: ReaperLane): LaneRunner[] => [reaper],
+      inject: [ReaperLane, EnumerateLane],
+      // Exactly one reaper: a second would double every sweep's work for no
+      // gain, since the sweeps are idempotent and the only effect is
+      // contention.
+      //
+      // EXACTLY ONE ENUMERATE LANE, AND THIS LINE IS WHERE F2 LIVES.
+      //
+      // Douyin rate-limits by IP, not by job. Three operators starting three
+      // jobs is three times the request rate from one address, which is a ban
+      // -- so the second job has to wait, and what makes it wait is that there
+      // is one loop to wait for. Not a semaphore (which can miscount), not a
+      // config value (which can be edited without anybody reading the reason):
+      // one element in this array. That is Approach 1's whole argument
+      // (solution design §4), and it is why "add a second one for throughput"
+      // is a diff rather than a runtime surprise.
+      //
+      // The throughput ceiling is the IP, not this lane. Adding a second entry
+      // here does not double the rate at which videos arrive; it doubles the
+      // rate at which the cookie gets banned.
+      // `test/lanes/enumerate-global-concurrency.spec.ts` measures the request
+      // rate through this exact array so the diff cannot pass silently.
+      useFactory: (reaper: ReaperLane, enumerate: EnumerateLane): LaneRunner[] => [
+        reaper,
+        enumerate,
+      ],
     },
     LaneSupervisor,
   ],

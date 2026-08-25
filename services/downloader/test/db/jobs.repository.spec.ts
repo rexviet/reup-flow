@@ -14,12 +14,15 @@ import {
   claimOne,
   create,
   findById,
+  finishEnumerate,
   list,
+  markBlocked,
   reapOrphans,
+  releaseClaim,
   retry,
   upsertProfile,
 } from '../../src/db/jobs.repository';
-import { jobs, profiles, type Job } from '../../src/db/schema';
+import { jobs, profiles, videos, type Job } from '../../src/db/schema';
 import {
   applyForwardMigration,
   createEmptySchema,
@@ -193,6 +196,251 @@ describe('checkpoint', () => {
     const row = await readJob(id!);
     expect(row.maxCursor).toBe(500);
     expect(row.enumeratedCount).toBe(40);
+  });
+
+  it('accepts a DESCENDING cursor as long as the item count advanced (phase 5)', async () => {
+    // Phase 5 found the flaw in the first version of the rule above. It read
+    // "never rewinds" as `max_cursor = greatest(old, new)` -- monotonic in the
+    // cursor's own NUMERIC value -- and that is an assumption about Douyin's
+    // paging that Douyin does not honour.
+    //
+    // `aweme/post` returns `max_cursor` as the create_time (ms) of the OLDEST
+    // item in the page, and a profile pages newest-first. So the cursor DROPS
+    // on every page. Under `greatest` the checkpoint freezes at page one's
+    // value for the rest of the job: `enumerated_count` keeps climbing, the
+    // lease keeps renewing, everything looks healthy -- and a restart re-pages
+    // the whole profile from page two, spending the F2 request budget the
+    // checkpoint existed to protect.
+    //
+    // It would also have passed every test in this file, because a fake parser
+    // is free to hand back ascending numbers. That is the exact false-green
+    // shape this repo keeps finding.
+    //
+    // So the yardstick is PROGRESS, not the cursor's magnitude:
+    // `enumerated_count` only ever grows, whichever way Douyin's cursor moves,
+    // so a checkpoint carrying more items is by definition further along. The
+    // straggler protection the test above asserts is unchanged -- a stale
+    // worker has seen FEWER items, so it still cannot rewind anything.
+    const [id] = await seedPendingJobs(1);
+    await claimOne(db, OPTS);
+    await checkpoint(db, id!, {
+      maxCursor: 1735689600000,
+      enumeratedCount: 20,
+      leaseSeconds: LEASE_SECONDS,
+    });
+
+    await checkpoint(db, id!, {
+      maxCursor: 1735603200000, // one day EARLIER -- the next page back
+      enumeratedCount: 40,
+      leaseSeconds: LEASE_SECONDS,
+    });
+
+    const row = await readJob(id!);
+    expect(row.maxCursor).toBe(1735603200000);
+    expect(row.enumeratedCount).toBe(40);
+  });
+
+  it('reports NOT-OURS when the write was discarded, so a straggler stops paging', async () => {
+    // Phase 5 review. The rule above discards a stale checkpoint's cursor -- but
+    // the first version still answered `true`, which tells the straggler "still
+    // yours, keep going". Two concurrent request streams against an endpoint
+    // that rate-limits by IP is a live F2 violation, and it lasts as long as the
+    // straggler does.
+    //
+    // The new rule makes the fix nearly free: "did this write land" is exactly
+    // the predicate the SET already computes, so it moves into the WHERE and the
+    // lane's existing `if (!stillOurs) return 'lost'` path stops the straggler
+    // dead. This is the one place the honest "arithmetic is not a guard" note
+    // above `finishEnumerate` turns into an actual guard.
+    const [id] = await seedPendingJobs(1);
+    await claimOne(db, OPTS);
+    await checkpoint(db, id!, { maxCursor: 500, enumeratedCount: 40, leaseSeconds: LEASE_SECONDS });
+
+    const stillOurs = await checkpoint(db, id!, {
+      maxCursor: 200,
+      enumeratedCount: 10,
+      leaseSeconds: LEASE_SECONDS,
+    });
+
+    expect(stillOurs).toBe(false);
+    // And it really did leave the row alone -- "false" must not be the sound of
+    // a write that happened anyway.
+    const row = await readJob(id!);
+    expect(row.maxCursor).toBe(500);
+    expect(row.enumeratedCount).toBe(40);
+  });
+
+  it('does NOT renew the lease for a checkpoint it discarded', async () => {
+    // Following from the above: a straggler being told to stop must not also be
+    // renewing the lease on its way out. Renewing would hold the job away from
+    // the replacement for another LEASE_SECONDS on the strength of work that
+    // was rejected.
+    const [id] = await seedPendingJobs(1);
+    await claimOne(db, OPTS);
+    await checkpoint(db, id!, { maxCursor: 500, enumeratedCount: 40, leaseSeconds: LEASE_SECONDS });
+    await pool.query(
+      "UPDATE jobs SET lease_expires_at = now() + interval '2 seconds' WHERE id = $1",
+      [id],
+    );
+
+    await checkpoint(db, id!, { maxCursor: 200, enumeratedCount: 10, leaseSeconds: LEASE_SECONDS });
+
+    expect((await readJob(id!)).leaseExpiresAt!.getTime()).toBeLessThan(Date.now() + 10_000);
+  });
+
+  it('ignores a stale checkpoint that carries the SAME item count', async () => {
+    // The boundary of the rule. Two lanes that have each seen 20 items have no
+    // ordering between them, so the second one to arrive must not overwrite the
+    // first -- strictly greater, not greater-or-equal. Without this a straggler
+    // whose count happens to match the replacement's still rewinds the cursor,
+    // which is the whole failure the rule above exists to prevent.
+    const [id] = await seedPendingJobs(1);
+    await claimOne(db, OPTS);
+    await checkpoint(db, id!, { maxCursor: 500, enumeratedCount: 20, leaseSeconds: LEASE_SECONDS });
+
+    await checkpoint(db, id!, { maxCursor: 900, enumeratedCount: 20, leaseSeconds: LEASE_SECONDS });
+
+    expect((await readJob(id!)).maxCursor).toBe(500);
+  });
+});
+
+/**
+ * Phase 5 -- the three ways an enumerate claim ends.
+ *
+ * All three are conditional UPDATEs gated on `status = 'enumerating'`, for the
+ * same reason `cancel`/`retry` are: a lane that was reaped mid-flight must not
+ * be able to write over a row that now belongs to somebody else. The status
+ * gate is what makes each of these a no-op once the claim is gone, instead of a
+ * silent stomp on a replacement's work.
+ */
+
+/** Seeds one video for `profile-1`, so total_videos has something to count. */
+async function seedVideos(count: number): Promise<void> {
+  await db.insert(profiles).values({ secUserId: 'profile-1' }).onConflictDoNothing();
+  if (count === 0) return;
+  await db.insert(videos).values(
+    Array.from({ length: count }, (_, i) => ({
+      awemeId: `aweme-${i}`,
+      secUserId: 'profile-1',
+      createTime: new Date(Date.UTC(2026, 0, 1) + i * 1000),
+    })),
+  );
+}
+
+describe('finishEnumerate', () => {
+  it('moves the job to downloading and counts total_videos off the profile', async () => {
+    const [id] = await seedPendingJobs(1);
+    await seedVideos(30);
+    await claimOne(db, OPTS);
+
+    expect(await finishEnumerate(db, id!)).toBe(true);
+
+    const row = await readJob(id!);
+    expect(row.status).toBe('downloading');
+    // Counted in SQL from PROFILE state, not handed in by the lane. A lane that
+    // added up page sizes would double-count anything a previous job already
+    // had (F7 -- `videos` is keyed globally on `aweme_id`), and "completed,
+    // total 60, 30 files on disk" is a bug report waiting to happen.
+    expect(row.totalVideos).toBe(30);
+    // The lease is handed back here, not left to expire: the enumerate lane is
+    // done with this job and the reaper must not spend a sweep on it.
+    expect(row.leaseExpiresAt).toBeNull();
+  });
+
+  it('does nothing to a job that is no longer being enumerated', async () => {
+    const [id] = await seedPendingJobs(1);
+    await claimOne(db, OPTS);
+    await expireLease(id!);
+    await reapOrphans(db);
+
+    expect(await finishEnumerate(db, id!)).toBe(false);
+    expect((await readJob(id!)).status).toBe('pending');
+  });
+});
+
+describe('markBlocked', () => {
+  it('sets blocked, keeps max_cursor, and records the reason', async () => {
+    const [id] = await seedPendingJobs(1);
+    await claimOne(db, OPTS);
+    await checkpoint(db, id!, { maxCursor: 4242, enumeratedCount: 20, leaseSeconds: LEASE_SECONDS });
+
+    expect(await markBlocked(db, id!, 'cookie appears to be blocked')).toBe(true);
+
+    const row = await readJob(id!);
+    expect(row.status).toBe('blocked');
+    // THE point of `blocked` over `failed`: the checkpoint survives, so pushing
+    // a fresh cookie and hitting `/retry` resumes from here instead of spending
+    // the whole F2 request budget re-paging the profile from the top.
+    expect(row.maxCursor).toBe(4242);
+    expect(row.error).toBe('cookie appears to be blocked');
+    expect(row.leaseExpiresAt).toBeNull();
+  });
+
+  it('redacts the reason on the way IN, not just on the way out', async () => {
+    // Same rule as `videos.repository.ts`'s `markFailed`, and for the same
+    // reason (plan §0 principle 3): phase 7 will call this with text that came
+    // from Douyin or from a parser error, so scrubbing only in the mapper would
+    // still leave the raw secret sitting in a column any `psql` session -- or
+    // any backup -- reads directly.
+    const [id] = await seedPendingJobs(1);
+    await claimOne(db, OPTS);
+
+    await markBlocked(db, id!, 'refused with sessionid=abcdef0123456789abcdef');
+
+    expect((await readJob(id!)).error).not.toContain('abcdef0123456789abcdef');
+  });
+
+  it('does nothing to a job that is no longer being enumerated', async () => {
+    const [id] = await seedPendingJobs(1);
+    await claimOne(db, OPTS);
+    await expireLease(id!);
+    await reapOrphans(db);
+
+    expect(await markBlocked(db, id!, 'too late')).toBe(false);
+    const row = await readJob(id!);
+    expect(row.status).toBe('pending');
+    expect(row.error).toBeNull();
+  });
+});
+
+describe('releaseClaim', () => {
+  it('hands the job back to pending with its checkpoint intact', async () => {
+    // §4.2's "nhả lease" for the enumerate lane: on SIGTERM the job goes back
+    // on the queue immediately, so the restarted process can claim it at once
+    // instead of idling beside it for a full LEASE_SECONDS.
+    const [id] = await seedPendingJobs(1);
+    await claimOne(db, OPTS);
+    await checkpoint(db, id!, { maxCursor: 77, enumeratedCount: 20, leaseSeconds: LEASE_SECONDS });
+
+    expect(await releaseClaim(db, id!)).toBe(true);
+
+    const row = await readJob(id!);
+    expect(row.status).toBe('pending');
+    expect(row.leaseExpiresAt).toBeNull();
+    expect(row.maxCursor).toBe(77);
+  });
+
+  it('is immediately re-claimable after release -- the whole point of releasing', async () => {
+    const [id] = await seedPendingJobs(1);
+    await claimOne(db, OPTS);
+    await releaseClaim(db, id!);
+
+    expect((await claimOne(db, OPTS))!.id).toBe(id);
+  });
+
+  it('does NOT hand back a job that has already moved on', async () => {
+    // The window `lane.runner.ts` warns about: `release()` runs after the
+    // drain, and the drain can time out, so in the worst case this fires while
+    // a tick is still in flight. An unconditional `SET status = 'pending'`
+    // could then put a row back on the queue that has since been finished --
+    // and a `downloading` job dragged back to `pending` gets its whole profile
+    // re-enumerated.
+    const [id] = await seedPendingJobs(1);
+    await claimOne(db, OPTS);
+    await finishEnumerate(db, id!);
+
+    expect(await releaseClaim(db, id!)).toBe(false);
+    expect((await readJob(id!)).status).toBe('downloading');
   });
 });
 

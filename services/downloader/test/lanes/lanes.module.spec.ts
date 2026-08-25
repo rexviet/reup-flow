@@ -18,6 +18,10 @@
  */
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../../src/app.module';
+import {
+  ENUMERATE_IDLE_MS,
+  EnumerateLane,
+} from '../../src/lanes/enumerate.lane';
 import type { LaneRunner } from '../../src/lanes/lane.runner';
 import { LaneSupervisor } from '../../src/lanes/lane.supervisor';
 import { LANES } from '../../src/lanes/lanes.tokens';
@@ -62,25 +66,56 @@ afterAll(async () => {
 });
 
 describe('the production LANES array', () => {
-  it('contains exactly one reaper, and nothing else yet', () => {
+  it('contains exactly one reaper', () => {
     // "Exactly one" is not style. Approach 1's concurrency control is
     // structural (solution design §4): how many loops exist IS the limit. Two
-    // reapers would double every sweep's contention for nothing, and F2's
-    // "exactly one enumerate lane, globally" will be the same kind of
-    // assertion here once phase 5 adds it.
+    // reapers would double every sweep's contention for nothing.
     expect(lanes.filter((lane) => lane instanceof ReaperLane)).toHaveLength(1);
-    expect(lanes).toHaveLength(1);
+  });
+
+  it('contains exactly ONE enumerate lane -- F2, for the whole system', () => {
+    // The load-bearing assertion of phase 5, and the reason it lives in THIS
+    // file rather than in the lane's own spec: F2 ("enumerate concurrency = 1
+    // globally") is not a property of `EnumerateLane`, it is a property of this
+    // array. Douyin rate-limits by IP, not by job, so three operators starting
+    // three jobs must still produce one job's worth of requests -- and what
+    // makes that true is that there is one loop, not a semaphore that could
+    // miscount.
+    //
+    // A count is not the whole guarantee, though: this test would stay green if
+    // the lane paged two jobs at once inside one loop. The REQUEST RATE is
+    // measured in enumerate-global-concurrency.spec.ts, which drives this same
+    // array.
+    expect(lanes.filter((lane) => lane instanceof EnumerateLane)).toHaveLength(1);
+  });
+
+  it('contains nothing else yet', () => {
+    // Phase 6 adds DOWNLOAD_CONCURRENCY download lanes here. Until then, an
+    // extra entry is a mistake, and an entry that vanished is a queue that
+    // silently never drains.
+    expect(lanes).toHaveLength(2);
   });
 
   it('gives the reaper its 60-second cadence', () => {
-    expect(lanes[0]!.idleDelayMs).toBe(REAP_INTERVAL_MS);
+    expect(lanes.find((l) => l instanceof ReaperLane)!.idleDelayMs).toBe(REAP_INTERVAL_MS);
+  });
+
+  it('gives the enumerate lane its 1-second idle poll', () => {
+    // The queue is Postgres and the claim is a partial-index lookup, so polling
+    // every second costs approximately nothing. This is NOT the pace of Douyin
+    // requests -- that is ENUMERATE_SLEEP_MS_MIN/MAX, and it lives between
+    // pages, inside the tick.
+    expect(lanes.find((l) => l instanceof EnumerateLane)!.idleDelayMs).toBe(ENUMERATE_IDLE_MS);
   });
 
   it('is the same array the supervisor watches', () => {
     // Two separate resolutions of one factory would leave the supervisor
     // starting lanes nobody can observe, and reporting staleness for lanes
     // nobody started.
-    expect(supervisor.staleLanes().map((lane) => lane.name)).toEqual(['reaper']);
+    expect(supervisor.staleLanes().map((lane) => lane.name).sort()).toEqual([
+      'enumerate',
+      'reaper',
+    ]);
   });
 });
 
