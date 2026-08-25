@@ -1,0 +1,19 @@
+docs/journals/20260825-phase-02-ports.md
+  s_c81f9e3ea08628::t_f4487b5d768856 1-154
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "fa6d88029d78aebb721d3670f0aa432292c150b2",
+  "prompts": {},
+  "sessions": {
+    "s_c81f9e3ea08628": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b2818047-ce65-48a3-996c-ea754551928e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
