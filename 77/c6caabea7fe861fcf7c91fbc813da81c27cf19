@@ -1,0 +1,21 @@
+docs/journals/20260825-phase-04-the-shutdown-order-that-made-the-release-impossible.md
+  s_c34c11afd66d2f::t_b3eee31d59799a 43,55-64
+  s_c34c11afd66d2f::t_ea93b0293b50c3 90
+  s_c34c11afd66d2f::t_6560b3b5b6c152 1-42,44-54,65-89,91-98
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "77c6caabea7fe861fcf7c91fbc813da81c27cf19",
+  "prompts": {},
+  "sessions": {
+    "s_c34c11afd66d2f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "94dec0dc-1502-4ca7-8759-03fee55ce4c7",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
