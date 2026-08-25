@@ -87,10 +87,10 @@ Lý do đặt thành gate: cả hai đều là *giả định về thư viện/h
 | 3 | `phase-03-http-api.md` | jobs/videos controller · cookie endpoint · `X-Api-Key` · redaction · **ESLint boundary** — **DONE**, 331 test + 18 mutation đỏ + 2 control xanh; review đối kháng bắt 3 escape redaction + 2 test không thể đỏ | ~1d | 2 | M1 ✅ |
 | 4 | `phase-04-lane-framework.md` | `LaneRunner` base (bắt hết exception) · graceful shutdown · reaper (F3+F5+finalize+dọn `.tmp`) — **DONE**, 20 mutation đỏ (19 test + 1 ESLint) + 2 control xanh; bắt được 4 bug thật, nặng nhất là `onModuleDestroy` đóng pool trước khi lane nhả lease | ~0.5d | 2 | M1 ✅ |
 | 5 | `phase-05-enumerate-lane.md` | global 1 luồng (F2) · checkpoint mỗi trang · blocked theo tín hiệu cấu trúc — **DONE**, 32 mutation đỏ + 2 control xanh; tìm ra bug phase 4 đã ship (`greatest()` trên `max_cursor` sai hướng vì cursor Douyin **giảm** dần), và review đối kháng chứng minh **4 assertion không thể đỏ** + 1 guard pacing không có test nào | ~0.5d | 4 | M1 ✅ |
-| 6 | `phase-06-download-lane.md` | claim SKIP LOCKED · F1 re-resolve phản ứng · stream → rename · finalize job | ~1d | 5 | **M1 gate** |
+| 6 | `phase-06-download-lane.md` | claim SKIP LOCKED · F1 re-resolve phản ứng · stream → rename · finalize job — **DONE**, 619 test + 14 mutation đỏ + 3 control xanh; review đối kháng bắt **commit file 0 byte** (`Content-Length: 0` lọt qua verify rồi `done` vĩnh viễn — `claimOne` không bao giờ quay lại row `done`, nên archive giữ file không phát được **trong khi mọi con số đều khớp**) + 4 assertion không thể đỏ; và harness phase 4/5 đã **stale trước khi phase 6 bắt đầu** | ~1d | 5 | **M1 ✅ (gate)** |
 | 7 | `phase-07-durability.md` | **F4 probe** · retry/cancel · rate-limit test · **bộ mutation test** | ~1.5d | 6 | **M2** |
-| 8 | `phase-08-web-ui.md` | React+Vite+Tailwind · hai thanh riêng · badge cookie · polling 1s | ~1d | 3 | M2 |
-| 9 | `phase-09-extension.md` | MV3 `chrome.cookies` + `alarms` 20′ + options page | ~0.5d | 3 | **M3** |
+| 8 | `phase-08-web-ui.md` | React+Vite+Tailwind · hai thanh riêng · badge cookie · polling 1s — **DONE** (`172825c`), 39 test + 4 guard mutation đỏ. **2 DoD badge cookie chưa verify live**: container `nest` đang chạy cũ hơn source (404 trên `/internal/cookie/status`), rebuild bị hoãn vì stack dùng chung với 2 agent song song | ~1d | 3 | M2 (phần UI ✅) |
+| 9 | `phase-09-extension.md` | MV3 `chrome.cookies` + `alarms` 20′ + options page — **DONE** (`35cae7a`), 48 test + 5 mutation đỏ. Review đối kháng bắt lỗi **48 test xanh không thể thấy**: `fetch()` tới backend URL không nằm trong `host_permissions` ⇒ CORS thật trong Chrome (stub fetch của Jest không enforce CORS). Guard siết chặt hơn spec: kiểm `sessionid_ss` thay vì `length === 0`. **DoD cần Chrome thật + backend thật: chưa verify** | ~0.5d | 3 | **M3** (chờ verify tay) |
 | 10 | `phase-10-ops.md` | preflight đĩa · CI pull upstream hàng tuần · browse polish | ~0.5d | 7, 8 | **M4** |
 
 **Tổng ~9 ngày code.** Không tính review người, không tính thời gian chờ job thật chạy.
@@ -116,6 +116,9 @@ Phase 8 và 9 chỉ cần Phase 3 (API), nên **làm song song được** với 
 | Cookie không vào log | 3 | Thêm `log(cookie)` **và riêng biệt** `console.log(cookie)` | **Cả hai** phải **đỏ** — **DONE**, 2 mutation bắt được |
 | Checkpoint mỗi trang | 5 | Chuyển checkpoint ra sau vòng lặp | Test resume giữa enumerate **đỏ** — **DONE**. Quan sát từ **bên trong** lời gọi parser (trang N+1 đọc row ra), vì "đã ghi rồi" chỉ có nghĩa ở đúng điểm đó |
 | `max_cursor` tiến theo **tiến độ**, không theo giá trị số | 5 | Đặt `greatest()` trở lại | Test cursor **giảm dần** **đỏ** — **DONE**, đo ở cả tầng repository và **qua lane**. Đây là bug phase 4 đã ship: cursor Douyin là `create_time` của item **cũ nhất** trong trang và profile phân trang **mới nhất trước**, nên cursor **giảm**; `greatest` đóng băng checkpoint ở trang 1 trong khi `enumerated_count` vẫn tăng và lease vẫn renew — **không quan sát nào thấy sai**. Không test nào bắt được vì fake parser tự do trả số **tăng**: fixture dễ hơn thực tế là một dạng false-green riêng |
+| Kiểm lease trước `rename` (2 worker không cùng commit 1 file) | 6 | Bỏ kiểm ownership trước `rename`, áp ở **cả hai** đầu (storage bỏ qua câu trả lời; lane luôn trả `true`) | Test 2-writer **đỏ** — **DONE**. Chồng lấn được **khẳng định** chứ không giả định: hai `.tmp` cùng tồn tại trước khi cửa nào mở, và A `rename` **sau** B, nên mutation mới quan sát được. Hai payload **khác độ dài** + đòi byte-for-byte; control phải-xanh tách "tên `.tmp` duy nhất" khỏi "kiểm ownership" |
+| Verify `content-length` | 6 | Bỏ so `bytes !== expectedBytes` | Test file cụt **đỏ** — **DONE** ở ca body ngắn sạch, kèm control phải-xanh chứng minh ca **đứt kết nối thật** do transport gánh, không do phép đếm. Hai cơ chế, nên theo luật thứ hai phải tách |
+| File **0 byte** không được `done` | 6 | Bỏ guard `bytes === 0` trong commit hook | Test **đỏ** — **DONE**. Guard này **không có trong DoD**, review đối kháng tìm ra: `Content-Length: 0` qua được phép so `bytes !== expectedBytes`, được fsync + rename + `done`, và `claimOne` **không bao giờ quay lại row `done`** ⇒ mất dữ liệu vĩnh viễn mà `downloaded_count`, số file trên đĩa và mọi assertion của DoD **đều khớp** |
 
 **Luật thi hành:** mỗi mutation phải in ra **diff nó thật sự áp được**. Mutation match rỗng ⇒ coi như **chưa chạy**, không phải "đã pass". Đây là cái bẫy đã sập hai lần ở phase 1.
 
@@ -137,7 +140,11 @@ Hai chuyện ở phase 5, cùng một gốc: *test chỉ chứng minh được �
 
 (b) `upsertMany` có `Map` dedupe kèm comment nói `ON CONFLICT` sẽ raise "cannot affect row a second time". Mutation phá `Map` **vẫn xanh** ⇒ comment sai. Đo thật: `DO NOTHING` trả 1 row không lỗi, chỉ `DO UPDATE` mới raise. `Map` là dead code. Nếu "mutation stayed green" bị coi là chuyện nhỏ thì cái comment sai đó sống mãi và trở thành lý do người sau *không* dám đổi clause.
 
-**Hệ quả đáng nhớ:** harness là thứ chấm điểm mọi guard khác, nên bug trong nó vô hình theo đúng nghĩa đen — nó hỏng bằng cách báo cáo sự tự tin. Bảy lần rồi. Trước khi tin một lượt chạy, kiểm từng mutation có đổi đúng file nó khai, có chạy **khác 0** test, có **kết thúc**, và — với guard nào dựa vào hình dạng dữ liệu bên ngoài — fixture có mô phỏng đúng *hình dạng đó* hay chỉ mô phỏng một phiên bản dễ hơn.
+**Luật thứ tám (thêm ở phase 6): guard "đã chạy chưa" của harness phải đòi **bằng chứng dương**, không phải vắng mặt của một chuỗi.** Luật thứ ba sửa `No tests found` thành lỗi cứng. Chưa đủ: khi `-t` khớp 0 test, jest **không** in `0 total` — nó in `Tests: 7 skipped, 7 total` và **exit 0**. Guard đi tìm `0 total` mù hoàn toàn với ca đó, nên một `CONTROL:` bị đổi tên sẽ làm **cả hai** control của DoD thành không thể phản chứng — và chúng báo xanh, tức là báo đúng cái kết luận ta muốn nghe. Sửa: đòi bằng chứng dương rằng **có** một test đã pass hoặc fail. Kèm một chuyện thứ hai cùng gốc: đường hang của harness `kill` đúng process `pnpm` bọc ngoài, để mồ côi worker jest **và connection Postgres của chúng** — hang phải kill **cả cây**.
+
+**Luật thứ chín (thêm ở phase 9): một test double không thể *thất bại theo cách thứ thật sẽ thất bại* thì suite xanh không nói gì về ca đó.** Luật thứ bảy nói về fixture có *hình dạng dữ liệu* dễ hơn thực tế. Đây là bậc nặng hơn: `fetch` stub của Jest **không enforce CORS**, nên 48 test xanh vẫn không thấy được rằng extension gọi một origin không nằm trong `host_permissions` và sẽ chết ngay lần chạy thật đầu tiên trong Chrome. Không mutation nào bắt được — mutation đo code, còn thứ thiếu ở đây là **một chiều thất bại mà dụng cụ đo không có khả năng dựng ra**. Trước khi tin một suite phủ ranh giới ra ngoài (network, quyền của browser, filesystem, clock), hỏi: double này có *cách nào* thất bại giống thật không? Nếu không, ca đó phải verify ở tầng thật, hoặc ghi thẳng là **chưa được phủ** — đừng để nó núp trong con số 48.
+
+**Hệ quả đáng nhớ:** harness là thứ chấm điểm mọi guard khác, nên bug trong nó vô hình theo đúng nghĩa đen — nó hỏng bằng cách báo cáo sự tự tin. Chín lần rồi. Trước khi tin một lượt chạy, kiểm từng mutation có đổi đúng file nó khai, có chạy **khác 0** test, có **kết thúc**, và — với guard nào dựa vào hình dạng dữ liệu bên ngoài — fixture có mô phỏng đúng *hình dạng đó* hay chỉ mô phỏng một phiên bản dễ hơn.
 
 ---
 
@@ -198,7 +205,7 @@ Ghi ra để không ai "sửa lại cho đúng spec" rồi tạo bug.
 
 - [ ] Đổi cookie trong Redis → parser dùng cookie mới ở request kế tiếp, **không restart**
 - [ ] Job profile 200+ video hoàn tất, số file trong storage khớp `downloaded_count`
-- [ ] Kill process giữa pha download → restart → tiếp tục, **không tải lại file đã xong**
+- [x] Kill process giữa pha download → restart → tiếp tục, **không tải lại file đã xong** — **DONE ở phase 6**, `SIGKILL` thật ở tiến trình con; sau restart đúng **một** GET, cho đúng video chưa xong
 - [x] Kill process giữa pha **enumerate** → restart → tiếp từ `max_cursor` (F5) — **DONE ở phase 5**
 - [ ] Chạy lại cùng profile lần 2 → **chỉ tải video mới**
 - [ ] Cookie hết hạn giữa job → `blocked` (không `failed`) → push cookie mới → `/retry` → tiếp từ checkpoint
@@ -208,4 +215,4 @@ Ghi ra để không ai "sửa lại cho đúng spec" rồi tạo bug.
 - [ ] Parser **không** expose ra ngoài internal network (không có `ports:`)
 - [x] Enumerate 2 job song song → tổng tần suất request vẫn = 1 luồng (F2) — **DONE ở phase 5**, đo qua mảng `LANES` production + positive control
 - [x] Test kiến trúc xanh: nạp tay một row `jobs` ở `pending` thì lane vẫn chạy (chứng minh HTTP layer và lane chỉ nối qua DB) — **DONE ở phase 4**
-- [ ] **Toàn bộ 10 mutation ở §5 đã chạy, mỗi cái in diff áp được, mỗi cái đỏ**
+- [ ] **Toàn bộ 14 invariant ở §5 đã chạy, mỗi cái in diff áp được, mỗi cái đỏ** — 13/14 xong (còn nửa phase 7 của `blocked` ≠ `failed`). Tích luỹ: 107 mutation đỏ + 8 control xanh qua phase 0–6

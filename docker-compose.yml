@@ -121,7 +121,32 @@ services:
       timeout: 5s
       retries: 10
 
-  # No `web` service yet -- that's phase 8.
+  web:
+    build:
+      # Same root context as `nest`, and for the same reason: the lockfile
+      # lives at the workspace root.
+      context: .
+      dockerfile: services/web/Dockerfile
+      args:
+        # These MUST be build args, not `environment:`. Vite inlines
+        # VITE_* into the JS bundle at BUILD time; the runtime container is
+        # a static nginx that never reads its own env. Setting these under
+        # `environment:` looks right, changes nothing, and produces a UI
+        # that silently calls the wrong host.
+        #
+        # Consequence worth stating plainly: API_KEY ends up in plaintext
+        # in the shipped bundle, readable by anyone who can load the page.
+        # Accepted because this is an internal tool for 1-3 operators on a
+        # trusted network (plan §8 risk register). If this UI is ever put
+        # anywhere reachable, the fix is a BFF that holds the key
+        # server-side -- not a cleverer way to hide it in the bundle.
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:3000}
+        VITE_API_KEY: ${API_KEY}
+    ports:
+      - "5173:80"
+    depends_on:
+      nest:
+        condition: service_healthy
 
 volumes:
   postgres_data:
