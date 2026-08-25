@@ -29,6 +29,25 @@ function boundedInt(label: string, min: number, max: number) {
     .max(max, message);
 }
 
+/**
+ * Whether a value can serve as the base of `new URL(path, base)`.
+ *
+ * `z.string().url()` is not enough here, and the gap is not obvious:
+ * `new URL("parser:80")` SUCCEEDS -- scheme `parser:`, path `80` -- so a
+ * bare host:port passes a URL check and then throws ERR_INVALID_URL the
+ * moment ParserClient resolves a route against it, inside a lane, as an error
+ * type no parser-error handler matches. Requiring an http(s) scheme AND a
+ * host is what actually rules that out.
+ */
+function isUsableAsBaseUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (url.protocol === "http:" || url.protocol === "https:") && url.host !== "";
+  } catch {
+    return false;
+  }
+}
+
 export const envSchema = z
   .object({
     // Constrained to a plausible credential charset (not just "non-empty")
@@ -43,7 +62,16 @@ export const envSchema = z
       ),
     DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
     REDIS_URL: z.string().min(1, "REDIS_URL is required"),
-    PARSER_BASE_URL: z.string().min(1, "PARSER_BASE_URL is required"),
+    // A URL, not merely non-empty: ParserClient builds every route with
+    // `new URL(path, PARSER_BASE_URL)`, and a value like `parser:80` passes a
+    // length check only to throw ERR_INVALID_URL on the first call -- inside a
+    // lane, as an error type no parser-error handler matches.
+    PARSER_BASE_URL: z
+      .string()
+      .min(1, "PARSER_BASE_URL is required")
+      .refine(isUsableAsBaseUrl, {
+        message: "PARSER_BASE_URL must be an absolute http(s) URL with a host, e.g. http://parser:80",
+      }),
     // Known-public Douyin profile id, used only by the phase-7 F4 probe.
     PROBE_SEC_USER_ID: z.string().min(1, "PROBE_SEC_USER_ID is required"),
     DATA_DIR: z.string().min(1, "DATA_DIR must not be empty").default("/data"),

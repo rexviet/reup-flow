@@ -2,6 +2,7 @@ import { Pool } from 'pg';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as schema from './schema';
 import { assertSafeDdlTarget } from '../support/pg-target-guard';
+import { createEmptySchema, dropSchema, testSchemaName } from '../support/db';
 
 /**
  * Host-reachable connection string for docker-compose's `postgres` service
@@ -21,9 +22,27 @@ export const SPIKE_DATABASE_URL =
  */
 export const STATEMENT_TIMEOUT_MS = 2_000;
 
+/**
+ * Private schema for this spike, unique per jest worker AND per run.
+ *
+ * This file predates `test/support/db.ts` and used a bare `spike_items` in
+ * `public`. Phase 2 measured what that costs: with several `pnpm test` runs
+ * overlapping, one run's `TRUNCATE spike_items` blocks behind the row locks
+ * another run's concurrency harness is DELIBERATELY holding open, and the
+ * afterEach hook times out. The failure lands on the suite whose entire job
+ * is to prove claims behave correctly under concurrent locking -- so the
+ * most natural reading of the red is "SKIP LOCKED is broken", which is both
+ * wrong and the single most expensive wrong conclusion available in this
+ * repo.
+ *
+ * Same isolation the db suites get, for the same reason.
+ */
+export const SPIKE_SCHEMA = testSchemaName('spike');
+
 export function createPool(opts: { statementTimeoutMs?: number; max?: number } = {}): Pool {
   return new Pool({
     connectionString: SPIKE_DATABASE_URL,
+    options: `-c search_path=${SPIKE_SCHEMA}`,
     statement_timeout: opts.statementTimeoutMs,
     max: opts.max ?? 10,
   });
@@ -45,11 +64,13 @@ function assertSafeSpikeTarget(connectionString: string): void {
 
 export async function createSpikeTable(pool: Pool): Promise<void> {
   assertSafeSpikeTarget(SPIKE_DATABASE_URL);
-  await pool.query('DROP TABLE IF EXISTS spike_items');
+  await createEmptySchema(SPIKE_SCHEMA);
+  // Unqualified on purpose: it lands wherever the pool's search_path points,
+  // which is this run's private schema and never `public`.
   await pool.query('CREATE TABLE spike_items (id serial PRIMARY KEY, status text NOT NULL)');
 }
 
-export async function dropSpikeTable(pool: Pool): Promise<void> {
+export async function dropSpikeTable(_pool: Pool): Promise<void> {
   assertSafeSpikeTarget(SPIKE_DATABASE_URL);
-  await pool.query('DROP TABLE IF EXISTS spike_items');
+  await dropSchema(SPIKE_SCHEMA);
 }

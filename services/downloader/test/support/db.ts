@@ -20,7 +20,8 @@ export const FORWARD_MIGRATION = resolve(MIGRATIONS_DIR, '260824-init-schema.sql
 export const ROLLBACK_MIGRATION = resolve(MIGRATIONS_DIR, '260824-init-schema.down.sql');
 
 /**
- * Every db suite gets its own Postgres schema, named per jest worker.
+ * Every db suite gets its own Postgres schema, named per jest worker AND per
+ * run.
  *
  * Jest runs test files in parallel workers by default, and all of these
  * suites operate on the same three table names. Sharing one schema would
@@ -29,10 +30,31 @@ export const ROLLBACK_MIGRATION = resolve(MIGRATIONS_DIR, '260824-init-schema.do
  * it. Isolating by schema (rather than serialising with --runInBand) keeps
  * the suite parallel AND keeps the DDL away from `public`, so a stray run
  * can never clobber the tables the running compose stack uses.
+ *
+ * `process.pid` is the per-RUN half, added in phase 2 after the worker-only
+ * name produced exactly the failure this comment says it prevents. Worker
+ * ids restart at 1 for every jest invocation, so two overlapping runs -- two
+ * terminals, a watch mode, two CI jobs against one database -- both claim
+ * `test_migration_w8`, and whichever reaches `DROP SCHEMA ... CASCADE` first
+ * deletes the other's tables mid-test. Measured: four overlapping runs, 22-35
+ * failures each, every one in a db suite, reported as `already exists` and
+ * `relation ... does not exist`. Nothing about that reads as "you ran the
+ * suite twice" -- it reads as a broken claim query, which is the most
+ * expensive possible wrong conclusion in this repo.
+ *
+ * A jest worker process is reused across files but keeps one pid, so the
+ * name stays stable for a file's setup and teardown. The cost is that a
+ * SIGKILLed run leaves its schemas behind; they are empty and harmless, and
+ * `DROP SCHEMA IF EXISTS` cannot reap them safely because a schema belonging
+ * to a live concurrent run looks identical to an abandoned one. Clean up by
+ * hand if they ever pile up:
+ *
+ *   select 'drop schema if exists "'||nspname||'" cascade;'
+ *     from pg_namespace where nspname like 'test\_%';
  */
 export function testSchemaName(label: string): string {
   const worker = process.env.JEST_WORKER_ID ?? '1';
-  return `test_${label}_w${worker}`.toLowerCase();
+  return `test_${label}_w${worker}_${process.pid}`.toLowerCase();
 }
 
 /**

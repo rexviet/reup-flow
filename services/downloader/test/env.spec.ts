@@ -248,3 +248,26 @@ describe("redactSecrets (D-3)", () => {
     expect(redactSecrets(text, {})).toBe(text);
   });
 });
+
+describe("PARSER_BASE_URL", () => {
+  // ParserClient builds every route with `new URL(path, PARSER_BASE_URL)`. A
+  // value that is non-empty but not a URL passes a `min(1)` check and then
+  // throws `TypeError [ERR_INVALID_URL]` on the first call -- at runtime, in a
+  // lane, as an error type no `catch (ParserError)` will match. Fail at
+  // bootstrap instead, which is what every other var here already does.
+  it.each([
+    ["a bare host:port", "parser:80"],
+    ["a path only", "/api/douyin"],
+    ["plain words", "not a url"],
+  ])("rejects %s", (_label, value) => {
+    expect(() => parseEnv(validEnv({ PARSER_BASE_URL: value }))).toThrow(/PARSER_BASE_URL/);
+  });
+
+  it.each([
+    ["the compose service address", "http://parser:80"],
+    ["a host with a trailing slash", "http://parser/"],
+    ["https", "https://parser.internal:8443"],
+  ])("accepts %s", (_label, value) => {
+    expect(parseEnv(validEnv({ PARSER_BASE_URL: value })).PARSER_BASE_URL).toBe(value);
+  });
+});

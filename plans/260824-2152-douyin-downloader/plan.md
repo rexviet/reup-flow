@@ -83,7 +83,7 @@ Lý do đặt thành gate: cả hai đều là *giả định về thư viện/h
 |---|---|---|---|---|---|
 | 0 | `phase-00-skeleton-spike.md` | pnpm workspace · compose 4 container · **2 spike gate** — **DONE** (`0b09d8c`), cả 2 gate PASS + mutation | ~0.5d | — | **GATE ✅** |
 | 1 | `phase-01-schema.md` | Drizzle schema + migration + claim/reaper query. **F1·F3·F5·F6 cột, F7 doc** — **DONE**, 8 mutation đỏ + test chống drift schema↔migration | ~0.5d | 0 | M1 ✅ |
-| 2 | `phase-02-ports.md` | `ParserClient` (bóc envelope) + `Storage` (`.tmp`→rename, `freeBytes`) | ~0.5d | 1 | M1 |
+| 2 | `phase-02-ports.md` | `ParserClient` (bóc envelope) + `Storage` (`.tmp`→rename, `freeBytes`) — **DONE**, 15 mutation đỏ + 1 control xanh, integration với parser thật | ~0.5d | 1 | M1 ✅ |
 | 3 | `phase-03-http-api.md` | jobs/videos controller · cookie endpoint · `X-Api-Key` · redaction · **ESLint boundary** | ~1d | 2 | M1 |
 | 4 | `phase-04-lane-framework.md` | `LaneRunner` base (bắt hết exception) · graceful shutdown · reaper (F3+F5) | ~0.5d | 2 | M1 |
 | 5 | `phase-05-enumerate-lane.md` | global 1 luồng (F2) · checkpoint mỗi trang · blocked theo tín hiệu cấu trúc | ~0.5d | 4 | M1 |
@@ -112,11 +112,13 @@ Phase 8 và 9 chỉ cần Phase 3 (API), nên **làm song song được** với 
 | Claim không trùng | 1 | Bỏ `SKIP LOCKED` / bỏ `FOR UPDATE` | Test 2 transaction song song **đỏ**. Phase 0 đã proof pattern này (2 mutation, cả 4 test đỏ) — **lưu ý cho phase 1**: barrier `Promise.all` không đủ, `LockRows` của Postgres tự thử row kế tiếp nên tự "chữa lành" thiếu `SKIP LOCKED` khi commit nhanh; claim thắng phải giữ transaction mở tới khi mọi contender kết thúc. Shape đã validate: `.for('update', { skipLocked: true })` + `inArray(column, subquerySelect)`. **DONE ở phase 1** trên bảng `videos` và `jobs` thật, dùng lại nguyên harness của phase 0 |
 | Enumerate global 1 luồng (F2) | 5 | Đổi thành per-job | Test tần suất 2 job **đỏ** |
 | `blocked` ≠ `failed` | 5, 7 | Map `blocked` → `failed` | Test hồi phục cookie **đỏ** |
-| Ghi file atomic | 6 | Bỏ `.tmp` + `rename` | Test crash-giữa-ghi **đỏ** |
+| Ghi file atomic | 6 | Bỏ `.tmp` + `rename` | Test crash-giữa-ghi **đỏ** — **DONE ở phase 2** (`Storage` sinh ra ở đó, nên guard sinh ra cùng chỗ): 2 mutation (`.tmp`+rename, tên `.tmp` cố định) đều đỏ, crash test dùng `SIGKILL` thật ở tiến trình con. **Hai bài học**: (a) mutation "tên cố định" ban đầu đỏ vì cờ `wx` chặn writer thứ hai chứ không vì corruption — chữa bằng **control phải-xanh**: gỡ *chỉ* `wx`, giữ tên duy nhất ⇒ suite vẫn xanh. (b) **Kể cả sau đó nó vẫn đỏ vì lý do sai**: writer thua `rename` trên temp file đã bị dời đi, ăn `ENOENT`, chết **trước** assertion về nội dung. Thêm đúng thứ phase 6 sẽ thêm — `rename` khoan dung `ENOENT` — thì test **flaky-green 3/6**. Gốc rễ: hai payload cùng độ dài, ghi cùng offset, nên file dùng chung vẫn có thể trông đồng nhất. Sửa: hai writer **độ dài khác nhau** + đòi file bằng **byte-for-byte** một trong hai payload, và thêm mutation mô phỏng sẵn hình dạng phase 6 |
 | Cookie không vào log | 3 | Thêm `log(cookie)` **và riêng biệt** `console.log(cookie)` | **Cả hai** phải **đỏ** |
 | Checkpoint mỗi trang | 5 | Chuyển checkpoint ra sau vòng lặp | Test resume giữa enumerate **đỏ** |
 
 **Luật thi hành:** mỗi mutation phải in ra **diff nó thật sự áp được**. Mutation match rỗng ⇒ coi như **chưa chạy**, không phải "đã pass". Đây là cái bẫy đã sập hai lần ở phase 1.
+
+**Luật thứ hai (thêm ở phase 2):** khi một invariant có thể do **nhiều hơn một cơ chế** giữ, phải kèm một **control phải-xanh** gỡ cơ chế yếu hơn. Mutation đỏ chỉ nói dòng bị đụng *có vai trò gì đó*; nó không nói vai trò nào. Xem `test/mutations/phase-02.sh` `run_control`.
 
 ---
 
@@ -126,10 +128,12 @@ Phase 8 và 9 chỉ cần Phase 3 (API), nên **làm song song được** với 
 |---|---|---|
 | ~~Drizzle không diễn đạt được `SKIP LOCKED`~~ | 0 | **RESOLVED — gate PASS (`0b09d8c`).** Drizzle giữ nguyên |
 | ~~Migration `claimOne` seq-scan dưới tải~~ | 1 | **RESOLVED.** Partial index đã tạo; `claim-plan.spec.ts` EXPLAIN trên 50k row khẳng định planner dùng đúng index, và mỗi khẳng định đã được chứng minh đỏ được bằng cách xoá index |
-| Fault-injection sót lại trong `main.ts` | 1 → **2** | `services/downloader/src/main.ts` có nhánh test-only `__TEST_ONLY_SIMULATE_BOOTSTRAP_ERROR__` (tắt khi `NODE_ENV=production`). Xoá khi DB/Redis client thật cho bootstrap catch-all lỗi thật để test. **Vẫn còn sau phase 1**: phase 1 chỉ có repository thuần (nhận executor làm tham số), chưa wire client nào vào bootstrap — dời sang phase 2 |
+| Fault-injection sót lại trong `main.ts` | 1 → 2 → **3** | `services/downloader/src/main.ts` có nhánh test-only `__TEST_ONLY_SIMULATE_BOOTSTRAP_ERROR__` (tắt khi `NODE_ENV=production`). Xoá khi DB/Redis client thật cho bootstrap catch-all lỗi thật để test. **Vẫn còn sau phase 2**: phase 2 chỉ thêm hai port do *lane* dựng (`ParserClient`, `Storage`), `NestFactory` vẫn không mở kết nối nào; và test D-3 cần một lỗi **có nhúng DSN**, thứ chỉ lỗi kết nối DB/Redis sinh ra — dời sang phase 3 |
 | `redactSecrets` ở `src/config/env.ts` là tạm | 3 | Stopgap, tầng logger phase 3 sẽ thay |
 | `start.py` fork chạy `uvicorn --reload` cả ở production | 10 | Chưa quyết — xem §8 câu hỏi mở |
 | Loop rò exception → lane chết âm thầm | 4 | `try/catch` toàn thân + metric "tick cuối lúc nào". Mutation test |
+| `.tmp` mồ côi không ai dọn | **4** | Một worker bị `SIGKILL` giữa chừng để lại `{key}.{uuid}.tmp` **vĩnh viễn** — `local-disk.storage.spec.ts` khẳng định đó là hành vi đúng (không được commit gì), nhưng **không có code nào xoá nó**. Reaper phase 4 hồi phục *row DB*, không hồi phục *bytes*. Qua một vòng crash-loop chúng tích lại ở kích thước video đầy đủ, `exists()` không thấy, mà vẫn ăn đúng phần đĩa `freeBytes()` hứa với preflight phase 10. Reaper phase 4 phải dọn luôn `.tmp` quá hạn của key nó nhả |
+| Ai đó gọi `setGlobalDispatcher(new RetryAgent(...))` ở file khác | ~~2~~ | **RESOLVED ở phase 2.** `undici.request` dùng dispatcher **toàn cục** nếu không được đưa dispatcher riêng, nên một thư viện bất kỳ trong process biến 1 lời gọi parser thành 4 — **không đụng một dòng nào của `parser.client.ts`**, tức là không mutation nào của phase 2 bắt được. `ParserClient` giờ sở hữu `Agent` riêng và có `close()` cho graceful shutdown phase 4. Có test + mutation |
 | Reaper nhả video mà worker vẫn đang tải → 2 writer 1 file | 6 | `.tmp` mang tên **duy nhất theo lượt claim**; `rename` là điểm commit duy nhất; **kiểm lease trước khi `rename`**, hết lease thì tự huỷ |
 | Chẩn đoán `blocked` sai (F4) | 7 | Ưu tiên tín hiệu cấu trúc (`aweme_list` rỗng + `has_more=1`, là HTTP 200 và **chắc chắn**); probe chỉ dùng sau 3× 400 |
 | Cookie lọt vào log | 3 | Redact ở tầng logger. Test phủ cả logging **và** stdout/stderr |

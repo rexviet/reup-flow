@@ -8,6 +8,7 @@
     "start:dev": "ts-node src/main.ts",
     "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
     "test": "jest",
+    "test:integration": "jest -c jest.integration.config.js",
     "test:spike-cookie-swap": "bash test/spike-cookie-swap/run.sh"
   },
   "dependencies": {
@@ -19,6 +20,7 @@
     "pg": "^8.23.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
+    "undici": "^8.10.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {
