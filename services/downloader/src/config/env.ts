@@ -113,6 +113,36 @@ export const envSchema = z
       }),
     // Known-public Douyin profile id, used only by the phase-7 F4 probe.
     PROBE_SEC_USER_ID: z.string().min(1, "PROBE_SEC_USER_ID is required"),
+    /**
+     * Browser origins allowed to call this API cross-origin, comma-separated.
+     *
+     * `services/web` is served from a DIFFERENT origin than this API in every
+     * configuration that exists: `pnpm dev` puts it on :5173, and the compose
+     * `web` service puts it on :5173 via nginx while the browser still calls
+     * this service on :3000. So every request the UI makes is cross-origin,
+     * and because it carries `X-Api-Key` -- not a CORS-safelisted header --
+     * the browser sends a preflight `OPTIONS` first, every time.
+     *
+     * Without this, Nest has no OPTIONS handler, the preflight 404s with no
+     * `Access-Control-Allow-Origin`, and the browser blocks the real request.
+     * curl never sees it: curl does not implement CORS. Phase 8's tests mock
+     * `fetch`, so they cannot see it either -- the same blindness plan §5's
+     * ninth rule was written about after phase 9's extension hit it.
+     *
+     * An explicit allowlist, never `origin: true` (which reflects any
+     * Origin back): the API key travels in a header the page holds in
+     * plaintext, so a reflected origin would let any site a browser visits
+     * drive this API with it.
+     */
+    CORS_ALLOWED_ORIGINS: z
+      .string()
+      .default("http://localhost:5173")
+      .transform((raw) =>
+        raw
+          .split(",")
+          .map((origin) => origin.trim())
+          .filter((origin) => origin.length > 0)
+      ),
     DATA_DIR: z.string().min(1, "DATA_DIR must not be empty").default("/data"),
     DOWNLOAD_CONCURRENCY: positiveInt("DOWNLOAD_CONCURRENCY").default(6),
     ENUMERATE_SLEEP_MS_MIN: positiveInt("ENUMERATE_SLEEP_MS_MIN").default(3000),

@@ -47,6 +47,26 @@ function giveBackStatus(maxAttempts: number) {
   return sql`CASE WHEN ${videos.attempts} >= ${maxAttempts} THEN 'failed' ELSE 'pending' END`;
 }
 
+/**
+ * The two statuses a FRESHLY ENUMERATED row may start in.
+ *
+ * `pending` is the default and the only one `claimOne` will ever pick up.
+ *
+ * `skipped` is for an item that is a genuine post but carries nothing this
+ * pipeline can download -- today that is a Douyin 图文 image post, decided in
+ * `aweme.mapper.ts`. It is deliberately a ROW rather than a dropped item: the
+ * status makes the post visible and counted (`total_videos`,
+ * `countByStatusForProfile`) while keeping it out of the download queue.
+ * Dropping it instead would shrink `total_videos` and the post would vanish with
+ * every number still agreeing -- the failure this whole distinction exists to
+ * end.
+ *
+ * The other three statuses (`downloading`, `done`, `failed`) are outcomes of
+ * work and belong to the download lane; nothing may enter the table already in
+ * one of them.
+ */
+export type UpsertStatus = 'pending' | 'skipped';
+
 /** One row the enumerate lane extracted from an `aweme_list` item. */
 export interface VideoUpsert {
   awemeId: string;
@@ -56,6 +76,19 @@ export interface VideoUpsert {
   durationMs: number | null;
   /** F1 -- the URL Douyin already attached to the enumerate response. */
   playAddr: string | null;
+  /**
+   * Defaults to `pending` when absent, which is every downloadable video and
+   * every caller that predates image-post detection.
+   */
+  status?: UpsertStatus;
+  /**
+   * Why, when `status` is `skipped`. Null for anything downloadable.
+   *
+   * Carried through the insert rather than written by a follow-up UPDATE,
+   * because `ON CONFLICT DO NOTHING` means there is exactly one moment in a
+   * row's life when the enumerate lane can say anything about it at all.
+   */
+  lastError?: string | null;
 }
 
 export interface UpsertOptions {
@@ -100,6 +133,11 @@ export interface UpsertOptions {
  * `values ()`, which Postgres rejects. The lane reaches it on the last page of
  * a profile whose item count is an exact multiple of the page size, so it is a
  * routine path rather than a defensive one.
+ *
+ * `status` and `last_error` come from the ROW (see `VideoUpsert`), so a page
+ * carrying both a video and a 图文 image post inserts one `pending` row and one
+ * `skipped` one. Absent, they mean `pending`/null -- unchanged for every caller
+ * that never heard of image posts.
  */
 export async function upsertMany(
   exec: Executor,
@@ -113,6 +151,15 @@ export async function upsertMany(
     .values(
       rows.map((row) => ({
         ...row,
+        // WRITTEN EXPLICITLY, not left to the column default, because `status`
+        // is now a PER-ROW decision: one page can carry both a video and a 图文
+        // image post (`aweme.mapper.ts`). Drizzle builds ONE column list for a
+        // multi-row insert, so a row whose `status` is `undefined` and a row
+        // whose `status` is `'skipped'` in the same statement would be relying
+        // on how drizzle fills the gap. `?? 'pending'` keeps the pre-existing
+        // behaviour for every caller that says nothing.
+        status: row.status ?? 'pending',
+        lastError: row.lastError ?? null,
         urlExpiresAt: sql`now() + make_interval(secs => ${opts.urlTtlSeconds})`,
       })),
     )
@@ -378,6 +425,15 @@ export async function saveResolvedUrl(
  * "what broke?" listing forever, and `/retry` would dutifully bring them back.
  * `last_error` is left null on purpose: nothing went wrong.
  *
+ * THIS IS NOT THE ONLY WAY A ROW BECOMES `skipped`. `aweme.mapper.ts` also
+ * writes it, at enumerate time, for a 图文 image post -- and that one DOES set
+ * `last_error`, because the two skips differ in whether they ever resolve. A
+ * cancelled video is skipped until somebody asks again; an image post has no
+ * video in it and never will, so the row itself has to carry the explanation
+ * (see `IMAGE_POST_REASON`). One status, two causes: read `last_error` to tell a
+ * human which, but do not branch on it in code -- a video that failed once and
+ * was then cancelled mid-claim lands here with a `last_error` already set.
+ *
  * Gated on `ownsClaim` like every other write this worker makes to its claim.
  */
 export async function markSkipped(
@@ -625,6 +681,26 @@ export async function resetFailedForProfile(exec: Executor, secUserId: string): 
  * `last_error` is NOT cleared, because `markSkipped` never set one -- nothing
  * went wrong. Writing null over null would suggest there had been something to
  * clear.
+ *
+ * KNOWN GAP, and it is a real one -- 图文 IMAGE POSTS COME BACK THROUGH HERE.
+ * `aweme.mapper.ts` records an image post as `skipped` because it has no video
+ * to download. This sweep is by STATUS, so a new job on the profile (or /retry
+ * on a cancelled one) resets those rows to `pending`, the download lane claims
+ * them, and it fetches the background-music MP3 and commits it as `.mp4` --
+ * exactly the bug the mapper's guard exists to stop, one job later.
+ *
+ * It is NOT fixed by narrowing this WHERE, and that is the point worth writing
+ * down: the obvious narrowing is `AND last_error IS NULL`, which reads like it
+ * separates the two skip causes and does not. A video that failed once carries a
+ * `last_error`; if it is then cancelled mid-claim, `markSkipped` leaves that
+ * text in place, so the predicate would strand a perfectly downloadable video in
+ * `skipped` forever -- the same permanent loss this function was written to
+ * repair, arrived at from the other side.
+ *
+ * Closing it properly needs the reason to live in a column that means it: a
+ * `kind`/`media_kind` on `videos` (a migration), or the download lane refusing
+ * an image post at claim time. Until then, the second job on a profile with
+ * image posts re-commits their MP3s.
  */
 export async function reviveSkippedForProfile(
   exec: Executor,

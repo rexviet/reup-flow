@@ -24,6 +24,11 @@ export function fixedEnv(overrides: Partial<Env> = {}): Env {
     DISK_RESERVE_BYTES: 10737418240,
     EST_BYTES_PER_VIDEO: 31457280,
     PORT: 3000,
+    // CORS off by default, matching `configureApp`'s own default: these are
+    // in-process module tests with no browser and no Origin header, so an
+    // allowlist here would configure a mechanism nothing in them exercises.
+    // A test that wants CORS says so.
+    CORS_ALLOWED_ORIGINS: [],
     // Lanes OFF by default in tests. A test that wants them says so; nothing
     // should start a 60s reaper against the live compose stack merely by
     // building an Env.

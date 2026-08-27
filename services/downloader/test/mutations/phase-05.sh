@@ -30,6 +30,14 @@
 # it corresponds to a bug PHASE 4 SHIPPED and phase 5 found. A mutation for a
 # bug that was real is worth more than one for a bug that was imagined.
 #
+# BLOCK 12 was added 2026-08-26, long after the phase closed, for a second bug
+# that SHIPPED: 图文 image posts have no video, `video.play_addr` points at the
+# background music CDN, and the mapper never asked -- so two of a 215-item
+# profile were downloaded as MP3s, named `.mp4` and marked `done` with every
+# counter agreeing. It lives here rather than in a harness of its own because
+# `aweme.mapper.ts` is this phase's file, and a guard measured by a script CI
+# does not run is a guard nobody is watching (see scripts/run-mutations.sh).
+#
 # Run from services/downloader:  bash test/mutations/phase-05.sh
 # Needs the docker-compose stack up (Postgres + Redis).
 
@@ -447,16 +455,20 @@ old = """      if (!page.hasMore) break;
 new = """      if (!page.hasMore) break;"""
 assert old in s
 s = s.replace(old, new, 1)
-old2 = """    let dropped = 0;
-
-    for (;;) {"""
-new2 = """    let dropped = 0;
-
-    // Hoisted: one wait for the whole job, which is what an @Interval one layer
+# Anchored on the LOOP, not on the last counter declared above it. It used to
+# read `let dropped = 0;` + the loop opener, and BLOCK 12 adding an `imagePosts`
+# counter between the two made this mutation match nothing -- reported honestly,
+# but it is the third time a phase-5 anchor has gone stale on an unrelated edit
+# (see scripts/run-mutations.sh on why that is a build failure and not a smaller
+# number). The loop and the abort check are what the mutation is actually about.
+old2 = """    for (;;) {
+      if (signal.aborted) {"""
+new2 = """    // Hoisted: one wait for the whole job, which is what an @Interval one layer
     // up could express.
     await this.pause(signal);
 
-    for (;;) {"""
+    for (;;) {
+      if (signal.aborted) {"""
 assert old2 in s
 p.write_text(s.replace(old2, new2, 1))
 '
@@ -837,6 +849,137 @@ s = p.read_text()
 old = """const CANCELLABLE_STATUSES = [\x27pending\x27, \x27enumerating\x27, \x27downloading\x27, \x27blocked\x27] as const;"""
 new = """const CANCELLABLE_STATUSES = [\x27pending\x27, \x27enumerating\x27, \x27downloading\x27] as const;"""
 assert old in s
+p.write_text(s.replace(old, new, 1))
+'
+
+# ############################################################################
+# BLOCK 12 -- 图文 IMAGE POSTS. Added 2026-08-26, after a bug that SHIPPED and
+# ran to completion looking perfect.
+#
+# An image post has no video. Douyin still fills `video.play_addr.url_list` --
+# with the BACKGROUND MUSIC CDN. `toVideoUpsert` never asked what kind of post it
+# was, so the download lane fetched an MP3, wrote it to `<aweme_id>.mp4`, matched
+# it against `content-length`, renamed it into place and marked the row `done`.
+# A real 215-item profile reported 215/215 completed, 0 zero-byte files, 0
+# leftover `.tmp`, and `file(1)` called two of the files "MPEG ADTS, layer III,
+# 128 kbps". Every counter agreed with every other counter.
+#
+# It is the same family as phase 6's zero-byte commit and phase 7's
+# skipped-under-a-live-job, and like both of those it had no mutation because it
+# had no guard. The guard now records those items as `skipped` -- NOT dropped:
+# dropping shrinks `total_videos` and the posts vanish with all the numbers still
+# agreeing, which is the same silence wearing a different hat.
+#
+# The four mutations are the four ways to put the bug back, and they fail in BOTH
+# directions on purpose. M4 skips EVERYTHING: over-skipping is worse than the
+# original bug (it loses the whole archive) and it would be just as quiet, so the
+# suite has to be able to see it.
+# ############################################################################
+
+run_mutation "treat an image post as a video again (the bug, exactly as it shipped)" \
+  "$MAPPER" "test/lanes/image-post-skip" \
+  py '
+import pathlib
+p = pathlib.Path("src/lanes/aweme.mapper.ts")
+s = p.read_text()
+old = """function isImagePost(aweme: Record<string, unknown>): boolean {
+  const images = aweme.images;
+  return Array.isArray(images) && images.length > 0;
+}"""
+new = """function isImagePost(aweme: Record<string, unknown>): boolean {
+  void aweme;
+  return false;
+}"""
+assert old in s, "isImagePost changed shape"
+p.write_text(s.replace(old, new, 1))
+'
+
+# RULE 4 / the control this block turns on. The mutation above going red says the
+# line matters SOMEHOW. It does not say the red came from the image/video
+# distinction rather than from the mapper breaking generally -- and a mapper that
+# throws would turn every suite in the repo red and look like a caught mutation.
+# So the SAME edit is measured against the three suites that predate image posts
+# and are about videos: they must not move.
+run_control "image posts treated as videos (the video path must not move)" \
+  "$MAPPER" "test/lanes/aweme.mapper test/lanes/enumerate.lane test/db/videos.repository" \
+  py '
+import pathlib
+p = pathlib.Path("src/lanes/aweme.mapper.ts")
+s = p.read_text()
+old = """function isImagePost(aweme: Record<string, unknown>): boolean {
+  const images = aweme.images;
+  return Array.isArray(images) && images.length > 0;
+}"""
+new = """function isImagePost(aweme: Record<string, unknown>): boolean {
+  void aweme;
+  return false;
+}"""
+assert old in s, "isImagePost changed shape"
+p.write_text(s.replace(old, new, 1))
+'
+
+run_mutation "skip EVERY item (over-skipping loses the archive, just as quietly)" \
+  "$MAPPER" "test/lanes/image-post-skip test/lanes/aweme.mapper" \
+  py '
+import pathlib
+p = pathlib.Path("src/lanes/aweme.mapper.ts")
+s = p.read_text()
+old = """  return Array.isArray(images) && images.length > 0;"""
+new = """  void images;
+  return true;"""
+assert old in s, "the images discriminator changed shape"
+p.write_text(s.replace(old, new, 1))
+'
+
+# The discriminator is `images` BECAUSE `media_type`/`aweme_type` are enums on
+# somebody elses API: 2/68 for images and 4/55 for video today, and Douyin adds
+# values (live replays, collections, mixed posts). A guard that also demanded the
+# enum would start downloading MP3s the day a new number appears -- and would do
+# it with every counter agreeing, exactly like the original. This is that edit.
+run_mutation "demand the media_type enum as well as the images array" \
+  "$MAPPER" "test/lanes/image-post-skip" \
+  py '
+import pathlib
+p = pathlib.Path("src/lanes/aweme.mapper.ts")
+s = p.read_text()
+old = """  return Array.isArray(images) && images.length > 0;"""
+new = """  return Array.isArray(images) && images.length > 0 && aweme.media_type === 2;"""
+assert old in s, "the images discriminator changed shape"
+p.write_text(s.replace(old, new, 1))
+'
+
+# The mappers verdict is worth nothing if the write drops it. `upsertMany` is the
+# only statement that ever sets these rows status, because `ON CONFLICT DO
+# NOTHING` means there is exactly one moment in a rows life when the enumerate
+# lane can say anything about it at all.
+run_mutation "the insert ignores the rows status and queues everything as pending" \
+  "$VIDEOS_REPO" "test/lanes/image-post-skip test/db/videos.repository" \
+  py '
+import pathlib
+p = pathlib.Path("src/db/videos.repository.ts")
+s = p.read_text()
+old = """        status: row.status ?? \x27pending\x27,"""
+new = """        status: \x27pending\x27,"""
+assert old in s, "the upsert status carry changed shape"
+p.write_text(s.replace(old, new, 1))
+'
+
+# RULE 7 in its second half: a mutation that STAYS GREEN is the only channel that
+# catches an assertion pinned to the wrong thing. The image-post suite asserts
+# that a skipped row CARRIES a reason, never what the reason says -- because
+# `markSkipped` leaves `last_error` null for a cancelled video and the difference
+# between "no reason" and "a reason" is the invariant, while the prose is not. If
+# rewording this string turns the suite red, the suite is measuring English.
+run_control "reword the skip reason (the suite must measure the status, not the prose)" \
+  "$MAPPER" "test/lanes/image-post-skip" \
+  py '
+import pathlib
+p = pathlib.Path("src/lanes/aweme.mapper.ts")
+s = p.read_text()
+old = """const IMAGE_POST_REASON ="""
+new = """const IMAGE_POST_REASON: string = \x27nothing here to download\x27;
+const UNUSED_IMAGE_POST_REASON ="""
+assert old in s, "IMAGE_POST_REASON changed shape"
 p.write_text(s.replace(old, new, 1))
 '
 

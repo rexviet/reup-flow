@@ -533,6 +533,53 @@ describe('upsertMany (phase 5)', () => {
     await expect(upsertMany(db, [], { urlTtlSeconds: 7200 })).resolves.toBe(0);
   });
 
+  it('carries an explicit `skipped` status and its reason into the row', async () => {
+    // 图文 image posts (aweme.mapper.ts). The status has to be written by the
+    // INSERT, not by a follow-up UPDATE: `ON CONFLICT DO NOTHING` means there is
+    // exactly one moment in a row's life when the enumerate lane can say
+    // anything about it at all.
+    await upsertMany(
+      db,
+      [row('a-image', { status: 'skipped' as const, lastError: 'no video in this post' })],
+      { urlTtlSeconds: 7200 },
+    );
+
+    const stored = await readVideo('a-image');
+    expect(stored.status).toBe('skipped');
+    expect(stored.lastError).toBe('no video in this post');
+  });
+
+  it('writes a MIXED page -- one pending, one skipped -- in the same statement', async () => {
+    // The shape a real page has, and the reason `upsertMany` writes `status`
+    // explicitly instead of leaving it to the column default: drizzle builds ONE
+    // column list for a multi-row insert, so a page holding a row with no
+    // `status` next to a row with `'skipped'` would be relying on how drizzle
+    // fills the gap. Two rows, one statement, is the case that pins it.
+    const inserted = await upsertMany(
+      db,
+      [row('a-video'), row('a-image', { status: 'skipped' as const, lastError: 'no video' })],
+      { urlTtlSeconds: 7200 },
+    );
+
+    expect(inserted).toBe(2);
+    expect(await countByStatusForProfile(db, 'profile-1')).toEqual({ pending: 1, skipped: 1 });
+    // Not a downgrade of the other row: the pending one keeps everything a
+    // downloadable video needs.
+    const video = await readVideo('a-video');
+    expect(video.lastError).toBeNull();
+    expect(video.playAddr).toBe('https://cdn.example/a-video.mp4');
+    expect(video.urlExpiresAt).not.toBeNull();
+  });
+
+  it('leaves a `skipped` row where the claim query cannot see it', async () => {
+    // The only statement that means "nothing will be downloaded for this row".
+    await upsertMany(db, [row('a-image', { status: 'skipped' as const })], {
+      urlTtlSeconds: 7200,
+    });
+
+    await expect(claimOne(db, OPTS)).resolves.toBeNull();
+  });
+
   it('survives a page that repeats an item, inserting it once', async () => {
     // Douyin has been seen to repeat an item across a cursor boundary. `DO
     // NOTHING` handles that inside one statement -- measured, not assumed. It is

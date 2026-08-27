@@ -67,11 +67,21 @@ function recordLastPushResult(storageArea, result) {
   });
 }
 
-const root = typeof self !== 'undefined' ? self : globalThis;
-root.STORAGE_KEYS = STORAGE_KEYS;
-root.getSettings = getSettings;
-root.setSettings = setSettings;
-root.recordLastPushResult = recordLastPushResult;
+// IIFE, not a bare `const root`: `importScripts` (sw.js) and classic
+// `<script>` tags (options.html) both evaluate every file into ONE shared
+// global scope, so a top-level `const root` here collides with the identical
+// line in every sibling lib -- `SyntaxError: Identifier 'root' has already
+// been declared`, which aborts service-worker registration with
+// "Status code: 15". Jest's `require()` gives each file its own module
+// scope and therefore cannot reproduce this -- the Jest suite is structurally
+// blind to it, so do not treat a green `pnpm test` as coverage of this bug.
+(() => {
+  const root = typeof self !== 'undefined' ? self : globalThis;
+  root.STORAGE_KEYS = STORAGE_KEYS;
+  root.getSettings = getSettings;
+  root.setSettings = setSettings;
+  root.recordLastPushResult = recordLastPushResult;
+})();
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { STORAGE_KEYS, getSettings, setSettings, recordLastPushResult };
 }

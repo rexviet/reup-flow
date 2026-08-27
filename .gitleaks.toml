@@ -52,6 +52,13 @@ paths = [
 ]
 
 [[allowlists]]
+description = "Douyin's `url_key` JSON field. Audited 2026-08-26: a PUBLIC CDN cache key (`v1e00fgi0000...._h264_1080p_730894`) present in every `play_addr`/`bit_rate` entry Douyin returns, which gitleaks' generic-api-key rule flags on the word `key` alone -- 14 findings in the captured aweme fixtures, all the same field, none of them a credential. Matched on the SECRET'S OWN TEXT, never on a path, and that is not a stylistic choice: the first version of this exemption pinned `paths` to services/downloader/test/fixtures/aweme/ with matchCondition = AND, and gitleaks 8.30 SKIPS A PATH-ALLOWLISTED FILE BEFORE READING IT -- `scanned ~0 bytes`, every rule blinded, `douyin-session-cookie` included. A canary (`sessionid=<40 hex>` planted in that directory) went UNREPORTED, which is the only reason it was noticed. Re-verified with the same canary in this shape: still reported. Keep it path-free. The fixtures themselves stay byte-for-byte as Douyin sent them, because `aweme.mapper.ts` decides whether a post is downloadable from the shape of these payloads and a fixture edited to please a scanner no longer proves what it claims (plan §5 rule 7)."
+regexTarget = "match"
+regexes = [
+  '''url_key"\s*:\s*"[A-Za-z0-9_-]{8,}"''',
+]
+
+[[allowlists]]
 description = "One msToken literal in an upstream sample URL inside xbogus.py's `if __name__ == \"__main__\"` dev-harness block. Path AND secret shape are both pinned, so this exempts that one dead literal -- not the file. A cookie added to xbogus.py still trips the scan."
 matchCondition = "AND"
 paths = [

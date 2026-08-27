@@ -103,10 +103,20 @@ async function performPush({ chromeApi, storageArea, fetchImpl, now }) {
   }
 }
 
-const root = typeof self !== 'undefined' ? self : globalThis;
-root.performPush = performPush;
-root.DOUYIN_COOKIE_DOMAIN = DOUYIN_COOKIE_DOMAIN;
-root.PLATFORM = PLATFORM;
+// IIFE, not a bare `const root`: `importScripts` (sw.js) and classic
+// `<script>` tags (options.html) both evaluate every file into ONE shared
+// global scope, so a top-level `const root` here collides with the identical
+// line in every sibling lib -- `SyntaxError: Identifier 'root' has already
+// been declared`, which aborts service-worker registration with
+// "Status code: 15". Jest's `require()` gives each file its own module
+// scope and therefore cannot reproduce this -- the Jest suite is structurally
+// blind to it, so do not treat a green `pnpm test` as coverage of this bug.
+(() => {
+  const root = typeof self !== 'undefined' ? self : globalThis;
+  root.performPush = performPush;
+  root.DOUYIN_COOKIE_DOMAIN = DOUYIN_COOKIE_DOMAIN;
+  root.PLATFORM = PLATFORM;
+})();
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { performPush, DOUYIN_COOKIE_DOMAIN, PLATFORM };
 }

@@ -22,6 +22,12 @@ import type { VideoUpsert } from '../db/videos.repository';
  *   handles exactly that case for EXPIRED urls, so an absent one costs one
  *   extra request for one video.
  *
+ *   MARK IT `skipped` when the item is a real post with nothing downloadable in
+ *   it -- a 图文 image post (`isImagePost`). NOT dropped: dropping shrinks
+ *   `total_videos` and the post disappears with every counter still agreeing,
+ *   which is the exact failure that guard exists to end. `skipped` keeps it
+ *   visible, counted, and out of the download queue.
+ *
  * What it must never do is default. A `create_time` defaulted to `now()` puts
  * a 2019 video at the front of the download queue
  * (`videos_pending_claim_idx` orders by it) and nothing downstream would ever
@@ -45,6 +51,7 @@ export function toVideoUpsert(aweme: Aweme, secUserId: string): VideoUpsert | nu
 
   const video = aweme.video;
   const urls = playAddrUrls(aweme);
+  const imagePost = isImagePost(aweme);
 
   return {
     awemeId,
@@ -55,9 +62,96 @@ export function toVideoUpsert(aweme: Aweme, secUserId: string): VideoUpsert | nu
     durationMs: numeric(isRecord(video) ? video.duration : undefined),
     // First entry only: Douyin orders `url_list` best-first, and phase 6
     // re-resolves reactively on 403/410 rather than walking alternates.
+    //
+    // KEPT AS-IS for an image post, MP3 and all. It is the evidence: an
+    // operator reading a `skipped` row sees the `.mp3` that would have been
+    // downloaded, which is a more useful answer than a null column. Nothing
+    // reads it while the row is `skipped` -- `claimOne` only looks at `pending`.
     playAddr: urls[0] ?? null,
+    status: imagePost ? 'skipped' : 'pending',
+    lastError: imagePost ? IMAGE_POST_REASON : null,
   };
 }
+
+/**
+ * Is this a 图文 (image / photo-slideshow) post rather than a video?
+ *
+ * THE BUG THIS EXISTS FOR, measured on a real 215-item profile: an image post
+ * has no video, and its `video.play_addr.url_list` points at the BACKGROUND
+ * MUSIC CDN. The download lane fetched that, got an MP3, wrote it to
+ * `<aweme_id>.mp4`, verified the length, renamed it into place and marked the
+ * row `done`. The run reported 215/215 completed, 0 zero-byte files, 0 leftover
+ * `.tmp` -- and 2 of the 215 files were `MPEG ADTS, layer III, 128 kbps`. Every
+ * counter agreed. The image content was never saved at all. Same family as
+ * phase 6's zero-byte commit: the archive was wrong while every number was
+ * right.
+ *
+ * THE DISCRIMINATOR IS `images`, and specifically a NON-EMPTY ARRAY, because it
+ * is the only DIRECT evidence in the payload. The field IS the image content --
+ * five entries, each with `url_list`, `width`, `height`, `uri` -- so its
+ * presence is the post saying what it is, not us inferring it. The three
+ * alternatives were each rejected for a reason:
+ *
+ *   `media_type` / `aweme_type` (2/68 for images, 4/55 for video) are ENUMS on
+ *   somebody else's API. They are a closed set today; Douyin adds values
+ *   (live replays, collections, mixed posts). An allowlist of video types
+ *   silently skips a whole new kind of real video, and a denylist of image
+ *   types silently downloads the next MP3 -- and both failures look exactly
+ *   like this bug looked: correct-seeming counters.
+ *
+ *   THE CDN HOSTNAME (`*-music*.douyinstatic.com` vs `douyinvod.com`) is
+ *   infrastructure. It is not part of the contract, it is regionalised
+ *   (`lf26-music-east`, `sf6-cdn-tos`), and a hostname allowlist would break the
+ *   first time Douyin moves a bucket -- in the direction of skipping real
+ *   videos.
+ *
+ *   `duration === 0` is a CONSEQUENCE, not the fact. It is also true of a real
+ *   video whose `video` object arrived malformed, and `toVideoUpsert` already
+ *   refuses to read absence as a number for exactly that reason.
+ *
+ * An EMPTY array is deliberately not enough. `images: []` is Douyin saying
+ * "there are none", which is what a video says; treating it as evidence would
+ * skip real videos, and a skipped video is the same silent loss in the other
+ * direction. `images: null` (what the video fixture actually carries) is the
+ * same case.
+ *
+ * WHAT THIS DOES NOT PROVE, written down rather than assumed away: if Douyin
+ * renames `images`, image posts fall back to today's behaviour -- an MP3 saved
+ * as `.mp4` and marked `done`. This guard makes the KNOWN shape safe; it is not
+ * a proof that no MP3 can ever be committed. The only place that could prove
+ * that is the download lane, by checking what came back off the wire before it
+ * commits (no such check exists today, and adding one is a separate change with
+ * its own mutation).
+ */
+function isImagePost(aweme: Record<string, unknown>): boolean {
+  const images = aweme.images;
+  return Array.isArray(images) && images.length > 0;
+}
+
+/**
+ * Written to `videos.last_error`, and the reason THIS skip carries one while
+ * `markSkipped`'s does not.
+ *
+ * `markSkipped` (a cancelled job) leaves `last_error` null on purpose: nothing
+ * went wrong, so there is nothing to say. Here something IS worth saying,
+ * because the two skips answer different operator questions and share one
+ * status. "Nobody wanted this video" resolves itself -- `/retry` or a new job
+ * brings the row back and it downloads. "This post has no video in it" never
+ * resolves: the row will read `skipped` forever, no file will ever appear, and
+ * an operator comparing 213 files against 215 items needs the row itself to
+ * explain the difference. A null `last_error` would leave that as a subtraction
+ * to be worked out by hand, which is how the 2 MP3s went unnoticed in the first
+ * place.
+ *
+ * NOT a discriminator for code to branch on, and specifically not the one
+ * `reviveSkippedForProfile` could use: a video that failed once (`last_error`
+ * set) and was then cancelled mid-claim is `skipped` WITH a `last_error` too, so
+ * "has a reason" does not mean "is an image post". See the note on
+ * `reviveSkippedForProfile` for the consequence that leaves open.
+ */
+const IMAGE_POST_REASON =
+  'image post (图文): Douyin ships no video for this item and video.play_addr points at the ' +
+  'background music CDN, so downloading it would store an MP3 as .mp4';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;

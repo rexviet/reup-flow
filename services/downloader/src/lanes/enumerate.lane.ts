@@ -212,6 +212,14 @@ export class EnumerateLane extends LaneRunner {
     let pages = 0;
     let inserted = 0;
     let dropped = 0;
+    /**
+     * 图文 image posts seen in this run, recorded as `skipped` rather than
+     * queued (`aweme.mapper.ts`). Counts what the PAGES CARRIED, like
+     * `enumerated` and unlike `inserted` -- a re-run counts them again, because
+     * the number answers "how much of this profile is not video" rather than
+     * "what did this run write".
+     */
+    let imagePosts = 0;
 
     for (;;) {
       if (signal.aborted) {
@@ -306,6 +314,7 @@ export class EnumerateLane extends LaneRunner {
       const rows = page.awemeList.map((item) => toVideoUpsert(item, job.secUserId));
       const usable = rows.filter((row): row is NonNullable<typeof row> => row !== null);
       dropped += rows.length - usable.length;
+      imagePosts += usable.filter((row) => row.status === 'skipped').length;
       inserted += await videosRepository.upsertMany(this.db, usable, {
         urlTtlSeconds: this.opts.urlTtlSeconds,
       });
@@ -363,6 +372,12 @@ export class EnumerateLane extends LaneRunner {
       `lane ${this.name}: job ${job.id} enumerated ${pages} page(s), ${enumerated} item(s), ` +
         `${inserted} new video(s)` +
         (dropped > 0 ? `, ${dropped} item(s) dropped as unusable` : '') +
+        // Said out loud, because "215 items, 213 videos" is the difference an
+        // operator otherwise has to work out by subtraction -- and not working
+        // it out is how two MP3s spent a whole run reported as `done`.
+        (imagePosts > 0
+          ? `, ${imagePosts} image post(s) skipped (no video to download)`
+          : '') +
         `; job is now downloading`,
     );
     return 'finished';

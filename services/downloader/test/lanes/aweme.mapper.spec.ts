@@ -41,6 +41,14 @@ describe('a well-formed item', () => {
       createTime: new Date(1735689600 * 1000),
       durationMs: 15_500,
       playAddr: 'https://cdn.example/a.mp4',
+      // A video is `pending` and carries no reason. `skipped` is for a 图文
+      // image post, which has no video in it at all -- decided from `images`,
+      // and covered end to end against real payloads in image-post-skip.spec.ts.
+      // Asserted here as part of the WHOLE object on purpose: this is the one
+      // exhaustive assertion in the file, so a field silently appearing or
+      // disappearing shows up as a failure rather than as nothing.
+      status: 'pending',
+      lastError: null,
     });
   });
 

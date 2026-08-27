@@ -55,7 +55,9 @@ HARNESS_DIR=services/downloader/test/mutations
 
 # phase:must-fail-mutations:must-stay-green-controls
 #
-# Counted from the harnesses as of phase 7. Totals: 135 mutations, 15 controls.
+# Counted from the harnesses as of phase 7, plus phase-05.sh's BLOCK 12 (the
+# 图文 image-post guard, added 2026-08-26: +4 mutations, +2 controls).
+# Totals: 139 mutations, 17 controls.
 # The phase 0 spike mutations (test/spike-cookie-swap/mutations, and the SKIP
 # LOCKED / compose pair inlined in ci.yml) are deliberately NOT here: they need
 # a built parser image or a compose file edit, and are gated separately in CI.
@@ -64,7 +66,7 @@ EXPECT="
 02:15:1
 03:18:2
 04:20:2
-05:32:2
+05:36:4
 06:14:3
 07:28:5
 "

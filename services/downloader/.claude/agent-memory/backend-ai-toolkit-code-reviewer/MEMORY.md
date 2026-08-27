@@ -1,0 +1,2 @@
+- [False greens in this repo](false-greens-reup-flow.md) — 5 recurring shapes: wrong key case, pre-scrubbed surface, neutralised seam, loose regex, title/assertion drift.
+- [Phase-5 uncovered guards](phase-05-uncovered-guards.md) — pacing guards the phase-05 mutation harness does not reach (jitter, 400-retry sleep).

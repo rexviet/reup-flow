@@ -63,7 +63,7 @@ export async function createApp(): Promise<{ app: INestApplication; env: Env }> 
   const app = await NestFactory.create(AppModule, {
     logger: new RedactingLogger("Bootstrap"),
   });
-  configureApp(app);
+  configureApp(app, env.CORS_ALLOWED_ORIGINS);
   return { app, env };
 }
 
@@ -86,6 +86,31 @@ export async function createApp(): Promise<{ app: INestApplication; env: Env }> 
  * those call `app.close()` directly. `test/lanes/sigterm-shutdown.e2e-spec.ts`
  * drives a real signal at a real child process to cover it.
  */
-export function configureApp(app: INestApplication): void {
+export function configureApp(
+  app: INestApplication,
+  corsAllowedOrigins: readonly string[] = [],
+): void {
   app.enableShutdownHooks();
+
+  // Empty by default so the only caller that does NOT serve a browser
+  // (test/support/lane-shutdown-child.ts) keeps working unchanged, and so a
+  // deployment that fronts this API with a same-origin proxy can turn CORS
+  // off entirely by setting CORS_ALLOWED_ORIGINS= rather than by editing code.
+  if (corsAllowedOrigins.length === 0) return;
+
+  app.enableCors({
+    // The allowlist itself, not `true`. See env.ts's comment: reflecting any
+    // Origin would hand this API -- and the plaintext key the page carries --
+    // to any site the operator's browser happens to visit.
+    origin: [...corsAllowedOrigins],
+    // `X-Api-Key` is the whole reason a preflight happens at all: it is not a
+    // CORS-safelisted request header, so omitting it here would let the
+    // preflight succeed and then have the browser block the real request for
+    // sending a header the response never allowed.
+    allowedHeaders: ["X-Api-Key", "Content-Type"],
+    methods: ["GET", "POST"],
+    // No credentials: this API authenticates by header, never by cookie, so
+    // there is nothing for the browser to attach and nothing to allow.
+    credentials: false,
+  });
 }
