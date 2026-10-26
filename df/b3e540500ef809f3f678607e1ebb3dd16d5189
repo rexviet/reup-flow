@@ -1,0 +1,46 @@
+services/localization/src/localization/activities/detect_subtitles.py
+  s_0b729cf0d034d3::t_16f39c8e9948cc 145-147
+services/localization/tests/providers/test_demucs_runtime.py
+  s_0b729cf0d034d3::t_16f39c8e9948cc 24-27,73-77,79,81,86-95,98-102
+services/localization/tests/starter/test_grants.py
+  s_0b729cf0d034d3::t_16f39c8e9948cc 16,44
+services/localization/tests/workflows/test_prep_stage.py
+  s_0b729cf0d034d3::t_e02bd1a393feda 663,687-688
+  s_0b729cf0d034d3::t_1eac984ce7edbc 629-662,664-686,689-691
+scripts/run-mutations.sh
+  s_0b729cf0d034d3::t_f84f9e928400e3 93-95,111
+plans/reports/code-reviewer-261026-1549-phase-04-rereview.md
+  s_0b729cf0d034d3::t_309ea2139dbf8b 1-91
+services/localization/tests/replay/histories/phase-04/lost-vocals-ingest-rerun.json
+  s_0b729cf0d034d3::t_5f8ee8e78b3291 5,7,27-29,32,38,40,52,54,57-58,61,67,69,73,75,79,81,91,93,135,137,140-141,144,150,152,166,171,173,176,186,188,191-193,195,201,203,207,209,217,219,267,269,311,313,316-317,320,326,328,342,347,349,352,362,364,367-368,371,376-377,379,400-401,406-407,409,411-414,416,421-422,424,426-428,430,437-438,440,465,481-482,484,486-488,491,496-497,499,511-513,517-518,520,523,532-533,535,537-540,542,547-548,550,552-554,556,563-564,566,597,613-614,616,618-620,623,628-629,631,643-645,649-650,652,655,664-665,667,669-672,674,679-680,682,684-686,688,695-696,698,710
+services/localization/tests/replay/histories/phase-04/plain-run.json
+  s_0b729cf0d034d3::t_5f8ee8e78b3291 5,27-29,32,38,52,57-58,61,67,73,75,79,81,91,135,140-141,144,150,166,171,176,186,191-192,195,201,207,209,217,267,311,315-317,320,326,336,340,342,347,352,362,364,366-368,371,377,379,387,391,393,398,400,403-404,407,413,415,419,421,429,431
+services/localization/src/localization/workers/run.py
+  s_0b729cf0d034d3::t_16f39c8e9948cc 115-121,137-139
+services/localization/tests/replay/histories/phase-04/no-burned-in-subtitles.json
+  s_0b729cf0d034d3::t_5f8ee8e78b3291 5,7,27-29,32,38,40,52,54,57-59,61,67,69,73,75,80-81,91,93,135,137,140-141,144,150,152,166,171,173,176,186,188,191-193,195,201,203,207,209,217,219,267,269,311,313,315-317,320,326,328,336,340,342,347,349,352,362,364,366-368,371,377,379,387,391,393,398,400,403-405,407,413,415,419,421,429,431
+services/localization/src/localization/workflows/video_localization.py
+  s_0b729cf0d034d3::t_b393d1c812c5ba 68-75,99-108,110-114,116-132
+services/localization/tests/workers/test_supervise.py
+  s_0b729cf0d034d3::t_16f39c8e9948cc 12,14,25,85-99
+services/localization/tests/mutations/phase-04.sh
+  s_0b729cf0d034d3::t_f84f9e928400e3 169-170,357-385,397-398
+plans/261026-0147-video-localization-workflow/phase-04-starter-and-prep-activities.md
+  s_0b729cf0d034d3::t_50367488c6a9eb 193-197
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "dfb3e540500ef809f3f678607e1ebb3dd16d5189",
+  "prompts": {},
+  "sessions": {
+    "s_0b729cf0d034d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9aa1a711-c362-45ab-8e48-1a9b19f8df48",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
