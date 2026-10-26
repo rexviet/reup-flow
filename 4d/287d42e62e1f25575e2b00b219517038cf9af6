@@ -1,0 +1,69 @@
+services/downloader/test/env.spec.ts
+  s_92153f0c6ce139::t_3aa324ad51c1f2 295-356
+services/downloader/test/mutations/phase-11.sh
+  s_92153f0c6ce139::t_3aa324ad51c1f2 1-195
+services/downloader/test/storage/s3.cross-process.integration.spec.ts
+  s_92153f0c6ce139::t_3aa324ad51c1f2 1-136
+services/downloader/test/support/fixed-env.ts
+  s_92153f0c6ce139::t_3aa324ad51c1f2 36-43
+services/downloader/src/storage/storage.interface.ts
+  s_92153f0c6ce139::t_3aa324ad51c1f2 4-7,79-83,97-102
+scripts/migrate-local-storage-to-s3.ts
+  s_92153f0c6ce139::t_3aa324ad51c1f2 1-311
+services/downloader/migrations/261026-storage-migration-map.down.sql
+  s_92153f0c6ce139::t_3aa324ad51c1f2 1-11
+.github/workflows/ci.yml
+  s_92153f0c6ce139::t_3aa324ad51c1f2 247-273,275-279
+services/downloader/src/bootstrap.ts
+  s_92153f0c6ce139::t_3aa324ad51c1f2 59-61
+services/downloader/test/support/s3-test-env.ts
+  s_92153f0c6ce139::t_3aa324ad51c1f2 1-112
+services/downloader/src/storage/s3.storage.ts
+  s_92153f0c6ce139::t_3aa324ad51c1f2 1-359
+services/downloader/test/storage/s3.storage.integration.spec.ts
+  s_92153f0c6ce139::t_3aa324ad51c1f2 1-520
+services/downloader/test/support/s3-slow-upload-child.ts
+  s_92153f0c6ce139::t_3aa324ad51c1f2 1-49
+plans/261026-0147-video-localization-workflow/phase-01-s3-storage.md
+  s_92153f0c6ce139::t_3aa324ad51c1f2 4,102-113
+services/downloader/package.json
+  s_92153f0c6ce139::t_3aa324ad51c1f2 15
+scripts/run-mutations.sh
+  s_92153f0c6ce139::t_3aa324ad51c1f2 63
+  s_92153f0c6ce139::t_4016cc9fa91aac 64,77
+services/downloader/src/lanes/reaper.lane.ts
+  s_92153f0c6ce139::t_3aa324ad51c1f2 120-123
+services/downloader/src/config/env.ts
+  s_92153f0c6ce139::t_3aa324ad51c1f2 33-44,183-215,218-228
+  s_92153f0c6ce139::t_ee7657c37b3d6a 32
+services/downloader/test/storage/migrate-local-to-s3.integration.spec.ts
+  s_92153f0c6ce139::t_3aa324ad51c1f2 1-373
+services/downloader/src/storage/storage.module.ts
+  s_92153f0c6ce139::t_3aa324ad51c1f2 5,11-27,33-37,45-46
+.env.example
+  s_92153f0c6ce139::t_3aa324ad51c1f2 58-69
+docker-compose.yml
+  s_92153f0c6ce139::t_3aa324ad51c1f2 58-69
+services/downloader/migrations/261026-storage-migration-map.sql
+  s_92153f0c6ce139::t_3aa324ad51c1f2 1-22
+plans/260824-2152-douyin-downloader/plan.md
+  s_92153f0c6ce139::t_3aa324ad51c1f2 171
+pnpm-lock.yaml
+  s_92153f0c6ce139::t_f6ad4a0ef30b26 34,41-43,101,194-265,1177-1200,1582-1584,3748-3912,4733-4765,5295-5296,7288
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4d287d42e62e1f25575e2b00b219517038cf9af6",
+  "prompts": {},
+  "sessions": {
+    "s_92153f0c6ce139": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "30235d5c-3b00-4588-94b5-c8a55a5f2e99",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
