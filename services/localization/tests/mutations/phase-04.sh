@@ -363,7 +363,8 @@ apply_mutation "$RUN" \
 restore
 
 mp_mutation "a failed stage leaves its sibling activity running"
-apply_mutation "$WORKFLOW" $'                    handle.cancel()\n' $'                    pass\n' \
+apply_mutation "$WORKFLOW" $'            for handle, _ in stages.values():\n                if not handle.done():\n                    handle.cancel()' \
+  $'            for handle, _ in stages.values():\n                if not handle.done():\n                    pass' \
   && expect_red "$T_PREP" "test_a_failed_stage_cancels_the_sibling_instead_of_leaving_it_running"
 restore
 

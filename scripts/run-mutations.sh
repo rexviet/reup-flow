@@ -100,6 +100,13 @@ harness_dir() {
 # guard and segment cap, glossary provenance, wrapped stored term, voice rate bounds,
 # number edge cases, voice-rate scaling by speed and bound, retryable bad reading,
 # conversation margin): +57, +2.
+# `localization:06` (dubbing: a TTS hash is sent at most once (the cache, the plan's
+# de-duplication, each part of the hash, the write after the answer), the Dubber's tts
+# tool pinned to the tts queue, its clamp / rewrite limit / output check / untrusted
+# block, synthesis and the track never reach an agent, the stretch table and overflow
+# flag, a rewrite cannot add a contact, the track's placement / stretch / ducking /
+# loudness / length, the stage's replay marker and one regeneration per lost stage,
+# worker wiring, a failed batch is acted on at once and cancels the rest): +54, +3.
 # The phase 0 spike mutations (test/spike-cookie-swap/mutations, and the SKIP
 # LOCKED / compose pair inlined in ci.yml) are deliberately NOT here: they need
 # a built parser image or a compose file edit, and are gated separately in CI.
@@ -117,6 +124,7 @@ downloader:12:1:0
 localization:03:11:2
 localization:04:47:2
 localization:05:57:2
+localization:06:54:3
 "
 
 # Files any harness in the set is allowed to touch. Checksummed before and after

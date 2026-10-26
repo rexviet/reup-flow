@@ -95,9 +95,18 @@ class ObjectStore:
         )
         return cls(client, settings.s3_bucket)
 
-    def put_bytes(self, key: str, data: bytes, *, content_type: str | None = None) -> None:
+    def put_bytes(
+        self,
+        key: str,
+        data: bytes,
+        *,
+        content_type: str | None = None,
+        metadata: dict[str, str] | None = None,
+    ) -> None:
         validate_storage_key(key)
-        extra = {"ContentType": content_type} if content_type else {}
+        extra: dict[str, Any] = {"ContentType": content_type} if content_type else {}
+        if metadata:
+            extra["Metadata"] = metadata
         self._client.put_object(Bucket=self._bucket, Key=key, Body=data, **extra)
 
     def put_file(self, key: str, path: Path, *, content_type: str | None = None) -> None:
@@ -123,6 +132,17 @@ class ObjectStore:
             if _is_missing(exc):
                 raise ArtifactMissingError(key, produced_by) from None
             raise
+
+    def metadata(self, key: str) -> dict[str, str] | None:
+        """The user metadata of an object, or None when there is no such object."""
+        validate_storage_key(key)
+        try:
+            head = self._client.head_object(Bucket=self._bucket, Key=key)
+        except ClientError as exc:
+            if _is_missing(exc):
+                return None
+            raise
+        return dict(head.get("Metadata") or {})
 
     def exists(self, key: str) -> bool:
         validate_storage_key(key)

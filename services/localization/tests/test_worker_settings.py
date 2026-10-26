@@ -12,6 +12,27 @@ def test_defaults_match_the_environment_contract() -> None:
     assert (s.target_lang, s.voice_provider, s.voice_settings_json) == ("vi", "voicestudio", "{}")
 
 
+def test_the_loudness_defaults_match_the_environment_contract() -> None:
+    s = Settings()
+    assert (s.loudness_lufs, s.true_peak_dbtp) == (-14.0, -1.5)
+
+
+def test_the_loudness_comes_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LOUDNESS_LUFS", "-16")
+    monkeypatch.setenv("TRUE_PEAK_DBTP", "-2")
+    s = Settings()
+    assert (s.loudness_lufs, s.true_peak_dbtp) == (-16.0, -2.0)
+
+
+@pytest.mark.parametrize(("name", "value"), [("LOUDNESS_LUFS", "5"), ("TRUE_PEAK_DBTP", "3")])
+def test_a_loudness_above_full_scale_is_refused(
+    monkeypatch: pytest.MonkeyPatch, name: str, value: str
+) -> None:
+    monkeypatch.setenv(name, value)
+    with pytest.raises(ValidationError):
+        Settings()
+
+
 @pytest.mark.parametrize("value", ["0", "-1", "65", "x"])
 def test_a_concurrency_limit_must_be_a_sane_positive_number(
     monkeypatch: pytest.MonkeyPatch, value: str

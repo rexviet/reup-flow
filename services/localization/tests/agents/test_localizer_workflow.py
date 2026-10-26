@@ -106,7 +106,8 @@ async def test_the_stage_comes_after_preparation_and_the_voice_rate_before_the_a
     }
     assert names.index("voice_rate") < names.index("agent__localizer__model_request")
     assert names.index("agent__localizer__model_request") < names.index("assemble_script")
-    assert names[-1] == "assemble_script"
+    # The dubbing stage follows the script: the Localizer's stage ends at assemble_script.
+    assert names.index("assemble_script") < names.index("voice_profile")
 
 
 async def test_the_stage_result_names_the_script_and_carries_the_review_flag(

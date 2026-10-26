@@ -13,15 +13,28 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, ApplicationError
 
-from localization.agents.temporal import LocalizerDeps, localizer, run_localizer
+from localization.agents.temporal import (
+    DubberDeps,
+    LocalizerDeps,
+    dubber,
+    localizer,
+    run_dubber,
+    run_localizer,
+)
 from localization.contracts import (
+    DubbedAudio,
+    DubDecisions,
+    FitReport,
     IngestResult,
     LocalizationInput,
     LocalizationResult,
+    LocalizedScriptRef,
     PrepResult,
     ScriptResult,
     SubtitleTrack,
+    SynthesisPlan,
     Transcript,
+    VoiceProfile,
 )
 
 # Task queues. `workflows` carries only this workflow; every activity runs elsewhere.
@@ -33,10 +46,19 @@ TTS_QUEUE = "tts"
 # Marks a run that has the Localizer stage. A run recorded before the stage existed
 # replays without this marker and finishes where it used to; a new run records it.
 LOCALIZE_PATCH = "localize-script"
+# Marks a run that has the dubbing stage (synthesis, the Dubber, the dubbed track).
+DUB_PATCH = "dub-audio"
+
+# Hashes sent to the provider in one activity. Small enough that a killed worker
+# loses little, large enough that the activity overhead is not the cost.
+TTS_BATCH = 10
 
 ARTIFACT_MISSING = "ArtifactMissingError"
 # The stages whose artifacts the workflow can regenerate (once) when one is lost.
 REGENERABLE_STAGES = frozenset({"ingest"})
+# The same for the dubbing stage: it also reads the script (written by the Localizer,
+# then by its own script step) and the music stem.
+DUB_REGENERABLE_STAGES = frozenset({"ingest", "localize", "dub_script"})
 # The preparation stages whose artifacts the Localizer reads; if one is gone by then,
 # that stage is run again (once) and the Localizer with it.
 LOCALIZER_INPUT_STAGES = frozenset({"transcribe", "detect_subtitles"})
@@ -86,6 +108,33 @@ ASSEMBLE_SCRIPT = dict(
     start_to_close_timeout=timedelta(minutes=5),
     retry_policy=_retry(5, 5, 60),
 )
+VOICE_PROFILE = dict(
+    task_queue=IO_QUEUE,
+    start_to_close_timeout=timedelta(minutes=1),
+    retry_policy=_retry(5, 2, 30),
+)
+DUB_IO = dict(
+    task_queue=IO_QUEUE,
+    start_to_close_timeout=timedelta(minutes=5),
+    retry_policy=_retry(5, 5, 60),
+)
+SYNTHESIZE = dict(
+    task_queue=TTS_QUEUE,
+    start_to_close_timeout=timedelta(minutes=30),
+    # The activity heartbeats every few seconds while a provider call is in flight,
+    # so a worker that died is noticed in seconds, not after the full timeout.
+    heartbeat_timeout=timedelta(seconds=20),
+    retry_policy=_retry(8, 5, 300),
+)
+ASSEMBLE_AUDIO = dict(
+    task_queue=MEDIA_QUEUE,
+    start_to_close_timeout=timedelta(minutes=20),
+    heartbeat_timeout=timedelta(minutes=2),
+    retry_policy=_retry(3, 10, 120),
+)
+
+# The round every dubbing artifact of a run's first pass belongs to.
+DUB_ROUND = 0
 
 
 # `asyncio.FIRST_EXCEPTION`, spelled out because workflow code does not import asyncio.
@@ -106,11 +155,14 @@ def _missing_stage(error: ActivityError) -> str | None:
 
 @workflow.defn(name="VideoLocalizationWorkflow")
 class VideoLocalizationWorkflow:
-    # Registers the Localizer's activities on the worker that hosts this workflow.
-    __pydantic_ai_agents__ = [localizer]
+    # Registers the agents' activities on the worker that hosts this workflow.
+    __pydantic_ai_agents__ = [localizer, dubber]
 
     def __init__(self) -> None:
         self._regenerated: set[str] = set()
+        # What the dubbing stage needs from the Localizer stage, kept so a script
+        # that is lost and made again replaces the one the stage works from.
+        self._rate: float = 0.0
 
     @workflow.run
     async def run(self, spec: LocalizationInput) -> LocalizationResult:
@@ -118,7 +170,10 @@ class VideoLocalizationWorkflow:
         if not workflow.patched(LOCALIZE_PATCH):
             return LocalizationResult(prep=prep, script=None)
         prep, script = await self._localize(spec, prep)
-        return LocalizationResult(prep=prep, script=script)
+        if not workflow.patched(DUB_PATCH):
+            return LocalizationResult(prep=prep, script=script)
+        dub = await self._dub_with_regeneration(spec, prep, script)
+        return LocalizationResult(prep=prep, script=script, dub=dub)
 
     async def _localize(
         self, spec: LocalizationInput, prep: PrepResult
@@ -164,6 +219,7 @@ class VideoLocalizationWorkflow:
         rate = await workflow.execute_activity(
             "voice_rate", spec.voice, result_type=float, **VOICE_RATE
         )
+        self._rate = rate
         transcript_key = prep.transcript.transcript_key
         subtitle_key = prep.subtitles.subtitle_key
         lines = await run_localizer(
@@ -247,3 +303,109 @@ class VideoLocalizationWorkflow:
                 self._regenerated.add(stage)
                 await self._ingest(spec)
                 handle = restart()
+
+    async def _dub_with_regeneration(
+        self, spec: LocalizationInput, prep: PrepResult, script: ScriptResult
+    ) -> DubbedAudio:
+        """The dubbing stage. An artifact it reads that has gone missing is made
+        again by the stage that produced it, once, and the stage then runs on."""
+        while True:
+            try:
+                return await self._dub(spec, prep, script)
+            except ActivityError as error:
+                stage = _missing_stage(error)
+                if stage not in DUB_REGENERABLE_STAGES or stage in self._regenerated:
+                    raise
+                self._regenerated.add(stage)
+                if stage == "ingest":
+                    await self._ingest(spec)
+                elif stage == "localize":
+                    prep, script = await self._localize(spec, prep)
+
+    async def _dub(
+        self, spec: LocalizationInput, prep: PrepResult, script: ScriptResult
+    ) -> DubbedAudio:
+        profile = await workflow.execute_activity(
+            "voice_profile", spec.voice, result_type=VoiceProfile, **VOICE_PROFILE
+        )
+        engine = profile.engine
+        first = script.script
+        await self._synthesize(spec, engine, first.script_key)
+        fit = await workflow.execute_activity(
+            "measure_fit",
+            args=[spec, first.script_key, engine],
+            result_type=FitReport,
+            **DUB_IO,
+        )
+        decisions = DubDecisions(items=())
+        if fit.unfit_ids:
+            decisions = await run_dubber(
+                DubberDeps(
+                    aweme_id=spec.aweme_id,
+                    script_key=first.script_key,
+                    voice=spec.voice,
+                    engine=engine,
+                    syllables_per_sec=self._rate,
+                    pending_ids=fit.unfit_ids,
+                )
+            )
+        # The script after the Dubber is the one every later stage reads. Lines the
+        # Dubber rewrote have no clip yet; the second synthesis pass makes exactly
+        # those (the rest are cache hits).
+        final = await workflow.execute_activity(
+            "write_dubbed_script",
+            args=[spec, first, decisions],
+            result_type=LocalizedScriptRef,
+            **DUB_IO,
+        )
+        await self._synthesize(spec, engine, final.script_key)
+        segments_key = await workflow.execute_activity(
+            "commit_dub",
+            args=[spec, final, engine, decisions],
+            result_type=str,
+            **DUB_IO,
+        )
+        return await workflow.execute_activity(
+            "assemble_audio",
+            args=[spec, final, segments_key, prep.ingest, DUB_ROUND],
+            result_type=DubbedAudio,
+            **ASSEMBLE_AUDIO,
+        )
+
+    async def _synthesize(
+        self, spec: LocalizationInput, engine: str | None, script_key: str
+    ) -> None:
+        """Every distinct text of the script, in batches. The queue's concurrency
+        limit decides how many batches speak at once."""
+        plan = await workflow.execute_activity(
+            "plan_synthesis",
+            args=[spec, script_key, engine],
+            result_type=SynthesisPlan,
+            **DUB_IO,
+        )
+        hashes = list(plan.hashes)
+        if not hashes:
+            return
+        handles = [
+            workflow.start_activity(
+                "synthesize_segments",
+                args=[spec, engine, script_key, hashes[i : i + TTS_BATCH]],
+                **SYNTHESIZE,
+            )
+            for i in range(0, len(hashes), TTS_BATCH)
+        ]
+        try:
+            await workflow.wait(handles, return_when=_FIRST_EXCEPTION)
+            # A batch that already failed is acted on first, not after the ones
+            # listed before it have finished.
+            failed = next((h for h in handles if _failed(h)), None)
+            if failed is not None:
+                await failed
+            for handle in handles:
+                await handle
+        except BaseException:
+            # A batch that failed makes the rest pointless to pay for.
+            for handle in handles:
+                if not handle.done():
+                    handle.cancel()
+            raise

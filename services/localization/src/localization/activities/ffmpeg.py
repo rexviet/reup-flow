@@ -136,6 +136,21 @@ def probe_duration_ms(path: Path) -> int:
     return round(seconds * 1000)
 
 
+def run_ffmpeg(
+    args: list[str], *, timeout: float = 900, loglevel: str = "error"
+) -> subprocess.CompletedProcess[bytes]:
+    """`ffmpeg -nostdin -y` with `args`. A non-zero exit is a permanent failure: the
+    same inputs fail the same way."""
+    result = _run(
+        ["ffmpeg", "-nostdin", "-y", "-hide_banner", "-v", loglevel, *args],
+        what="ffmpeg",
+        timeout=timeout,
+    )
+    if result.returncode != 0:
+        raise PermanentProviderError("ffmpeg: the command failed")
+    return result
+
+
 def extract_audio(video: Path, out_wav: Path) -> None:
     result = _run(
         [

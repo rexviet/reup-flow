@@ -31,16 +31,20 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 from temporalio.workflow import ActivityConfig
 
+from localization.agents import dubber as dubber_module
+from localization.agents.dubber import DubberDeps, build_dubber
 from localization.agents.localizer import IO_TOOLS, PURE_TOOLS, LocalizerDeps, build_localizer
 from localization.contracts.limits import MAX_PAYLOAD_BYTES, payload_size
-from localization.contracts.models import LocalizedLines
+from localization.contracts.models import DubDecisions, LocalizedLines
 
 LLM_QUEUE = "llm"
 IO_QUEUE = "io"
+TTS_QUEUE = "tts"
 
 # The name the workflow-side agent carries for its model. The activity that makes a
 # request turns it into the configured model.
 MODEL_ALIAS = "localizer-model"
+DUBBER_MODEL_ALIAS = "dubber-model"
 
 _PERMANENT = ["PermanentProviderError", "PayloadTooLarge", "ArtifactMissingError"]
 
@@ -78,13 +82,15 @@ TOOL_METADATA: dict[str, dict[str, object]] = {
     **{name: {"temporal": INLINE} for name in PURE_TOOLS},
 }
 
-_model_factory: Callable[[], Model] | None = None
+_model_factories: dict[str, Callable[[], Model]] = {}
 
 
-def bind_model_factory(factory: Callable[[], Model] | None) -> None:
-    """Called by the worker that serves the `llm` queue."""
-    global _model_factory
-    _model_factory = factory
+def bind_model_factory(factory: Callable[[], Model] | None, alias: str = MODEL_ALIAS) -> None:
+    """Called by the worker that serves the `llm` queue, once per agent."""
+    if factory is None:
+        _model_factories.pop(alias, None)
+    else:
+        _model_factories[alias] = factory
 
 
 class DeferredModel(Model):
@@ -106,11 +112,11 @@ class DeferredModel(Model):
     def system(self) -> str:
         return "openai"
 
-    @staticmethod
-    def _real() -> Model:
-        if _model_factory is None:
+    def _real(self) -> Model:
+        factory = _model_factories.get(self._name)
+        if factory is None:
             raise RuntimeError("a model request reached a worker that has no model bound")
-        return _model_factory()
+        return factory()
 
     async def request(
         self,
@@ -205,5 +211,60 @@ async def run_localizer(deps: LocalizerDeps) -> LocalizedLines:
         f"Localize this video's transcript into Vietnamese. The segment ids are 0 to {last}.",
         deps=deps,
         usage_limits=USAGE_LIMITS,
+    )
+    return result.output
+
+
+# --- the Dubber -------------------------------------------------------------------
+
+# Speaking a line is a TTS call, so the tool runs on the `tts` queue: its concurrency
+# limit covers the Dubber exactly as it covers the batch synthesis.
+TTS_TOOL_ACTIVITY = ActivityConfig(
+    task_queue=TTS_QUEUE,
+    start_to_close_timeout=timedelta(minutes=5),
+    heartbeat_timeout=timedelta(seconds=30),
+    retry_policy=RetryPolicy(
+        maximum_attempts=6,
+        initial_interval=timedelta(seconds=5),
+        backoff_coefficient=2.0,
+        maximum_interval=timedelta(minutes=2),
+        non_retryable_error_types=_PERMANENT,
+    ),
+)
+
+DUBBER_TOOL_METADATA: dict[str, dict[str, object]] = {
+    **{name: {"temporal": TOOL_ACTIVITY} for name in dubber_module.IO_TOOLS},
+    **{name: {"temporal": TTS_TOOL_ACTIVITY} for name in dubber_module.TTS_TOOLS},
+    **{name: {"temporal": INLINE} for name in dubber_module.PURE_TOOLS},
+}
+
+
+def build_durable_dubber() -> Agent[DubberDeps, DubDecisions]:
+    return build_dubber(
+        DUBBER_MODEL_ALIAS,
+        tool_metadata=DUBBER_TOOL_METADATA,
+        capabilities=[
+            TemporalDurability(
+                models={DUBBER_MODEL_ALIAS: DeferredModel(DUBBER_MODEL_ALIAS)},
+                model_activity_config=MODEL_ACTIVITY,
+                activity_config=TOOL_ACTIVITY,
+            ),
+        ],
+    )
+
+
+dubber = build_durable_dubber()
+
+# The Dubber handles a few lines: a handful of requests each.
+DUBBER_USAGE_LIMITS = UsageLimits(request_limit=120, tool_calls_limit=400)
+
+
+async def run_dubber(deps: DubberDeps) -> DubDecisions:
+    """Runs the Dubber to completion. The prompt names only the ids; the lines
+    themselves are read through the tools."""
+    result = await dubber.run(
+        f"Shorten these lines so they fit their slots: segment ids {list(deps.pending_ids)}.",
+        deps=deps,
+        usage_limits=DUBBER_USAGE_LIMITS,
     )
     return result.output

@@ -324,7 +324,7 @@ apply_mutation "$TEMPORAL" \
 restore
 
 mp_mutation "a request on a worker with no model bound is not refused"
-apply_mutation "$TEMPORAL" '        if _model_factory is None:' '        if False:' \
+apply_mutation "$TEMPORAL" $'        if factory is None:\n            raise RuntimeError(' $'        if False:\n            raise RuntimeError(' \
   && expect_red "$T_DEFERRED" "test_a_request_on_a_worker_with_no_model_fails_loudly"
 restore
 
@@ -353,8 +353,8 @@ restore
 
 mp_mutation "the tts queue does not serve the voice sample"
 apply_mutation "$RUN" \
-  '            QueueSpec("tts", settings.tts_concurrency, activities=[voice_rate.voice_rate]),' \
-  '            QueueSpec("tts", settings.tts_concurrency),' \
+  $'                activities=[voice_rate.voice_rate, synthesis.synthesize_segments],\n                plugins=agents,' \
+  $'                activities=[synthesis.synthesize_segments],\n                plugins=agents,' \
   && expect_red "$T_WIRING" "test_each_part_of_the_stage_is_served_on_the_queue_the_workflow_sends_it_to"
 restore
 
@@ -365,7 +365,7 @@ restore
 
 mp_mutation "the llm queue's worker does not register the agent's activities"
 apply_mutation "$RUN" \
-  '            QueueSpec("llm", settings.llm_concurrency, plugins=[agent]),' \
+  '            QueueSpec("llm", settings.llm_concurrency, plugins=agents),' \
   '            QueueSpec("llm", settings.llm_concurrency),' \
   && expect_red "$T_WIRING" \
     "test_each_part_of_the_stage_is_served_on_the_queue_the_workflow_sends_it_to" \

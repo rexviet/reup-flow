@@ -488,6 +488,7 @@ services:
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       LOCALIZER_MODEL: ${LOCALIZER_MODEL:-}
+      DUBBER_MODEL: ${DUBBER_MODEL:-}
       OCR_MODEL: ${OCR_MODEL:-}
       OCR_BBOX_FORMAT: ${OCR_BBOX_FORMAT:-}
       VOICESTUDIO_URL: ${VOICESTUDIO_URL:-}
@@ -518,6 +519,8 @@ services:
     environment:
       <<: [*localization-env, *localization-s3-env]
       MEDIA_CONCURRENCY: ${MEDIA_CONCURRENCY:-2}
+      LOUDNESS_LUFS: ${LOUDNESS_LUFS:--14}
+      TRUE_PEAK_DBTP: ${TRUE_PEAK_DBTP:--1.5}
     depends_on:
       temporal-namespace-init:
         condition: service_completed_successfully

@@ -21,18 +21,29 @@ from pydantic_ai.durable_exec.temporal import AgentPlugin
 from temporalio.client import Client
 from temporalio.worker import Worker
 
+from localization.activities.assemble_audio import AssembleAudioActivity
 from localization.activities.assemble_script import AssembleScriptActivity
 from localization.activities.detect_subtitles import DetectSubtitlesActivity
+from localization.activities.dub_script import DubScriptActivities
+from localization.activities.dubber_ports import StoreDubberPorts
 from localization.activities.glossary import GlossaryStore
 from localization.activities.ingest import IngestActivity
 from localization.activities.localizer_ports import StorePorts
 from localization.activities.persist import PersistActivity
+from localization.activities.synthesize import SynthesizeActivities, Synthesizer
 from localization.activities.transcribe import TranscribeActivity
 from localization.activities.voice_rate import VoiceRateActivity, VoiceRateStore
+from localization.agents import dubber as dubber_module
 from localization.agents.localizer import bind_ports
-from localization.agents.temporal import bind_model_factory, localizer
+from localization.agents.temporal import (
+    DUBBER_MODEL_ALIAS,
+    bind_model_factory,
+    dubber,
+    localizer,
+)
 from localization.config import ConfigError, Settings, load_settings
 from localization.observability.tracing import init_tracing
+from localization.providers.base import TtsProvider
 from localization.providers.llm import model_for
 from localization.providers.registry import Providers, build_media_providers, build_providers
 from localization.storage.object_store import ObjectStore
@@ -86,7 +97,18 @@ def queue_specs(
     VoiceStudio reports as active; it is part of a measured voice's identity."""
     if role == "media":
         ingest = IngestActivity(store, providers.demucs)
-        return [QueueSpec("media", settings.media_concurrency, activities=[ingest.ingest])]
+        assemble_audio = AssembleAudioActivity(
+            store,
+            loudness_lufs=settings.loudness_lufs,
+            true_peak_dbtp=settings.true_peak_dbtp,
+        )
+        return [
+            QueueSpec(
+                "media",
+                settings.media_concurrency,
+                activities=[ingest.ingest, assemble_audio.assemble_audio],
+            )
+        ]
     if role == "agents":
         transcribe = TranscribeActivity(store, providers.stt)
         detect = DetectSubtitlesActivity(store, providers.ocr)
@@ -98,12 +120,17 @@ def queue_specs(
             model=settings.tts_model,
             engine=engine,
         )
-        # The Localizer's model requests (`llm`) and its tools (`io`) are activities
-        # of the agent; its plugin registers them on the queue's worker.
-        agent = AgentPlugin(localizer)
+        synthesis = SynthesizeActivities(
+            store, providers.tts, model=settings.tts_model, engine=engine
+        )
+        dub = DubScriptActivities(store, synthesis.synthesizer)
+        # The agents' model requests (`llm`) and tools (`io`, and the Dubber's
+        # `synthesize` on `tts`) are activities of the agents; their plugins register
+        # them on each queue's worker.
+        agents = [AgentPlugin(localizer), AgentPlugin(dubber)]
         return [
             QueueSpec("workflows", workflows=[VideoLocalizationWorkflow]),
-            QueueSpec("llm", settings.llm_concurrency, plugins=[agent]),
+            QueueSpec("llm", settings.llm_concurrency, plugins=agents),
             QueueSpec(
                 "io",
                 settings.io_concurrency,
@@ -111,11 +138,21 @@ def queue_specs(
                     detect.detect_subtitles,
                     PersistActivity(store).persist_json,
                     assemble.assemble_script,
+                    synthesis.voice_profile,
+                    synthesis.plan_synthesis,
+                    dub.measure_fit,
+                    dub.write_dubbed_script,
+                    dub.commit_dub,
                 ],
-                plugins=[agent],
+                plugins=agents,
             ),
             QueueSpec("stt", settings.stt_concurrency, activities=[transcribe.transcribe]),
-            QueueSpec("tts", settings.tts_concurrency, activities=[voice_rate.voice_rate]),
+            QueueSpec(
+                "tts",
+                settings.tts_concurrency,
+                activities=[voice_rate.voice_rate, synthesis.synthesize_segments],
+                plugins=agents,
+            ),
         ]
     raise ConfigError(f"unknown worker role {role!r}; expected 'agents' or 'media'")
 
@@ -124,15 +161,22 @@ def runnable(specs: Sequence[QueueSpec]) -> list[QueueSpec]:
     return [s for s in specs if s.workflows or s.activities or s.plugins]
 
 
-def bind_agent_runtime(settings: Settings, store: ObjectStore) -> None:
-    """What the Localizer's activities need on this process: the model that answers
-    its requests and the ports its tools use. Refuses to start without them, so a
+def bind_agent_runtime(
+    settings: Settings, store: ObjectStore, tts: TtsProvider | None = None
+) -> None:
+    """What the agents' activities need on this process: the models that answer their
+    requests and the ports their tools use. Refuses to start without them, so a
     missing setting is found at startup and not on the first video."""
     if settings.loc_database_url is None:
         raise ConfigError("LOC_DATABASE_URL is not set")
     model = model_for("localizer", settings)
     bind_model_factory(lambda: model)
     bind_ports(StorePorts(store, GlossaryStore(_database_url(settings))))
+    dubber_model = model_for("dubber", settings)
+    bind_model_factory(lambda: dubber_model, DUBBER_MODEL_ALIAS)
+    if tts is not None:
+        synthesizer = Synthesizer(store, tts, model=settings.tts_model)
+        dubber_module.bind_ports(StoreDubberPorts(store, synthesizer))
 
 
 async def serve(role: str) -> int:
@@ -145,7 +189,7 @@ async def serve(role: str) -> int:
     store = ObjectStore.from_settings(settings)
     health = VoiceStudioHealth.from_settings(settings) if role == "agents" else None
     if role == "agents":
-        bind_agent_runtime(settings, store)
+        bind_agent_runtime(settings, store, providers.tts)
     specs = runnable(
         queue_specs(
             role,

@@ -171,14 +171,6 @@ class ScriptResult(Contract):
     flagged_segment_ids: tuple[NonNegativeInt, ...]
 
 
-class LocalizationResult(Contract):
-    """What a run returns. `script` is None for a run that began before the
-    Localizer stage existed."""
-
-    prep: PrepResult
-    script: ScriptResult | None
-
-
 # --- Dubbing ----------------------------------------------------------------
 
 STRETCH_MIN = 0.85
@@ -194,12 +186,68 @@ class DubSegment(Contract):
     overflow_unresolved: bool
 
 
+class DubSegmentsDocument(Contract):
+    """Stored at `DubbedAudio.segments_key`: how every segment of the script is
+    fitted into its slot. One entry per script segment, in script order."""
+
+    aweme_id: AwemeId
+    script_version: NonNegativeInt
+    segments: tuple[DubSegment, ...]
+
+
+class VoiceProfile(Contract):
+    """What the run knows about the voice before it speaks: the speech engine the
+    provider reports as active. It is part of every TTS cache key, so it is read
+    once, recorded in the workflow history, and reused for the whole run."""
+
+    engine: str | None
+
+
+class SynthesisPlan(Contract):
+    """The distinct TTS hashes a script needs, in order of first use."""
+
+    hashes: tuple[Sha256, ...]
+
+
+class SynthClip(Contract):
+    hash: Sha256
+    key: Key
+    duration_ms: PositiveInt
+
+
+class FitReport(Contract):
+    """Segments whose reading does not fit their slot even at the fastest allowed
+    stretch: the ones the Dubber has to shorten."""
+
+    unfit_ids: tuple[NonNegativeInt, ...]
+
+
+class DubDecision(Contract):
+    id: NonNegativeInt
+    text_vi: Text
+    stretch_ratio: Annotated[float, Field(ge=STRETCH_MIN, le=STRETCH_MAX)]
+
+
+class DubDecisions(Contract):
+    items: tuple[DubDecision, ...]
+
+
 class DubbedAudio(Contract):
     audio_key: Key
     audio_sha256: Sha256
     script_key: Key
     script_version: NonNegativeInt
     segments_key: Key
+
+
+class LocalizationResult(Contract):
+    """What a run returns. `script` is None for a run that began before the
+    Localizer stage existed."""
+
+    prep: PrepResult
+    script: ScriptResult | None
+    # None for a run that began before the dubbing stage existed.
+    dub: DubbedAudio | None = None
 
 
 # --- Render -----------------------------------------------------------------

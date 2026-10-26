@@ -214,6 +214,7 @@ describe("docker-compose.yml localization infra", () => {
       "OPENROUTER_BASE_URL",
       "OPENROUTER_API_KEY",
       "LOCALIZER_MODEL",
+      "DUBBER_MODEL",
       "OCR_MODEL",
       "OCR_BBOX_FORMAT",
       "VOICESTUDIO_URL",
@@ -226,7 +227,13 @@ describe("docker-compose.yml localization infra", () => {
       "LLM_CONCURRENCY",
       "IO_CONCURRENCY",
     ],
-    "worker-media": [...LOCALIZATION_COMMON, ...LOCALIZATION_S3, "MEDIA_CONCURRENCY"],
+    "worker-media": [
+      ...LOCALIZATION_COMMON,
+      ...LOCALIZATION_S3,
+      "MEDIA_CONCURRENCY",
+      "LOUDNESS_LUFS",
+      "TRUE_PEAK_DBTP",
+    ],
   };
 
   it("the table above covers every service this plan added, and nothing else is unaccounted for", () => {

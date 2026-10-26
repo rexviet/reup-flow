@@ -1,6 +1,6 @@
 """Records workflow histories to replay in CI.
 
-    uv run python -m tests.replay.record_histories phase-05
+    uv run python -m tests.replay.record_histories phase-06
 
 Each scenario is a real execution of the real workflow on a local Temporal server
 (activities are the in-memory stand-ins, which is all the history needs: replay
@@ -19,6 +19,7 @@ from temporalio.testing import WorkflowEnvironment
 
 from localization.contracts import LocalizationResult
 from localization.temporal.client import connect
+from tests.support.dub_fakes import DubFakes, ScriptedDubber
 from tests.support.inputs import make_input
 from tests.support.localizer_fakes import LocalizerFakes, ScriptedModel, translate_all
 from tests.support.prep_fakes import PrepFakes
@@ -26,14 +27,19 @@ from tests.support.prep_worker import prep_workers
 
 HISTORIES = Path(__file__).parent / "histories"
 
-# `phase-04` holds runs recorded before the Localizer stage existed. They are kept
-# as they are: they are what proves a run already in flight still resumes, so that
-# set is never re-recorded.
-SCENARIOS: dict[str, dict[str, tuple[PrepFakes, LocalizerFakes]]] = {
+# `phase-04` holds runs recorded before the Localizer stage existed and `phase-05`
+# runs recorded before the dubbing stage existed. They are kept as they are: they are
+# what proves a run already in flight still resumes, so those sets are never
+# re-recorded.
+SCENARIOS: dict[str, dict[str, tuple[PrepFakes, LocalizerFakes, DubFakes | None]]] = {
     "phase-05": {
-        "plain-run": (PrepFakes(), LocalizerFakes()),
-        "no-burned-in-subtitles": (PrepFakes(region=None), LocalizerFakes()),
-        "lost-vocals-ingest-rerun": (PrepFakes(lose_vocals_on_ingest_runs={1}), LocalizerFakes()),
+        "plain-run": (PrepFakes(), LocalizerFakes(), None),
+        "no-burned-in-subtitles": (PrepFakes(region=None), LocalizerFakes(), None),
+        "lost-vocals-ingest-rerun": (
+            PrepFakes(lose_vocals_on_ingest_runs={1}),
+            LocalizerFakes(),
+            None,
+        ),
         "glossary-and-estimate-tools": (
             PrepFakes(),
             LocalizerFakes(
@@ -46,14 +52,61 @@ SCENARIOS: dict[str, dict[str, tuple[PrepFakes, LocalizerFakes]]] = {
                     )
                 )
             ),
+            None,
         ),
         "answer-rejected-then-fixed": (
             PrepFakes(),
             LocalizerFakes(
                 model=ScriptedModel(answers=(lambda ids: translate_all(ids[:-1]), translate_all))
             ),
+            None,
         ),
-    }
+    },
+    "phase-06": {
+        "plain-run": (PrepFakes(), LocalizerFakes(), DubFakes(hashes=25)),
+        "no-burned-in-subtitles": (PrepFakes(region=None), LocalizerFakes(), DubFakes()),
+        "lost-vocals-ingest-rerun": (
+            PrepFakes(lose_vocals_on_ingest_runs={1}),
+            LocalizerFakes(),
+            DubFakes(),
+        ),
+        "glossary-and-estimate-tools": (
+            PrepFakes(),
+            LocalizerFakes(
+                model=ScriptedModel(
+                    tool_calls=(
+                        ("read_transcript", {}),
+                        ("glossary_lookup", {"terms": ["手机"]}),
+                        ("estimate_duration", {"texts": ["xin chào"]}),
+                        ("glossary_upsert", {"term_zh": "手机", "term_vi": "điện thoại"}),
+                    )
+                )
+            ),
+            DubFakes(),
+        ),
+        "answer-rejected-then-fixed": (
+            PrepFakes(),
+            LocalizerFakes(
+                model=ScriptedModel(answers=(lambda ids: translate_all(ids[:-1]), translate_all))
+            ),
+            DubFakes(),
+        ),
+        "dubber-shortens-lines": (
+            PrepFakes(),
+            LocalizerFakes(),
+            DubFakes(unfit_ids=(0, 1), dubber=ScriptedDubber(rewrites_per_segment=2)),
+        ),
+        "music-stem-lost-ingest-rerun": (
+            PrepFakes(),
+            LocalizerFakes(),
+            DubFakes(missing_on={("assemble_audio", 1): "ingest"}),
+        ),
+        "script-lost-localizer-rerun": (
+            PrepFakes(),
+            LocalizerFakes(),
+            DubFakes(missing_on={("measure_fit", 1): "localize"}),
+        ),
+    },
 }
 
 
@@ -65,8 +118,8 @@ async def record(phase: str) -> None:
     env = await WorkflowEnvironment.start_local()
     try:
         client = await connect(env.client.service_client.config.target_host)
-        for name, (fakes, localizing) in SCENARIOS[phase].items():
-            async with prep_workers(client, fakes, localizing):
+        for name, (fakes, localizing, dubbing) in SCENARIOS[phase].items():
+            async with prep_workers(client, fakes, localizing, dubbing=dubbing):
                 aweme_id = str(7000 + len(list(out.glob("*.json"))))
                 handle = await client.start_workflow(
                     "VideoLocalizationWorkflow",
@@ -84,4 +137,4 @@ async def record(phase: str) -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(record(sys.argv[1] if len(sys.argv) > 1 else "phase-05"))
+    asyncio.run(record(sys.argv[1] if len(sys.argv) > 1 else "phase-06"))

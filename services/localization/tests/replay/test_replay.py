@@ -20,6 +20,7 @@ from temporalio.workflow import NondeterminismError
 from localization.temporal.client import guarded_data_converter
 from localization.workflows.video_localization import VideoLocalizationWorkflow
 from tests.support.reordered_flow import ReorderedWorkflow
+from tests.support.ungated_dub_flow import UngatedDubWorkflow
 
 HISTORIES = sorted((Path(__file__).parent / "histories").glob("*/*.json"))
 
@@ -53,12 +54,18 @@ def _of(phase: str) -> list[Path]:
 
 def test_there_are_histories_to_replay() -> None:
     """An empty directory would make every replay test below pass vacuously."""
-    for phase in ("phase-04", "phase-05"):
+    for phase in ("phase-04", "phase-05", "phase-06"):
         names = {p.stem for p in _of(phase)}
         assert {"plain-run", "no-burned-in-subtitles", "lost-vocals-ingest-rerun"} <= names, phase
-    assert {"glossary-and-estimate-tools", "answer-rejected-then-fixed"} <= {
-        p.stem for p in _of("phase-05")
-    }
+    for phase in ("phase-05", "phase-06"):
+        assert {"glossary-and-estimate-tools", "answer-rejected-then-fixed"} <= {
+            p.stem for p in _of(phase)
+        }
+    assert {
+        "dubber-shortens-lines",
+        "music-stem-lost-ingest-rerun",
+        "script-lost-localizer-rerun",
+    } <= {p.stem for p in _of("phase-06")}
 
 
 def test_the_histories_recorded_before_the_localizer_stage_are_really_without_it() -> None:
@@ -68,6 +75,22 @@ def test_the_histories_recorded_before_the_localizer_stage_are_really_without_it
         text = path.read_text()
         assert "voice_rate" not in text, path.name
         assert "localize-script" not in _patches(path), path.name
+
+
+def test_the_histories_recorded_before_the_dubbing_stage_are_really_without_it() -> None:
+    """The proof that a run already in flight when dubbing shipped still replays."""
+    for path in _of("phase-04") + _of("phase-05"):
+        text = path.read_text()
+        assert "voice_profile" not in text and "synthesize_segments" not in text, path.name
+        assert "dub-audio" not in _patches(path), path.name
+
+
+def test_the_histories_recorded_with_the_dubbing_stage_have_it() -> None:
+    for path in _of("phase-06"):
+        text = path.read_text()
+        assert {"localize-script", "dub-audio"} <= _patches(path), path.name
+        for activity in ("voice_profile", "synthesize_segments", "commit_dub", "assemble_audio"):
+            assert activity in text, (path.name, activity)
 
 
 def test_the_histories_recorded_with_the_localizer_stage_have_it() -> None:
@@ -89,3 +112,14 @@ async def test_control_a_reordered_workflow_fails_to_replay(path: Path) -> None:
     workflow that starts 2b before 2a must be rejected."""
     with pytest.raises(NondeterminismError):
         await _replayer(ReorderedWorkflow).replay_workflow(_history(path))
+
+
+@pytest.mark.parametrize("path", _of("phase-05"), ids=lambda p: f"{p.parent.name}/{p.stem}")
+async def test_control_the_dubbing_stage_without_its_marker_breaks_the_older_histories(
+    path: Path,
+) -> None:
+    """The marker is what lets a run recorded before the stage replay: the same stage
+    added without it must be rejected, or the real workflow's marker proves nothing.
+    (Histories from before the Localizer stage end at its own marker, earlier.)"""
+    with pytest.raises(NondeterminismError):
+        await _replayer(UngatedDubWorkflow).replay_workflow(_history(path))

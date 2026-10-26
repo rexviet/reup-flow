@@ -74,6 +74,9 @@ class Settings(BaseSettings):
     langfuse_public_key: SecretStr | None = None
     langfuse_secret_key: SecretStr | None = None
 
+    loudness_lufs: float = Field(default=-14.0, le=0.0, ge=-40.0)
+    true_peak_dbtp: float = Field(default=-1.5, le=0.0, ge=-9.0)
+
     demucs_bin: str = "demucs"
     provider_timeout_seconds: float = 120.0
 

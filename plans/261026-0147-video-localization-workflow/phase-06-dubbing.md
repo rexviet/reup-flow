@@ -1,7 +1,7 @@
 ---
 phase: 6
 title: "Lồng tiếng: synthesize_all, Dubber, assemble_audio"
-status: pending
+status: in-progress
 priority: P1
 effort: "2d"
 dependencies: [5]
@@ -104,3 +104,40 @@ Chạy `uv run pytest tests/activities tests/agents/test_dubber.py tests/workflo
 ## Rollback
 
 Workflow dừng ở bước 3.
+
+## Tiến độ
+
+**Trạng thái: in-progress.** Code, test tự động, replay và mutation đã xong và xanh. Chưa đóng phase vì chưa chạy được với giọng và model thật: VoiceStudio không với tới được, `.env` chưa có `VOICE_ID`, `TTS_MODEL`, `STT_MODEL`, và VoiceStudio không có giọng tiếng Việt. Mọi số đo âm thanh dưới đây là trên audio sinh tại chỗ (tone, `ffmpeg`), không phải giọng đọc.
+
+**Đã làm và đã kiểm**
+- `activities/synthesize.py`: `tts_hash` (provider, model, engine, voice id, settings, text), `Synthesizer` (đọc cache `cache/tts/{h}.wav` rồi mới gọi provider; ghi kèm metadata `text-vi` base64, `voice-hash`, `duration-ms`), `synthesize_segments` (queue `tts`, heartbeat sau mỗi hash và heartbeat nền), `plan_synthesis` (khử trùng), `voice_profile`, bảng `stretch_for` và `final_stretch`. Hook `before_put` để test kill giữa lúc provider trả lời và lúc ghi.
+- `activities/dub_script.py`: `measure_fit` (segment nào không vừa dù tăng tốc 1.15), `write_dubbed_script` (script phiên bản kế tiếp, bản cũ không bị sửa; câu viết lại mang liên lạc mà nguồn không có thì bị từ chối và dòng giữ nguyên chữ), `commit_dub` (ghi `dub-segments.json`, đủ mọi segment, kèm `overflow_unresolved`).
+- `agents/dubber.py`, `agents/temporal.py`: Dubber là agent bền; model request ở `llm`, `get_segment` ở `io`, `synthesize` ghim `tts`, `estimate_duration` và `accept` chạy trong workflow. `accept` từ chối stretch ngoài [0.85, 1.15]; capability `RewriteLimit` từ chối lần viết lại thứ tư của một segment (đếm từ hội thoại nên replay cho cùng kết quả); văn bản video vào qua khối `<untrusted_video_text>`.
+- `activities/assemble_audio.py` (queue `media`): `atempo` rồi `adelay` cho từng clip, `amix`, `sidechaincompress` duck BGM, `loudnorm` hai lượt tới `LOUDNESS_LUFS`/`TRUE_PEAK_DBTP`, độ dài lệch quá 50 ms so với video là lỗi không retry. Chạy được trong `ffmpeg` 5.1 của image `worker-media`.
+- Workflow: lỗi của một batch được xử lý ngay khi xảy ra (không đợi các batch đứng trước nó trong danh sách xong) và các batch còn lại bị huỷ trước khi giai đoạn chạy lại; có test và mutation. Toàn bộ giai đoạn nằm sau `workflow.patched("dub-audio")`. Histories `phase-04` và `phase-05` vẫn replay; `phase-06` ghi mới (8 kịch bản, gồm Dubber chạy, mất stem nhạc, mất script). Một artifact mà giai đoạn đọc mà mất (`ingest`, `localize`, `dub_script`) thì stage sinh ra nó chạy lại đúng một lần (D10).
+- Cấu hình: `LOUDNESS_LUFS`, `TRUE_PEAK_DBTP` (worker-media) và `DUBBER_MODEL` (worker-agents) trong `.env.example`, compose và allowlist của `compose-constraints.spec.ts`. Worker agents từ chối khởi động nếu thiếu `DUBBER_MODEL`.
+- AC1 (test thật, SIGKILL thật, bucket là một thư mục để cả test và worker cùng nhìn): kill sau khi batch 2/5 xong (không hash nào bị gọi lại); kill trong khoảng giữa lúc provider trả lời và lúc `put` bằng hook `before_put` gọi `os.kill` (chỉ các hash đang chạy dở bị gọi lại, không vượt `TTS_CONCURRENCY`, test liệt kê từng hash); hai segment trùng text ở hai batch khác nhau chỉ một lời gọi; đổi `TTS_MODEL` hoặc engine thì cache miss; câu Dubber viết lại tốn đúng một lời gọi.
+- AC6: TTS do Dubber gọi bị giới hạn bởi queue `tts` (giới hạn 2 thì đỉnh chồng nhau là 2; control giới hạn 4 thì là 4).
+- `uv run pytest`: 693 passed, 1 skipped (6 live bị loại), ruff sạch. `bash scripts/run-mutations.sh 'localization/*' downloader/infra` xanh; harness `localization:06` có 54 mutation và 3 control (03: 11, 04: 47, 05: 57, infra: 16). Thêm code làm 4 mutation cũ của harness 04 và 05 không còn khớp (cancel sibling trong `_prepare`, model chưa gắn, hai `QueueSpec`); đã cập nhật cho khớp chứ không bỏ.
+
+**Khác với phase file**
+- Workflow không ghi `script.v{n+1}.json` bằng `persist_json`: workflow không giữ nội dung script, nên activity `write_dubbed_script` (queue `io`) đọc bản trước, áp quyết định của Dubber và ghi bản sau, như `assemble_script` ở phase 05. Luôn ghi bản mới, kể cả khi Dubber không chạy, để "phiên bản mới nhất" là một khái niệm duy nhất; `DubbedAudio.script_version` là 2.
+- Workflow không tự tính hash: `plan_synthesis` (queue `io`) đọc script, tính và khử trùng, trả danh sách hash; payload chỉ mang hash và key. Sau Dubber có thêm một lượt `plan_synthesis` và `synthesize_segments` trên script mới (cache hit, trừ câu Dubber chưa đọc), để mọi text cuối cùng đều có clip trước `commit_dub`.
+- `accept(id, stretch_ratio)` chỉ kiểm tra; quyết định (id, text cuối, stretch) là output có cấu trúc của agent, nên không có trạng thái nào nằm ngoài hội thoại. Stretch cuối cùng do `final_stretch` quyết, từ độ dài đo được của clip: không bao giờ thấp hơn mức cần để vừa slot, và segment vẫn quá dài ở 1.15 thì gắn `overflow_unresolved` dù Dubber đã accept.
+- Tên metadata là `text-vi`, `voice-hash`, `duration-ms` (gạch nối): S3 và proxy gộp gạch dưới thành gạch nối. Phase 08 đọc `text-vi`.
+- Ngoài danh sách file của phase: `activities/script_document.py`, `activities/dubber_ports.py`, `contracts/models.py` (các model của giai đoạn), `storage/object_store.py` (metadata), `activities/ffmpeg.py` (`run_ffmpeg`), `config.py`, `workers/run.py`, compose, `.env.example`, `compose-constraints.spec.ts`, `agents/temporal.py` (model theo alias cho hai agent).
+- `DeferredModel` giờ tra model theo alias; `bind_model_factory(factory, alias)`.
+
+**Chưa kiểm được (nói thẳng)**
+1. **Chạy video thật: chưa làm.** Dubber chưa chạy với model thật (`DUBBER_MODEL` trong `.env` chưa thử), TTS chưa chạy với giọng tiếng Việt, nên chưa biết tỷ lệ segment không vừa slot, số lần Dubber viết lại, hay `vi_syllables` lệch bao nhiêu so với độ dài thật (hiệu chỉnh D6 vẫn mở từ phase 05).
+2. **LUFS đo trên tone và nhiễu tổng hợp**, không phải giọng đọc cộng nhạc thật. `loudnorm` dạng tuyến tính có thể rơi về dạng động khi cần tăng gain quá nhiều so với true peak; trên giọng thật cần đo lại ±1 LU.
+3. Histories replay vẫn từ activity giả.
+4. Chưa có container nào chạy toàn bộ giai đoạn (stack docker không được khởi động cho phase này); chỉ kiểm filter graph của `assemble_audio` trong `ffmpeg` của image `worker-media`.
+
+**Giới hạn đã biết**
+- Run có `needs_human` từ Localizer vẫn được lồng tiếng (tốn TTS); phase 08 quyết định có dừng trước hay không.
+- `cache/tts/` lớn dần, không lifecycle (theo thiết kế, AC1 phụ thuộc vào nó); runbook ở phase 10 phải ghi cách theo dõi dung lượng.
+- Một câu dài quá ~1400 byte base64 không ghi được metadata (giới hạn 2 KiB của S3): lỗi không retry `TextTooLong`, trước khi tốn lời gọi TTS. Segment thật chỉ vài giây nên không gặp.
+- Nếu worker chết giữa lúc provider trả lời và lúc `put`, đúng các hash đang chạy dở bị gọi lại (tối đa `TTS_CONCURRENCY`); đó là ngoại lệ đã khai của AC1.
+- Dubber không biết các segment lân cận: một câu ngắn lại có thể làm khoảng lặng dài; chưa có chỉ số cho việc đó.
+- Cổng `workflow.patched("dub-audio")` che toàn bộ giai đoạn; các đường fail mới trong giai đoạn đều nằm bên trong cổng.
