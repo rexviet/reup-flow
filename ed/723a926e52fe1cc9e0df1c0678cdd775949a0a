@@ -1,0 +1,33 @@
+plans/261026-0147-video-localization-workflow/phase-05-localizer-agent.md
+  s_0b729cf0d034d3::t_e494f0b153189b 122,156-157,167-181
+services/localization/tests/agents/test_conversation_guard.py
+  s_0b729cf0d034d3::t_5256ef5a9c8122 1-37
+services/localization/tests/mutations/phase-05.sh
+  s_0b729cf0d034d3::t_33b1f3d8bfb4a7 17-18
+  s_0b729cf0d034d3::t_5256ef5a9c8122 55,67,432-434,436-453
+  s_0b729cf0d034d3::t_1214dd6c843e79 418,435
+  s_0b729cf0d034d3::t_7f4365d5b32e91 454
+services/localization/src/localization/activities/voice_rate.py
+  s_0b729cf0d034d3::t_5256ef5a9c8122 36-40,121-123,125-126
+  s_0b729cf0d034d3::t_2eafb79405e1bc 120
+scripts/run-mutations.sh
+  s_0b729cf0d034d3::t_33b1f3d8bfb4a7 101-102,119
+services/localization/tests/agents/test_voice_rate.py
+  s_0b729cf0d034d3::t_5256ef5a9c8122 171-175,184,193-219
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ed723a926e52fe1cc9e0df1c0678cdd775949a0a",
+  "prompts": {},
+  "sessions": {
+    "s_0b729cf0d034d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9aa1a711-c362-45ab-8e48-1a9b19f8df48",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
