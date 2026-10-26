@@ -33,9 +33,11 @@ SAMPLE_TEXT = (
 )
 SAMPLE_VERSION = 1
 
-# A voice that speaks outside this is not a voice the estimate can be trusted for:
-# the audio was truncated, padded with silence, or is not the sample at all. The
-# number would be stored for good, so it is refused instead.
+# A voice whose reading, at its own speed setting 1.0, falls outside this is not one
+# the estimate can be trusted for: the audio was truncated, padded with silence, or
+# is not the sample at all. The number would be stored for good, so it is refused
+# instead. The bound applies to the rate divided by the configured speed, so a voice
+# set to read fast (or slow) is judged on how it reads, not on the setting.
 MIN_SYLLABLES_PER_SEC = 2.0
 MAX_SYLLABLES_PER_SEC = 8.0
 
@@ -115,11 +117,14 @@ class VoiceRateActivity:
         with provider_errors():
             wav = await self._tts.synthesize(SAMPLE_TEXT, voice)
         rate = await run_blocking(rate_from_audio, wav)
-        if not MIN_SYLLABLES_PER_SEC <= rate <= MAX_SYLLABLES_PER_SEC:
+        at_normal_speed = rate / voice.settings.speed
+        if not MIN_SYLLABLES_PER_SEC <= at_normal_speed <= MAX_SYLLABLES_PER_SEC:
+            # Retryable, within the workflow's attempt cap: a truncated or silent reply
+            # is often a one-off, and a synthesis is cheap. Nothing is stored.
             raise ApplicationError(
-                f"the voice read the sample at {rate:.1f} syllables a second, outside "
+                f"the voice read the sample at {rate:.1f} syllables a second "
+                f"({at_normal_speed:.1f} at normal speed), outside "
                 f"{MIN_SYLLABLES_PER_SEC} to {MAX_SYLLABLES_PER_SEC}; nothing was stored",
                 type="ImplausibleVoiceRate",
-                non_retryable=True,
             )
         return await self._store.put(key, rate)

@@ -14,6 +14,8 @@
 #     that changes how it sounds
 #   - each part of the stage runs on its own queue     (tests/agents, tests/workers)
 #   - a run that began before the stage still replays  (tests/replay)
+#   - the conversation is size-guarded, glossary terms must occur in the transcript,
+#     voice-rate readings are bounded per unit speed (tests/agents)
 #   - a runaway agent is stopped by the usage limit    (tests/agents)
 #   - a tool retried after a killed worker adds no     (tests/agents/test_localizer_kill.py)
 #     second glossary row
@@ -50,6 +52,7 @@ T_GLOSSARY=tests/agents/test_glossary.py
 T_RATE=tests/agents/test_voice_rate.py
 T_ASSEMBLE=tests/agents/test_assemble_script.py
 T_DEFERRED=tests/agents/test_deferred_model.py
+T_GUARD=tests/agents/test_conversation_guard.py
 T_KILL=tests/agents/test_localizer_kill.py
 T_SYLLABLES=tests/text/test_vi_syllables.py
 T_SAFETY=tests/text/test_safety.py
@@ -61,7 +64,7 @@ mp_init "$AGENT" "$TEMPORAL" "$GLOSSARY" "$SAFETY" "$SYLLABLES" "$VOICE_RATE" "$
 MP_TEST_CMD=(uv run pytest -q -p no:cacheprovider)
 MP_TIMEOUT_SECONDS=${MP_TIMEOUT_SECONDS:-240}
 
-mp_baseline "$T_LOC $T_WF $T_GLOSSARY $T_RATE $T_ASSEMBLE $T_DEFERRED $T_KILL $T_SYLLABLES $T_SAFETY $T_WIRING $T_REPLAY"
+mp_baseline "$T_LOC $T_WF $T_GLOSSARY $T_RATE $T_ASSEMBLE $T_DEFERRED $T_GUARD $T_KILL $T_SYLLABLES $T_SAFETY $T_WIRING $T_REPLAY"
 
 # --- the output must cover every segment ---------------------------------------------------------------
 mp_mutation "the output validator is gone: whatever the model returns is accepted"
@@ -412,7 +415,7 @@ apply_mutation "$AGENT" '    if len(texts) > ESTIMATE_BATCH:' '    if False:' \
 restore
 
 mp_mutation "an implausible voice reading is stored as the voice's rate"
-apply_mutation "$VOICE_RATE" '        if not MIN_SYLLABLES_PER_SEC <= rate <= MAX_SYLLABLES_PER_SEC:' '        if False:' \
+apply_mutation "$VOICE_RATE" '        if not MIN_SYLLABLES_PER_SEC <= at_normal_speed <= MAX_SYLLABLES_PER_SEC:' '        if False:' \
   && expect_red "$T_RATE" "test_an_implausible_reading_is_refused_and_never_stored"
 restore
 
@@ -424,6 +427,29 @@ restore
 mp_mutation "a minus sign is not read as 'âm'"
 apply_mutation "$SYLLABLES" '    text = _NEGATIVE_RE.sub("âm ", text)' '    text = text' \
   && expect_red "$T_SYLLABLES" "test_syllables_of_a_line_as_it_is_read_aloud"
+restore
+
+mp_mutation "the voice-rate bound is judged on the raw rate, not the rate at normal speed"
+apply_mutation "$VOICE_RATE" '        at_normal_speed = rate / voice.settings.speed' '        at_normal_speed = rate' \
+  && expect_red "$T_RATE" \
+    "test_a_voice_set_to_read_fast_or_slow_is_judged_on_how_it_reads_not_the_setting"
+restore
+
+mp_mutation "the upper voice-rate bound is loosened to 20 syllables a second"
+apply_mutation "$VOICE_RATE" 'MAX_SYLLABLES_PER_SEC = 8.0' 'MAX_SYLLABLES_PER_SEC = 20.0' \
+  && expect_red "$T_RATE" "test_an_implausible_reading_is_refused_and_never_stored"
+restore
+
+mp_mutation "an implausible reading is permanent instead of retried"
+apply_mutation "$VOICE_RATE" '                type="ImplausibleVoiceRate",' $'                type="ImplausibleVoiceRate",\n                non_retryable=True,' \
+  && expect_red "$T_RATE" "test_an_implausible_reading_is_refused_and_never_stored"
+restore
+
+mp_mutation "the conversation guard's margin is dropped, so the limit equals the payload limit"
+apply_mutation "$TEMPORAL" 'MAX_CONVERSATION_BYTES = MAX_PAYLOAD_BYTES * 3 // 4' 'MAX_CONVERSATION_BYTES = MAX_PAYLOAD_BYTES' \
+  && expect_red "$T_GUARD" \
+    "test_a_conversation_over_the_guard_limit_but_under_the_payload_limit_is_refused" \
+    "test_the_guard_leaves_a_margin_for_what_a_request_carries_besides_messages"
 restore
 
 # --- controls: changes that must NOT matter ------------------------------------------------------------------------

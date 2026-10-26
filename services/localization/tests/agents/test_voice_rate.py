@@ -168,7 +168,11 @@ async def test_two_workers_measuring_a_new_voice_at_once_agree_on_one_rate(gloss
     assert len(stored(conn)) == 1
 
 
-@pytest.mark.parametrize("seconds", [0.5, 3.0, 60.0], ids=["near-empty", "truncated", "padded"])
+@pytest.mark.parametrize(
+    "seconds",
+    [0.5, 3.0, count_syllables(SAMPLE_TEXT) / 8.5, count_syllables(SAMPLE_TEXT) / 1.9, 60.0],
+    ids=["near-empty", "truncated", "just-over-8", "just-under-2", "padded"],
+)
 async def test_an_implausible_reading_is_refused_and_never_stored(
     glossary_db, seconds: float
 ) -> None:
@@ -177,7 +181,7 @@ async def test_an_implausible_reading_is_refused_and_never_stored(
     with pytest.raises(ApplicationError) as err:
         await ActivityEnvironment().run(act.voice_rate, voice())
     assert err.value.type == "ImplausibleVoiceRate"
-    assert err.value.non_retryable
+    assert not err.value.non_retryable, "a truncated reading is worth another try"
     assert stored(conn) == []
 
 
@@ -186,3 +190,30 @@ async def test_a_reading_at_the_edge_of_the_range_is_kept(glossary_db) -> None:
     seconds = count_syllables(SAMPLE_TEXT) / 7.9
     await ActivityEnvironment().run(activity_for(FakeTts(seconds), info).voice_rate, voice())
     assert len(stored(conn)) == 1
+
+
+@pytest.mark.parametrize(
+    ("speed", "normal_rate"), [(1.5, 5.0), (0.3, 5.0), (4.0, 7.9), (0.25, 2.1)]
+)
+async def test_a_voice_set_to_read_fast_or_slow_is_judged_on_how_it_reads_not_the_setting(
+    glossary_db, speed: float, normal_rate: float
+) -> None:
+    info, conn = glossary_db
+    seconds = count_syllables(SAMPLE_TEXT) / (normal_rate * speed)
+    act = activity_for(FakeTts(seconds), info)
+    rate = await ActivityEnvironment().run(act.voice_rate, voice(speed=speed))
+    assert rate == pytest.approx(normal_rate * speed, rel=0.02)
+    assert len(stored(conn)) == 1
+
+
+@pytest.mark.parametrize(("speed", "normal_rate"), [(1.5, 9.0), (0.3, 1.5), (4.0, 8.5)])
+async def test_a_fast_setting_does_not_excuse_an_implausible_reading(
+    glossary_db, speed: float, normal_rate: float
+) -> None:
+    info, conn = glossary_db
+    seconds = count_syllables(SAMPLE_TEXT) / (normal_rate * speed)
+    act = activity_for(FakeTts(seconds), info)
+    with pytest.raises(ApplicationError) as err:
+        await ActivityEnvironment().run(act.voice_rate, voice(speed=speed))
+    assert err.value.type == "ImplausibleVoiceRate"
+    assert stored(conn) == []

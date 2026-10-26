@@ -98,7 +98,8 @@ harness_dir() {
 # person, syllable counting, voice rate key and cache, queue pinning, replay marker,
 # usage limit, lost-input rerun once, worker wiring; then the conversation size
 # guard and segment cap, glossary provenance, wrapped stored term, voice rate bounds,
-# number edge cases): +53, +2.
+# number edge cases, voice-rate scaling by speed and bound, retryable bad reading,
+# conversation margin): +57, +2.
 # The phase 0 spike mutations (test/spike-cookie-swap/mutations, and the SKIP
 # LOCKED / compose pair inlined in ci.yml) are deliberately NOT here: they need
 # a built parser image or a compose file edit, and are gated separately in CI.
@@ -115,7 +116,7 @@ downloader:11:5:0
 downloader:12:1:0
 localization:03:11:2
 localization:04:47:2
-localization:05:53:2
+localization:05:57:2
 "
 
 # Files any harness in the set is allowed to touch. Checksummed before and after
