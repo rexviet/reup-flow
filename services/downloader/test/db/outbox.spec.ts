@@ -160,6 +160,18 @@ describe('overlapping runs', () => {
       const theirs = await otherDb.select().from(localizationOutbox);
       expect(mine.map((r) => r.awemeId)).toEqual(['mine']);
       expect(theirs.map((r) => r.awemeId)).toEqual(['theirs']);
+
+      // Nothing leaked into `public`, which the running stack uses. The table
+      // may not exist there at all, so check with to_regclass before reading.
+      const { rows: reg } = await pool.query<{ exists: boolean }>(
+        `SELECT to_regclass('public.localization_outbox') IS NOT NULL AS exists`,
+      );
+      if (reg[0]!.exists) {
+        const { rows: leaked } = await pool.query(
+          `SELECT aweme_id FROM public.localization_outbox WHERE aweme_id IN ('mine', 'theirs')`,
+        );
+        expect(leaked).toEqual([]);
+      }
     } finally {
       await otherPool.end();
       await dropSchema(OTHER_SCHEMA);

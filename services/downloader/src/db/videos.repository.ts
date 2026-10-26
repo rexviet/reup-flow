@@ -245,6 +245,11 @@ export async function markDone(
   // nothing downstream can tell either apart from normal state. `transaction`
   // on a transaction handle nests as a savepoint, so a caller that already
   // holds one keeps atomicity too.
+  //
+  // The row is written for ANY storage_path, local-disk paths included, while
+  // the backfill only takes `s3://` ones: "done means a row" is the invariant,
+  // and filtering here would reintroduce the gap. The dispatcher that consumes
+  // the outbox must therefore reject non-s3 paths itself.
   await exec.transaction(async (tx) => {
     await tx
       .update(videos)

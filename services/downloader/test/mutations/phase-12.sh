@@ -41,13 +41,21 @@ on_exit() {
 }
 trap on_exit EXIT
 
+# Kills the whole process tree: killing only the pnpm wrapper orphans jest and
+# its workers, which keep Postgres connections and per-run schemas alive.
+kill_tree() {
+  local pid=$1 child
+  for child in $(pgrep -P "$pid" 2>/dev/null); do kill_tree "$child"; done
+  kill -9 "$pid" 2>/dev/null
+}
+
 # run_jest: 0 green, 1 red, 98 timeout, 99 nothing ran.
 run_jest() {
   pnpm exec jest "$PATTERN" >"$SNAP/out.log" 2>&1 &
   local pid=$! waited=0
   while kill -0 "$pid" 2>/dev/null; do
     if [ "$waited" -ge "$JEST_TIMEOUT_SECONDS" ]; then
-      pkill -P "$pid" 2>/dev/null; kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+      kill_tree "$pid"; wait "$pid" 2>/dev/null
       return 98
     fi
     sleep 1; waited=$((waited + 1))
@@ -57,6 +65,25 @@ run_jest() {
   [ "$rc" -eq 0 ] && return 0
   return 1
 }
+
+# Baseline: the unmutated suite must be green, otherwise a red run after the
+# mutation says nothing about the mutation (Postgres down, broken setup...).
+# Deliberately not worded like the runner's "still green" control line.
+echo "BASELINE: unmutated $PATTERN must be green"
+run_jest
+baseline_rc=$?
+if [ "$baseline_rc" -ne 0 ]; then
+  echo "ERROR: baseline run is not green (rc=$baseline_rc); refusing to mutate."
+  tail -20 "$SNAP/out.log"
+  exit 1
+fi
+echo "BASELINE: green"
+
+# The tests that exist to catch this mutation. A failure elsewhere (setup, a
+# dead database) must not count as caught.
+MUST_FAIL_TESTS=(
+  "keeps the video downloading when the outbox insert fails"
+)
 
 echo
 echo "=============================================================="
@@ -89,8 +116,21 @@ else
   rc=$?
   case $rc in
     1)
-      echo "OK: caught. Failing tests:"
-      grep -E '✕' "$SNAP/out.log" || tail -10 "$SNAP/out.log"
+      missing=0
+      for t in "${MUST_FAIL_TESTS[@]}"; do
+        if ! grep -qE "✕ $t" "$SNAP/out.log"; then
+          echo "FAIL: suite went red, but not in the test that guards this: $t"
+          missing=1
+        fi
+      done
+      if [ "$missing" -eq 0 ]; then
+        echo "OK: caught. Failing tests:"
+        grep -E '✕' "$SNAP/out.log"
+      else
+        echo "ERROR: the test pattern $PATTERN went red for an unrelated reason."
+        grep -E '✕' "$SNAP/out.log" || tail -10 "$SNAP/out.log"
+        fail=1
+      fi
       ;;
     0)
       echo "FAIL: suite stayed GREEN with the invariant broken -- these tests prove nothing."

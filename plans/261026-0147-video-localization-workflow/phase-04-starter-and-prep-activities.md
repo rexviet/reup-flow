@@ -162,6 +162,8 @@ Chạy `uv run pytest tests/workflows tests/starter tests/workers tests/replay`.
 
 Demucs chạy CPU tốn khoảng 1× thời lượng video. `MEDIA_CONCURRENCY=2` bảo vệ RAM.
 
+Outbox có dòng cho mọi video `done`, kể cả `storage_path` local; starter phải từ chối (`rejected`) path không phải `s3://`.
+
 ## Rollback
 
 Dừng `localization-starter`. Outbox vẫn tích dòng, không mất gì.

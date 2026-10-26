@@ -11,6 +11,8 @@
   },
   "overrides": [
     {
+      // ESLint replaces (does not merge) rule options between overrides. This temporalio
+      // pattern is copied into the jobs/videos/cookie override below on purpose: do not de-duplicate it.
       "files": ["services/downloader/**"],
       "rules": {
         "no-restricted-imports": [
