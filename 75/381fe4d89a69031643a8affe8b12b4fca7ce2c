@@ -1,0 +1,67 @@
+services/localization/tests/workers/test_agent_wiring.py
+  s_0b729cf0d034d3::t_2d1c6009e5af42 143-155,159,162-164
+plans/261026-0147-video-localization-workflow/phase-10-e2e-and-docs.md
+  s_0b729cf0d034d3::t_158bb027bf3c4b 44
+services/localization/src/localization/activities/dub_script.py
+  s_0b729cf0d034d3::t_63ed4c96775d71 103-106
+plans/261026-0147-video-localization-workflow/plan.md
+  s_0b729cf0d034d3::t_158bb027bf3c4b 117,305
+services/localization/tests/agents/test_dubber.py
+  s_0b729cf0d034d3::t_2d1c6009e5af42 320-331
+services/localization/tests/activities/test_synthesize.py
+  s_0b729cf0d034d3::t_2d1c6009e5af42 4,6,145-203
+  s_0b729cf0d034d3::t_edad70b3d1f0a9 204-205
+services/localization/tests/mutations/phase-06.sh
+  s_0b729cf0d034d3::t_5ed1b7ffee073b 42,56,77,224-234,277-289,341,346,356,358-368,380-385
+  s_0b729cf0d034d3::t_dffa16f066dddb 357
+services/localization/tests/support/tts_fakes.py
+  s_0b729cf0d034d3::t_a835024b97e663 37-52
+services/localization/src/localization/agents/temporal.py
+  s_0b729cf0d034d3::t_63ed4c96775d71 259-263,272
+  s_0b729cf0d034d3::t_b81e94b82ca449 258
+services/localization/tests/workflows/test_dubbing_stage.py
+  s_0b729cf0d034d3::t_2d1c6009e5af42 10,15-24,283-324
+  s_0b729cf0d034d3::t_2afa0911e363fb 325-326
+scripts/run-mutations.sh
+  s_0b729cf0d034d3::t_1a811bca303eb4 109-111
+  s_0b729cf0d034d3::t_dffa16f066dddb 129
+services/localization/src/localization/activities/assemble_audio.py
+  s_0b729cf0d034d3::t_910e0d48968739 69-74
+services/localization/src/localization/providers/llm.py
+  s_0b729cf0d034d3::t_63ed4c96775d71 15-18
+services/localization/tests/activities/test_assemble_audio.py
+  s_0b729cf0d034d3::t_b59edfe97e9e3d 17,237,240-241,244-247,249-257,259,262
+  s_0b729cf0d034d3::t_182d173d1adebf 242-243,248
+  s_0b729cf0d034d3::t_910e0d48968739 124-126
+  s_0b729cf0d034d3::t_a835024b97e663 28-36,38,70,72-73,77,87,166-171
+  s_0b729cf0d034d3::t_a4cce0a7369419 123
+  s_0b729cf0d034d3::t_f8547d1c8ec075 172-173
+services/localization/src/localization/activities/synthesize.py
+  s_0b729cf0d034d3::t_63ed4c96775d71 158,179-183,185-199
+services/localization/src/localization/workflows/video_localization.py
+  s_0b729cf0d034d3::t_25c3db2c2bb9e3 177
+  s_0b729cf0d034d3::t_63ed4c96775d71 175-176,311,313-315,318
+plans/261026-0147-video-localization-workflow/phase-08-reviewer-and-publish.md
+  s_0b729cf0d034d3::t_158bb027bf3c4b 75
+plans/261026-0147-video-localization-workflow/phase-06-dubbing.md
+  s_0b729cf0d034d3::t_a987b672729dee 121
+  s_0b729cf0d034d3::t_158bb027bf3c4b 144-169
+services/localization/tests/support/audio.py
+  s_0b729cf0d034d3::t_aa97513d1e42d1 62-73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "75381fe4d89a69031643a8affe8b12b4fca7ce2c",
+  "prompts": {},
+  "sessions": {
+    "s_0b729cf0d034d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9aa1a711-c362-45ab-8e48-1a9b19f8df48",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
