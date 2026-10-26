@@ -626,3 +626,66 @@ async def test_ingest_heartbeats_while_the_stems_upload(
     separator.separate = separate  # type: ignore[method-assign]
     await env.run(IngestActivity(slow, separator).ingest, spec)
     assert len(beats) >= 4, "no heartbeats while the stems were uploading"
+
+
+async def test_a_container_longer_than_its_video_stream_does_not_fail_the_last_chunk(
+    store: ObjectStore, tmp_path: Path
+) -> None:
+    """4 s of video is exactly one 8-frame chunk, and the 8 s audio track makes the
+    container claim twice that: the next chunk seeks past the last frame, which
+    ffmpeg reports as a failure, and that is just the end of the video."""
+    path = tmp_path / "tail.mp4"
+    _ffmpeg(
+        "-f", "lavfi", "-i", "testsrc=size=320x240:rate=10:duration=4",
+        "-f", "lavfi", "-i", "sine=frequency=440:duration=8",
+        "-pix_fmt", "yuv420p", str(path),
+    )  # fmt: skip
+    spec = make_input()
+    store.put_file(spec.video_key, path)
+    ocr = FakeOcr({})
+    await ActivityEnvironment().run(
+        DetectSubtitlesActivity(store, ocr, chunk_frames=8).detect_subtitles, spec
+    )
+    assert ocr.calls == 8
+
+
+# --- a failed stage cancels its sibling ---------------------------------------------------
+
+
+async def test_a_failed_stage_cancels_the_sibling_instead_of_leaving_it_running(
+    temporal_client: Client,
+) -> None:
+    fakes = PrepFakes()
+    acts = fake_activities(fakes)
+
+    @activity.defn(name="transcribe")
+    async def slow_transcribe(spec: LocalizationInput, vocals_key: str) -> None:
+        await asyncio.sleep(4)
+
+    @activity.defn(name="detect_subtitles")
+    async def broken_detect(spec: LocalizationInput) -> SubtitleTrack:
+        raise ApplicationError("cannot read the frames", non_retryable=True)
+
+    workers = [
+        build_worker(
+            temporal_client, QueueSpec("workflows", workflows=[VideoLocalizationWorkflow])
+        ),
+        build_worker(temporal_client, QueueSpec("media", activities=[acts["ingest"]])),
+        build_worker(temporal_client, QueueSpec("stt", activities=[slow_transcribe])),
+        build_worker(temporal_client, QueueSpec("io", activities=[broken_detect])),
+    ]
+    async with running(workers):
+        handle = await temporal_client.start_workflow(
+            "VideoLocalizationWorkflow",
+            make_input(),
+            id=f"video-7001-g1-{uuid.uuid4()}",
+            task_queue="workflows",
+        )
+        started = asyncio.get_running_loop().time()
+        with pytest.raises(WorkflowFailureError):
+            await asyncio.wait_for(handle.result(), timeout=10)
+        # It failed when detect failed, not when the 4 s transcription would end.
+        assert asyncio.get_running_loop().time() - started < 3.5
+        history = await handle.fetch_history()
+    types = [e.event_type for e in history.events]
+    assert EventType.EVENT_TYPE_ACTIVITY_TASK_CANCEL_REQUESTED in types

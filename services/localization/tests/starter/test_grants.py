@@ -13,6 +13,7 @@ from localization.starter.outbox_starter import (
     DISPATCHED_SQL,
     FAILED_SQL,
     REJECTED_SQL,
+    RELEASED_SQL,
     VIDEO_SQL,
 )
 from tests.support.scratch_db import INIT, OUTBOX, scratch_database
@@ -40,6 +41,7 @@ def test_the_starter_can_run_every_statement_it_uses(db: psycopg.Connection) -> 
     assert db.execute(VIDEO_SQL, ("1",)).fetchone() == ("s3://b/source/1.mp4", "c")
     db.execute(DISPATCHED_SQL, ("video-1-g1", "1", 1))
     db.execute(REJECTED_SQL, ("x", "1", 1))
+    db.execute(RELEASED_SQL, {"error": "e", "delay": 30, "aweme_id": "1", "generation": 1})
     db.execute(
         FAILED_SQL,
         {"error": "e", "max_attempts": 5, "delay": 30, "aweme_id": "1", "generation": 1},

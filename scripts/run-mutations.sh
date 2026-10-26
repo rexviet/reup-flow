@@ -90,7 +90,9 @@ harness_dir() {
 # exist; workers: concurrency per queue; workflow: replay, once-per-stage rerun,
 # 2a || 2b; preparation activities; the image; tracing; grants), then the review fixes (bounded frame extraction, voice wiring, worker
 # supervision and shutdown, heartbeats, Demucs timeout and cancel, STT downmix,
-# SKIP LOCKED, the throttle under lagging visibility, outage handling): +42, +2.
+# SKIP LOCKED, the throttle under lagging visibility, outage handling), then parallel shutdown, sibling
+# cancel, end-of-video seek, process-group kill and the release statement's
+# grants: +47, +2.
 # The phase 0 spike mutations (test/spike-cookie-swap/mutations, and the SKIP
 # LOCKED / compose pair inlined in ci.yml) are deliberately NOT here: they need
 # a built parser image or a compose file edit, and are gated separately in CI.
@@ -106,7 +108,7 @@ downloader:infra:16:2
 downloader:11:5:0
 downloader:12:1:0
 localization:03:11:2
-localization:04:42:2
+localization:04:47:2
 "
 
 # Files any harness in the set is allowed to touch. Checksummed before and after

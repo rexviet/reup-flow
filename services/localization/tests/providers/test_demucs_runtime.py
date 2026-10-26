@@ -21,7 +21,10 @@ def _sleeper(tmp_path: Path, seconds: float) -> str:
     script.write_text(
         "#!/usr/bin/env bash\n"
         f'echo $$ > "{tmp_path}/pid"\n'
-        f"sleep {seconds}\n"
+        # The sleep is a grandchild of the process the separator starts.
+        f"sleep {seconds} &\n"
+        f'echo $! > "{tmp_path}/grandchild"\n'
+        "wait\n"
         'out="$3"\nmkdir -p "$out/htdemucs/in"\n'
         'echo v > "$out/htdemucs/in/vocals.wav"\necho b > "$out/htdemucs/in/no_vocals.wav"\n'
     )
@@ -67,24 +70,33 @@ async def test_cancelling_the_activity_kills_the_demucs_process(tmp_path: Path) 
         if pid_file.exists() and pid_file.read_text().strip():
             break
         await asyncio.sleep(0.05)
+    grandchild_file = tmp_path / "grandchild"
+    for _ in range(100):
+        if grandchild_file.exists() and grandchild_file.read_text().strip():
+            break
+        await asyncio.sleep(0.05)
     pid = int(pid_file.read_text())
+    grandchild = int(grandchild_file.read_text())
     os.kill(pid, 0)  # it is running
+    os.kill(grandchild, 0)
     try:
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
-        gone = False
-        for _ in range(60):
-            try:
-                os.kill(pid, 0)
-            except ProcessLookupError:
-                gone = True
-                break
-            time.sleep(0.1)
-        assert gone, "the demucs process outlived the cancelled activity"
+        for victim, what in ((pid, "the demucs process"), (grandchild, "its child process")):
+            gone = False
+            for _ in range(60):
+                try:
+                    os.kill(victim, 0)
+                except ProcessLookupError:
+                    gone = True
+                    break
+                time.sleep(0.1)
+            assert gone, f"{what} outlived the cancelled activity"
     finally:
         cancel.set()
-        try:
-            os.kill(pid, 9)
-        except ProcessLookupError:
-            pass
+        for leftover in (pid, grandchild):
+            try:
+                os.kill(leftover, 9)
+            except ProcessLookupError:
+                pass

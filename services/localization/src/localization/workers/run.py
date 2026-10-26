@@ -112,6 +112,13 @@ async def serve(role: str) -> int:
     return code
 
 
+async def _shutdown(worker: Worker) -> None:
+    try:
+        await worker.shutdown()
+    except Exception:  # noqa: BLE001 - shutting down the rest matters more
+        log.exception("a worker did not shut down cleanly")
+
+
 async def supervise(workers: Sequence[Worker], stop: asyncio.Event) -> int:
     """Runs the workers until `stop` is set (exit 0) or one of them dies (exit 1).
 
@@ -127,11 +134,9 @@ async def supervise(workers: Sequence[Worker], stop: asyncio.Event) -> int:
         else:
             log.error("a worker returned before shutdown")
     stopped.cancel()
-    for worker in workers:
-        try:
-            await worker.shutdown()
-        except Exception:  # noqa: BLE001 - shutting down the rest matters more
-            log.exception("a worker did not shut down cleanly")
+    # Concurrently: each worker drains for up to the graceful period, and the
+    # container's stop_grace_period covers one period, not one per queue.
+    await asyncio.gather(*(_shutdown(w) for w in workers))
     await asyncio.gather(*tasks, return_exceptions=True)
     return 1 if died else 0
 

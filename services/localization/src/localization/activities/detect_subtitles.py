@@ -142,8 +142,9 @@ class DetectSubtitlesActivity:
                         fps=SAMPLE_FPS,
                         width=scaled[0],
                         height=scaled[1],
-                        at_end=bool(boxes)
-                        and len(boxes) * FRAME_INTERVAL_MS >= info.duration_ms - 1000,
+                        # After the first chunk, a seek that yields nothing is the end
+                        # of the video, whatever the container's duration claims.
+                        at_end=bool(boxes),
                     )
                 )
                 if not frames:

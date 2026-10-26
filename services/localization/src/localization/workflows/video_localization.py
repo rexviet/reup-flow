@@ -65,6 +65,14 @@ DETECT_SUBTITLES = dict(
 )
 
 
+# `asyncio.FIRST_EXCEPTION`, spelled out because workflow code does not import asyncio.
+_FIRST_EXCEPTION = "FIRST_EXCEPTION"
+
+
+def _failed(handle: workflow.ActivityHandle) -> bool:
+    return handle.done() and not handle.cancelled() and handle.exception() is not None
+
+
 def _missing_stage(error: ActivityError) -> str | None:
     cause = error.cause
     if isinstance(cause, ApplicationError) and cause.type == ARTIFACT_MISSING and cause.details:
@@ -88,21 +96,41 @@ class VideoLocalizationWorkflow:
         detecting = workflow.start_activity(
             "detect_subtitles", spec, result_type=SubtitleTrack, **DETECT_SUBTITLES
         )
-        transcript = await self._settle(
-            transcribing,
-            lambda: workflow.start_activity(
-                "transcribe", args=[spec, ingest.vocals_key], result_type=Transcript, **TRANSCRIBE
+        await workflow.wait([transcribing, detecting], return_when=_FIRST_EXCEPTION)
+        stages = {
+            "transcribe": (
+                transcribing,
+                lambda: workflow.start_activity(
+                    "transcribe",
+                    args=[spec, ingest.vocals_key],
+                    result_type=Transcript,
+                    **TRANSCRIBE,
+                ),
             ),
-            spec,
-        )
-        subtitles = await self._settle(
-            detecting,
-            lambda: workflow.start_activity(
-                "detect_subtitles", spec, result_type=SubtitleTrack, **DETECT_SUBTITLES
+            "detect": (
+                detecting,
+                lambda: workflow.start_activity(
+                    "detect_subtitles", spec, result_type=SubtitleTrack, **DETECT_SUBTITLES
+                ),
             ),
-            spec,
+        }
+        # A stage that already failed is settled first, so a failure is acted on as
+        # soon as it happens instead of after the slower sibling finishes.
+        order = sorted(stages, key=lambda n: not _failed(stages[n][0]))
+        results = {}
+        try:
+            for name in order:
+                handle, restart = stages[name]
+                results[name] = await self._settle(handle, restart, spec)
+        except BaseException:
+            # The sibling's result can no longer be used: stop paying for it.
+            for handle, _ in stages.values():
+                if not handle.done():
+                    handle.cancel()
+            raise
+        return PrepResult(
+            ingest=ingest, transcript=results["transcribe"], subtitles=results["detect"]
         )
-        return PrepResult(ingest=ingest, transcript=transcript, subtitles=subtitles)
 
     async def _ingest(self, spec: LocalizationInput) -> IngestResult:
         return await workflow.execute_activity("ingest", spec, result_type=IngestResult, **INGEST)

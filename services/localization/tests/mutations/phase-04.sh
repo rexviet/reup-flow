@@ -166,8 +166,8 @@ restore
 # --- 14. replay: the order of commands changes without patched() ----------------------
 mp_mutation "2b is started before 2a with no workflow.patched marker"
 apply_mutation "$WORKFLOW" \
-  $'        transcribing = workflow.start_activity(\n            "transcribe", args=[spec, ingest.vocals_key], result_type=Transcript, **TRANSCRIBE\n        )\n        detecting = workflow.start_activity(\n            "detect_subtitles", spec, result_type=SubtitleTrack, **DETECT_SUBTITLES\n        )\n        transcript = await self._settle(' \
-  $'        detecting = workflow.start_activity(\n            "detect_subtitles", spec, result_type=SubtitleTrack, **DETECT_SUBTITLES\n        )\n        transcribing = workflow.start_activity(\n            "transcribe", args=[spec, ingest.vocals_key], result_type=Transcript, **TRANSCRIBE\n        )\n        transcript = await self._settle(' \
+  $'        transcribing = workflow.start_activity(\n            "transcribe", args=[spec, ingest.vocals_key], result_type=Transcript, **TRANSCRIBE\n        )\n        detecting = workflow.start_activity(\n            "detect_subtitles", spec, result_type=SubtitleTrack, **DETECT_SUBTITLES\n        )\n        await workflow.wait(' \
+  $'        detecting = workflow.start_activity(\n            "detect_subtitles", spec, result_type=SubtitleTrack, **DETECT_SUBTITLES\n        )\n        transcribing = workflow.start_activity(\n            "transcribe", args=[spec, ingest.vocals_key], result_type=Transcript, **TRANSCRIBE\n        )\n        await workflow.wait(' \
   && expect_red "$T_REPLAY" "test_every_recorded_history_still_replays"
 restore
 
@@ -354,6 +354,35 @@ apply_mutation "$PERSIST" '        if not PERSIST_KEY_RE.fullmatch(key):' '     
   && expect_red "$T_PREP" "test_persist_json_writes_under_work_and_refuses_anywhere_else"
 restore
 
+# --- second review: shutdown, sibling cancel, end of video, process group, grants ------------------
+mp_mutation "workers are shut down one after another"
+apply_mutation "$RUN" \
+  '    await asyncio.gather(*(_shutdown(w) for w in workers))' \
+  $'    for w in workers:\n        await _shutdown(w)' \
+  && expect_red "$T_SUPERVISE" "test_workers_drain_at_the_same_time_not_one_after_another"
+restore
+
+mp_mutation "a failed stage leaves its sibling activity running"
+apply_mutation "$WORKFLOW" $'                    handle.cancel()\n' $'                    pass\n' \
+  && expect_red "$T_PREP" "test_a_failed_stage_cancels_the_sibling_instead_of_leaving_it_running"
+restore
+
+mp_mutation "the end of a video is only recognised near the container's duration"
+apply_mutation "$DETECT" '                        at_end=bool(boxes),' '                        at_end=False,' \
+  && expect_red "$T_PREP" "test_a_container_longer_than_its_video_stream_does_not_fail_the_last_chunk"
+restore
+
+mp_mutation "only the demucs process is killed, not its process group"
+apply_mutation "$DEMUCS" '                os.killpg(process.pid, signal.SIGKILL)' '                process.kill()' \
+  && expect_red "$T_DEMUCS" "test_cancelling_the_activity_kills_the_demucs_process"
+restore
+
+mp_mutation "the release statement touches a column the starter has no grant on"
+apply_mutation "$STARTER" 'SET last_error = %(error)s, next_attempt_at' \
+  'SET generation = generation, last_error = %(error)s, next_attempt_at' \
+  && expect_red "$T_GRANTS" "test_the_starter_can_run_every_statement_it_uses"
+restore
+
 # --- control A: a constant that is not an invariant ------------------------------------------------------
 mp_mutation "CONTROL: the starter polls an idle outbox four times as often"
 apply_mutation "$STARTER" 'IDLE_SLEEP_SECONDS = 2.0' 'IDLE_SLEEP_SECONDS = 0.5' \
@@ -365,8 +394,8 @@ restore
 # workflow: with the marker, histories recorded before it still take the old path.
 mp_mutation "CONTROL: 2b is started before 2a, guarded by workflow.patched"
 apply_mutation "$WORKFLOW" \
-  $'        transcribing = workflow.start_activity(\n            "transcribe", args=[spec, ingest.vocals_key], result_type=Transcript, **TRANSCRIBE\n        )\n        detecting = workflow.start_activity(\n            "detect_subtitles", spec, result_type=SubtitleTrack, **DETECT_SUBTITLES\n        )\n        transcript = await self._settle(' \
-  $'        if workflow.patched("detect-before-transcribe"):\n            detecting = workflow.start_activity(\n                "detect_subtitles", spec, result_type=SubtitleTrack, **DETECT_SUBTITLES\n            )\n            transcribing = workflow.start_activity(\n                "transcribe", args=[spec, ingest.vocals_key], result_type=Transcript, **TRANSCRIBE\n            )\n        else:\n            transcribing = workflow.start_activity(\n                "transcribe", args=[spec, ingest.vocals_key], result_type=Transcript, **TRANSCRIBE\n            )\n            detecting = workflow.start_activity(\n                "detect_subtitles", spec, result_type=SubtitleTrack, **DETECT_SUBTITLES\n            )\n        transcript = await self._settle(' \
+  $'        transcribing = workflow.start_activity(\n            "transcribe", args=[spec, ingest.vocals_key], result_type=Transcript, **TRANSCRIBE\n        )\n        detecting = workflow.start_activity(\n            "detect_subtitles", spec, result_type=SubtitleTrack, **DETECT_SUBTITLES\n        )\n        await workflow.wait(' \
+  $'        if workflow.patched("detect-before-transcribe"):\n            detecting = workflow.start_activity(\n                "detect_subtitles", spec, result_type=SubtitleTrack, **DETECT_SUBTITLES\n            )\n            transcribing = workflow.start_activity(\n                "transcribe", args=[spec, ingest.vocals_key], result_type=Transcript, **TRANSCRIBE\n            )\n        else:\n            transcribing = workflow.start_activity(\n                "transcribe", args=[spec, ingest.vocals_key], result_type=Transcript, **TRANSCRIBE\n            )\n            detecting = workflow.start_activity(\n                "detect_subtitles", spec, result_type=SubtitleTrack, **DETECT_SUBTITLES\n            )\n        await workflow.wait(' \
   && expect_green "$T_REPLAY" "patched-reorder"
 restore
 
