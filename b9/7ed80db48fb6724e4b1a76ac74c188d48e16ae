@@ -1,0 +1,57 @@
+services/localization/tests/agents/test_localizer_workflow.py
+  s_0b729cf0d034d3::t_f9e38f85b38c09 6,20,158-176,178-196,198
+  s_0b729cf0d034d3::t_bda2d37ff3d8fc 19,279
+  s_0b729cf0d034d3::t_f0e170d5b5f2dc 177,197
+  s_0b729cf0d034d3::t_65aab128509b63 199-200
+plans/reports/code-reviewer-261026-2023-phase-05-review.md
+  s_0b729cf0d034d3::t_de3ea12b641665 1-51
+services/localization/tests/mutations/phase-05.sh
+  s_0b729cf0d034d3::t_fc5e1487a93b6c 379-428
+services/localization/src/localization/text/vi_syllables.py
+  s_0b729cf0d034d3::t_bda2d37ff3d8fc 29-30,50-52,77
+services/localization/tests/support/localizer_fakes.py
+  s_0b729cf0d034d3::t_bda2d37ff3d8fc 45,88
+services/localization/tests/text/test_vi_syllables.py
+  s_0b729cf0d034d3::t_f0e170d5b5f2dc 37-38
+  s_0b729cf0d034d3::t_f9e38f85b38c09 33-36
+services/localization/tests/agents/test_glossary.py
+  s_0b729cf0d034d3::t_bda2d37ff3d8fc 51-52
+services/localization/src/localization/activities/glossary.py
+  s_0b729cf0d034d3::t_5beb17089e0352 63,144
+services/localization/src/localization/activities/localizer_ports.py
+  s_0b729cf0d034d3::t_5beb17089e0352 69
+services/localization/src/localization/activities/voice_rate.py
+  s_0b729cf0d034d3::t_bda2d37ff3d8fc 17,36-41,118-124
+services/localization/src/localization/agents/localizer.py
+  s_0b729cf0d034d3::t_5beb17089e0352 26,50-53,55,58,60,63,65,117-119,236-241,250-254,261-262,266
+services/localization/src/localization/agents/temporal.py
+  s_0b729cf0d034d3::t_bda2d37ff3d8fc 19,21-27,31,35,137-156,158-167,173,178,196-202
+  s_0b729cf0d034d3::t_2eec3d6b8755f6 157
+services/localization/tests/support/kill_worker.py
+  s_0b729cf0d034d3::t_bda2d37ff3d8fc 36
+services/localization/tests/agents/test_localizer.py
+  s_0b729cf0d034d3::t_f9e38f85b38c09 13,238-239,241-281
+  s_0b729cf0d034d3::t_f0e170d5b5f2dc 240
+services/localization/tests/agents/test_voice_rate.py
+  s_0b729cf0d034d3::t_f9e38f85b38c09 169-188
+plans/261026-0147-video-localization-workflow/phase-05-localizer-agent.md
+  s_0b729cf0d034d3::t_3b4d42dfdc5509 148-166
+scripts/run-mutations.sh
+  s_0b729cf0d034d3::t_be0efafd7150c2 99-101,118
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b97ed80db48fb6724e4b1a76ac74c188d48e16ae",
+  "prompts": {},
+  "sessions": {
+    "s_0b729cf0d034d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9aa1a711-c362-45ab-8e48-1a9b19f8df48",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
