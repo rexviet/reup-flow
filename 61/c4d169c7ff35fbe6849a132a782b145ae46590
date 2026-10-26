@@ -1,0 +1,86 @@
+services/localization/migrations/261026-outbox-starter-grants.down.sql
+  s_0b729cf0d034d3::t_4f702e97b5856c 1-5
+services/localization/tests/workflows/test_prep_stage.py
+  s_0b729cf0d034d3::t_0c29bfc238ad8c 252,255-257,259,282,352-375,378,389-401,446,448,460-461,504-510,519-523,528,531-628
+services/localization/tests/workers/test_supervise.py
+  s_0b729cf0d034d3::t_ecbcfeb37f9c4b 1-82
+plans/reports/code-reviewer-261026-1524-phase-04-review.md
+  s_0b729cf0d034d3::t_397d7ef35a3a7f 1-104
+services/localization/src/localization/providers/base.py
+  s_0b729cf0d034d3::t_54181b5b18255d 3,41-43
+services/localization/migrations/261026-outbox-starter-grants.sql
+  s_0b729cf0d034d3::t_4f702e97b5856c 5-10,15-19
+services/localization/src/localization/starter/outbox_starter.py
+  s_0b729cf0d034d3::t_1da5a9fd9122c4 107-109,172-173,203,205-207,294
+  s_0b729cf0d034d3::t_4891ee0a18afc9 17-18,30,87-106,110-118,123,169,171,181-184,186-187,202,204,270-281,323
+services/downloader/test/compose-constraints.spec.ts
+  s_0b729cf0d034d3::t_9f8ad9f8a83d5b 225,310-320
+  s_0b729cf0d034d3::t_a856de33ee6ae3 321-322
+plans/261026-0147-video-localization-workflow/plan.md
+  s_0b729cf0d034d3::t_0c3e33212cf1eb 189,259,262
+services/localization/src/localization/activities/ingest.py
+  s_0b729cf0d034d3::t_5e5c9ed9df623e 5,39-42,49-52,64-65
+  s_0b729cf0d034d3::t_06f132dc860105 66
+scripts/run-mutations.sh
+  s_0b729cf0d034d3::t_9f8ad9f8a83d5b 86-87,91-93,105
+services/localization/src/localization/activities/detect_subtitles.py
+  s_0b729cf0d034d3::t_7a4251936b2131 145-146
+  s_0b729cf0d034d3::t_1d685ac0abda17 6,136-144
+  s_0b729cf0d034d3::t_12cc64d5e1f885 35-38,85-102,104-111,114-115,121-124,129-130,133-135,149-162
+services/localization/src/localization/config.py
+  s_0b729cf0d034d3::t_12cc64d5e1f885 69
+services/localization/tests/workers/test_queue_concurrency.py
+  s_0b729cf0d034d3::t_73c4ca9d69f6cf 83
+services/localization/src/localization/activities/persist.py
+  s_0b729cf0d034d3::t_4f702e97b5856c 6,15-16,38
+  s_0b729cf0d034d3::t_132d40e4717ad5 36
+services/localization/src/localization/workers/run.py
+  s_0b729cf0d034d3::t_12cc64d5e1f885 77-79
+  s_0b729cf0d034d3::t_1e482722fc4fea 131-134
+  s_0b729cf0d034d3::t_2a152554b31ec3 17,36-37,55-58,91,108,111-129,135-136,144
+services/localization/tests/providers/test_demucs_runtime.py
+  s_0b729cf0d034d3::t_3a7499e259444b 1-10,12-59,65-90
+  s_0b729cf0d034d3::t_f5f873b867a5e2 11,60-64
+services/localization/tests/starter/test_grants.py
+  s_0b729cf0d034d3::t_1f53391b42af2b 52-54
+services/localization/src/localization/providers/vision_ocr.py
+  s_0b729cf0d034d3::t_12cc64d5e1f885 21-24,73
+services/localization/tests/mutations/phase-04.sh
+  s_0b729cf0d034d3::t_73c4ca9d69f6cf 39-40,59-60,62,66,192,250,252-253,257-355
+  s_0b729cf0d034d3::t_45051d46000a52 356
+services/localization/src/localization/providers/demucs.py
+  s_0b729cf0d034d3::t_54181b5b18255d 3,6,22-29,42-53,64,68-70,74,76,83-110
+services/localization/tests/starter/test_outbox_starter.py
+  s_0b729cf0d034d3::t_1f53391b42af2b 12,14,116-136,145-147,150-154,317,363,518-598
+.env.example
+  s_0b729cf0d034d3::t_9f8ad9f8a83d5b 142-144
+services/localization/src/localization/activities/transcribe.py
+  s_0b729cf0d034d3::t_5e5c9ed9df623e 4-5,10,74-81,91,93
+services/downloader/test/mutations/phase-infra.sh
+  s_0b729cf0d034d3::t_9f8ad9f8a83d5b 36,223-228
+  s_0b729cf0d034d3::t_3438e7d247461c 229
+services/localization/src/localization/activities/ffmpeg.py
+  s_0b729cf0d034d3::t_b075569b5d3841 11,138,148-151,173,181-187,200-205,208-210,212-215,217-226
+  s_0b729cf0d034d3::t_12cc64d5e1f885 159-160,164-166,168-170,188-199
+  s_0b729cf0d034d3::t_c8d6de06fc8e00 139-147,175-178,180
+docker-compose.yml
+  s_0b729cf0d034d3::t_9f8ad9f8a83d5b 452,478-484,499,511-515
+plans/261026-0147-video-localization-workflow/phase-04-starter-and-prep-activities.md
+  s_0b729cf0d034d3::t_0c3e33212cf1eb 4,173-181,184,186-189,191-193
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "61c4d169c7ff35fbe6849a132a782b145ae46590",
+  "prompts": {},
+  "sessions": {
+    "s_0b729cf0d034d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9aa1a711-c362-45ab-8e48-1a9b19f8df48",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
