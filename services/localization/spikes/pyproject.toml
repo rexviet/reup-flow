@@ -1,0 +1,17 @@
+[project]
+name = "localization-spikes"
+version = "0.0.0"
+description = "Phase 00 gate spikes. Throwaway: they answer G1-G6 and are not imported by the service."
+requires-python = ">=3.11"
+dependencies = [
+  "pydantic-ai-slim[openai,temporal]",
+  "temporalio[opentelemetry]",
+  "opentelemetry-sdk",
+  "opentelemetry-exporter-otlp-proto-http",
+  "psycopg[binary]",
+  "httpx",
+  "pillow",
+]
+
+[tool.uv]
+package = false

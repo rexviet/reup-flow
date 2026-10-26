@@ -1,0 +1,18 @@
+{
+  "name": "localization-spikes-node",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Phase 00 G3 spike: a Temporal TS worker with a fake `render` activity. Throwaway; not part of the pnpm workspace.",
+  "dependencies": {
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.57.0",
+    "@opentelemetry/resources": "^1.30.0",
+    "@opentelemetry/sdk-trace-base": "^1.30.0",
+    "@opentelemetry/sdk-trace-node": "^1.30.0",
+    "@opentelemetry/semantic-conventions": "^1.30.0",
+    "@temporalio/activity": "^1.11.0",
+    "@temporalio/interceptors-opentelemetry": "^1.11.0",
+    "@temporalio/worker": "^1.11.0",
+    "tsx": "^4.19.0"
+  }
+}
