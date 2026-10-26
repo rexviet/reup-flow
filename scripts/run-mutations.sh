@@ -109,6 +109,14 @@ harness_dir() {
 # worker wiring, a failed batch is acted on at once and cancels the rest, single-flight
 # per clip, the regenerated script in the result, the mix cut at the video end, true
 # peak, usage limits scaled, Dubber model fallback): +61, +3.
+# `downloader:infra` gains the render worker's compose guards (shared memory, no
+# localization key, RENDER_CONCURRENCY, Chrome checksum in the image, one font setting
+# for both sides): +5 => 21, 2.
+# `renderer:07` (captions and the renderer: a spec is rendered once and keyed by its
+# hash, audio and font are the ones the spec names, nothing outlives a render, the asset
+# server's token / loopback / path guard, the schema and the hash agree with Python, one
+# render at a time, the trace interceptor, the layout's cover / line breaking / cue timing /
+# one translation / what the spec carries, the font measured is the font drawn): +37, +4.
 # The phase 0 spike mutations (test/spike-cookie-swap/mutations, and the SKIP
 # LOCKED / compose pair inlined in ci.yml) are deliberately NOT here: they need
 # a built parser image or a compose file edit, and are gated separately in CI.
@@ -120,13 +128,14 @@ downloader:04:20:2
 downloader:05:36:4
 downloader:06:14:3
 downloader:07:28:5
-downloader:infra:16:2
+downloader:infra:21:2
 downloader:11:5:0
 downloader:12:1:0
 localization:03:11:2
 localization:04:47:2
 localization:05:57:2
 localization:06:61:3
+renderer:07:37:4
 "
 
 # Files any harness in the set is allowed to touch. Checksummed before and after

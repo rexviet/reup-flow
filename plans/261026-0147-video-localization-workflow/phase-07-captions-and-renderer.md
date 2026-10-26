@@ -1,7 +1,7 @@
 ---
 phase: 7
 title: "Phụ đề và renderer (Remotion)"
-status: pending
+status: in-progress
 priority: P1
 effort: "2d"
 dependencies: [3, 4]
@@ -102,3 +102,45 @@ Chromium trong Docker cần `shm_size`. Đặt sẵn trong compose.
 ## Rollback
 
 Dừng `worker-render`. Workflow chờ ở bước 7.
+
+## Tiến độ
+
+**Trạng thái: in-progress.** Code, test tự động, mutation, image Docker và một lần render thật trong container đã xong và xanh. Chưa đóng phase vì chưa chạy với stack compose đầy đủ (`worker-render` chưa được `docker compose up` cùng Temporal và MinIO thật; Python workflow chưa gọi `render`, việc nối là của phase 08) và vì span `render` chưa được kiểm trong một trace do Python khởi tạo (chỉ kiểm bằng client/workflow TS; đường Python sang TS đã chứng minh ở G3 của phase 00, chưa chạy lại).
+
+**Đã làm và đã kiểm**
+- `activities/layout_captions.py` (queue `media`): đo bằng PIL với `CAPTION_FONT_PATH`, tối đa 2 dòng, cỡ 48 xuống 32 (bước 4), vẫn không vừa thì tách cue theo từ, thời gian chia theo độ dài chữ, không hở không chồng. Hộp che là vùng sub cũ nới 6% mỗi cạnh (kẹp trong khung); `region=None` thì không có hộp che và chữ ở vùng an toàn. Cue hiện từ đầu segment tới hết slot hoặc hết thời gian đọc (cái nào dài hơn), không lấn cue sau, không quá cuối video. Từ chối không retry (`ScriptDubMismatch`) nếu track dựng từ phiên bản script khác hoặc một dòng đọc khác với dòng viết. Ghi `work/{id}/r{round}/edit-spec.json`, trả `EditSpecRef` (key, `spec_sha256`, `script_version`, `audio_sha256`).
+- Đo chữ ở cỡ x32 rồi chia lại: FreeType ở cỡ thật làm tròn từng advance. Ink đo bằng bitmap (PIL `getbbox` trả cả bearing). Trên Chromium, độ rộng chữ vẽ ra lệch dưới 1 px so với PIL.
+- `services/renderer`: worker TS queue `render` (`maxConcurrentActivityTaskExecutions = RENDER_CONCURRENCY`, mặc định 1), `OpenTelemetryActivityInboundInterceptor` cộng exporter OTLP tới Langfuse, bundle Remotion một lần lúc khởi động, activity `render` (validate bằng `ajv` trên schema sinh từ Pydantic, hash canonical, trả key nếu `render-{sha}.mp4` đã có, tải source/audio/font về `mkdtemp`, `asset-server` loopback cổng ngẫu nhiên và token đường dẫn ngẫu nhiên mỗi job, heartbeat theo `onProgress`, upload, `finally` tắt server và xoá thư mục). Kiểm sha256 của audio với `audio_sha256` trong spec và tên font với `spec.font`.
+- Composition: `OffthreadVideo muted`, `Audio`, hộp che là `AbsoluteFill`, mỗi cue một `Sequence`, không hiệu ứng.
+- Hợp đồng: `contracts/edit-spec.schema.json` sinh lại. Test Node sinh lại 3 fixture từ Python mỗi lần chạy (`python -m localization.contracts.fixtures`), kiểm ajv chấp nhận, hash khớp hash Python (gồm dấu NFD, emoji, dấu nháy), và 10 kiểu spec sai bị từ chối không retry.
+- Font parity bằng hành vi (`tests/integration/test_font_parity.py`): layout thật, renderer thật (Chromium), ffmpeg cắt frame, đo pixel chữ, lệch tối đa 4 px so với PIL.
+- Render thật (`render.integration-spec.ts`, MinIO thật với user `renderer` chỉ trên `work/*`): video HEVC 1080x1920 cắt 3 giây từ một clip Douyin thật trong `data/` (transcode sang HEVC, vì các clip tải về đều là H.264), số frame và độ dài khớp spec trong ±1 frame, có stream AAC, pixel hộp che đúng màu (độ mờ 100 để màu chính xác), ảnh nằm ngoài hộp che, chữ trắng nằm trong, cue chưa tới thì không hiện chữ, render lại cùng spec không tăng `render_invocations` và không upload lại.
+- Overlap: với `RENDER_CONCURRENCY=1`, 3 render do một workflow phát cùng lúc có đỉnh chồng nhau là 1; control (giới hạn 3) thì là 3. Tracing: span `RunActivity:render` nằm trong trace của client; control không gắn interceptor thì không có.
+- Image Docker: base pin digest, Chrome Headless Shell tải trong image và dừng build nếu sha256 sai (cả x64 và arm64), `pnpm install --frozen-lockfile`. Chạy thật trong container (arm64, user `node`): render 3 giây ra mp4 H.264 và AAC.
+- Compose: `worker-render` (`shm_size: 1gb`, `mem_limit`, `/tmp` tmpfs có cỡ, `stop_grace_period` dài hơn shutdown 10 phút của worker, env allowlist, không port). `worker-media` mount `assets/fonts` và nhận `CAPTION_FONT_PATH`, `COVER_COLOR`, `COVER_OPACITY`. `compose-constraints.spec.ts` mở rộng; `downloader:infra` thêm 5 mutation (shm, key của localization lọt vào renderer, RENDER_CONCURRENCY, checksum Chrome, font hai phía khác nhau).
+- Mutation: `renderer:07` có 37 mutation và 4 control (khai trong `EXPECT`); `downloader:infra` 21/2. Lần chạy đầu bắt được 5 vấn đề của chính harness (mẫu tên test phải đứng ngay sau tiền tố của dòng FAILED; mutation bỏ `server.close` làm jest treo; một kiểm tra phiên bản bị kiểm tra khác che nên mutation đơn lẻ không đỏ, đã đổi thành mutation đôi và thêm control); đã sửa, không bỏ.
+- Không đổi code workflow nên không ghi lại history replay; các history cũ vẫn replay xanh trong `uv run pytest`.
+
+**Khác với phase file**
+- Thư mục test của renderer là `tests/` (khớp `harness_dir` của runner), không phải `test/`.
+- **Renderer không đọc được `source/`** (policy MinIO chỉ cho `work/*`, theo plan §6). Thay vì nới quyền, `layout_captions` sao chép video nguồn sang `work/{id}/r0/source.mp4` bằng `copy_object` phía server (không có byte nào đi qua tiến trình) và `EditSpec.source_key` trỏ vào bản sao. Cần `ObjectStore.copy`.
+- `EditSpec` được mở rộng so với phase 03: `cover.color`, `cover.opacity_pct` (số nguyên, để hash không có số thực mà Python và JS viết khác nhau), `caption_box`, `Caption.font_px`. Lý do: renderer không được tự suy ra cỡ chữ, vị trí hay màu, và màu hộp che phải nằm trong hash của key render. Nên `COVER_COLOR`, `COVER_OPACITY` chỉ do worker-media đọc; worker-render chỉ nhận `CAPTION_FONT_PATH` (plan §6 ghi cả hai).
+- `spec.font` là tên file (basename) của `CAPTION_FONT_PATH`; renderer từ chối nếu tên khác font của nó.
+- Hash của spec do cả hai bên tính cùng một cách (`contracts/spec_hash.py`, `edit-spec.ts`); test parity so với hash Python.
+- Ngoài danh sách file: `contracts/fixtures.py`, `contracts/spec_hash.py`, `EditSpecRef`, `ObjectStore.copy`, `config.py`, `workers/run.py`, `object-store.ts`, `remotion-render.ts`, `frames.ts`, `config.ts`, `cli.ts` (render cục bộ cho test font parity), `jest-protocol.js`, `pnpm-workspace.yaml` (`allowBuilds` của `@swc/core`, `protobufjs`), CI (job `renderer`, node và pnpm cho job `localization`), `.env.example`, `pillow` trong `pyproject.toml`.
+- Chrome được image pin bằng URL của remotion.media và sha256, không phải gói `chromium` của Debian.
+
+**Chưa kiểm được (nói thẳng)**
+1. Chưa `docker compose up worker-render` trong stack đầy đủ; chỉ chạy image đó bằng `docker run` với `cli.js`, chưa chạy worker với Temporal và MinIO thật trong container.
+2. Chưa kiểm cross-language span: Python workflow gọi activity TS và span `render` cùng trace Langfuse (AC7 phụ thuộc, phase 09/10).
+3. `shm_size`: render thử trong container với `/dev/shm` mặc định 64 MB cho clip 3 giây vẫn chạy; cấu hình 1gb là phòng cho video dài hoặc nhiều tab, chưa có số đo.
+4. Mọi font/độ rộng đo trên một font, một clip. Video 60 giây thật chưa render; thời gian và bộ nhớ chưa biết.
+
+**Giới hạn đã biết**
+- Một từ dài hơn hộp chữ không tách được: đặt riêng ở 32 px và tràn hộp.
+- Hộp che thấp hơn hai dòng chữ thì chữ tràn ra ngoài hộp (vẫn đọc được vì có bóng chữ).
+- Hộp che là tĩnh, phủ suốt video, không theo thời điểm sub cũ xuất hiện.
+- Test font parity cần node, pnpm, Chromium; đặt `LOC_SKIP_RENDERER=1` để bỏ qua trên máy không có (thiếu thì fail chứ không skip).
+- `render.integration-spec` để lại vài object nhỏ dưới `work/` của MinIO (user renderer không có quyền xoá; lifecycle 30 ngày).
+- Counter `render_invocations` nằm trong bộ nhớ tiến trình (và là thuộc tính của span `render`), chưa là metric xuất ra ngoài; phase 10 cần đọc nó bằng span trên Langfuse.
+- Hợp đồng input/output của activity `render` (`{aweme_id, spec_key}` và `{render_key, spec_sha256}`) mới có ở phía TS; phase 08 thêm model Python khi nối.

@@ -2,3 +2,7 @@ packages:
   - "services/*"
 allowBuilds:
   esbuild: true
+  # Install scripts these packages run are not needed: @swc/core arrives as a
+  # prebuilt optional dependency, protobufjs only writes a version file.
+  "@swc/core": false
+  protobufjs: false

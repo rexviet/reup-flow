@@ -96,6 +96,7 @@ describe("docker-compose.yml localization infra", () => {
     healthcheck?: unknown;
     command?: unknown;
     mem_limit?: unknown;
+    shm_size?: unknown;
   };
   const services: Record<string, Service> = compose.services;
 
@@ -136,6 +137,14 @@ describe("docker-compose.yml localization infra", () => {
     "S3_FORCE_PATH_STYLE",
     "LOC_S3_ACCESS_KEY_ID",
     "LOC_S3_SECRET_ACCESS_KEY",
+  ];
+  const RENDERER_S3 = [
+    "S3_ENDPOINT",
+    "S3_REGION",
+    "S3_BUCKET",
+    "S3_FORCE_PATH_STYLE",
+    "RENDER_S3_ACCESS_KEY_ID",
+    "RENDER_S3_SECRET_ACCESS_KEY",
   ];
   // The exact environment each added service may receive. A service gets what it
   // reads and nothing else; a new variable is a deliberate edit to this table.
@@ -233,6 +242,15 @@ describe("docker-compose.yml localization infra", () => {
       "MEDIA_CONCURRENCY",
       "LOUDNESS_LUFS",
       "TRUE_PEAK_DBTP",
+      "CAPTION_FONT_PATH",
+      "COVER_COLOR",
+      "COVER_OPACITY",
+    ],
+    "worker-render": [
+      ...LOCALIZATION_COMMON,
+      ...RENDERER_S3,
+      "RENDER_CONCURRENCY",
+      "CAPTION_FONT_PATH",
     ],
   };
 
@@ -309,8 +327,24 @@ describe("docker-compose.yml localization infra", () => {
     for (const k of ["OPENROUTER_API_KEY", "VOICESTUDIO_API_KEY", "LOC_DATABASE_URL"]) {
       expect(keys("worker-media")).not.toContain(k);
     }
-    // Nobody but the downloader holds the downloader's object-store key.
+    // The renderer reads and writes work/* with its own user, runs a browser, and has no
+    // use for a provider, the database or the localization user's wider access.
+    for (const k of [
+      "LOC_S3_ACCESS_KEY_ID",
+      "LOC_S3_SECRET_ACCESS_KEY",
+      "OPENROUTER_API_KEY",
+      "VOICESTUDIO_API_KEY",
+      "LOC_DATABASE_URL",
+    ]) {
+      expect(keys("worker-render")).not.toContain(k);
+    }
+    // And its key goes nowhere else.
     for (const name of ["localization-starter", "worker-agents", "worker-media"]) {
+      expect(keys(name)).not.toContain("RENDER_S3_ACCESS_KEY_ID");
+      expect(keys(name)).not.toContain("RENDER_S3_SECRET_ACCESS_KEY");
+    }
+    // Nobody but the downloader holds the downloader's object-store key.
+    for (const name of ["localization-starter", "worker-agents", "worker-media", "worker-render"]) {
       expect(keys(name)).not.toContain("S3_ACCESS_KEY_ID");
       expect(keys(name)).not.toContain("S3_SECRET_ACCESS_KEY");
     }
@@ -318,13 +352,17 @@ describe("docker-compose.yml localization infra", () => {
 
   it("workers have a sized /tmp and time to finish what they are running when stopped", () => {
     type Svc = { tmpfs?: string[]; stop_grace_period?: string };
-    for (const name of ["worker-agents", "worker-media"]) {
+    for (const name of ["worker-agents", "worker-media", "worker-render"]) {
       const svc = services[name] as unknown as Svc;
       // Without a size limit a runaway extraction fills the host's disk.
       expect(svc.tmpfs ?? []).toEqual([expect.stringMatching(/^\/tmp:size=\d+[mg],/)]);
       // The worker's own graceful shutdown is 60 s; docker's default stop is 10 s.
       expect(parseInt(String(svc.stop_grace_period), 10)).toBeGreaterThan(60);
     }
+    // The render worker lets a running render finish for up to 10 minutes (GRACEFUL_SHUTDOWN
+    // in services/renderer/src/worker.ts); docker must wait longer than that.
+    const render = services["worker-render"] as unknown as Svc;
+    expect(parseInt(String(render.stop_grace_period), 10)).toBeGreaterThan(600);
     const starter = services["localization-starter"] as unknown as Svc;
     expect(starter.stop_grace_period).toBeDefined();
   });
@@ -338,6 +376,44 @@ describe("docker-compose.yml localization infra", () => {
       JSON.stringify(["python", "-m", "localization.workers.run", "agents"]),
       JSON.stringify(["python", "-m", "localization.workers.run", "media"]),
     ]);
+  });
+
+  it("the render worker has the shared memory Chromium needs and a ceiling on all memory", () => {
+    // Docker's default /dev/shm is 64 MB.
+    const shm = String(services["worker-render"].shm_size);
+    const megabytes = /^(\d+)(m|mb|g|gb)$/i.exec(shm);
+    expect({ shm, ok: megabytes !== null }).toEqual({ shm, ok: true });
+    const [, amount, unit] = megabytes!;
+    expect(Number(amount) * (unit.toLowerCase().startsWith("g") ? 1024 : 1)).toBeGreaterThanOrEqual(512);
+    expect(services["worker-render"].mem_limit).toBeDefined();
+  });
+
+  it("the render worker's concurrency comes from RENDER_CONCURRENCY and defaults to one", () => {
+    expect(services["worker-render"].environment?.RENDER_CONCURRENCY).toBe(
+      "${RENDER_CONCURRENCY:-1}",
+    );
+  });
+
+  it("the layout stage and the renderer read the caption font from the same setting", () => {
+    const media = services["worker-media"].environment?.CAPTION_FONT_PATH;
+    const render = services["worker-render"].environment?.CAPTION_FONT_PATH;
+    expect(media).toBeDefined();
+    expect(media).toBe(render);
+  });
+
+  it("the renderer image is pinned: base images by digest, Chrome by checksum", () => {
+    const dockerfile = readFileSync(
+      path.join(root, "services", "renderer", "Dockerfile"),
+      "utf-8",
+    );
+    const bases = dockerfile.split("\n").filter((l) => /^FROM /.test(l));
+    expect(bases.length).toBeGreaterThanOrEqual(2);
+    for (const line of bases) expect(line).toMatch(/@sha256:[0-9a-f]{64}/);
+    // The browser is downloaded in the image and refused unless its hash matches.
+    expect(dockerfile).toMatch(/CHROME_SHA256_X64=[0-9a-f]{64}/);
+    expect(dockerfile).toMatch(/CHROME_SHA256_ARM64=[0-9a-f]{64}/);
+    expect(dockerfile).toContain("sha256sum -c -");
+    expect(dockerfile).toContain("--frozen-lockfile");
   });
 
   it("every added image is pinned by digest, including the one inside the MinIO init Dockerfile", () => {

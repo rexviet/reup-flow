@@ -24,16 +24,18 @@ cd "$(dirname "$0")/../.." || exit 1
 
 COMPOSE=../../docker-compose.yml
 MINIO_DOCKERFILE=../../infra/minio/Dockerfile
+RENDER_DOCKERFILE=../../services/renderer/Dockerfile
 PATTERN=compose-constraints
 JEST_TIMEOUT_SECONDS=120
 
 SNAP=$(mktemp -d)
 cp "$COMPOSE" "$SNAP/compose.yml"
 cp "$MINIO_DOCKERFILE" "$SNAP/Dockerfile"
+cp "$RENDER_DOCKERFILE" "$SNAP/render.Dockerfile"
 fail=0
 # Outcome counters. The final verdict is arithmetic over these, not an absence
 # of FAIL lines: a harness that dies before running a mutation prints no FAIL.
-EXPECT_MUTATIONS=16
+EXPECT_MUTATIONS=21
 EXPECT_CONTROLS=2
 caught=0
 green=0
@@ -41,15 +43,18 @@ green=0
 restore_all() {
   cp "$SNAP/compose.yml" "$COMPOSE"
   cp "$SNAP/Dockerfile" "$MINIO_DOCKERFILE"
+  cp "$SNAP/render.Dockerfile" "$RENDER_DOCKERFILE"
 }
 verify_restored() {
-  if ! diff -q "$SNAP/compose.yml" "$COMPOSE" >/dev/null || ! diff -q "$SNAP/Dockerfile" "$MINIO_DOCKERFILE" >/dev/null; then
+  if ! diff -q "$SNAP/compose.yml" "$COMPOSE" >/dev/null || ! diff -q "$SNAP/Dockerfile" "$MINIO_DOCKERFILE" >/dev/null \
+    || ! diff -q "$SNAP/render.Dockerfile" "$RENDER_DOCKERFILE" >/dev/null; then
     echo "FATAL: failed to restore the pristine files"
     exit 1
   fi
 }
 on_exit() {
-  if ! diff -q "$SNAP/compose.yml" "$COMPOSE" >/dev/null || ! diff -q "$SNAP/Dockerfile" "$MINIO_DOCKERFILE" >/dev/null; then
+  if ! diff -q "$SNAP/compose.yml" "$COMPOSE" >/dev/null || ! diff -q "$SNAP/Dockerfile" "$MINIO_DOCKERFILE" >/dev/null \
+    || ! diff -q "$SNAP/render.Dockerfile" "$RENDER_DOCKERFILE" >/dev/null; then
     echo "NOTE: restored from the pristine snapshot"
     restore_all
   fi
@@ -84,7 +89,8 @@ apply() {
   echo "$(printf %s "$kind" | tr a-z A-Z): $label"
   echo "=============================================================="
   "$@"
-  if diff -q "$SNAP/compose.yml" "$COMPOSE" >/dev/null && diff -q "$SNAP/Dockerfile" "$MINIO_DOCKERFILE" >/dev/null; then
+  if diff -q "$SNAP/compose.yml" "$COMPOSE" >/dev/null && diff -q "$SNAP/Dockerfile" "$MINIO_DOCKERFILE" >/dev/null \
+    && diff -q "$SNAP/render.Dockerfile" "$RENDER_DOCKERFILE" >/dev/null; then
     echo "ERROR: mutation matched nothing -- the code shape changed and this"
     echo "       mutation no longer applies. Update it; do NOT treat this as a pass."
     fail=1
@@ -93,6 +99,7 @@ apply() {
   echo "--- diff actually applied ---"
   diff "$SNAP/compose.yml" "$COMPOSE"
   diff "$SNAP/Dockerfile" "$MINIO_DOCKERFILE"
+  diff "$SNAP/render.Dockerfile" "$RENDER_DOCKERFILE"
   echo "-----------------------------"
 }
 
@@ -226,6 +233,29 @@ run_mutation "the media worker's /tmp loses its size limit" \
 run_mutation "the agents worker is stopped after docker's default 10 seconds" \
   edit "$COMPOSE" '    stop_grace_period: 90s
     # Frames are' '    # Frames are'
+
+# --- the render worker ---------------------------------------------------------
+run_mutation "the render worker loses its shared memory size" \
+  edit "$COMPOSE" '    shm_size: 1gb
+' ''
+
+run_mutation "the render worker is handed the localization object-store key" \
+  edit "$COMPOSE" '      RENDER_CONCURRENCY: ${RENDER_CONCURRENCY:-1}
+' '      RENDER_CONCURRENCY: ${RENDER_CONCURRENCY:-1}
+      LOC_S3_SECRET_ACCESS_KEY: ${LOC_S3_SECRET_ACCESS_KEY}
+'
+
+run_mutation "the render worker ignores RENDER_CONCURRENCY" \
+  edit "$COMPOSE" 'RENDER_CONCURRENCY: ${RENDER_CONCURRENCY:-1}' 'RENDER_CONCURRENCY: 8'
+
+run_mutation "the renderer image downloads Chrome without checking its hash" \
+  edit "$RENDER_DOCKERFILE" '    echo "${sum}  /tmp/chrome.zip" | sha256sum -c -; \
+' ''
+
+run_mutation "the layout stage and the renderer are pointed at different fonts" \
+  edit "$COMPOSE" '      CAPTION_FONT_PATH: ${CAPTION_FONT_PATH:-/assets/fonts/BeVietnamPro-SemiBold.ttf}
+      COVER_COLOR' '      CAPTION_FONT_PATH: ${CAPTION_FONT_PATH:-/assets/fonts/Other.ttf}
+      COVER_COLOR'
 
 # --- controls: not invariants, must stay green --------------------------------
 run_control "change the Langfuse public URL" \
