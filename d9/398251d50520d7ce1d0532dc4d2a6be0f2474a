@@ -1,0 +1,30 @@
+plans/261026-0147-video-localization-workflow/plan.md
+  s_92153f0c6ce139::t_f96eca6d541dff 189
+plans/261026-0147-video-localization-workflow/reports/gate-results.md
+  s_92153f0c6ce139::t_f96eca6d541dff 3,8,92-93
+  s_92153f0c6ce139::t_c8b46d0478e0e1 72-89,94-96,106
+  s_92153f0c6ce139::t_6c8b9734d035a3 90-91
+services/localization/spikes/g2_voicestudio.py
+  s_92153f0c6ce139::t_b65b0f881ea2f1 31-33,128,134-138,153-160
+  s_92153f0c6ce139::t_c01be7a2ee38f1 35,111-114,119-120
+services/localization/spikes/g2_alignment_sheet.py
+  s_92153f0c6ce139::t_c2498be3c1931c 1-151
+plans/261026-0147-video-localization-workflow/phase-00-infra-and-spike-gate.md
+  s_92153f0c6ce139::t_54f2353f1615e7 167
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d9398251d50520d7ce1d0532dc4d2a6be0f2474a",
+  "prompts": {},
+  "sessions": {
+    "s_92153f0c6ce139": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "30235d5c-3b00-4588-94b5-c8a55a5f2e99",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
