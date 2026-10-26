@@ -1,0 +1,55 @@
+.env.example
+  s_8bcbfc0b728659::t_e8c6885ceceaf8 40-83
+scripts/run-mutations.sh
+  s_8bcbfc0b728659::t_88184fdaffd424 60-61,73,79,87
+infra/minio/Dockerfile
+  s_8bcbfc0b728659::t_7596324e6d4f70 1-7
+infra/redis/users.acl
+  s_8bcbfc0b728659::t_7596324e6d4f70 1-6
+  s_8bcbfc0b728659::t_ad01a8d68faf90 7-10
+services/downloader/test/compose-constraints.spec.ts
+  s_8bcbfc0b728659::t_311aaea540f064 89-100
+  s_8bcbfc0b728659::t_936214a1f770b6 16-19,21-22,63-88,101-204,206-212,214-237,239-240,244-252,257-279
+  s_8bcbfc0b728659::t_cf9eb1d8bf8313 253-256
+  s_8bcbfc0b728659::t_01b99031eb57ca 205,213,238,241-243
+infra/temporal/namespace-init.sh
+  s_8bcbfc0b728659::t_877c0b172e826b 1-19
+infra/clickhouse/low-memory.xml
+  s_8bcbfc0b728659::t_877c0b172e826b 1-14
+infra/postgres/create-databases.sh
+  s_8bcbfc0b728659::t_7596324e6d4f70 1-53
+infra/minio/init.sh
+  s_8bcbfc0b728659::t_877c0b172e826b 1-92
+.gitignore
+  s_8bcbfc0b728659::t_f8b10a14e3717d 23-25
+  s_8bcbfc0b728659::t_d83f5a79a10e72 22
+services/downloader/test/mutations/phase-infra.sh
+  s_8bcbfc0b728659::t_51f19f0dde6c5a 1-33,40-83,85-105,107-108,111-123,125-196,199-210,215-219
+  s_8bcbfc0b728659::t_34231056eb44c4 34-39,84,106,109-110,124,211-214
+  s_8bcbfc0b728659::t_391ddddc945b95 197-198
+infra/temporal/schema-init.sh
+  s_8bcbfc0b728659::t_877c0b172e826b 1-15
+docker-compose.yml
+  s_8bcbfc0b728659::t_39cec45b7f9e6a 281-286,398-403
+  s_8bcbfc0b728659::t_bb20c55843338d 378-379
+  s_8bcbfc0b728659::t_bdbbc23901e052 120-121,136-148,151-152,190-280,287-305,307-357,374-377,380-395,404-407,410-411
+  s_8bcbfc0b728659::t_e91fd8ad734f62 306
+  s_8bcbfc0b728659::t_e42c3af2904dde 149-150
+  s_8bcbfc0b728659::t_06dae42376c3b2 1-19,358-373,396-397
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "35e837ab21fc295b87124922feaffd034f555cb6",
+  "prompts": {},
+  "sessions": {
+    "s_8bcbfc0b728659": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ada12eee-662a-412c-a049-157635af2b9d",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
