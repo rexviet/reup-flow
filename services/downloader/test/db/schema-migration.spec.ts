@@ -13,7 +13,7 @@ import { getTableConfig } from 'drizzle-orm/pg-core';
 import type { Pool } from 'pg';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { jobs, profiles, videos } from '../../src/db/schema';
+import { jobs, localizationOutbox, profiles, videos } from '../../src/db/schema';
 import {
   applyForwardMigration,
   applyRollbackMigration,
@@ -56,14 +56,15 @@ describe('phase 1: init migration and schema.ts agree', () => {
     await dropSchema(SCHEMA);
   });
 
-  it('creates exactly the three tables the design specifies', async () => {
-    expect(await tableNames(pool)).toEqual(['jobs', 'profiles', 'videos']);
+  it('creates exactly the tables the design specifies', async () => {
+    expect(await tableNames(pool)).toEqual(['jobs', 'localization_outbox', 'profiles', 'videos']);
   });
 
   describe.each([
     ['profiles', profiles],
     ['jobs', jobs],
     ['videos', videos],
+    ['localization_outbox', localizationOutbox],
   ])('%s columns match the migration', (tableName, table) => {
     it('has the same column set, types and nullability in both directions', async () => {
       const { rows } = await pool.query<{
@@ -97,7 +98,7 @@ describe('phase 1: init migration and schema.ts agree', () => {
   });
 
   it('creates every index schema.ts declares, and no others', async () => {
-    const declared = [profiles, jobs, videos].flatMap((table) =>
+    const declared = [profiles, jobs, videos, localizationOutbox].flatMap((table) =>
       getTableConfig(table).indexes.map((idx) => idx.config.name!),
     );
 
@@ -108,7 +109,7 @@ describe('phase 1: init migration and schema.ts agree', () => {
     // Primary-key indexes are created by the PK constraint, not by an
     // index() call in schema.ts, so they are not part of this comparison.
     const pkNames = new Set(
-      [profiles, jobs, videos].map((t) => `${getTableConfig(t).name}_pkey`),
+      [profiles, jobs, videos, localizationOutbox].map((t) => `${getTableConfig(t).name}_pkey`),
     );
     const actual = rows.filter((r) => !pkNames.has(r.indexname));
 
@@ -123,6 +124,7 @@ describe('phase 1: init migration and schema.ts agree', () => {
       videos_pending_claim_idx: "status = 'pending'",
       videos_downloading_lease_idx: "status = 'downloading'",
       jobs_enumerating_lease_idx: "status = 'enumerating'",
+      localization_outbox_due_idx: "state = 'pending'",
     };
 
     const { rows } = await pool.query<{ indexname: string; indexdef: string }>(
@@ -150,6 +152,7 @@ describe('phase 1: init migration and schema.ts agree', () => {
       jobs_status_created_idx: '(status, created_at)',
       jobs_enumerating_lease_idx: '(status, lease_expires_at)',
       jobs_sec_user_id_idx: '(sec_user_id)',
+      localization_outbox_due_idx: '(next_attempt_at)',
     };
 
     const { rows } = await pool.query<{ indexname: string; indexdef: string }>(
@@ -171,7 +174,7 @@ describe('phase 1: init migration and schema.ts agree', () => {
     // Re-runnable: an operator who rolls back and re-applies must not need to
     // hand-clean leftovers first.
     await applyForwardMigration(pool);
-    expect(await tableNames(pool)).toEqual(['jobs', 'profiles', 'videos']);
+    expect(await tableNames(pool)).toEqual(['jobs', 'localization_outbox', 'profiles', 'videos']);
   });
 });
 

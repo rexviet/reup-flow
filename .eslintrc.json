@@ -11,6 +11,22 @@
   },
   "overrides": [
     {
+      "files": ["services/downloader/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["@temporalio/*"],
+                "message": "The downloader never talks to Temporal: it writes localization_outbox in markDone's transaction and stops. The workflow engine is the localization service's concern."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "files": [
         "services/downloader/src/jobs/**",
         "services/downloader/src/videos/**",
@@ -21,6 +37,10 @@
           "error",
           {
             "patterns": [
+              {
+                "group": ["@temporalio/*"],
+                "message": "The downloader never talks to Temporal: it writes localization_outbox in markDone's transaction and stops. The workflow engine is the localization service's concern."
+              },
               {
                 "group": ["**/lanes/**", "**/lanes"],
                 "message": "The HTTP layer never calls a lane (plan.md §0 principle 1): Postgres is the only channel between the two. A controller/service under jobs/, videos/, or cookie/ must write a row and stop -- the lane picks it up on its own poll."

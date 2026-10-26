@@ -1,7 +1,7 @@
 import { and, count, desc, eq, gt, inArray, isNotNull, lt, notExists, sql } from 'drizzle-orm';
 import type { Executor } from './executor';
 import { redactor } from '../redaction/redactor';
-import { jobs, videos, type Video } from './schema';
+import { jobs, localizationOutbox, videos, type Video } from './schema';
 
 export interface ClaimOptions {
   /** How long a claim is valid before the reaper may hand it to someone else. */
@@ -239,10 +239,19 @@ export async function markDone(
   awemeId: string,
   storagePath: string,
 ): Promise<void> {
-  await exec
-    .update(videos)
-    .set({ status: 'done', storagePath, leaseExpiresAt: null })
-    .where(eq(videos.awemeId, awemeId));
+  // The outbox row and the `done` flip MUST commit together. Separately, a
+  // crash between them leaves a finished video nobody will ever localize (flip
+  // first) or an outbox row for a video that is not done (insert first), and
+  // nothing downstream can tell either apart from normal state. `transaction`
+  // on a transaction handle nests as a savepoint, so a caller that already
+  // holds one keeps atomicity too.
+  await exec.transaction(async (tx) => {
+    await tx
+      .update(videos)
+      .set({ status: 'done', storagePath, leaseExpiresAt: null })
+      .where(eq(videos.awemeId, awemeId));
+    await tx.insert(localizationOutbox).values({ awemeId }).onConflictDoNothing();
+  });
 }
 
 /**

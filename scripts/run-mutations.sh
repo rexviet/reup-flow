@@ -59,6 +59,7 @@ HARNESS_DIR=services/downloader/test/mutations
 # 图文 image-post guard, added 2026-08-26: +4 mutations, +2 controls).
 # Totals: 139 mutations, 17 controls, plus `infra` (the localization compose
 # guards, added with the video-localization plan's phase 00): +11, +2 => 150, 19.
+# `12` (localization_outbox atomicity, same plan): +1, +0 => 151, 19.
 # The phase 0 spike mutations (test/spike-cookie-swap/mutations, and the SKIP
 # LOCKED / compose pair inlined in ci.yml) are deliberately NOT here: they need
 # a built parser image or a compose file edit, and are gated separately in CI.
@@ -71,6 +72,7 @@ EXPECT="
 06:14:3
 07:28:5
 infra:11:2
+12:1:0
 "
 
 # Files any harness in the set is allowed to touch. Checksummed before and after
