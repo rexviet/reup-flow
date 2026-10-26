@@ -18,6 +18,10 @@ _PROMPT = (
 _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$")
 
 
+def _mime(image: bytes) -> str:
+    return "image/jpeg" if image[:2] == b"\xff\xd8" else "image/png"
+
+
 class VisionOcr:
     """Asks a vision model (chat completions) where the burned-in subtitle band is."""
 
@@ -66,7 +70,7 @@ class VisionOcr:
                             {"type": "text", "text": _PROMPT},
                             {
                                 "type": "image_url",
-                                "image_url": {"url": f"data:image/png;base64,{image}"},
+                                "image_url": {"url": f"data:{_mime(frame_png)};base64,{image}"},
                             },
                         ],
                     }

@@ -33,7 +33,7 @@ cp "$MINIO_DOCKERFILE" "$SNAP/Dockerfile"
 fail=0
 # Outcome counters. The final verdict is arithmetic over these, not an absence
 # of FAIL lines: a harness that dies before running a mutation prints no FAIL.
-EXPECT_MUTATIONS=14
+EXPECT_MUTATIONS=16
 EXPECT_CONTROLS=2
 caught=0
 green=0
@@ -219,6 +219,13 @@ run_mutation "the agents worker publishes a port on every interface" \
     ports:
       - "8080:8080"
 '
+
+run_mutation "the media worker's /tmp loses its size limit" \
+  edit "$COMPOSE" '      - /tmp:size=4g,mode=1777' '      - /tmp:mode=1777'
+
+run_mutation "the agents worker is stopped after docker's default 10 seconds" \
+  edit "$COMPOSE" '    stop_grace_period: 90s
+    # Frames are' '    # Frames are'
 
 # --- controls: not invariants, must stay green --------------------------------
 run_control "change the Langfuse public URL" \

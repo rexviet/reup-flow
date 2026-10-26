@@ -1,10 +1,13 @@
 """Step 2a: speech to text on the isolated vocals, regrouped by silence."""
 
 import asyncio
+import tempfile
+from pathlib import Path
 
 from temporalio import activity
 
 from localization.activities.errors import provider_errors
+from localization.activities.ffmpeg import run_blocking, to_stt_audio
 from localization.activities.persist import put_json
 from localization.contracts import (
     LocalizationInput,
@@ -68,6 +71,14 @@ def regroup(doc: TranscriptDocument) -> TranscriptDocument:
     )
 
 
+def _for_stt(stem: bytes) -> bytes:
+    with tempfile.TemporaryDirectory(prefix="stt-") as tmp:
+        source, converted = Path(tmp) / "stem.wav", Path(tmp) / "stt.wav"
+        source.write_bytes(stem)
+        to_stt_audio(source, converted)
+        return converted.read_bytes()
+
+
 class TranscribeActivity:
     def __init__(self, store: ObjectStore, stt: SttProvider) -> None:
         self._store = store
@@ -77,8 +88,9 @@ class TranscribeActivity:
     async def transcribe(self, spec: LocalizationInput, vocals_key: str) -> Transcript:
         tag_session(spec.aweme_id)
         # `ingest` produced the vocals; if they are gone the workflow re-runs it.
-        audio = await asyncio.to_thread(self._store.get_bytes, vocals_key, produced_by="ingest")
+        stem = await asyncio.to_thread(self._store.get_bytes, vocals_key, produced_by="ingest")
         with provider_errors():
+            audio = await run_blocking(_for_stt, stem)
             doc = regroup(await self._stt.transcribe(audio, filename="vocals.wav"))
         key = work_key(spec.aweme_id, 0, "transcript.json")
         await asyncio.to_thread(put_json, self._store, key, doc)

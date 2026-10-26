@@ -249,10 +249,14 @@ class FakeSeparator:
     def __init__(self, tmp: Path) -> None:
         self.tmp = tmp
         self.inputs: list[Path] = []
+        self.durations: list[int] = []
         self.work_dir: Path | None = None
 
-    def separate(self, input_path: Path) -> tuple[Path, Path, Path]:
+    def separate(
+        self, input_path: Path, duration_ms: int = 0, cancel: object | None = None
+    ) -> tuple[Path, Path, Path]:
         self.inputs.append(input_path)
+        self.durations.append(duration_ms)
         self.work_dir = self.tmp / f"stems-{uuid.uuid4().hex[:6]}"
         self.work_dir.mkdir()
         vocals, bgm = self.work_dir / "vocals.wav", self.work_dir / "no_vocals.wav"
@@ -275,6 +279,7 @@ async def test_ingest_stores_vocals_and_background_and_reports_the_video(
     assert (result.width, result.height, result.fps) == (320, 240, 10)
     assert 2900 <= result.duration_ms <= 3100
     assert separator.inputs[0].suffix == ".wav"
+    assert separator.durations == [result.duration_ms]  # the timeout follows the media
     assert separator.work_dir is not None and not separator.work_dir.exists()
 
 
@@ -344,19 +349,54 @@ class FakeStt:
         return self.doc
 
 
-async def test_transcribe_stores_the_regrouped_transcript(store: ObjectStore) -> None:
+def _stem(tmp_path: Path) -> bytes:
+    """A 44.1 kHz stereo WAV, like a Demucs stem."""
+    path = tmp_path / "stem.wav"
+    _ffmpeg(
+        "-f", "lavfi", "-i", "sine=frequency=300:duration=2", "-ac", "2", "-ar", "44100", str(path)
+    )
+    return path.read_bytes()
+
+
+def _audio_format(wav: bytes, tmp_path: Path) -> tuple[int, int]:
+    path = tmp_path / "probe.wav"
+    path.write_bytes(wav)
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries",
+         "stream=sample_rate,channels", "-of", "json", str(path)],
+        check=True, capture_output=True,
+    ).stdout  # fmt: skip
+    stream = json.loads(out)["streams"][0]
+    return int(stream["sample_rate"]), int(stream["channels"])
+
+
+async def test_transcribe_stores_the_regrouped_transcript(
+    store: ObjectStore, tmp_path: Path
+) -> None:
     spec = make_input()
     vocals = work_key("7001", 0, "vocals.wav")
-    store.put_bytes(vocals, b"RIFF-vocals")
+    store.put_bytes(vocals, _stem(tmp_path))
     stt = FakeStt(_doc([("你", 0, 300), ("好", 900, 1000)]))
     result = await ActivityEnvironment().run(
         TranscribeActivity(store, stt).transcribe, spec, vocals
     )
-    assert stt.audio == [b"RIFF-vocals"]
     assert result.segment_count == 2
     stored = json.loads(store.get_bytes(result.transcript_key, produced_by="transcribe"))
     assert [s["text"] for s in stored["segments"]] == ["你", "好"]
     assert result.transcript_key == work_key("7001", 0, "transcript.json")
+
+
+async def test_stt_gets_16khz_mono_not_the_44khz_stereo_stem(
+    store: ObjectStore, tmp_path: Path
+) -> None:
+    vocals = work_key("7001", 0, "vocals.wav")
+    stem = _stem(tmp_path)
+    store.put_bytes(vocals, stem)
+    stt = FakeStt(_doc([]))
+    await ActivityEnvironment().run(TranscribeActivity(store, stt).transcribe, make_input(), vocals)
+    assert _audio_format(stem, tmp_path) == (44100, 2)
+    assert _audio_format(stt.audio[0], tmp_path) == (16000, 1)
+    assert len(stt.audio[0]) < len(stem) / 2
 
 
 async def test_transcribe_of_lost_vocals_names_ingest_as_its_producer(store: ObjectStore) -> None:
@@ -403,8 +443,9 @@ def test_a_single_detection_is_not_a_subtitle_and_none_means_no_region() -> None
 
 
 class FakeOcr:
-    def __init__(self, answers: dict[int, BBox]) -> None:
+    def __init__(self, answers: dict[int, BBox], expect_size: tuple[int, int] = (320, 240)) -> None:
         self.answers = answers
+        self.expect_size = expect_size
         self.calls = 0
         self.running = 0
         self.max_running = 0
@@ -416,8 +457,8 @@ class FakeOcr:
         self.max_running = max(self.max_running, self.running)
         await asyncio.sleep(0.05)
         self.running -= 1
-        assert frame_png[:4] == b"\x89PNG"
-        assert (width, height) == (320, 240)
+        assert frame_png[:2] == b"\xff\xd8"  # a JPEG, not a PNG
+        assert (width, height) == self.expect_size
         return self.answers.get(index)
 
 
@@ -460,7 +501,13 @@ async def test_persist_json_writes_under_work_and_refuses_anywhere_else(
     key = work_key("7001", 1, "script.json")
     await ActivityEnvironment().run(persist, key, {"b": 2, "a": "đ"})
     assert json.loads(store.get_bytes(key, produced_by="x")) == {"a": "đ", "b": 2}
-    for bad in ("output/7001.mp4", "source/7001.mp4", "cache/tts/" + "a" * 64 + ".wav"):
+    for bad in (
+        "output/7001.mp4",
+        "source/7001.mp4",
+        "cache/tts/" + "a" * 64 + ".wav",
+        work_key("7001", 0, "vocals.wav"),  # under work/, but not a JSON document
+        "work/not-a-video/r0/x.json",
+    ):
         with pytest.raises(ApplicationError) as caught:
             await ActivityEnvironment().run(persist, bad, {})
         assert caught.value.non_retryable is True
@@ -469,11 +516,113 @@ async def test_persist_json_writes_under_work_and_refuses_anywhere_else(
 
 def test_queue_limits_come_from_settings() -> None:
     settings = Settings(
-        stt_concurrency=1, tts_concurrency=2, media_concurrency=3, llm_concurrency=5
+        stt_concurrency=1,
+        tts_concurrency=2,
+        media_concurrency=3,
+        llm_concurrency=5,
+        io_concurrency=2,
     )
     store = ObjectStore(object(), BUCKET)
     agents = {s.name: s.limit for s in queue_specs("agents", settings, store, _providers())}
     media = {s.name: s.limit for s in queue_specs("media", settings, store, _providers())}
-    assert agents == {"workflows": None, "llm": 5, "io": None, "stt": 1, "tts": 2}
+    assert agents == {"workflows": None, "llm": 5, "io": 2, "stt": 1, "tts": 2}
     assert media == {"media": 3}
     assert dataclasses.is_dataclass(QueueSpec)
+
+
+# --- disk, scale and heartbeat ----------------------------------------------------------
+
+
+@pytest.fixture
+def long_video(tmp_path: Path) -> Path:
+    path = tmp_path / "long.mp4"
+    _ffmpeg(
+        "-f", "lavfi", "-i", "testsrc=size=320x240:rate=10:duration=20",
+        "-pix_fmt", "yuv420p", str(path),
+    )  # fmt: skip
+    return path
+
+
+class DiskWatchingOcr(FakeOcr):
+    """Counts the frame files on disk at the moment each frame is being read."""
+
+    def __init__(self, root: Path) -> None:
+        super().__init__({})
+        self.root = root
+        self.on_disk: list[int] = []
+
+    async def detect_region(self, frame_png: bytes, width: int, height: int) -> BBox | None:
+        self.on_disk.append(len(list(self.root.rglob("frame-*.jpg"))))
+        return await super().detect_region(frame_png, width, height)
+
+
+async def test_frames_on_disk_never_exceed_one_chunk_however_long_the_video(
+    store: ObjectStore, long_video: Path, tmp_path: Path
+) -> None:
+    spec = make_input()
+    store.put_file(spec.video_key, long_video)
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    ocr = DiskWatchingOcr(scratch)
+    await ActivityEnvironment().run(
+        DetectSubtitlesActivity(store, ocr, chunk_frames=8, tmp_root=scratch).detect_subtitles,
+        spec,
+    )
+    assert ocr.calls == 40  # 20 s at 2 frames per second: five times the chunk
+    assert max(ocr.on_disk) <= 8, ocr.on_disk
+    assert max(ocr.on_disk) > 1, "the watcher saw no frames, so it proves nothing"
+    assert list(scratch.iterdir()) == []  # and nothing is left behind
+
+
+async def test_boxes_are_returned_in_source_pixels_when_frames_were_scaled(
+    store: ObjectStore, tmp_path: Path
+) -> None:
+    video = tmp_path / "big.mp4"
+    _ffmpeg(
+        "-f", "lavfi", "-i", "testsrc=size=2048x1152:rate=4:duration=2",
+        "-pix_fmt", "yuv420p", str(video),
+    )  # fmt: skip
+    spec = make_input()
+    store.put_file(spec.video_key, video)
+    # The model sees 1024x576, half the source in each direction.
+    seen = BBox(x=100, y=500, w=400, h=40)
+    ocr = FakeOcr({i: seen for i in range(4)}, expect_size=(1024, 576))
+    result = await ActivityEnvironment().run(
+        DetectSubtitlesActivity(store, ocr).detect_subtitles, spec
+    )
+    assert result.region == BBox(x=200, y=1000, w=800, h=80)
+
+
+class SlowStore(ObjectStore):
+    def put_file(self, key: str, path: Path, **kwargs) -> None:  # noqa: ANN003
+        import time
+
+        time.sleep(0.4)
+        super().put_file(key, path, **kwargs)
+
+
+async def test_ingest_heartbeats_while_the_stems_upload(
+    store: ObjectStore, video: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from localization.activities import ffmpeg
+
+    monkeypatch.setattr(ffmpeg, "HEARTBEAT_SECONDS", 0.05)
+    spec = make_input()
+    store.put_file(spec.video_key, video)
+    slow = SlowStore(store._client, BUCKET)
+    beats: list[object] = []
+    env = ActivityEnvironment()
+    env.on_heartbeat = lambda *details: beats.append(details)
+    separator = FakeSeparator(tmp_path)
+    # Uploads are the only slow step here, so every heartbeat after the separator
+    # returned was sent while uploading.
+    original = separator.separate
+
+    def separate(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        result = original(*args, **kwargs)
+        beats.clear()
+        return result
+
+    separator.separate = separate  # type: ignore[method-assign]
+    await env.run(IngestActivity(slow, separator).ingest, spec)
+    assert len(beats) >= 4, "no heartbeats while the stems were uploading"

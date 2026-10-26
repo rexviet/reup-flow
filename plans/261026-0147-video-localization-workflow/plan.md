@@ -186,7 +186,7 @@ Phase 00 ──GATE──> Phase 01..10
 
 ---
 
-> **Trạng thái 2026-10-26:** phase 00 `in-progress`. Hạ tầng xong; G1, G2, G3, G4, G6 đạt (G2 chấp nhận ở mức 9/10 theo quyết định của người dùng); G5 chưa chạy (thiếu nhãn bbox). Phase 01–04 đã làm xong (phase 04 còn bước thủ công cần cấu hình provider, xem phần Tiến độ của nó). G5 vẫn tạm bỏ qua. Xem phần "Tiến độ" trong [phase-00](./phase-00-infra-and-spike-gate.md) để biết việc còn lại và cách quay lại.
+> **Trạng thái 2026-10-26:** phase 00 `in-progress`. Hạ tầng xong; G1, G2, G3, G4, G6 đạt (G2 chấp nhận ở mức 9/10 theo quyết định của người dùng); G5 chưa chạy (thiếu nhãn bbox). Phase 01–03 đã làm xong. Phase 04 `in-progress`: code và test xong, còn bước thủ công cần cấu hình provider, áp migration lên `reup` và ghi lại histories replay từ provider thật (xem phần Tiến độ của nó). G5 vẫn tạm bỏ qua. Xem phần "Tiến độ" trong [phase-00](./phase-00-infra-and-spike-gate.md) để biết việc còn lại và cách quay lại.
 
 ## 4. Phase index
 
@@ -256,10 +256,10 @@ nhận đúng các biến của nó.
 | `LOC_DATABASE_URL` (role `localization`) | worker-agents, starter | — | 03 |
 | `OPENROUTER_BASE_URL`, `OPENROUTER_API_KEY` | worker-agents | `https://openrouter.ai/api/v1`, — | 03 |
 | `LOCALIZER_MODEL`, `DUBBER_MODEL`, `REVIEWER_MODEL`, `OCR_MODEL`, `OCR_BBOX_FORMAT`, `JUDGE_MODEL` | worker-agents | — | 03, 09 |
-| `VOICESTUDIO_URL` (https hoặc IP mạng riêng), `VOICESTUDIO_API_KEY`, `VOICESTUDIO_ALLOW_PRIVATE_HTTP_CIDRS` | worker-agents | —, —, `100.64.0.0/10` | 03 |
+| `VOICESTUDIO_URL` (https hoặc IP mạng riêng), `VOICESTUDIO_API_KEY`, `VOICESTUDIO_ALLOW_PRIVATE_HTTP_CIDRS` | worker-agents, **starter** (starter dùng để kiểm `VOICE_ID` có trong `GET /v1/audio/voices` trước khi dispatch; không dùng khi `VOICE_PROVIDER` khác `voicestudio`) | —, —, `100.64.0.0/10` | 03, 04 |
 | `TTS_MODEL`, `STT_MODEL` | worker-agents | — | 03 |
 | `TARGET_LANG`, `VOICE_PROVIDER`, `VOICE_ID`, `VOICE_SETTINGS_JSON` | starter | `vi`, `voicestudio`, —, `{}` | 04 |
-| `STT_CONCURRENCY`, `TTS_CONCURRENCY`, `MEDIA_CONCURRENCY`, `RENDER_CONCURRENCY`, `LLM_CONCURRENCY` | worker-* | `1`, `2`, `2`, `1`, `8` | 04, 07 |
+| `STT_CONCURRENCY`, `TTS_CONCURRENCY`, `MEDIA_CONCURRENCY`, `RENDER_CONCURRENCY`, `LLM_CONCURRENCY`, `IO_CONCURRENCY` | worker-* | `1`, `2`, `2`, `1`, `8`, `2` | 04, 07 |
 | `MAX_OPEN_WORKFLOWS`, `OUTBOX_MAX_ATTEMPTS` | starter | `10`, `5` | 04 |
 | `LOUDNESS_LUFS`, `TRUE_PEAK_DBTP` | worker-media | `-14`, `-1.5` | 06 |
 | `CAPTION_FONT_PATH`, `COVER_COLOR`, `COVER_OPACITY` | worker-media, worker-render | `assets/fonts/BeVietnamPro-SemiBold.ttf`, `#101010`, `0.92` | 07 |

@@ -3,6 +3,7 @@
 import asyncio
 import tempfile
 from collections.abc import Sequence
+from functools import partial
 from pathlib import Path
 
 from temporalio import activity
@@ -31,6 +32,10 @@ BAND_TENTHS = 10
 MIN_BAND_FRAMES = 2
 # One missed frame inside a subtitle does not split it into two cues.
 MAX_MISSED_FRAMES = 1
+# Longest side of a frame sent to the vision model.
+OCR_MAX_SIDE = 1024
+# Frames extracted to disk at once: four OCR batches.
+CHUNK_FRAMES = 4 * BATCH_SIZE
 
 
 def locate(
@@ -77,34 +82,84 @@ def _cue(first: int, last: int, duration_ms: int) -> SubtitleCue:
     return SubtitleCue(start_ms=start, end_ms=max(start, end))
 
 
+def ocr_size(width: int, height: int) -> tuple[int, int]:
+    """Frames are sent at this size, not the source's: it bounds both the bytes on
+    disk and the bytes sent to the vision model."""
+    factor = min(1.0, OCR_MAX_SIDE / max(width, height))
+    return max(1, round(width * factor)), max(1, round(height * factor))
+
+
+def to_source(box: BBox | None, scaled: tuple[int, int], source: tuple[int, int]) -> BBox | None:
+    """A box in the pixels of the scaled frame, in the pixels of the source."""
+    if box is None:
+        return None
+    fx, fy = source[0] / scaled[0], source[1] / scaled[1]
+    x, y = min(round(box.x * fx), source[0] - 1), min(round(box.y * fy), source[1] - 1)
+    w = max(1, min(round(box.w * fx), source[0] - x))
+    h = max(1, min(round(box.h * fy), source[1] - y))
+    return BBox(x=x, y=y, w=w, h=h)
+
+
 class DetectSubtitlesActivity:
-    def __init__(self, store: ObjectStore, ocr: OcrProvider) -> None:
+    def __init__(
+        self,
+        store: ObjectStore,
+        ocr: OcrProvider,
+        *,
+        chunk_frames: int = CHUNK_FRAMES,
+        tmp_root: Path | None = None,
+    ) -> None:
         self._store = store
         self._ocr = ocr
+        self._chunk_frames = chunk_frames
+        self._tmp_root = tmp_root
 
     @activity.defn(name="detect_subtitles")
     async def detect_subtitles(self, spec: LocalizationInput) -> SubtitleTrack:
         tag_session(spec.aweme_id)
         boxes: list[BBox | None] = []
-        with provider_errors(), tempfile.TemporaryDirectory(prefix="subs-") as tmp:
+        with (
+            provider_errors(),
+            tempfile.TemporaryDirectory(prefix="subs-", dir=self._tmp_root) as tmp,
+        ):
             root = Path(tmp)
             video = root / "source.mp4"
             await run_blocking(download_source, self._store, spec.video_key, video)
             info = await run_blocking(probe_video, video)
+            source = (info.width, info.height)
+            scaled = ocr_size(*source)
             frames_dir = root / "frames"
             frames_dir.mkdir()
-            frames = await run_blocking(extract_frames, video, frames_dir, SAMPLE_FPS)
-            for start in range(0, len(frames), BATCH_SIZE):
-                batch = frames[start : start + BATCH_SIZE]
-                pngs = [await asyncio.to_thread(p.read_bytes) for p in batch]
-                boxes.extend(
-                    await asyncio.gather(
-                        *(self._ocr.detect_region(png, info.width, info.height) for png in pngs)
+            while True:
+                # One chunk of frames on disk at a time, however long the video is.
+                frames = await run_blocking(
+                    partial(
+                        extract_frames,
+                        video,
+                        frames_dir,
+                        start_s=len(boxes) / SAMPLE_FPS,
+                        count=self._chunk_frames,
+                        fps=SAMPLE_FPS,
+                        width=scaled[0],
+                        height=scaled[1],
+                        at_end=bool(boxes)
+                        and len(boxes) * FRAME_INTERVAL_MS >= info.duration_ms - 1000,
                     )
                 )
-                for path in batch:
-                    path.unlink()
-                activity.heartbeat(len(boxes))
+                if not frames:
+                    break
+                for start in range(0, len(frames), BATCH_SIZE):
+                    batch = frames[start : start + BATCH_SIZE]
+                    images = [await asyncio.to_thread(p.read_bytes) for p in batch]
+                    found = await asyncio.gather(
+                        *(self._ocr.detect_region(img, *scaled) for img in images)
+                    )
+                    boxes.extend(to_source(box, scaled, source) for box in found)
+                    for path in batch:
+                        path.unlink()
+                    activity.heartbeat(len(boxes))
+                if len(frames) < self._chunk_frames:
+                    break
         region, cues = locate(boxes, info.width, info.height, info.duration_ms)
         document = SubtitleDocument(width=info.width, height=info.height, region=region, cues=cues)
         key = work_key(spec.aweme_id, 0, "subtitles.json")

@@ -66,6 +66,7 @@ class Settings(BaseSettings):
     media_concurrency: Concurrency = 2
     render_concurrency: Concurrency = 1
     llm_concurrency: Concurrency = 8
+    io_concurrency: Concurrency = 2
     max_open_workflows: Concurrency = 10
     outbox_max_attempts: Concurrency = 5
 

@@ -449,6 +449,7 @@ services:
     build: *localization-build
     restart: unless-stopped
     command: ["python", "-m", "localization.starter.outbox_starter"]
+    stop_grace_period: 15s
     environment:
       <<: *localization-env
       LOC_DATABASE_URL: ${LOC_DATABASE_URL}
@@ -474,6 +475,13 @@ services:
     build: *localization-build
     restart: unless-stopped
     command: ["python", "-m", "localization.workers.run", "agents"]
+    # Longer than the worker's graceful shutdown, so a stop lets running activities
+    # finish instead of killing them.
+    stop_grace_period: 90s
+    # Frames are extracted a chunk at a time (a few MB); a cap makes a runaway fill
+    # this volume and fail one activity, not the host's disk.
+    tmpfs:
+      - /tmp:size=512m,mode=1777
     environment:
       <<: [*localization-env, *localization-s3-env]
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
@@ -488,6 +496,7 @@ services:
       STT_CONCURRENCY: ${STT_CONCURRENCY:-1}
       TTS_CONCURRENCY: ${TTS_CONCURRENCY:-2}
       LLM_CONCURRENCY: ${LLM_CONCURRENCY:-8}
+      IO_CONCURRENCY: ${IO_CONCURRENCY:-2}
     depends_on:
       temporal-namespace-init:
         condition: service_completed_successfully
@@ -499,6 +508,11 @@ services:
     build: *localization-build
     restart: unless-stopped
     command: ["python", "-m", "localization.workers.run", "media"]
+    stop_grace_period: 90s
+    # Demucs works in /tmp: the extracted audio and both stems, per running
+    # separation (MEDIA_CONCURRENCY of them).
+    tmpfs:
+      - /tmp:size=4g,mode=1777
     environment:
       <<: [*localization-env, *localization-s3-env]
       MEDIA_CONCURRENCY: ${MEDIA_CONCURRENCY:-2}

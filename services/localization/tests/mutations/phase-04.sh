@@ -36,6 +36,8 @@ STARTER=src/localization/starter/outbox_starter.py
 WORKFLOW=src/localization/workflows/video_localization.py
 RUN=src/localization/workers/run.py
 PERSIST=src/localization/activities/persist.py
+INGEST=src/localization/activities/ingest.py
+DEMUCS=src/localization/providers/demucs.py
 TRANSCRIBE=src/localization/activities/transcribe.py
 DETECT=src/localization/activities/detect_subtitles.py
 FFMPEG=src/localization/activities/ffmpeg.py
@@ -54,12 +56,14 @@ T_VOICES=tests/providers/test_voices.py
 T_TRACING=tests/test_tracing.py
 T_DOCKER=tests/test_dockerfile.py
 T_SAFE=tests/test_demucs_safe.py
+T_SUPERVISE=tests/workers/test_supervise.py
+T_DEMUCS=tests/providers/test_demucs_runtime.py
 
-mp_init "$STARTER" "$WORKFLOW" "$RUN" "$PERSIST" "$TRANSCRIBE" "$DETECT" "$FFMPEG" "$TRACING" \
+mp_init "$STARTER" "$WORKFLOW" "$RUN" "$PERSIST" "$INGEST" "$DEMUCS" "$TRANSCRIBE" "$DETECT" "$FFMPEG" "$TRACING" \
   "$VOICES" "$DEMUCS_SAFE" "$DOCKERFILE" "$GRANTS"
 MP_TEST_CMD=(uv run pytest -q -p no:cacheprovider)
 
-mp_baseline "$T_START $T_GRANTS $T_PREP $T_CONC $T_REPLAY $T_VOICES $T_TRACING $T_DOCKER $T_SAFE"
+mp_baseline "$T_START $T_GRANTS $T_PREP $T_CONC $T_REPLAY $T_VOICES $T_TRACING $T_DOCKER $T_SAFE $T_SUPERVISE $T_DEMUCS"
 
 # --- 1. the workflow id is no longer the video and the generation ---------------
 mp_mutation "the workflow id carries a random suffix instead of being deterministic"
@@ -185,7 +189,7 @@ restore
 
 # --- 17. preparation activities ------------------------------------------------------------
 mp_mutation "persist_json writes under any prefix"
-apply_mutation "$PERSIST" '        if not key.startswith(PERSIST_PREFIX):' '        if False:' \
+apply_mutation "$PERSIST" '        if not PERSIST_KEY_RE.fullmatch(key):' '        if False:' \
   && expect_red "$T_PREP" "test_persist_json_writes_under_work_and_refuses_anywhere_else"
 restore
 
@@ -243,11 +247,111 @@ apply_mutation "$DEMUCS_SAFE" \
 restore
 
 # --- 20. the starter's grants ----------------------------------------------------------------------------
-mp_mutation "the starter role is granted INSERT and DELETE on the outbox"
+mp_mutation "the starter role may read every column of videos"
 apply_mutation "$GRANTS" \
-  'GRANT SELECT, UPDATE ON localization_outbox TO localization;' \
-  'GRANT SELECT, INSERT, UPDATE, DELETE ON localization_outbox TO localization;' \
+  'GRANT SELECT (aweme_id, sec_user_id, storage_path) ON videos TO localization;' \
+  'GRANT SELECT ON videos TO localization;' \
   && expect_red "$T_GRANTS" "test_the_starter_can_do_nothing_else"
+restore
+
+mp_mutation "the starter role may update the generation of an outbox row"
+apply_mutation "$GRANTS" \
+  'GRANT UPDATE (state, next_attempt_at,' \
+  'GRANT UPDATE (generation, state, next_attempt_at,' \
+  && expect_red "$T_GRANTS" "test_the_starter_can_do_nothing_else"
+restore
+
+# --- review fixes: disk, voice wiring, supervision, shutdown, throttle, outages ----------------------
+mp_mutation "frames are extracted for the whole video at once instead of a chunk at a time"
+apply_mutation "$DETECT" '                        count=self._chunk_frames,' '                        count=10**9,' \
+  && expect_red "$T_PREP" "test_frames_on_disk_never_exceed_one_chunk_however_long_the_video"
+restore
+
+mp_mutation "frames are sent to the vision model at source size"
+apply_mutation "$DETECT" \
+  '    factor = min(1.0, OCR_MAX_SIDE / max(width, height))' '    factor = 1.0' \
+  && expect_red "$T_PREP" "test_boxes_are_returned_in_source_pixels_when_frames_were_scaled"
+restore
+
+mp_mutation "the io queue has no concurrency limit"
+apply_mutation "$RUN" $'                settings.io_concurrency,\n' '' \
+  && expect_red "$T_CONC" "test_a_queue_never_runs_more_activities_than_its_limit"
+restore
+
+mp_mutation "a VoiceStudio voice is dispatched unchecked when VOICESTUDIO_URL is unset"
+apply_mutation "$STARTER" \
+  '        raise ConfigError("VOICESTUDIO_URL must be set to validate VOICE_ID")' \
+  '        return None' \
+  && expect_red "$T_START" \
+    "test_voicestudio_with_no_url_cannot_validate_and_so_refuses_to_dispatch" \
+    "test_the_default_wiring_refuses_a_voicestudio_voice_with_no_url"
+restore
+
+mp_mutation "another provider's voice is checked against the VoiceStudio list"
+apply_mutation "$STARTER" '        if settings.voice_provider != "voicestudio":' '        if False:' \
+  && expect_red "$T_START" \
+    "test_another_providers_voice_is_not_checked_against_the_voicestudio_list" \
+    "test_any_id_dispatches_for_a_provider_without_a_list"
+restore
+
+mp_mutation "a dead worker does not make the process exit with a failure"
+apply_mutation "$RUN" '    return 1 if died else 0' '    return 0' \
+  && expect_red "$T_SUPERVISE" "test_a_dead_worker_ends_the_process_with_a_failure_and_stops_the_rest"
+restore
+
+mp_mutation "activities get no grace period when a worker shuts down"
+apply_mutation "$RUN" \
+  '        graceful_shutdown_timeout=timedelta(seconds=GRACEFUL_SHUTDOWN_SECONDS),' \
+  '        graceful_shutdown_timeout=timedelta(0),' \
+  && expect_red "$T_SUPERVISE" "test_shutdown_lets_a_running_activity_finish"
+restore
+
+mp_mutation "the stems are uploaded without heartbeating"
+apply_mutation "$INGEST" \
+  '                    await run_blocking(self._put_stem, key, path)' \
+  '                    await __import__("asyncio").to_thread(self._put_stem, key, path)' \
+  && expect_red "$T_PREP" "test_ingest_heartbeats_while_the_stems_upload"
+restore
+
+mp_mutation "the Demucs timeout ignores the length of the media"
+apply_mutation "$DEMUCS" \
+  '        return max(self._timeout, TIMEOUT_PER_MEDIA_SECOND * duration_ms / 1000)' \
+  '        return self._timeout' \
+  && expect_red "$T_DEMUCS" \
+    "test_the_timeout_grows_with_the_media_but_never_below_the_floor" \
+    "test_a_long_video_is_given_the_time_its_length_needs"
+restore
+
+mp_mutation "cancelling an activity does not tell Demucs to stop"
+apply_mutation "$FFMPEG" $'            cancel.set()\n' $'            pass\n' \
+  && expect_red "$T_DEMUCS" "test_cancelling_the_activity_kills_the_demucs_process"
+restore
+
+mp_mutation "STT receives the 44.1 kHz stereo stem"
+apply_mutation "$TRANSCRIBE" \
+  '            audio = await run_blocking(_for_stt, stem)' '            audio = stem' \
+  && expect_red "$T_PREP" "test_stt_gets_16khz_mono_not_the_44khz_stereo_stem"
+restore
+
+mp_mutation "the claim drops FOR UPDATE SKIP LOCKED"
+apply_mutation "$STARTER" '                    LIMIT 1 FOR UPDATE SKIP LOCKED)' '                    LIMIT 1)' \
+  && expect_red "$T_START" "test_two_starters_start_each_generation_exactly_once"
+restore
+
+mp_mutation "the throttle forgets what this process has just started"
+apply_mutation "$STARTER" \
+  '        known = self._recent[-1][1] if self._recent else 0' '        known = 0' \
+  && expect_red "$T_START" "test_the_limit_holds_while_visibility_has_not_caught_up"
+restore
+
+mp_mutation "an unreachable Temporal counts against the row"
+apply_mutation "$STARTER" '        return exc.status in SYSTEMIC_STATUSES' '        return False' \
+  && expect_red "$T_START" "test_an_outage_never_kills_rows_and_is_not_counted_against_them"
+restore
+
+mp_mutation "persist_json accepts any key under work/"
+apply_mutation "$PERSIST" '        if not PERSIST_KEY_RE.fullmatch(key):' '        if not key.startswith("work/"):' \
+  && expect_red "$T_PREP" "test_persist_json_writes_under_work_and_refuses_anywhere_else"
 restore
 
 # --- control A: a constant that is not an invariant ------------------------------------------------------

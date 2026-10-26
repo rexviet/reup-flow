@@ -3,6 +3,7 @@ deterministic and does no I/O, so it hands the data to this activity."""
 
 import asyncio
 import json
+import re
 from typing import Any
 
 from pydantic import BaseModel
@@ -11,7 +12,8 @@ from temporalio.exceptions import ApplicationError
 
 from localization.storage.object_store import ObjectStore
 
-PERSIST_PREFIX = "work/"
+# A JSON document of one video, under its own work/ folder: never a media artifact.
+PERSIST_KEY_RE = re.compile(r"work/[0-9]{1,32}/.+\.json")
 
 
 def put_json(store: ObjectStore, key: str, document: BaseModel | Any) -> None:
@@ -31,9 +33,9 @@ class PersistActivity:
 
     @activity.defn(name="persist_json")
     async def persist_json(self, key: str, obj: Any) -> None:
-        if not key.startswith(PERSIST_PREFIX):
+        if not PERSIST_KEY_RE.fullmatch(key):
             raise ApplicationError(
-                f"persist_json writes only under {PERSIST_PREFIX}",
+                "persist_json writes only work/<video>/....json documents",
                 type="InvalidPersistKey",
                 non_retryable=True,
             )

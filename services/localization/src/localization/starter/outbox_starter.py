@@ -14,6 +14,8 @@ import logging
 import re
 import signal
 import sys
+import time
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
@@ -25,7 +27,7 @@ from pydantic import ValidationError
 from temporalio.client import Client
 from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
-from temporalio.service import RPCError
+from temporalio.service import RPCError, RPCStatusCode
 
 from localization.config import ConfigError, Settings, load_settings, voice_ref_from_settings
 from localization.contracts import LocalizationInput, VoiceRef
@@ -82,10 +84,43 @@ UPDATE localization_outbox
 """
 
 
+RELEASED_SQL = """
+UPDATE localization_outbox
+   SET last_error = %(error)s, next_attempt_at = now() + make_interval(secs => %(delay)s)
+ WHERE aweme_id = %(aweme_id)s AND generation = %(generation)s AND state = 'pending'
+"""
+
+# A start that fails like this says nothing about the row: Temporal is unreachable,
+# overloaded or refusing this client, and every other row would fail the same way.
+# Counting it would turn an outage into a queue of dead rows.
+SYSTEMIC_STATUSES = frozenset(
+    {
+        RPCStatusCode.UNAVAILABLE,
+        RPCStatusCode.DEADLINE_EXCEEDED,
+        RPCStatusCode.RESOURCE_EXHAUSTED,
+        RPCStatusCode.PERMISSION_DENIED,
+        RPCStatusCode.UNAUTHENTICATED,
+        RPCStatusCode.NOT_FOUND,  # the namespace
+        RPCStatusCode.CANCELLED,
+    }
+)
+# For this long after this process starts a workflow, the running count is at least
+# what this process knows it has reached: visibility lags, and without this the
+# limit is overshot right after a burst.
+RECENT_START_SECONDS = 3.0
+
+
+def is_systemic(exc: Exception) -> bool:
+    if isinstance(exc, RPCError):
+        return exc.status in SYSTEMIC_STATUSES
+    return isinstance(exc, OSError)
+
+
 class Outcome(enum.Enum):
     IDLE = "idle"
     THROTTLED = "throttled"
     CONFIG_ERROR = "config_error"
+    SYSTEMIC = "systemic"
     DISPATCHED = "dispatched"
     REJECTED = "rejected"
     FAILED = "failed"
@@ -131,7 +166,11 @@ class OutboxStarter:
         *,
         load: Callable[[], Settings] = load_settings,
         voices: Callable[[Settings], VoiceCatalog | None] | None = None,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
+        self._clock = clock
+        self._recent: deque[tuple[float, int]] = deque()  # (when, open count it reached)
+        self._open = 0
         self._database_url = database_url
         self._client = client
         self._load = load
@@ -139,8 +178,13 @@ class OutboxStarter:
         self._voices = voices or self._catalog_for
 
     def _catalog_for(self, settings: Settings) -> VoiceCatalog | None:
-        if not settings.voicestudio_url:
+        """The voice list to check VOICE_ID against, or None when the provider has
+        no list of ours to check. For VoiceStudio the list is required: without it
+        the server would silently replace an unknown id with a preset."""
+        if settings.voice_provider != "voicestudio":
             return None
+        if not settings.voicestudio_url:
+            raise ConfigError("VOICESTUDIO_URL must be set to validate VOICE_ID")
         key = (settings.voicestudio_url, settings.voice_id)
         if key not in self._catalogs:
             self._catalogs[key] = VoiceCatalog.from_settings(settings)
@@ -155,7 +199,12 @@ class OutboxStarter:
         count = await self._client.count_workflows(
             f'WorkflowType="{WORKFLOW_TYPE}" AND ExecutionStatus="Running"'
         )
-        return count.count
+        now = self._clock()
+        while self._recent and now - self._recent[0][0] > RECENT_START_SECONDS:
+            self._recent.popleft()
+        known = self._recent[-1][1] if self._recent else 0
+        self._open = max(count.count, known)
+        return self._open
 
     @staticmethod
     def _start_input(
@@ -218,6 +267,18 @@ class OutboxStarter:
             log.warning("rejected %s: %s", id_, exc)
             return Outcome.REJECTED
         except Exception as exc:  # noqa: BLE001 - any start failure is retried with backoff
+            if is_systemic(exc):
+                await conn.execute(
+                    RELEASED_SQL,
+                    {
+                        "error": f"{type(exc).__name__}: {str(exc)[:300]}",
+                        "delay": CONFIG_ERROR_SLEEP_SECONDS,
+                        "aweme_id": claimed.aweme_id,
+                        "generation": claimed.generation,
+                    },
+                )
+                log.warning("start of %s failed systemically: %s", id_, type(exc).__name__)
+                return Outcome.SYSTEMIC
             await conn.execute(
                 FAILED_SQL,
                 {
@@ -230,6 +291,7 @@ class OutboxStarter:
             )
             log.warning("dispatch of %s failed: %s", id_, type(exc).__name__)
             return Outcome.FAILED
+        self._recent.append((self._clock(), self._open + 1))
         await conn.execute(DISPATCHED_SQL, (id_, claimed.aweme_id, claimed.generation))
         log.info("dispatched %s", id_)
         return Outcome.DISPATCHED
@@ -258,6 +320,7 @@ class OutboxStarter:
             Outcome.IDLE: IDLE_SLEEP_SECONDS,
             Outcome.THROTTLED: THROTTLE_SLEEP_SECONDS,
             Outcome.CONFIG_ERROR: CONFIG_ERROR_SLEEP_SECONDS,
+            Outcome.SYSTEMIC: CONFIG_ERROR_SLEEP_SECONDS,
         }
         while not stop.is_set():
             try:

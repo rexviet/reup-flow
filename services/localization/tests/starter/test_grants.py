@@ -49,6 +49,9 @@ def test_the_starter_can_run_every_statement_it_uses(db: psycopg.Connection) -> 
 @pytest.mark.parametrize(
     "statement",
     [
+        "UPDATE localization_outbox SET generation = 9",  # re-running a video is an operator's
+        'SELECT "desc", play_addr FROM videos',
+        "SELECT enqueued_at FROM localization_outbox",
         "INSERT INTO localization_outbox (aweme_id) VALUES ('2')",
         "DELETE FROM localization_outbox",
         "UPDATE videos SET status = 'failed'",

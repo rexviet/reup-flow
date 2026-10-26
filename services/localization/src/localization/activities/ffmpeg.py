@@ -8,6 +8,7 @@ import asyncio
 import json
 import os
 import subprocess
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -134,7 +135,54 @@ def extract_audio(video: Path, out_wav: Path) -> None:
         raise PermanentProviderError("no_audio_track")
 
 
-def extract_frames(video: Path, out_dir: Path, fps: float) -> list[Path]:
+def extract_frames(
+    video: Path,
+    out_dir: Path,
+    *,
+    start_s: float,
+    count: int,
+    fps: float,
+    width: int,
+    height: int,
+    at_end: bool = False,
+) -> list[Path]:
+    """At most `count` JPEG frames sampled at `fps` from `start_s`, already scaled to
+    `width` x `height`. Small on purpose: the caller extracts a chunk at a time, so
+    the disk holds a bounded number of small files, never the whole video."""
+    result = _run(
+        [
+            "ffmpeg",
+            "-nostdin",
+            "-y",
+            "-v",
+            "error",
+            "-ss",
+            f"{start_s:.3f}",
+            "-i",
+            str(video),
+            "-vf",
+            f"fps={fps},scale={width}:{height}",
+            "-frames:v",
+            str(count),
+            "-an",
+            "-q:v",
+            "4",
+            str(out_dir / "frame-%06d.jpg"),
+        ],  # fmt: skip
+        what="ffmpeg",
+        timeout=300,
+    )
+    frames = sorted(out_dir.glob("frame-*.jpg"))
+    # Seeking to the end of the video writes nothing and ffmpeg exits non-zero. That
+    # is the end of the video only when the caller says it is at the end.
+    if result.returncode != 0 and not (at_end and not frames):
+        raise PermanentProviderError("ffmpeg: frames could not be extracted")
+    return frames
+
+
+def to_stt_audio(source: Path, out_wav: Path) -> None:
+    """16 kHz mono: what speech models consume, about a tenth of a 44.1 kHz stereo
+    stem, so a long video stays under a server's upload limit."""
     result = _run(
         [
             "ffmpeg",
@@ -143,26 +191,36 @@ def extract_frames(video: Path, out_dir: Path, fps: float) -> list[Path]:
             "-v",
             "error",
             "-i",
-            str(video),
-            "-vf",
-            f"fps={fps}",
-            "-an",
-            str(out_dir / "frame-%06d.png"),
+            str(source),
+            "-ac",
+            "1",
+            "-ar",
+            "16000",
+            str(out_wav),
         ],  # fmt: skip
         what="ffmpeg",
-        timeout=1800,
+        timeout=600,
     )
-    if result.returncode != 0:
-        raise PermanentProviderError("ffmpeg: frames could not be extracted")
-    return sorted(out_dir.glob("frame-*.png"))
+    if result.returncode != 0 or not out_wav.exists():
+        raise PermanentProviderError("ffmpeg: the audio could not be converted for STT")
 
 
-async def run_blocking(fn, *args, heartbeat_every: float = HEARTBEAT_SECONDS):
+async def run_blocking(
+    fn, *args, heartbeat_every: float | None = None, cancel: threading.Event | None = None
+):
     """Runs blocking work in a thread and heartbeats while it runs, so a stuck
-    activity is detected by its heartbeat timeout rather than only at the end."""
+    activity is detected by its heartbeat timeout rather than only at the end. A
+    thread cannot be interrupted, so on cancellation `cancel` is set: work that
+    owns a child process watches it and kills the child."""
+    interval = HEARTBEAT_SECONDS if heartbeat_every is None else heartbeat_every
     task = asyncio.ensure_future(asyncio.to_thread(fn, *args))
-    while True:
-        done, _ = await asyncio.wait({task}, timeout=heartbeat_every)
-        if done:
-            return task.result()
-        activity.heartbeat()
+    try:
+        while True:
+            done, _ = await asyncio.wait({task}, timeout=interval)
+            if done:
+                return task.result()
+            activity.heartbeat()
+    except asyncio.CancelledError:
+        if cancel is not None:
+            cancel.set()
+        raise

@@ -222,6 +222,7 @@ describe("docker-compose.yml localization infra", () => {
       "STT_CONCURRENCY",
       "TTS_CONCURRENCY",
       "LLM_CONCURRENCY",
+      "IO_CONCURRENCY",
     ],
     "worker-media": [...LOCALIZATION_COMMON, ...LOCALIZATION_S3, "MEDIA_CONCURRENCY"],
   };
@@ -304,6 +305,19 @@ describe("docker-compose.yml localization infra", () => {
       expect(keys(name)).not.toContain("S3_ACCESS_KEY_ID");
       expect(keys(name)).not.toContain("S3_SECRET_ACCESS_KEY");
     }
+  });
+
+  it("workers have a sized /tmp and time to finish what they are running when stopped", () => {
+    type Svc = { tmpfs?: string[]; stop_grace_period?: string };
+    for (const name of ["worker-agents", "worker-media"]) {
+      const svc = services[name] as unknown as Svc;
+      // Without a size limit a runaway extraction fills the host's disk.
+      expect(svc.tmpfs ?? []).toEqual([expect.stringMatching(/^\/tmp:size=\d+[mg],/)]);
+      // The worker's own graceful shutdown is 60 s; docker's default stop is 10 s.
+      expect(parseInt(String(svc.stop_grace_period), 10)).toBeGreaterThan(60);
+    }
+    const starter = services["localization-starter"] as unknown as Svc;
+    expect(starter.stop_grace_period).toBeDefined();
   });
 
   it("each localization process runs one role of the same image", () => {

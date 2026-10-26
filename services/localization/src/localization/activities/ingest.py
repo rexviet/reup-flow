@@ -1,8 +1,8 @@
 """Step 1: probe the video and split the voice from the background music."""
 
-import asyncio
 import shutil
 import tempfile
+import threading
 from pathlib import Path
 
 from temporalio import activity
@@ -36,19 +36,20 @@ class IngestActivity:
                 raise PermanentProviderError("no_audio_track")
             audio = root / "audio.wav"
             await run_blocking(extract_audio, video, audio)
-            stems_dir, vocals, background = await run_blocking(self._separator.separate, audio)
+            cancel = threading.Event()
+            stems_dir, vocals, background = await run_blocking(
+                self._separator.separate, audio, info.duration_ms, cancel, cancel=cancel
+            )
             try:
                 for path in (vocals, background):
                     if path.suffix != ".wav":
                         raise PermanentProviderError("demucs: stems are not WAV files")
                 vocals_key = work_key(spec.aweme_id, PREP_ROUND, "vocals.wav")
                 bgm_key = work_key(spec.aweme_id, PREP_ROUND, "bgm.wav")
-                await asyncio.to_thread(
-                    self._store.put_file, vocals_key, vocals, content_type="audio/wav"
-                )
-                await asyncio.to_thread(
-                    self._store.put_file, bgm_key, background, content_type="audio/wav"
-                )
+                # Heartbeating: two stems of a long video over a slow link can take
+                # longer than the heartbeat timeout.
+                for key, path in ((vocals_key, vocals), (bgm_key, background)):
+                    await run_blocking(self._put_stem, key, path)
             finally:
                 shutil.rmtree(stems_dir, ignore_errors=True)
         return IngestResult(
@@ -59,6 +60,9 @@ class IngestActivity:
             height=info.height,
             fps=info.fps,
         )
+
+    def _put_stem(self, key: str, path: Path) -> None:
+        self._store.put_file(key, path, content_type="audio/wav")
 
 
 def download_source(store: ObjectStore, key: str, path: Path) -> None:

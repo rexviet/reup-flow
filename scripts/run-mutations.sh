@@ -83,11 +83,14 @@ harness_dir() {
 # key prefix): +11, +2 => 167, 21.
 # `downloader:infra` gains the localization processes' compose guards (the media
 # worker holds no provider key, the starter holds no object-store key, no worker
-# publishes a port): +3, +0 => 14, 2.
+# publishes a port): +3, +0 => 14, 2; the workers' sized /tmp and stop grace period:
+# +2 => 16, 2.
 # `localization:04` (starter: deterministic id, generation, throttle, eligibility,
 # backoff, dead, no lock across the network, settle by generation, voice must
 # exist; workers: concurrency per queue; workflow: replay, once-per-stage rerun,
-# 2a || 2b; preparation activities; the image; tracing; grants): +26, +2.
+# 2a || 2b; preparation activities; the image; tracing; grants), then the review fixes (bounded frame extraction, voice wiring, worker
+# supervision and shutdown, heartbeats, Demucs timeout and cancel, STT downmix,
+# SKIP LOCKED, the throttle under lagging visibility, outage handling): +42, +2.
 # The phase 0 spike mutations (test/spike-cookie-swap/mutations, and the SKIP
 # LOCKED / compose pair inlined in ci.yml) are deliberately NOT here: they need
 # a built parser image or a compose file edit, and are gated separately in CI.
@@ -99,11 +102,11 @@ downloader:04:20:2
 downloader:05:36:4
 downloader:06:14:3
 downloader:07:28:5
-downloader:infra:14:2
+downloader:infra:16:2
 downloader:11:5:0
 downloader:12:1:0
 localization:03:11:2
-localization:04:26:2
+localization:04:42:2
 "
 
 # Files any harness in the set is allowed to touch. Checksummed before and after

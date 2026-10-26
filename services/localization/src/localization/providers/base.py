@@ -1,5 +1,6 @@
 """Shared plumbing for the OpenAI-compatible HTTP providers."""
 
+import threading
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
@@ -37,7 +38,9 @@ class OcrProvider(Protocol):
 
 @runtime_checkable
 class StemSeparator(Protocol):
-    def separate(self, input_path: Path) -> tuple[Path, Path, Path]: ...
+    def separate(
+        self, input_path: Path, duration_ms: int = ..., cancel: threading.Event | None = ...
+    ) -> tuple[Path, Path, Path]: ...
 
 
 class OpenAICompatClient:

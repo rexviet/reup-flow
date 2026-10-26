@@ -9,9 +9,9 @@ from dataclasses import dataclass
 import psycopg
 import pytest
 from temporalio.client import Client, WorkflowExecutionStatus
-from temporalio.service import RPCError
+from temporalio.service import RPCError, RPCStatusCode
 
-from localization.config import Settings
+from localization.config import ConfigError, Settings
 from localization.providers.voices import VoiceCatalog
 from localization.starter.outbox_starter import (
     BACKOFF_BASE_SECONDS,
@@ -113,6 +113,27 @@ async def started_input(client: Client, id_: str) -> dict:
 # --- ids and duplicates -----------------------------------------------------------
 
 
+class RecordingStarter(OutboxStarter):
+    """Records the rows it claims, and makes both starters reach their first claim
+    together, so the two SQL statements really contend for the same rows."""
+
+    barrier: asyncio.Barrier | None = None
+
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        super().__init__(*args, **kwargs)
+        self.claimed: list[str] = []
+        self._first = True
+
+    async def _claim(self, conn):  # noqa: ANN001, ANN202
+        if self._first and self.barrier is not None:
+            self._first = False
+            await self.barrier.wait()
+        row = await super()._claim(conn)
+        if row is not None:
+            self.claimed.append(row["aweme_id"])
+        return row
+
+
 async def test_two_starters_start_each_generation_exactly_once(
     db: tuple[str, psycopg.Connection], temporal_client: Client, env: Env
 ) -> None:
@@ -121,9 +142,16 @@ async def test_two_starters_start_each_generation_exactly_once(
     for aweme_id in ids:
         add_video(conn, aweme_id)
     client = CountingClient(temporal_client)
-    a, b = starter(info, client, env), starter(info, client, env)
+    RecordingStarter.barrier = asyncio.Barrier(2)
+    a = RecordingStarter(info, client, load=lambda: env.settings, voices=lambda s: None)
+    b = RecordingStarter(info, client, load=lambda: env.settings, voices=lambda s: None)
     await asyncio.gather(drain(a), drain(b))
 
+    # Both starters took part, and no row was claimed by both: the claim itself
+    # keeps them apart, not Temporal turning a duplicate start into a no-op.
+    assert a.claimed and b.claimed
+    assert not set(a.claimed) & set(b.claimed)
+    assert sorted(a.claimed + b.claimed) == sorted(ids)
     assert sorted(client.starts) == sorted(workflow_id(i, 1) for i in ids)
     assert len(client.starts) == len(set(client.starts)) == 6
     for aweme_id in ids:
@@ -286,7 +314,7 @@ async def test_a_row_without_a_video_is_rejected(
 class FailingClient(CountingClient):
     async def start_workflow(self, *args, **kwargs):  # noqa: ANN002, ANN003, ANN202
         self.starts.append(kwargs["id"])
-        raise RPCError("unavailable", 14, b"")  # type: ignore[arg-type]
+        raise RPCError("rejected", RPCStatusCode.INVALID_ARGUMENT, b"")
 
 
 async def test_a_row_that_fails_to_dispatch_five_times_is_dead(
@@ -332,7 +360,7 @@ async def test_a_failing_row_does_not_block_the_rows_behind_it(
     class FailsFirst(CountingClient):
         async def start_workflow(self, *args, **kwargs):  # noqa: ANN002, ANN003, ANN202
             if kwargs["id"] == workflow_id("7001", 1):
-                raise RPCError("unavailable", 14, b"")  # type: ignore[arg-type]
+                raise RPCError("rejected", RPCStatusCode.INVALID_ARGUMENT, b"")
             return await super().start_workflow(*args, **kwargs)
 
     outcomes = await drain(starter(info, FailsFirst(temporal_client), env))
@@ -487,3 +515,84 @@ async def test_an_unreachable_provider_pauses_dispatch_without_touching_the_row(
 
 def test_workflow_id_is_the_video_and_the_generation() -> None:
     assert workflow_id("7001", 4) == "video-7001-g4"
+
+
+# --- systemic failures, the throttle under lagging visibility, the voice wiring ------------
+
+
+class UnavailableClient(CountingClient):
+    async def start_workflow(self, *args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        self.starts.append(kwargs["id"])
+        raise RPCError("temporal is down", RPCStatusCode.UNAVAILABLE, b"")
+
+
+async def test_an_outage_never_kills_rows_and_is_not_counted_against_them(
+    db: tuple[str, psycopg.Connection], temporal_client: Client, env: Env
+) -> None:
+    info, conn = db
+    add_video(conn, "7001")
+    s = starter(info, UnavailableClient(temporal_client), env)
+    for _ in range(env.settings.outbox_max_attempts + 3):
+        conn.execute("UPDATE localization_outbox SET next_attempt_at = now()")
+        assert await s.run_once() == Outcome.SYSTEMIC
+    got = row(conn, "7001")
+    assert (got["state"], got["dispatch_attempts"]) == ("pending", 0)
+    assert got["waiting"] is True
+    assert got["last_error"].startswith("RPCError")
+
+
+class StaleVisibilityClient(CountingClient):
+    """count_workflows lags: it never sees what this process has started."""
+
+    async def count_workflows(self, *args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        return type("Count", (), {"count": 0})()
+
+
+async def test_the_limit_holds_while_visibility_has_not_caught_up(
+    db: tuple[str, psycopg.Connection], temporal_client: Client, env: Env
+) -> None:
+    info, conn = db
+    env.settings = Settings(voice_id="voice-a", s3_bucket=BUCKET, max_open_workflows=2)
+    for i in range(4):
+        add_video(conn, str(7001 + i))
+    client = StaleVisibilityClient(temporal_client)
+    outcomes = await drain(starter(info, client, env))
+    assert outcomes == [Outcome.DISPATCHED, Outcome.DISPATCHED, Outcome.THROTTLED]
+    assert len(client.starts) == 2
+
+
+def test_voicestudio_with_no_url_cannot_validate_and_so_refuses_to_dispatch() -> None:
+    s = OutboxStarter("unused", object(), load=lambda: Settings())  # type: ignore[arg-type]
+    with pytest.raises(ConfigError, match="VOICESTUDIO_URL"):
+        s._catalog_for(Settings(voice_id="v"))
+
+
+def test_another_providers_voice_is_not_checked_against_the_voicestudio_list() -> None:
+    s = OutboxStarter("unused", object(), load=lambda: Settings())  # type: ignore[arg-type]
+    settings = Settings(
+        voice_id="alloy", voice_provider="openai_compat", voicestudio_url="https://v"
+    )
+    assert s._catalog_for(settings) is None
+
+
+async def test_the_default_wiring_refuses_a_voicestudio_voice_with_no_url(
+    db: tuple[str, psycopg.Connection], temporal_client: Client, env: Env
+) -> None:
+    info, conn = db
+    add_video(conn, "7001")
+    default = OutboxStarter(info, temporal_client, load=lambda: env.settings)  # no `voices=`
+    assert await default.run_once() == Outcome.CONFIG_ERROR
+    assert row(conn, "7001")["state"] == "pending"
+    assert (await temporal_client.count_workflows()).count == 0
+
+
+async def test_any_id_dispatches_for_a_provider_without_a_list(
+    db: tuple[str, psycopg.Connection], temporal_client: Client, env: Env
+) -> None:
+    info, conn = db
+    add_video(conn, "7001")
+    env.settings = Settings(voice_id="alloy", voice_provider="openai_compat", s3_bucket=BUCKET)
+    default = OutboxStarter(info, temporal_client, load=lambda: env.settings)
+    assert await default.run_once() == Outcome.DISPATCHED
+    got = await started_input(temporal_client, workflow_id("7001", 1))
+    assert (got["voice"]["provider"], got["voice"]["voice_id"]) == ("openai_compat", "alloy")

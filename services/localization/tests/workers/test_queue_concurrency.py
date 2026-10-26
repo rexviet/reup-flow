@@ -80,6 +80,7 @@ def _specs(settings: Settings) -> dict[str, QueueSpec]:
         ("stt", "stt_concurrency", 1),
         ("tts", "tts_concurrency", 2),
         ("media", "media_concurrency", 2),
+        ("io", "io_concurrency", 2),
     ],
 )
 async def test_a_queue_never_runs_more_activities_than_its_limit(
