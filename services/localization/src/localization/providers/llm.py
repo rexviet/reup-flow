@@ -12,6 +12,10 @@ def model_for(role: Role, settings: Settings) -> OpenAIChatModel:
     """The chat model for an agent role, behind the configured OpenAI-compatible
     base URL (OpenRouter). The env value may carry pydantic-ai's `openai:` prefix."""
     name = getattr(settings, f"{role}_model")
+    if not name and role == "dubber":
+        # The Dubber shortens lines the Localizer wrote: until it has a model of its
+        # own it uses the Localizer's, so an env file from before it existed starts.
+        name = settings.localizer_model
     if not name:
         raise ConfigError(f"{role.upper()}_MODEL is not set")
     if settings.openrouter_api_key is None:

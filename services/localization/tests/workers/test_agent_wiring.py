@@ -140,14 +140,28 @@ def test_the_agents_worker_refuses_to_start_without_a_provider_key() -> None:
         bind_agent_runtime(settings, STORE)
 
 
-def test_the_agents_worker_refuses_to_start_without_a_dubber_model() -> None:
+def test_a_worker_without_a_dubber_model_uses_the_localizers() -> None:
+    """An env file from before the Dubber existed must still start the worker."""
+    settings = _settings(
+        loc_database_url="postgresql://x/y",  # type: ignore[arg-type]
+        localizer_model="openai:some/model",  # type: ignore[arg-type]
+        openrouter_api_key="k",  # type: ignore[arg-type]
+    )
+    bind_agent_runtime(settings, STORE)
+    factories = temporal_module._model_factories  # noqa: SLF001
+    assert factories[temporal_module.DUBBER_MODEL_ALIAS]().model_name == "some/model"
+
+
+def test_an_empty_dubber_model_is_the_same_as_none() -> None:
     settings = _settings(
         loc_database_url="postgresql://x/y",  # type: ignore[arg-type]
         localizer_model="some/model",  # type: ignore[arg-type]
+        dubber_model="",  # type: ignore[arg-type]
         openrouter_api_key="k",  # type: ignore[arg-type]
     )
-    with pytest.raises(ConfigError, match="DUBBER_MODEL"):
-        bind_agent_runtime(settings, STORE)
+    bind_agent_runtime(settings, STORE)
+    factories = temporal_module._model_factories  # noqa: SLF001
+    assert factories[temporal_module.DUBBER_MODEL_ALIAS]().model_name == "some/model"
 
 
 def test_a_configured_worker_has_its_ports_and_models_bound() -> None:

@@ -155,6 +155,7 @@ class Synthesizer:
         self._tts = tts
         self._model = model
         self._before_put = before_put
+        self._in_flight: dict[str, asyncio.Future[Clip]] = {}
 
     def hash_of(self, voice: VoiceRef, engine: str | None, text_vi: str) -> str:
         return tts_hash(voice, model=self._model, engine=engine, text_vi=text_vi)
@@ -175,7 +176,27 @@ class Synthesizer:
         return Clip(digest, key, await run_blocking(wav_duration_ms, wav))
 
     async def clip(self, voice: VoiceRef, engine: str | None, text_vi: str) -> Clip:
+        """The clip of `text_vi`. Callers in this process that want the same clip at
+        the same time share one request: the second waits for the first instead of
+        asking the provider again. (Another process cannot be seen from here; two
+        workers speaking one new text at once can both ask. That costs a call and
+        nothing else: the clip is the same and is written whole.)"""
         digest = self.hash_of(voice, engine, text_vi)
+        flight = self._in_flight.get(digest)
+        if flight is None:
+            flight = asyncio.ensure_future(self._clip(digest, voice, engine, text_vi))
+            self._in_flight[digest] = flight
+            flight.add_done_callback(lambda done: self._landed(digest, done))
+        # Shielded: a caller that is cancelled must not cancel the request the
+        # others are waiting for.
+        return await asyncio.shield(flight)
+
+    def _landed(self, digest: str, flight: "asyncio.Future[Clip]") -> None:
+        self._in_flight.pop(digest, None)
+        if not flight.cancelled():
+            flight.exception()  # retrieved: a failure nobody waits for is not a warning
+
+    async def _clip(self, digest: str, voice: VoiceRef, engine: str | None, text_vi: str) -> Clip:
         known = await self._cached(digest)
         if known is not None:
             return known

@@ -14,6 +14,7 @@ from temporalio.testing import ActivityEnvironment
 from localization.activities.assemble_audio import (
     AssembleAudioActivity,
     build_filter_graph,
+    check_length,
     parse_loudnorm,
 )
 from localization.contracts import (
@@ -24,9 +25,17 @@ from localization.contracts import (
 )
 from localization.providers.errors import PermanentProviderError
 from localization.storage.object_store import ObjectStore, tts_cache_key, work_key
-from tests.support.audio import RATE, db, decode, integrated_lufs, level, tone_span_ms
+from tests.support.audio import (
+    RATE,
+    db,
+    decode,
+    integrated_lufs,
+    level,
+    tone_span_ms,
+    true_peak_dbtp,
+)
 from tests.support.inputs import make_input
-from tests.support.tts_fakes import make_wav, put_script, segment
+from tests.support.tts_fakes import make_clicks, make_wav, put_script, segment
 
 SPEC = make_input()
 VIDEO_MS = 8000
@@ -58,13 +67,14 @@ def ingest(store: ObjectStore, *, seconds: float = VIDEO_MS / 1000, silent_music
     )
 
 
-def put_clip(store: ObjectStore, name: str, seconds: float, *, frequency=VOICE_HZ) -> str:
+def put_clip(store: ObjectStore, name: str, seconds: float, *, spiky=False) -> str:
     key = tts_cache_key(hashlib.sha256(name.encode()).hexdigest())
-    store.put_bytes(key, make_wav(seconds, frequency=frequency, amplitude=0.5))
+    wav = make_clicks(seconds) if spiky else make_wav(seconds, frequency=VOICE_HZ, amplitude=0.5)
+    store.put_bytes(key, wav)
     return key
 
 
-def build(store, placements, *, music_seconds=VIDEO_MS / 1000, silent_music=False):
+def build(store, placements, *, music_seconds=VIDEO_MS / 1000, silent_music=False, spiky=False):
     """`placements`: (start_ms, clip seconds, stretch). Returns what the activity
     takes: the script ref, the segments key and the ingest result."""
     segments, doc_segments = [], []
@@ -74,7 +84,7 @@ def build(store, placements, *, music_seconds=VIDEO_MS / 1000, silent_music=Fals
             DubSegment(
                 id=i,
                 text_vi=f"câu {i}",
-                tts_key=put_clip(store, f"clip-{i}", seconds),
+                tts_key=put_clip(store, f"clip-{i}", seconds, spiky=spiky),
                 duration_ms=round(seconds * 1000),
                 stretch_ratio=stretch,
                 overflow_unresolved=False,
@@ -110,6 +120,10 @@ def test_the_graph_places_each_clip_at_its_start_and_stretch() -> None:
     assert "[1:a]" in graph and "adelay=2000:all=1" in graph and "atempo=1.000000" in graph
     assert "[2:a]" in graph and "adelay=5300:all=1" in graph and "atempo=1.150000" in graph
     assert "sidechaincompress" in graph
+    voice = next(line for line in graph.splitlines() if line.rstrip(";").endswith("[voice]"))
+    assert "apad=whole_dur=8.000" in voice
+    final = next(line for line in graph.splitlines() if line.rstrip(";").endswith("[mix]"))
+    assert "atrim=end=8.000" in final
     music = next(line for line in graph.splitlines() if line.startswith("[0:a]"))
     assert "apad=whole_dur=8.000" in music and "atrim=end=8.000" in music
 
@@ -147,6 +161,14 @@ async def test_the_track_is_as_long_as_the_video_and_its_hash_is_of_the_stored_f
 async def test_the_loudness_is_within_one_lu_of_the_goal(store: ObjectStore, goal: float) -> None:
     _, path = await assemble(store, [(1000, 2.0, 1.0), (4000, 2.0, 1.0)], goal=goal)
     assert integrated_lufs(path) == pytest.approx(goal, abs=1.0)
+
+
+async def test_a_peaky_voice_stays_under_the_true_peak_ceiling(store: ObjectStore) -> None:
+    """Loud clicks reach the loudness goal with a peak far above the ceiling unless
+    the ceiling is applied: the configured TRUE_PEAK_DBTP is what holds it down."""
+    _, path = await assemble(store, [(1000, 2.0, 1.0), (4000, 2.0, 1.0)], spiky=True)
+    assert integrated_lufs(path) == pytest.approx(LOUDNESS, abs=1.0)
+    assert true_peak_dbtp(path) <= PEAK + 0.3
 
 
 async def test_a_clip_starts_where_its_segment_starts(store: ObjectStore) -> None:
@@ -212,14 +234,32 @@ async def test_music_shorter_than_the_video_is_padded_even_when_nobody_speaks(
     assert len(decode(path)) * 1000 / RATE == pytest.approx(VIDEO_MS, abs=50)
 
 
-async def test_a_voice_that_runs_past_the_end_of_the_video_fails_for_good(
+async def test_a_voice_that_runs_past_the_end_of_the_video_is_cut_there(
     store: ObjectStore,
 ) -> None:
+    """A line that still overflows at the largest stretch is marked and plays; its
+    tail is lost at the end of the video. The run must not fail after the speech is
+    paid for: 3 s of voice from 7 s, sped up 1.15x, would end at 9.6 s on an 8 s video."""
+    result, path = await assemble(store, [(7000, 3.0, 1.15)])
+    samples = decode(path)
+    assert len(samples) * 1000 / RATE == pytest.approx(VIDEO_MS, abs=50)
+    span = tone_span_ms(samples, VOICE_HZ)
+    assert span is not None
+    assert span[0] == pytest.approx(7000, abs=60)
+    assert span[1] == pytest.approx(VIDEO_MS, abs=60)
+    assert store.exists(result.audio_key)
+
+
+def test_a_track_of_the_wrong_length_is_refused_for_good(tmp_path: Path) -> None:
+    """With the voice cut to the video, a wrong length can only be a bug in the
+    graph; the check is what turns it into a failure and not a drifting track."""
+    path = tmp_path / "t.wav"
+    path.write_bytes(make_wav(VIDEO_MS / 1000 + 0.5))
     with pytest.raises(ApplicationError) as failure:
-        await assemble(store, [(7000, 2.0, 1.0)])
+        check_length(path, VIDEO_MS)
     assert failure.value.type == "AudioLengthMismatch"
     assert failure.value.non_retryable
-    assert not store.exists(work_key("7001", 0, "dubbed.wav"))
+    check_length(path, VIDEO_MS + 500)
 
 
 async def test_a_silent_track_fails_for_good_and_stores_nothing(store: ObjectStore) -> None:

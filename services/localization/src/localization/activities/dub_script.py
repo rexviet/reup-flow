@@ -100,7 +100,10 @@ class DubScriptActivities:
     ) -> LocalizedScriptRef:
         tag_session(spec.aweme_id)
         before = await asyncio.to_thread(read_script, self._store, script.script_key)
-        after, _refused = apply_decisions(before, decisions)
+        after, refused = apply_decisions(before, decisions)
+        if refused:
+            # A rewrite that tried to add a contact is a sign of an injection: say so.
+            activity.logger.warning("rewrites refused for segments %s", refused)
         return await asyncio.to_thread(write_script, self._store, after)
 
     @activity.defn(name="commit_dub")

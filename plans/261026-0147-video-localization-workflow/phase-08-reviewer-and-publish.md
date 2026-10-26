@@ -72,7 +72,7 @@ Chạy `uv run pytest tests/workflows/test_review_loop.py tests/agents/test_revi
 
 | Kịch bản | Kỳ vọng |
 |---|---|
-| Fail `dub` (segment 3), rồi pass | Bước 5 (chỉ segment 3), 6, 4b và 7 chạy lại. Bước 2a, 2b, 3 không chạy lại. Text sub trong spec mới **bằng** metadata `text_vi` của các object TTS trong `DubbedAudio` (AC2) |
+| Fail `dub` (segment 3), rồi pass | Bước 5 (chỉ segment 3), 6, 4b và 7 chạy lại. Bước 2a, 2b, 3 không chạy lại. Text sub trong spec mới **bằng** metadata `text-vi` của các object TTS trong `DubbedAudio` (AC2) |
 | Fail `caption`, rồi pass | Chỉ 4b và 7 chạy lại |
 | Fail cả 2 vòng | `review/` có object. `HeadObject output/...` trả 404 |
 | Pass ngay | `output/` có object, `runs.status='published'` |

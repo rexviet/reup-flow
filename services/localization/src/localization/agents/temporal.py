@@ -255,8 +255,12 @@ def build_durable_dubber() -> Agent[DubberDeps, DubDecisions]:
 
 dubber = build_durable_dubber()
 
-# The Dubber handles a few lines: a handful of requests each.
-DUBBER_USAGE_LIMITS = UsageLimits(request_limit=120, tool_calls_limit=400)
+
+def dubber_usage_limits(lines: int) -> UsageLimits:
+    """A line takes at most a read, three rewrites and an accept (five tools) over a
+    few model turns; the caps grow with the number of lines so a long video is not
+    stopped by a limit sized for a short one, and a runaway agent still is."""
+    return UsageLimits(request_limit=10 * lines + 20, tool_calls_limit=10 * lines + 40)
 
 
 async def run_dubber(deps: DubberDeps) -> DubDecisions:
@@ -265,6 +269,6 @@ async def run_dubber(deps: DubberDeps) -> DubDecisions:
     result = await dubber.run(
         f"Shorten these lines so they fit their slots: segment ids {list(deps.pending_ids)}.",
         deps=deps,
-        usage_limits=DUBBER_USAGE_LIMITS,
+        usage_limits=dubber_usage_limits(len(deps.pending_ids)),
     )
     return result.output

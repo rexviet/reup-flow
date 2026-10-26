@@ -59,3 +59,15 @@ def integrated_lufs(path: Path) -> float:
     ).stderr.decode()
     summary = out[out.rindex("Summary:") :]
     return float(re.search(r"I:\s+(-?[0-9.]+) LUFS", summary).group(1))
+
+
+def true_peak_dbtp(path: Path) -> float:
+    """Highest true peak (dBTP) of a file, measured by ffmpeg's ebur128 filter."""
+    out = subprocess.run(
+        ["ffmpeg", "-nostdin", "-nostats", "-i", str(path), "-af", "ebur128=peak=true"]
+        + ["-f", "null", "-"],
+        capture_output=True,
+        check=True,
+    ).stderr.decode()
+    summary = out[out.rindex("Summary:") :]
+    return float(re.search(r"Peak:\s+(-?[0-9.]+) dBFS", summary).group(1))

@@ -118,7 +118,7 @@ Workflow dừng ở bước 3.
 - Cấu hình: `LOUDNESS_LUFS`, `TRUE_PEAK_DBTP` (worker-media) và `DUBBER_MODEL` (worker-agents) trong `.env.example`, compose và allowlist của `compose-constraints.spec.ts`. Worker agents từ chối khởi động nếu thiếu `DUBBER_MODEL`.
 - AC1 (test thật, SIGKILL thật, bucket là một thư mục để cả test và worker cùng nhìn): kill sau khi batch 2/5 xong (không hash nào bị gọi lại); kill trong khoảng giữa lúc provider trả lời và lúc `put` bằng hook `before_put` gọi `os.kill` (chỉ các hash đang chạy dở bị gọi lại, không vượt `TTS_CONCURRENCY`, test liệt kê từng hash); hai segment trùng text ở hai batch khác nhau chỉ một lời gọi; đổi `TTS_MODEL` hoặc engine thì cache miss; câu Dubber viết lại tốn đúng một lời gọi.
 - AC6: TTS do Dubber gọi bị giới hạn bởi queue `tts` (giới hạn 2 thì đỉnh chồng nhau là 2; control giới hạn 4 thì là 4).
-- `uv run pytest`: 693 passed, 1 skipped (6 live bị loại), ruff sạch. `bash scripts/run-mutations.sh 'localization/*' downloader/infra` xanh; harness `localization:06` có 54 mutation và 3 control (03: 11, 04: 47, 05: 57, infra: 16). Thêm code làm 4 mutation cũ của harness 04 và 05 không còn khớp (cancel sibling trong `_prepare`, model chưa gắn, hai `QueueSpec`); đã cập nhật cho khớp chứ không bỏ.
+- `uv run pytest`: 702 passed, 1 skipped (6 live bị loại), ruff sạch. `bash scripts/run-mutations.sh 'localization/*' downloader/infra` xanh; harness `localization:06` có 61 mutation và 3 control (03: 11, 04: 47, 05: 57, infra: 16). Thêm code làm 4 mutation cũ của harness 04 và 05 không còn khớp (cancel sibling trong `_prepare`, model chưa gắn, hai `QueueSpec`); đã cập nhật cho khớp chứ không bỏ.
 
 **Khác với phase file**
 - Workflow không ghi `script.v{n+1}.json` bằng `persist_json`: workflow không giữ nội dung script, nên activity `write_dubbed_script` (queue `io`) đọc bản trước, áp quyết định của Dubber và ghi bản sau, như `assemble_script` ở phase 05. Luôn ghi bản mới, kể cả khi Dubber không chạy, để "phiên bản mới nhất" là một khái niệm duy nhất; `DubbedAudio.script_version` là 2.
@@ -141,3 +141,29 @@ Workflow dừng ở bước 3.
 - Nếu worker chết giữa lúc provider trả lời và lúc `put`, đúng các hash đang chạy dở bị gọi lại (tối đa `TTS_CONCURRENCY`); đó là ngoại lệ đã khai của AC1.
 - Dubber không biết các segment lân cận: một câu ngắn lại có thể làm khoảng lặng dài; chưa có chỉ số cho việc đó.
 - Cổng `workflow.patched("dub-audio")` che toàn bộ giai đoạn; các đường fail mới trong giai đoạn đều nằm bên trong cổng.
+
+## Sau review
+
+**Đã sửa**
+- Kết quả workflow trả script và bước chuẩn bị của lần chạy lại: sau khi Localizer chạy lại lúc lồng tiếng (script mất), `needs_human` và `flagged_segment_ids` trong kết quả là của script mà track được dựng từ đó, không phải của lần đầu. Phase 08 đọc cờ từ `LocalizationResult.script`.
+- **Quyết định: segment vẫn tràn ở stretch 1.15 thì bị cắt ở cuối video, không làm run fail.** Plan nói accept ở 1.15 và gắn `overflow_unresolved`; không nói gì thêm về đuôi vượt hết video. Quy tắc đơn giản nhất khớp plan: mix được `atrim` đúng độ dài video, `overflow_unresolved` vẫn là tín hiệu, kiểm độ dài ±50 ms còn lại để bắt lỗi graph. Trước đó một câu cuối tràn làm run fail vĩnh viễn sau khi đã trả tiền TTS.
+- Single-flight theo hash trong một tiến trình: hai lời gọi `Synthesizer.clip` đồng thời cho cùng một text chỉ gọi provider một lần (người gọi thứ hai chờ người đầu; người đầu bị huỷ không huỷ request của người sau).
+- Giới hạn sử dụng của Dubber tăng theo số dòng không vừa (`10 * n + 20` request, `10 * n + 40` tool call).
+- `DUBBER_MODEL` rỗng dùng `LOCALIZER_MODEL` thay vì làm worker-agents crash-loop.
+- Trần true peak có test (click có đỉnh cao) và mutation; câu viết lại bị từ chối (chứa liên lạc mà nguồn không có) được ghi warning trong log activity.
+- Docs: `text_vi` thành `text-vi` ở plan.md (nguyên tắc 5, AC2), phase 08, phase 10.
+
+**Giới hạn đã biết (ghi nhận)**
+- AC1 qua nhiều tiến trình: hai worker cùng nói một text mới tại cùng lúc vẫn có thể cùng gọi provider (tốn một lời gọi, clip giống hệt và được ghi nguyên vẹn). Single-flight chỉ trong một tiến trình. Ngoại lệ ngoài kill đã khai của AC1, chỉ tốn tiền.
+- Batch bị huỷ chỉ biết ở nhịp heartbeat kế tiếp (tối đa 5 s); `cancellation_type` giữ mặc định.
+- `TextTooLong` (câu quá ~1050 byte UTF-8) fail cả giai đoạn, không retry; ghi vào runbook.
+- `final_stretch` tôn trọng stretch Dubber chọn dưới 1 (tới 0.85) kể cả khi clip đã vừa: chậm hơn nhưng vẫn vừa slot.
+- Ngưỡng duck `sidechaincompress` là tuyệt đối (0.03) trên giọng trước khi chuẩn hoá: giọng TTS nhỏ sẽ duck yếu. Chỉ kiểm được bằng giọng thật.
+- Histories replay từ activity giả; chưa history nào có `get_segment` trên `io`.
+- `run_ffmpeg` coi mọi exit khác 0 là vĩnh viễn, kể cả bị OOM-kill.
+- Segment có `slot_ms = 0` luôn bị coi là không vừa và Dubber tốn 3 lần viết lại cho nó.
+- `synthesize_segments` trả danh sách `SynthClip` mà workflow bỏ qua.
+
+**Câu hỏi mở cho phase 08**
+- Run có `needs_human` từ Localizer vẫn được lồng tiếng và dựng (tốn TTS, và dòng bị cờ nằm vĩnh viễn trong `cache/tts/` vì cache không lifecycle). Phase 08 phải quyết bằng văn bản: dừng trước lồng tiếng khi `needs_human`, hay chấp nhận chi phí và coi bản review là sản phẩm. Cờ đọc từ `LocalizationResult.script`.
+- Câu viết lại của Dubber bị từ chối (dấu hiệu injection) hiện chỉ có warning trong log activity, chưa có trong kết quả hay span; phase 08/09 quyết có đưa vào kết quả để Reviewer và Langfuse thấy không.

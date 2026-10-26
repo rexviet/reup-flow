@@ -1,7 +1,9 @@
 """Speaking the script: every distinct text is sent to the provider at most once,
 the clip says what it was made from, and a line is judged by how long it takes."""
 
+import asyncio
 import base64
+import time
 
 import boto3
 import pytest
@@ -138,6 +140,67 @@ async def test_a_text_that_is_already_cached_is_not_sent_to_the_provider_again(
     second = await synth.clip(VOICE, None, "xin chào")
     assert first == second
     assert tts.total == 1
+
+
+class SlowTts(FakeTts):
+    async def synthesize(self, text, voice):
+        await asyncio.sleep(0.2)
+        return await super().synthesize(text, voice)
+
+
+async def test_two_simultaneous_requests_for_one_clip_make_one_provider_call(
+    store: ObjectStore,
+) -> None:
+    """The Dubber's tool calls and a restarted stage can ask for one text at the same
+    moment, before either has written the clip: the second waits for the first."""
+    tts = SlowTts()
+    synth = Synthesizer(store, tts, model="tts-1")
+    first, second, third = await asyncio.gather(
+        synth.clip(VOICE, None, "xin chào"),
+        synth.clip(VOICE, None, "xin chào"),
+        synth.clip(VOICE, None, "xin chào"),
+    )
+    assert first == second == third
+    assert tts.total == 1
+
+
+async def test_simultaneous_requests_for_different_texts_are_not_serialised(
+    store: ObjectStore,
+) -> None:
+    """Control for the test above: the wait is per clip, so two texts still run
+    side by side (0.2 s each, well under 0.4 s together)."""
+    tts = SlowTts()
+    synth = Synthesizer(store, tts, model="tts-1")
+    started = time.monotonic()
+    await asyncio.gather(synth.clip(VOICE, None, "một"), synth.clip(VOICE, None, "hai"))
+    assert time.monotonic() - started < 0.38
+    assert tts.total == 2
+
+
+async def test_a_caller_that_gives_up_does_not_cancel_the_request_the_others_wait_for(
+    store: ObjectStore,
+) -> None:
+    tts = SlowTts()
+    synth = Synthesizer(store, tts, model="tts-1")
+    impatient = asyncio.ensure_future(synth.clip(VOICE, None, "xin chào"))
+    patient = asyncio.ensure_future(synth.clip(VOICE, None, "xin chào"))
+    await asyncio.sleep(0.05)
+    impatient.cancel()
+    clip = await patient
+    assert clip.duration_ms > 0
+    assert tts.total == 1
+
+
+async def test_a_failed_request_is_not_remembered_so_the_next_one_tries_again(
+    store: ObjectStore,
+) -> None:
+    tts = FakeTts(fail_with=PermanentProviderError("tts: response is not a WAV file"))
+    synth = Synthesizer(store, tts, model="tts-1")
+    with pytest.raises(ApplicationError):
+        await synth.clip(VOICE, None, "xin chào")
+    tts.fail_with = None
+    await synth.clip(VOICE, None, "xin chào")
+    assert tts.total == 2
 
 
 async def test_a_second_worker_finds_the_clip_the_first_one_made(store: ObjectStore) -> None:

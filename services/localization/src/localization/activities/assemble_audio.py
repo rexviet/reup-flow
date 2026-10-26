@@ -66,7 +66,12 @@ def build_filter_graph(placements: list[tuple[int, float]], duration_ms: int) ->
         )
         lines.append("[voice]asplit=2[vkey][vmix]")
         lines.append(f"[bgm][vkey]sidechaincompress={DUCK}[ducked]")
-        lines.append("[ducked][vmix]amix=inputs=2:normalize=0:duration=longest[mix]")
+        # Trimmed, because a line that still overflows at the largest stretch (and is
+        # marked `overflow_unresolved`) must lose its tail at the end of the video, not
+        # fail the run after the speech is paid for.
+        lines.append(
+            f"[ducked][vmix]amix=inputs=2:normalize=0:duration=longest,atrim=end={seconds:.3f}[mix]"
+        )
     else:
         lines.append("[bgm]anull[mix]")
     return ";\n".join(lines)

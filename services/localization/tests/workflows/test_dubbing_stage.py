@@ -7,11 +7,21 @@ import asyncio
 import uuid
 from collections import Counter
 
+from temporalio import activity
 from temporalio.api.enums.v1 import EventType
 from temporalio.client import Client
 from temporalio.exceptions import ApplicationError
 
-from localization.contracts import DubDecision, DubDecisions, LocalizationResult
+from localization.contracts import (
+    DubDecision,
+    DubDecisions,
+    LocalizationInput,
+    LocalizationResult,
+    LocalizedLines,
+    LocalizedScriptRef,
+    ScriptResult,
+)
+from localization.storage.object_store import work_key
 from tests.support.dub_fakes import DubFakes, FakeDubberPorts, ScriptedDubber
 from tests.support.inputs import make_input
 from tests.support.localizer_fakes import LocalizerFakes
@@ -268,6 +278,50 @@ async def test_a_script_that_is_gone_is_written_again_by_the_localizer_and_dubbi
     assert acts["assemble_script"] == 2
     assert dubbing.calls["voice_profile"] == 2
     assert dubbing.calls["assemble_audio"] == 1
+
+
+async def test_a_script_made_again_with_a_flag_is_the_script_the_result_reports(
+    temporal_client: Client,
+) -> None:
+    """The Localizer is a model: run again after a loss, it may write a line the first
+    run did not. The review flag in the result is the one of the script the track was
+    built from, not of the first attempt."""
+    runs: list[int] = []
+
+    @activity.defn(name="assemble_script")
+    async def assemble_script(
+        spec: LocalizationInput, transcript_key: str, subtitle_key: str, lines: LocalizedLines
+    ) -> ScriptResult:
+        runs.append(1)
+        flagged = len(runs) >= 2
+        return ScriptResult(
+            script=LocalizedScriptRef(
+                script_key=work_key(spec.aweme_id, 0, "script.v1.json"), version=1
+            ),
+            needs_human=flagged,
+            flagged_segment_ids=(1,) if flagged else (),
+        )
+
+    dubbing = DubFakes(missing_on={("measure_fit", 1): "localize"})
+    async with prep_workers(
+        temporal_client,
+        PrepFakes(),
+        LocalizerFakes(assemble=assemble_script),
+        dubbing=dubbing,
+    ):
+        handle = await temporal_client.start_workflow(
+            "VideoLocalizationWorkflow",
+            make_input(),
+            id=f"video-7001-g1-{uuid.uuid4()}",
+            task_queue="workflows",
+            result_type=LocalizationResult,
+        )
+        result = await asyncio.wait_for(handle.result(), timeout=45)
+    assert len(runs) == 2
+    assert result.script is not None
+    assert result.script.needs_human is True
+    assert result.script.flagged_segment_ids == (1,)
+    assert result.dub is not None
 
 
 async def test_a_second_script_loss_fails_the_run(temporal_client: Client) -> None:

@@ -172,7 +172,9 @@ class VideoLocalizationWorkflow:
         prep, script = await self._localize(spec, prep)
         if not workflow.patched(DUB_PATCH):
             return LocalizationResult(prep=prep, script=script)
-        dub = await self._dub_with_regeneration(spec, prep, script)
+        # The stage may have made the script (and the preparation) again: the result
+        # reports the ones the track was built from, with their review flag.
+        prep, script, dub = await self._dub_with_regeneration(spec, prep, script)
         return LocalizationResult(prep=prep, script=script, dub=dub)
 
     async def _localize(
@@ -306,12 +308,14 @@ class VideoLocalizationWorkflow:
 
     async def _dub_with_regeneration(
         self, spec: LocalizationInput, prep: PrepResult, script: ScriptResult
-    ) -> DubbedAudio:
+    ) -> tuple[PrepResult, ScriptResult, DubbedAudio]:
         """The dubbing stage. An artifact it reads that has gone missing is made
-        again by the stage that produced it, once, and the stage then runs on."""
+        again by the stage that produced it, once, and the stage then runs on. Returns
+        the preparation and script the track was built from, which differ from the
+        ones passed in when the Localizer ran again."""
         while True:
             try:
-                return await self._dub(spec, prep, script)
+                return prep, script, await self._dub(spec, prep, script)
             except ActivityError as error:
                 stage = _missing_stage(error)
                 if stage not in DUB_REGENERABLE_STAGES or stage in self._regenerated:

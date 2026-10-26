@@ -114,7 +114,7 @@ trả lời và lúc ghi S3.
 - Captioner, assemble và Reviewer chỉ đọc `LocalizedScript` **phiên bản mới nhất**.
 - Mọi đường chạy lại sau Dubber đều chạy lại cả 4b.
 - `EditSpec` mang `script_version` và `audio_sha256`.
-- Có test kiến trúc kiểm chứng điều này. Có test so text sub với metadata `text_vi` của object TTS.
+- Có test kiến trúc kiểm chứng điều này. Có test so text sub với metadata `text-vi` của object TTS (hằng `META_TEXT` trong `activities/synthesize.py`; gạch nối vì S3 gộp gạch dưới thành gạch nối).
 
 ### 6. Guard nào cũng có mutation test, được đăng ký vào `scripts/run-mutations.sh` trong cùng commit
 
@@ -302,7 +302,7 @@ nhận đúng các biến của nó.
 - [ ] **AC1:** mỗi hash TTS chỉ gọi provider tối đa một lần. Ngoại lệ là các hash đang chạy dở
   đúng lúc kill. Số ngoại lệ không vượt `TTS_CONCURRENCY` và phải được liệt kê từng cái. Lời gọi
   hiệu chỉnh tốc độ đọc và các lần Dubber viết lại câu có hash riêng (phase 06, kiểm lại ở 10).
-- [ ] **AC2:** text sub trong EditSpec khớp với metadata `text_vi` của các object TTS dùng trong
+- [ ] **AC2:** text sub trong EditSpec khớp với metadata `text-vi` của các object TTS dùng trong
   `DubbedAudio`, kể cả sau vòng chạy lại (phase 08).
 - [ ] **AC3:** mỗi `spec_sha256` chỉ gọi `renderMedia` đúng một lần, đếm bằng counter phía
   renderer, kể cả với run có vòng review. Output nằm ở `output/{aweme_id}.mp4` (phase 08).

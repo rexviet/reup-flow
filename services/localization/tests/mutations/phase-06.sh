@@ -39,6 +39,7 @@ TEMPORAL=src/localization/agents/temporal.py
 WORKFLOW=src/localization/workflows/video_localization.py
 RUN=src/localization/workers/run.py
 STORE=src/localization/storage/object_store.py
+LLM=src/localization/providers/llm.py
 
 T_SYNTH=tests/activities/test_synthesize.py
 T_DUBSCRIPT=tests/activities/test_dub_script.py
@@ -52,7 +53,7 @@ T_WIRING=tests/workers/test_agent_wiring.py
 T_REPLAY=tests/replay/test_replay.py
 T_ARCH=tests/architecture/test_single_translation.py
 
-mp_init "$SYNTH" "$DUBSCRIPT" "$ASSEMBLE" "$DUBPORTS" "$DUBBER" "$TEMPORAL" "$WORKFLOW" "$RUN" "$STORE"
+mp_init "$SYNTH" "$DUBSCRIPT" "$ASSEMBLE" "$DUBPORTS" "$DUBBER" "$TEMPORAL" "$WORKFLOW" "$RUN" "$STORE" "$LLM"
 MP_TEST_CMD=(uv run pytest -q -p no:cacheprovider)
 MP_TIMEOUT_SECONDS=${MP_TIMEOUT_SECONDS:-300}
 
@@ -73,9 +74,7 @@ mp_mutation "the plan lists a text once per segment instead of once"
 apply_mutation "$SYNTH" \
   $'        hashes = segment_hashes(self._synth, spec.voice, engine, script)\n        return SynthesisPlan(hashes=tuple(hashes))' \
   $'        hashes = [self._synth.hash_of(spec.voice, engine, s.text_vi) for s in script.segments]\n        return SynthesisPlan(hashes=tuple(hashes))' \
-  && expect_red "$T_SYNTH $T_RESUME" \
-    "test_the_plan_lists_a_text_said_twice_once" \
-    "test_a_text_said_twice_in_different_batches_is_sent_once"
+  && expect_red "$T_SYNTH" "test_the_plan_lists_a_text_said_twice_once"
 restore
 
 mp_mutation "the model is not part of the hash"
@@ -222,6 +221,17 @@ apply_mutation "$DUBSCRIPT" \
   && expect_red "$T_DUBSCRIPT" "test_a_line_whose_clip_is_missing_fails_instead_of_passing_as_fitting"
 restore
 
+# --- one request per clip at a time, in one process ----------------------------------------------------
+mp_mutation "two simultaneous requests for one clip both reach the provider"
+apply_mutation "$SYNTH" '        flight = self._in_flight.get(digest)' '        flight = None' \
+  && expect_red "$T_SYNTH" "test_two_simultaneous_requests_for_one_clip_make_one_provider_call"
+restore
+
+mp_mutation "a caller that gives up cancels the request the others wait for"
+apply_mutation "$SYNTH" '        return await asyncio.shield(flight)' '        return await flight' \
+  && expect_red "$T_SYNTH" "test_a_caller_that_gives_up_does_not_cancel_the_request_the_others_wait_for"
+restore
+
 # --- the Dubber ---------------------------------------------------------------------------------------------------
 mp_mutation "the Dubber's tts tool is not pinned to the tts queue"
 apply_mutation "$TEMPORAL" \
@@ -262,6 +272,19 @@ apply_mutation "$DUBBER" \
   '        wrap_untrusted(f"[{seg.id}] source: {seg.src_zh}\nvietnamese: {seg.text_vi}")' \
   '        f"[{seg.id}] source: {seg.src_zh}\nvietnamese: {seg.text_vi}"' \
   && expect_red "$T_DUBBER" "test_a_line_is_shown_inside_an_untrusted_block_with_its_fit"
+restore
+
+mp_mutation "the Dubber's usage limits stop growing with the number of lines"
+apply_mutation "$TEMPORAL" '    return UsageLimits(request_limit=10 * lines + 20, tool_calls_limit=10 * lines + 40)' \
+  '    return UsageLimits(request_limit=120, tool_calls_limit=400)' \
+  && expect_red "$T_DUBBER" "test_the_dubbers_usage_limits_grow_with_the_number_of_lines"
+restore
+
+mp_mutation "a worker with no Dubber model refuses to start instead of using the Localizer's"
+apply_mutation "$LLM" '    if not name and role == "dubber":' '    if False:' \
+  && expect_red "$T_WIRING" \
+    "test_a_worker_without_a_dubber_model_uses_the_localizers" \
+    "test_an_empty_dubber_model_is_the_same_as_none"
 restore
 
 mp_mutation "the Dubber's model request is answered by the Localizer's model"
@@ -315,12 +338,12 @@ restore
 
 mp_mutation "the length of the track is not compared with the video"
 apply_mutation "$ASSEMBLE" '    if abs(actual - duration_ms) > LENGTH_TOLERANCE_MS:' '    if False:' \
-  && expect_red "$T_ASM" "test_a_voice_that_runs_past_the_end_of_the_video_fails_for_good"
+  && expect_red "$T_ASM" "test_a_track_of_the_wrong_length_is_refused_for_good"
 restore
 
 mp_mutation "a length mismatch is retried instead of being permanent"
 apply_mutation "$ASSEMBLE" $'            type="AudioLengthMismatch",\n            non_retryable=True,' $'            type="AudioLengthMismatch",' \
-  && expect_red "$T_ASM" "test_a_voice_that_runs_past_the_end_of_the_video_fails_for_good"
+  && expect_red "$T_ASM" "test_a_track_of_the_wrong_length_is_refused_for_good"
 restore
 
 mp_mutation "music shorter than the video is not padded"
@@ -328,6 +351,19 @@ apply_mutation "$ASSEMBLE" '[0:a]{fmt},apad=whole_dur={seconds:.3f},atrim=end={s
   && expect_red "$T_ASM" \
     "test_the_graph_places_each_clip_at_its_start_and_stretch" \
     "test_music_shorter_than_the_video_is_padded_even_when_nobody_speaks"
+restore
+
+mp_mutation "the mix is not cut at the end of the video"
+apply_mutation "$ASSEMBLE" $'            f"[ducked][vmix]amix=inputs=2:normalize=0:duration=longest,atrim=end={seconds:.3f}[mix]"' \
+  $'            "[ducked][vmix]amix=inputs=2:normalize=0:duration=longest[mix]"' \
+  && expect_red "$T_ASM" \
+    "test_the_graph_places_each_clip_at_its_start_and_stretch" \
+    "test_a_voice_that_runs_past_the_end_of_the_video_is_cut_there"
+restore
+
+mp_mutation "the true-peak ceiling is not applied"
+apply_mutation "$ASSEMBLE" ':TP={peak}:LRA' ':TP=0:LRA' \
+  && expect_red "$T_ASM" "test_a_peaky_voice_stays_under_the_true_peak_ceiling"
 restore
 
 mp_mutation "segments made for another script version are used"
@@ -341,6 +377,12 @@ apply_mutation "$ASSEMBLE" '        out_key = work_key(spec.aweme_id, round, "du
 restore
 
 # --- the workflow ---------------------------------------------------------------------------------------------------------------
+mp_mutation "the result reports the script from before a regeneration"
+apply_mutation "$WORKFLOW" '        prep, script, dub = await self._dub_with_regeneration(spec, prep, script)' \
+  '        _, _, dub = await self._dub_with_regeneration(spec, prep, script)' \
+  && expect_red "$T_STAGE" "test_a_script_made_again_with_a_flag_is_the_script_the_result_reports"
+restore
+
 mp_mutation "the dubbing stage has no marker: a run recorded before it breaks on replay"
 apply_mutation "$WORKFLOW" '        if not workflow.patched(DUB_PATCH):' '        if False:' \
   && expect_red "$T_REPLAY" "test_every_recorded_history_still_replays"

@@ -34,6 +34,22 @@ def make_wav(seconds: float, *, frequency: float = 220.0, amplitude: float = 0.3
     return buffer.getvalue()
 
 
+def make_clicks(seconds: float, *, amplitude: float = 0.95) -> bytes:
+    """A mono 16-bit WAV of short loud clicks: a high peak for little loudness, the
+    shape that exposes a missing true-peak ceiling."""
+    frames = max(1, round(seconds * SAMPLE_RATE))
+    samples = (
+        struct.pack("<h", round(32767 * amplitude) if i % 2400 < 30 else 0) for i in range(frames)
+    )
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as out:
+        out.setnchannels(1)
+        out.setsampwidth(2)
+        out.setframerate(SAMPLE_RATE)
+        out.writeframes(b"".join(samples))
+    return buffer.getvalue()
+
+
 @dataclass
 class FakeTts:
     """Reads a line in `seconds_per_char` seconds per character (at least 0.2 s).

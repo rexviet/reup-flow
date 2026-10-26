@@ -41,7 +41,7 @@ Hai mục tiêu:
    | AC | Cách kiểm |
    |---|---|
    | AC1 | `docker kill worker-agents` giữa bước 4, rồi start lại. Đối chiếu log request TTS của VoiceStudio theo hash (dùng metadata), đúng định nghĩa mới |
-   | AC2 | Với 3 video có vòng review `dub`, so text sub trong spec với metadata `text_vi` |
+   | AC2 | Với 3 video có vòng review `dub`, so text sub trong spec với metadata `text-vi` |
    | AC3 | Đọc counter `render_invocations{spec_sha}`, gồm cả run có vòng review. Mọi giá trị phải bằng 1 |
    | AC4 | Chèn trùng outbox. Start trùng. Chạy lại một video `needs_human` bằng cách tăng generation |
    | AC5 | Đổi `VOICE_ID` giữa lúc backfill, rồi đọc input của hai workflow |

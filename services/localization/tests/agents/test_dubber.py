@@ -317,3 +317,15 @@ async def test_the_tools_refuse_to_run_on_a_worker_with_no_ports_bound() -> None
     agent, d = agent_for(script)
     with pytest.raises(RuntimeError, match="no ports bound"):
         await agent.run("go", deps=d)
+
+
+def test_the_dubbers_usage_limits_grow_with_the_number_of_lines() -> None:
+    """A line costs up to a read, three rewrites and an accept: the caps must cover
+    that for every line, or a long video fails after the speech is paid for."""
+    from localization.agents.temporal import dubber_usage_limits
+
+    few, many = dubber_usage_limits(2), dubber_usage_limits(60)
+    assert many.request_limit > few.request_limit
+    assert many.tool_calls_limit > few.tool_calls_limit
+    assert many.tool_calls_limit >= 60 * (1 + MAX_REWRITES + 1)
+    assert many.request_limit >= 60 * 2
