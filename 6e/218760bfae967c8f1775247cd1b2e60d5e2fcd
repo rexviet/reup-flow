@@ -1,0 +1,133 @@
+services/localization/.gitignore
+  s_92153f0c6ce139::t_fed745310b210d 1-4
+services/localization/src/localization/temporal/size_guard_codec.py
+  s_92153f0c6ce139::t_a8959b86772d20 1-37
+services/localization/tests/providers/test_live.py
+  s_92153f0c6ce139::t_6960b4c412f911 1-35
+services/localization/src/localization/providers/base.py
+  s_92153f0c6ce139::t_2e9ac630974178 1-65
+services/localization/src/localization/providers/openai_stt.py
+  s_92153f0c6ce139::t_9f5bcc53d11187 51-55,57
+  s_92153f0c6ce139::t_3346a81f50270b 1-50,56,58-93
+services/localization/tests/test_object_store.py
+  s_92153f0c6ce139::t_0f267e89a318c9 1-6,8-13,15-87,89-92,94-114
+  s_92153f0c6ce139::t_ab8879ccc65c3e 7,14,88,93
+services/localization/src/localization/workflows/__init__.py
+  s_92153f0c6ce139::t_d4c53dddf67b99 1-2
+services/localization/src/localization/contracts/base.py
+  s_92153f0c6ce139::t_18a95ca66beb8f 1-7
+services/localization/tests/support/canary_flow.py
+  s_92153f0c6ce139::t_003ef3ae3d2403 1-42
+services/localization/src/localization/providers/llm.py
+  s_92153f0c6ce139::t_c4b72ce08f0545 1-24
+services/localization/src/localization/providers/demucs.py
+  s_92153f0c6ce139::t_2954b648b39c08 33
+  s_92153f0c6ce139::t_2e76e71ad7b339 1-32,34-48
+services/localization/src/localization/config.py
+  s_92153f0c6ce139::t_12b3026fa4527c 115
+  s_92153f0c6ce139::t_1367af0b3723f7 1-20,24-113
+  s_92153f0c6ce139::t_2954b648b39c08 21-23,114,116
+services/localization/src/localization/providers/registry.py
+  s_92153f0c6ce139::t_4062cc1d6c7043 1-28
+services/localization/src/localization/temporal/client.py
+  s_92153f0c6ce139::t_2954b648b39c08 1
+  s_92153f0c6ce139::t_64893683e4a901 9
+  s_92153f0c6ce139::t_c59de86312d3cd 2-8,10-20
+services/localization/src/localization/contracts/ids.py
+  s_92153f0c6ce139::t_41b1d6c5332ff8 1-52
+services/localization/tests/test_secret_canary.py
+  s_92153f0c6ce139::t_ae6da3ec578e2a 1-231
+plans/261026-0147-video-localization-workflow/phase-03-localization-foundation.md
+  s_92153f0c6ce139::t_8a746e56d21cd2 178-190
+  s_92153f0c6ce139::t_613d986880b5d7 4
+services/localization/tests/architecture/test_workflow_imports.py
+  s_92153f0c6ce139::t_7301e354a23d16 1-49,51-88
+  s_92153f0c6ce139::t_3df6d3c36a3b65 50
+services/localization/src/localization/contracts/geometry.py
+  s_92153f0c6ce139::t_e8ded0868382a5 1-17
+services/localization/migrations/261026-localization-core.down.sql
+  s_92153f0c6ce139::t_8226ff9c8ca57a 1-3
+services/localization/tests/mutations/phase-03.sh
+  s_92153f0c6ce139::t_a1531a7934169c 1-107
+services/localization/src/localization/providers/vision_ocr.py
+  s_92153f0c6ce139::t_dccc09d7afb4d9 1-40,44-85
+  s_92153f0c6ce139::t_2954b648b39c08 41-43
+services/localization/migrations/261026-localization-core.sql
+  s_92153f0c6ce139::t_e2e8c260988f0b 1-46
+services/localization/tests/support/read_flow.py
+  s_92153f0c6ce139::t_5b26fd7c5b94d3 1-13
+services/localization/src/localization/contracts/export.py
+  s_92153f0c6ce139::t_f167d86ce8f2ab 1-2,5-36
+  s_92153f0c6ce139::t_2954b648b39c08 3-4
+services/localization/tests/test_migration.py
+  s_92153f0c6ce139::t_eea50cd495fd0d 1-115
+services/localization/pyproject.toml
+  s_92153f0c6ce139::t_63a8131ba3e0c4 1-42,44-46
+  s_92153f0c6ce139::t_2954b648b39c08 43
+services/localization/src/localization/contracts/models.py
+  s_92153f0c6ce139::t_328bf1a162e3e0 1-167
+services/localization/src/localization/providers/bbox.py
+  s_92153f0c6ce139::t_3eed13ee7fdb5e 1-34
+services/localization/tests/providers/test_openai_compat.py
+  s_92153f0c6ce139::t_2954b648b39c08 4
+  s_92153f0c6ce139::t_d7732ab49bc4e8 1-3,5-128
+services/localization/src/localization/providers/openai_tts.py
+  s_92153f0c6ce139::t_7049bd5a5b93be 1-54
+services/localization/tests/test_edit_spec_schema_drift.py
+  s_92153f0c6ce139::t_cb6e504b62fed8 1-24
+services/localization/tests/test_size_guard_codec.py
+  s_92153f0c6ce139::t_2954b648b39c08 44
+  s_92153f0c6ce139::t_fd985374f837a5 1-43,45-81
+services/localization/tests/test_input_validation.py
+  s_92153f0c6ce139::t_1ac91b286839e5 183,185
+  s_92153f0c6ce139::t_da433f0d0322de 1-113,125-182,184,186-198
+  s_92153f0c6ce139::t_2954b648b39c08 114-124
+services/localization/tests/architecture/import_scanner.py
+  s_92153f0c6ce139::t_98d8fcc6c6d036 1-108,110-127
+  s_92153f0c6ce139::t_db30baa2ef22af 109
+services/localization/tests/conftest.py
+  s_92153f0c6ce139::t_d69485106bce1f 13-19
+  s_92153f0c6ce139::t_5a9f9a48129068 8
+  s_92153f0c6ce139::t_42da7f5f29815d 1-7,9-12,20-35
+services/localization/tests/architecture/test_single_translation.py
+  s_92153f0c6ce139::t_50c5c6cab575c8 1-41
+contracts/edit-spec.schema.json
+  s_92153f0c6ce139::t_892b44e658e0b0 1-167
+services/localization/tests/providers/test_ocr_demucs_llm.py
+  s_92153f0c6ce139::t_2954b648b39c08 7,66-68
+  s_92153f0c6ce139::t_3a8e33d3ed61d2 158
+  s_92153f0c6ce139::t_b042502d40738c 99-101
+  s_92153f0c6ce139::t_62991fd11dadeb 1-6,8-65,69-98,102-157,159-195
+services/localization/src/localization/providers/errors.py
+  s_92153f0c6ce139::t_831026da481d72 1-37
+services/localization/tests/support/stub_server.py
+  s_92153f0c6ce139::t_ece42ffb490969 99
+  s_92153f0c6ce139::t_ba8d882517515e 1-96,100-108
+  s_92153f0c6ce139::t_2954b648b39c08 97-98
+services/localization/src/localization/contracts/voice.py
+  s_92153f0c6ce139::t_d677d74cd29050 1-36
+services/localization/src/localization/storage/object_store.py
+  s_92153f0c6ce139::t_06960b35900230 38-39
+  s_92153f0c6ce139::t_af3440e4331927 1-37,40-81,83-102,104-129
+  s_92153f0c6ce139::t_2954b648b39c08 82,103
+services/localization/src/localization/contracts/__init__.py
+  s_92153f0c6ce139::t_d85ed0861642ee 1-45
+services/localization/uv.lock
+  s_92153f0c6ce139::t_fb74c09fc0f8ab 1-1002
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6e218760bfae967c8f1775247cd1b2e60d5e2fcd",
+  "prompts": {},
+  "sessions": {
+    "s_92153f0c6ce139": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "30235d5c-3b00-4588-94b5-c8a55a5f2e99",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
