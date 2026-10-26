@@ -1,0 +1,64 @@
+services/localization/src/localization/activities/layout_captions.py
+  s_0b729cf0d034d3::t_fd72614d5297e0 1-54,64,66-69,71-72,74-75,77-79,91-348
+  s_0b729cf0d034d3::t_180a5a07639888 55-59,62-63,65,73,76,80-83
+  s_0b729cf0d034d3::t_e05ea609eced2f 60-61,70,84-90
+services/localization/src/localization/contracts/__init__.py
+  s_0b729cf0d034d3::t_b92c8370246379 11,49
+services/localization/tests/workers/test_agent_wiring.py
+  s_0b729cf0d034d3::t_d66b2d17ec04d2 70-85
+contracts/edit-spec.schema.json
+  s_0b729cf0d034d3::t_88da30af164f81 45-49,70-71,78,80-90,96-98,116-118,184
+assets/fonts/OFL.txt
+  s_0b729cf0d034d3::t_69e42b1ed34f2c 1-93
+services/localization/src/localization/storage/object_store.py
+  s_0b729cf0d034d3::t_b92c8370246379 136-151
+services/localization/tests/integration/test_font_parity.py
+  s_0b729cf0d034d3::t_e0e3777120b6d5 1-207,209-221
+  s_0b729cf0d034d3::t_180a5a07639888 208
+services/localization/src/localization/workers/run.py
+  s_0b729cf0d034d3::t_88da30af164f81 31,106-111,116
+services/localization/tests/test_worker_settings.py
+  s_0b729cf0d034d3::t_d66b2d17ec04d2 69-94
+.env.example
+  s_0b729cf0d034d3::t_a3bbe8989437f5 155-162
+services/localization/tests/test_object_store.py
+  s_0b729cf0d034d3::t_1e1516528a28d7 51-64
+services/localization/pyproject.toml
+  s_0b729cf0d034d3::t_ecfd078f9377f1 17
+services/localization/src/localization/contracts/models.py
+  s_0b729cf0d034d3::t_4b6b89b58e671f 256-258,260-263,266-267,274-275,277,296-297
+  s_0b729cf0d034d3::t_b92c8370246379 302-311
+services/localization/tests/activities/test_layout_captions.py
+  s_0b729cf0d034d3::t_9ad77215b76c71 49,163
+  s_0b729cf0d034d3::t_364a0ca71e8c89 17,98,205,279,314-317,364
+  s_0b729cf0d034d3::t_7bb2d98dd1240e 1-16,18-48,50-97,99-162,164-204,206-278,280-313,318-353,355-363,365-375
+  s_0b729cf0d034d3::t_2fc2527d1cb795 354
+services/localization/src/localization/config.py
+  s_0b729cf0d034d3::t_55d77e4c9eabd1 6-7,20-27,87-91,108-113
+  s_0b729cf0d034d3::t_5fe922d651de0a 114
+services/localization/src/localization/contracts/spec_hash.py
+  s_0b729cf0d034d3::t_b92c8370246379 1-22
+services/localization/tests/test_contract_hardening.py
+  s_0b729cf0d034d3::t_5debeb6ae112bd 143
+services/localization/src/localization/contracts/fixtures.py
+  s_0b729cf0d034d3::t_88da30af164f81 1-88,90-111
+  s_0b729cf0d034d3::t_33a0f553b597c3 89
+services/localization/uv.lock
+  s_0b729cf0d034d3::t_b194807a15622a 366,390,625-646
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "09e0bac45330743a3ef737b8f5f6874e952e40a6",
+  "prompts": {},
+  "sessions": {
+    "s_0b729cf0d034d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9aa1a711-c362-45ab-8e48-1a9b19f8df48",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
