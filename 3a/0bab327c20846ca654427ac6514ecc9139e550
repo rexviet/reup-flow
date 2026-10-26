@@ -1,0 +1,41 @@
+services/downloader/src/db/videos.repository.ts
+  s_92153f0c6ce139::t_936cee1f92bf5a 4,242-254
+services/downloader/migrations/261026-localization-outbox.down.sql
+  s_92153f0c6ce139::t_7bb2461cbe7b97 1-11
+services/downloader/test/db/schema-migration.spec.ts
+  s_92153f0c6ce139::t_936cee1f92bf5a 16,59-60,67,101,112,127,155,177
+services/downloader/test/support/db.ts
+  s_92153f0c6ce139::t_936cee1f92bf5a 19-24,124,129,132,134
+services/downloader/migrations/261026-localization-outbox.sql
+  s_92153f0c6ce139::t_7b79f52a26f3da 1-31
+scripts/run-mutations.sh
+  s_92153f0c6ce139::t_3b36d06e7ce622 62,75
+scripts/backfill-localization-outbox.sql
+  s_92153f0c6ce139::t_6951e74f95af5a 1-23
+services/downloader/src/db/schema.ts
+  s_92153f0c6ce139::t_936cee1f92bf5a 146-176
+.eslintrc.json
+  s_92153f0c6ce139::t_1d69bb51abcebd 14-28,40-43
+  s_92153f0c6ce139::t_ecb92f6a9ba08b 13
+services/downloader/test/db/outbox.spec.ts
+  s_92153f0c6ce139::t_62e8dfe82fae9b 1-168
+services/downloader/test/mutations/phase-12.sh
+  s_92153f0c6ce139::t_3b36d06e7ce622 101
+  s_92153f0c6ce139::t_b895b052682433 1-100,102-118
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3a0bab327c20846ca654427ac6514ecc9139e550",
+  "prompts": {},
+  "sessions": {
+    "s_92153f0c6ce139": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "30235d5c-3b00-4588-94b5-c8a55a5f2e99",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
