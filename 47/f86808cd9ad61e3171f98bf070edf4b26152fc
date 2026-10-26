@@ -1,0 +1,32 @@
+plans/261026-0147-video-localization-workflow/phase-02-transactional-outbox.md
+  s_92153f0c6ce139::t_bd6a18df4b8d66 28,79
+plans/261026-0147-video-localization-workflow/phase-04-starter-and-prep-activities.md
+  s_92153f0c6ce139::t_bd6a18df4b8d66 165-166
+services/downloader/test/mutations/phase-12.sh
+  s_92153f0c6ce139::t_bd6a18df4b8d66 44-51,58,69-87,119-133
+services/downloader/src/db/videos.repository.ts
+  s_92153f0c6ce139::t_bd6a18df4b8d66 248-252
+.eslintrc.json
+  s_92153f0c6ce139::t_08e2407a61601b 14-15
+scripts/backfill-localization-outbox.sql
+  s_92153f0c6ce139::t_bd6a18df4b8d66 5-6,12-13
+  s_92153f0c6ce139::t_4c4023c9002d15 14
+services/downloader/test/db/outbox.spec.ts
+  s_92153f0c6ce139::t_bd6a18df4b8d66 163-174
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "47f86808cd9ad61e3171f98bf070edf4b26152fc",
+  "prompts": {},
+  "sessions": {
+    "s_92153f0c6ce139": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "30235d5c-3b00-4588-94b5-c8a55a5f2e99",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
