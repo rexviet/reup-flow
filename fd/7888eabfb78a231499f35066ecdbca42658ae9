@@ -1,0 +1,172 @@
+services/localization/tests/replay/record_histories.py
+  s_0b729cf0d034d3::t_6fbe80fe67d41e 3,22,30-34,36-42,55,62-107,109,121-122,140
+services/localization/src/localization/activities/synthesize.py
+  s_0b729cf0d034d3::t_2ce928173975dc 73
+  s_0b729cf0d034d3::t_672ed2796ec68a 39-44,171-172,203-205
+  s_0b729cf0d034d3::t_2aa9afe18bf922 1-26,28-38,45-72,74-170,173-202,206-210,214-249,251-273,277-278
+  s_0b729cf0d034d3::t_c54597757eb6c3 27,211-213,274-276
+  s_0b729cf0d034d3::t_928d2058794663 250
+services/localization/tests/replay/test_replay.py
+  s_0b729cf0d034d3::t_6fceae2f213b6a 57,60-68,80-93
+  s_0b729cf0d034d3::t_53a4985ab22e1c 23,115-116,118-121,124-125
+  s_0b729cf0d034d3::t_4b5d19781eeb4f 117,122-123
+  s_0b729cf0d034d3::t_d13769522eb11f 94-95
+services/localization/tests/replay/histories/phase-06/no-burned-in-subtitles.json
+  s_0b729cf0d034d3::t_6fbe80fe67d41e 1-2553
+.env.example
+  s_0b729cf0d034d3::t_036266ee154f30 150-154
+services/localization/tests/mutations/phase-05.sh
+  s_0b729cf0d034d3::t_cca070aff7e4d6 327,356-357,368
+services/localization/tests/replay/histories/phase-06/plain-run.json
+  s_0b729cf0d034d3::t_6fbe80fe67d41e 1-2991
+services/localization/tests/replay/histories/phase-06/music-stem-lost-ingest-rerun.json
+  s_0b729cf0d034d3::t_6fbe80fe67d41e 1-3948
+services/localization/src/localization/agents/dubber.py
+  s_0b729cf0d034d3::t_3e95bb4e2d8126 1-122,127-151,154-266
+  s_0b729cf0d034d3::t_c54597757eb6c3 152-153
+  s_0b729cf0d034d3::t_f545792c952511 123-126
+services/localization/tests/workflows/test_resume_tts.py
+  s_0b729cf0d034d3::t_32031800f1e032 1-195,200-204,206-210,212-230,233-245,247-288
+  s_0b729cf0d034d3::t_ba3dd67282d44a 231-232,246
+  s_0b729cf0d034d3::t_2ee2e905bb6d32 196-199,205,211
+plans/261026-0147-video-localization-workflow/plan.md
+  s_0b729cf0d034d3::t_48f66bd41b6b8c 189
+services/localization/tests/activities/test_assemble_audio.py
+  s_0b729cf0d034d3::t_79dc48cb5d9418 1-112,115-160,163-164,170-204,212-251
+  s_0b729cf0d034d3::t_9aacd5afa1493b 113-114,205-211
+  s_0b729cf0d034d3::t_cc34ddf5d98b01 161-162,165-169
+services/localization/tests/workflows/test_dubbing_stage.py
+  s_0b729cf0d034d3::t_38d995fe85a79f 1-104,106,115-156,158-160,163-251,255-293,313-321
+  s_0b729cf0d034d3::t_ba3dd67282d44a 161-162
+  s_0b729cf0d034d3::t_413693c685b5a8 105,107-114,252-254
+  s_0b729cf0d034d3::t_bc85f739f74a76 157
+  s_0b729cf0d034d3::t_292522b16368c8 294,297-298,303
+  s_0b729cf0d034d3::t_1f20fbfba2e1ae 295-296,304-309,311-312
+  s_0b729cf0d034d3::t_5f43df51ccb962 299-302,310
+services/localization/src/localization/activities/dub_script.py
+  s_0b729cf0d034d3::t_f8f11af24f661f 15
+  s_0b729cf0d034d3::t_23d80756752768 1-14,16-140
+services/localization/src/localization/config.py
+  s_0b729cf0d034d3::t_3e95bb4e2d8126 77-79
+docker-compose.yml
+  s_0b729cf0d034d3::t_d6b686367c67b9 491,522-523
+services/localization/tests/replay/histories/phase-06/answer-rejected-then-fixed.json
+  s_0b729cf0d034d3::t_6fbe80fe67d41e 1-2703
+services/localization/tests/replay/histories/phase-06/dubber-shortens-lines.json
+  s_0b729cf0d034d3::t_6fbe80fe67d41e 1-3511
+services/localization/tests/agents/test_dubber_ports.py
+  s_0b729cf0d034d3::t_5ccad716b4dfe8 1-81
+services/localization/tests/mutations/phase-04.sh
+  s_0b729cf0d034d3::t_cca070aff7e4d6 366-367
+services/localization/tests/replay/histories/phase-06/glossary-and-estimate-tools.json
+  s_0b729cf0d034d3::t_6fbe80fe67d41e 1-3303
+services/localization/src/localization/activities/script_document.py
+  s_0b729cf0d034d3::t_c54597757eb6c3 31-33
+  s_0b729cf0d034d3::t_137cc259914c4d 1-30,34-39
+services/localization/src/localization/activities/assemble_audio.py
+  s_0b729cf0d034d3::t_c54597757eb6c3 47,58-59,118-127,131,185
+  s_0b729cf0d034d3::t_f823da5f1b14d9 60-62,64-65
+  s_0b729cf0d034d3::t_287e41ce583e51 1-46,48-57,63,66-117,128-130,132-184,186-231
+services/localization/tests/agents/test_deferred_model.py
+  s_0b729cf0d034d3::t_6605085982cc74 14-15,26-27,40-55
+services/localization/tests/support/dub_worker.py
+  s_0b729cf0d034d3::t_ba3dd67282d44a 53-57
+  s_0b729cf0d034d3::t_c8b462f91d259f 1-52,58-87
+services/localization/tests/test_worker_settings.py
+  s_0b729cf0d034d3::t_7e8e9c63aa5dd8 15-35
+services/localization/tests/agents/test_dubber.py
+  s_0b729cf0d034d3::t_0bbd3d04b3a283 1-233,235-319
+  s_0b729cf0d034d3::t_905bcbc3642eb4 234
+services/localization/tests/support/dub_fakes.py
+  s_0b729cf0d034d3::t_d3fabadee8e75d 1-34,36-112,115-116,122-137,149-151,161-165,167-172,174-179,188-193,195-200,202-214,216-225,227-259
+  s_0b729cf0d034d3::t_5f43df51ccb962 142-144,182-185
+  s_0b729cf0d034d3::t_ba3dd67282d44a 113-114,117-121
+  s_0b729cf0d034d3::t_c195c05acb038e 35,138-141,147-148,152-160,166,173,180,186-187,194,201,215,226
+  s_0b729cf0d034d3::t_413693c685b5a8 145-146,181
+services/localization/tests/support/audio.py
+  s_0b729cf0d034d3::t_bc3b7913aa1bd8 1-61
+services/localization/tests/mutations/phase-06.sh
+  s_0b729cf0d034d3::t_9aacd5afa1493b 330
+  s_0b729cf0d034d3::t_292522b16368c8 363
+  s_0b729cf0d034d3::t_1f11237d6bacd1 1-329,331-358,373-433
+  s_0b729cf0d034d3::t_1f20fbfba2e1ae 359-362,364-365
+  s_0b729cf0d034d3::t_8922bcfda229ef 366-372
+services/localization/src/localization/agents/temporal.py
+  s_0b729cf0d034d3::t_c54597757eb6c3 34-35,38,42,47,85,88-93,115-117,119,216-269
+  s_0b729cf0d034d3::t_433fb650824f48 270
+services/localization/src/localization/activities/dubber_ports.py
+  s_0b729cf0d034d3::t_b523679f10e0ce 6-7,23-24,26-30
+  s_0b729cf0d034d3::t_11ea4ed71822b6 1-5,8-22,25,31-41
+services/localization/src/localization/workflows/video_localization.py
+  s_0b729cf0d034d3::t_83fbe878b0cf02 16,18,20-23,25-27,31,35,37,49-54,59-61,111-137,163-165,173-176,222,306-340,342-386,389-398,404-411
+  s_0b729cf0d034d3::t_82aabbae4c8e5e 341
+  s_0b729cf0d034d3::t_4e74bfe18f4547 19
+  s_0b729cf0d034d3::t_9b2fb1d738e9c7 158-159,387-388
+  s_0b729cf0d034d3::t_f181be6393a71c 399-403
+  s_0b729cf0d034d3::t_86a22b1f0a1f35 17
+scripts/run-mutations.sh
+  s_0b729cf0d034d3::t_1041eccc642a1a 103-108
+  s_0b729cf0d034d3::t_8922bcfda229ef 109,127
+services/localization/src/localization/storage/object_store.py
+  s_0b729cf0d034d3::t_de6e2e61c2c023 98-105,107-109,136-145
+  s_0b729cf0d034d3::t_6d52eeefdad4b8 146
+services/localization/src/localization/activities/ffmpeg.py
+  s_0b729cf0d034d3::t_2aa9afe18bf922 139-153
+services/localization/tests/activities/test_synthesize.py
+  s_0b729cf0d034d3::t_9a757f8f7a9c34 309
+  s_0b729cf0d034d3::t_7d52e1598968a2 1-13,17,19-113,117-128,130-308,310-345
+  s_0b729cf0d034d3::t_672ed2796ec68a 14-16,18,114-116,129
+services/localization/tests/support/real_dubbing.py
+  s_0b729cf0d034d3::t_c8b462f91d259f 1-59
+services/localization/tests/support/file_s3.py
+  s_0b729cf0d034d3::t_c8b462f91d259f 1-77
+services/localization/src/localization/workers/run.py
+  s_0b729cf0d034d3::t_5381ec2c1bcce7 33,46,164-168,177-179,192
+  s_0b729cf0d034d3::t_57935f0227ff1d 24,27-28,36,38-43,100-111,123-130,133,141-145,147,150-155,175-176
+services/localization/tests/replay/histories/phase-06/lost-vocals-ingest-rerun.json
+  s_0b729cf0d034d3::t_6fbe80fe67d41e 1-2866
+services/localization/tests/support/ungated_dub_flow.py
+  s_0b729cf0d034d3::t_53a4985ab22e1c 1-19
+services/localization/tests/support/prep_worker.py
+  s_0b729cf0d034d3::t_40a7dc0da79225 9,12,35-39,44-47,51-54,58-61,67-91
+plans/261026-0147-video-localization-workflow/phase-06-dubbing.md
+  s_0b729cf0d034d3::t_a915191acd496f 117,121
+  s_0b729cf0d034d3::t_48f66bd41b6b8c 4,107-116,118-120,122-143
+services/localization/src/localization/contracts/__init__.py
+  s_0b729cf0d034d3::t_f39aea1bf74f88 6-7,9,11,30-31,34,42-43,45,48,68-69,72
+services/localization/src/localization/contracts/models.py
+  s_0b729cf0d034d3::t_f39aea1bf74f88 189-232
+  s_0b729cf0d034d3::t_76c0c9f3e9717e 243-250
+  s_0b729cf0d034d3::t_9203aa28221c67 233-234,251-252
+services/localization/tests/activities/test_dub_script.py
+  s_0b729cf0d034d3::t_96c4196f1e1861 1-235
+services/localization/tests/workers/test_agent_wiring.py
+  s_0b729cf0d034d3::t_4d642d7a566b07 23-24,44-58,143-153,157,160,162-165
+  s_0b729cf0d034d3::t_8151bb0d76f8ad 9,104,106
+  s_0b729cf0d034d3::t_7e8e9c63aa5dd8 59-69
+  s_0b729cf0d034d3::t_aa9e35825ddfea 84-99
+services/localization/tests/agents/test_localizer_workflow.py
+  s_0b729cf0d034d3::t_8151bb0d76f8ad 109-110
+services/localization/tests/replay/histories/phase-06/script-lost-localizer-rerun.json
+  s_0b729cf0d034d3::t_6fbe80fe67d41e 1-3828
+services/localization/tests/support/tts_fakes.py
+  s_0b729cf0d034d3::t_7d52e1598968a2 1-89
+services/downloader/test/compose-constraints.spec.ts
+  s_0b729cf0d034d3::t_d6b686367c67b9 217,230-236
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "fd7888eabfb78a231499f35066ecdbca42658ae9",
+  "prompts": {},
+  "sessions": {
+    "s_0b729cf0d034d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9aa1a711-c362-45ab-8e48-1a9b19f8df48",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
