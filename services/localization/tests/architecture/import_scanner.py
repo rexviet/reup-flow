@@ -13,6 +13,10 @@ from pathlib import Path
 ALLOWED = (
     "__future__",
     "temporalio.workflow",
+    # Pure data: retry policies and the exception types a workflow catches.
+    "temporalio.common",
+    "temporalio.exceptions",
+    "collections.abc",
     "localization.contracts",
     "localization.text",
     "localization.agents.temporal",

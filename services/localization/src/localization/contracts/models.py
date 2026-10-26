@@ -73,6 +73,49 @@ class SubtitleTrack(Contract):
     region: BBox | None
 
 
+class SubtitleCue(Contract):
+    """A span of the source video during which a burned-in subtitle is on screen."""
+
+    start_ms: NonNegativeInt
+    end_ms: NonNegativeInt
+
+    @model_validator(mode="after")
+    def _ends_after_it_starts(self) -> "SubtitleCue":
+        if self.end_ms < self.start_ms:
+            raise ValueError("end_ms must not be before start_ms")
+        return self
+
+
+class SubtitleDocument(Contract):
+    """Stored at `SubtitleTrack.subtitle_key`. `region` is None when the video has
+    no burned-in subtitles, and then `cues` is empty."""
+
+    width: PositiveInt
+    height: PositiveInt
+    region: BBox | None
+    cues: tuple[SubtitleCue, ...]
+
+
+# --- Preparation ------------------------------------------------------------
+
+
+class IngestResult(Contract):
+    vocals_key: Key
+    bgm_key: Key
+    duration_ms: NonNegativeInt
+    width: PositiveInt
+    height: PositiveInt
+    fps: PositiveInt
+
+
+class PrepResult(Contract):
+    """What the preparation stages leave for the stages after them."""
+
+    ingest: IngestResult
+    transcript: Transcript
+    subtitles: SubtitleTrack
+
+
 # --- Localization -----------------------------------------------------------
 
 

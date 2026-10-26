@@ -60,6 +60,12 @@ class OpenAICompatClient:
         self._http = http or httpx.AsyncClient()
 
     async def post(self, path: str, **kwargs: Any) -> httpx.Response:
+        return await self._send("POST", path, **kwargs)
+
+    async def get(self, path: str, **kwargs: Any) -> httpx.Response:
+        return await self._send("GET", path, **kwargs)
+
+    async def _send(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
         headers = {"Authorization": f"Bearer {self._api_key}"} if self._api_key else {}
         # Only the provider name and the path go on the span. Never a header, a
         # body or the base URL (which may carry a private address).
@@ -67,7 +73,8 @@ class OpenAICompatClient:
             f"provider.{self._name}", attributes={"provider.name": self._name, "http.path": path}
         ) as span:
             try:
-                response = await self._http.post(
+                response = await self._http.request(
+                    method,
                     f"{self._base_url}{path}",
                     headers=headers,
                     timeout=self._timeout,

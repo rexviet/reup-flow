@@ -122,6 +122,21 @@ describe("docker-compose.yml localization infra", () => {
     "TELEMETRY_ENABLED",
     "TZ",
   ];
+  const LOCALIZATION_COMMON = [
+    "TEMPORAL_ADDRESS",
+    "TEMPORAL_NAMESPACE",
+    "LANGFUSE_HOST",
+    "LANGFUSE_PUBLIC_KEY",
+    "LANGFUSE_SECRET_KEY",
+  ];
+  const LOCALIZATION_S3 = [
+    "S3_ENDPOINT",
+    "S3_REGION",
+    "S3_BUCKET",
+    "S3_FORCE_PATH_STYLE",
+    "LOC_S3_ACCESS_KEY_ID",
+    "LOC_S3_SECRET_ACCESS_KEY",
+  ];
   // The exact environment each added service may receive. A service gets what it
   // reads and nothing else; a new variable is a deliberate edit to this table.
   const ENV_ALLOWLIST: Record<string, string[]> = {
@@ -178,6 +193,37 @@ describe("docker-compose.yml localization infra", () => {
       "LANGFUSE_INIT_USER_PASSWORD",
     ],
     "langfuse-worker": LANGFUSE_SHARED,
+    "localization-starter": [
+      ...LOCALIZATION_COMMON,
+      "LOC_DATABASE_URL",
+      "S3_BUCKET",
+      "TARGET_LANG",
+      "VOICE_PROVIDER",
+      "VOICE_ID",
+      "VOICE_SETTINGS_JSON",
+      "VOICESTUDIO_URL",
+      "VOICESTUDIO_API_KEY",
+      "VOICESTUDIO_ALLOW_PRIVATE_HTTP_CIDRS",
+      "MAX_OPEN_WORKFLOWS",
+      "OUTBOX_MAX_ATTEMPTS",
+    ],
+    "worker-agents": [
+      ...LOCALIZATION_COMMON,
+      ...LOCALIZATION_S3,
+      "OPENROUTER_BASE_URL",
+      "OPENROUTER_API_KEY",
+      "OCR_MODEL",
+      "OCR_BBOX_FORMAT",
+      "VOICESTUDIO_URL",
+      "VOICESTUDIO_API_KEY",
+      "VOICESTUDIO_ALLOW_PRIVATE_HTTP_CIDRS",
+      "STT_MODEL",
+      "TTS_MODEL",
+      "STT_CONCURRENCY",
+      "TTS_CONCURRENCY",
+      "LLM_CONCURRENCY",
+    ],
+    "worker-media": [...LOCALIZATION_COMMON, ...LOCALIZATION_S3, "MEDIA_CONCURRENCY"],
   };
 
   it("the table above covers every service this plan added, and nothing else is unaccounted for", () => {
@@ -241,6 +287,34 @@ describe("docker-compose.yml localization infra", () => {
     const workerEnv = Object.keys(services["langfuse-worker"].environment ?? {});
     expect(workerEnv).not.toContain("NEXTAUTH_SECRET");
     expect(workerEnv).not.toContain("LANGFUSE_INIT_USER_PASSWORD");
+  });
+
+  it("each localization process gets only the credentials it uses", () => {
+    const keys = (name: string) => Object.keys(services[name].environment ?? {});
+    // The starter only reads Postgres and starts workflows: no object store, no LLM.
+    for (const k of ["LOC_S3_ACCESS_KEY_ID", "LOC_S3_SECRET_ACCESS_KEY", "OPENROUTER_API_KEY"]) {
+      expect(keys("localization-starter")).not.toContain(k);
+    }
+    // The media worker runs Demucs: no provider key and no database.
+    for (const k of ["OPENROUTER_API_KEY", "VOICESTUDIO_API_KEY", "LOC_DATABASE_URL"]) {
+      expect(keys("worker-media")).not.toContain(k);
+    }
+    // Nobody but the downloader holds the downloader's object-store key.
+    for (const name of ["localization-starter", "worker-agents", "worker-media"]) {
+      expect(keys(name)).not.toContain("S3_ACCESS_KEY_ID");
+      expect(keys(name)).not.toContain("S3_SECRET_ACCESS_KEY");
+    }
+  });
+
+  it("each localization process runs one role of the same image", () => {
+    const commands = ["localization-starter", "worker-agents", "worker-media"].map((n) =>
+      JSON.stringify((services[n] as { command?: unknown }).command)
+    );
+    expect(commands).toEqual([
+      JSON.stringify(["python", "-m", "localization.starter.outbox_starter"]),
+      JSON.stringify(["python", "-m", "localization.workers.run", "agents"]),
+      JSON.stringify(["python", "-m", "localization.workers.run", "media"]),
+    ]);
   });
 
   it("every added image is pinned by digest, including the one inside the MinIO init Dockerfile", () => {

@@ -85,16 +85,16 @@ apply_mutation "$VOICE" \
   '    settings: VoiceStudioSettings | OpenAICompatSettings' \
   $'    settings: VoiceStudioSettings | OpenAICompatSettings\n    upstream: str = ""' \
   "$CONFIG" \
-  'provider="voicestudio", voice_id=settings.voice_id, settings=VoiceStudioSettings()' \
-  $'provider="voicestudio",\n        voice_id=settings.voice_id,\n        settings=VoiceStudioSettings(),\n        upstream=settings.voicestudio_api_key.get_secret_value(),' \
+  '            settings=voice_settings,  # type: ignore[arg-type]' \
+  $'            settings=voice_settings,  # type: ignore[arg-type]\n            upstream=settings.voicestudio_api_key.get_secret_value(),' \
   && expect_red "$CANARY" "test_no_canary_reaches_history_spans_or_output"
 restore
 
 # --- 5. the model changes, the stored schema does not -------------------------
 mp_mutation "EditSpec gains a field and contracts/edit-spec.schema.json is not regenerated"
 apply_mutation "$MODELS" \
-  '    fps: PositiveInt' \
-  $'    fps: PositiveInt\n    fps_hint: PositiveInt = 30' \
+  $'    fps: PositiveInt\n    duration_ms: PositiveInt' \
+  $'    fps: PositiveInt\n    fps_hint: PositiveInt = 30\n    duration_ms: PositiveInt' \
   && expect_red "$DRIFT" "test_stored_schema_matches_the_model"
 restore
 
@@ -159,8 +159,8 @@ apply_mutation "$VOICE" \
   '    settings: VoiceStudioSettings | OpenAICompatSettings' \
   $'    settings: VoiceStudioSettings | OpenAICompatSettings\n    upstream: str = ""' \
   "$CONFIG" \
-  'provider="voicestudio", voice_id=settings.voice_id, settings=VoiceStudioSettings()' \
-  $'provider="voicestudio",\n        voice_id=settings.voice_id,\n        settings=VoiceStudioSettings(),\n        upstream=settings.voice_id,' \
+  '            settings=voice_settings,  # type: ignore[arg-type]' \
+  $'            settings=voice_settings,  # type: ignore[arg-type]\n            upstream=settings.voice_id,' \
   && expect_green "$CANARY" "non-secret-field"
 restore
 

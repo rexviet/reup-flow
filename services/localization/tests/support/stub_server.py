@@ -21,6 +21,9 @@ STT_BODY = {
 }
 
 
+VOICES_BODY = {"voices": [{"id": "voice-a"}, {"id": "voice-b"}]}
+
+
 @dataclass
 class Scenario:
     status: int = 200
@@ -59,6 +62,9 @@ class StubServer:
             def log_message(self, *args: object) -> None:  # silence stderr
                 pass
 
+            def do_GET(self) -> None:  # noqa: N802
+                self.do_POST()
+
             def do_POST(self) -> None:  # noqa: N802
                 length = int(self.headers.get("Content-Length", "0"))
                 body = self.rfile.read(length)
@@ -84,6 +90,8 @@ class StubServer:
                     self._send(200, "application/json", json.dumps(sc.json_body).encode())
                 elif self.path == "/v1/audio/speech":
                     self._send(200, "audio/wav", WAV)
+                elif self.path == "/v1/audio/voices":
+                    self._send(200, "application/json", json.dumps(VOICES_BODY).encode())
                 elif self.path == "/v1/audio/transcriptions":
                     self._send(200, "application/json", json.dumps(STT_BODY).encode())
                 else:

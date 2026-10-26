@@ -33,7 +33,7 @@ cp "$MINIO_DOCKERFILE" "$SNAP/Dockerfile"
 fail=0
 # Outcome counters. The final verdict is arithmetic over these, not an absence
 # of FAIL lines: a harness that dies before running a mutation prints no FAIL.
-EXPECT_MUTATIONS=11
+EXPECT_MUTATIONS=14
 EXPECT_CONTROLS=2
 caught=0
 green=0
@@ -199,6 +199,26 @@ run_mutation "Temporal starts once the schema job has merely started" \
 
 run_mutation "redis allowed to evict" \
   edit "$COMPOSE" ' --maxmemory-policy noeviction' ''
+
+# --- localization processes -----------------------------------------------------
+run_mutation "the media worker is handed the OpenRouter key" \
+  edit "$COMPOSE" '      MEDIA_CONCURRENCY: ${MEDIA_CONCURRENCY:-2}
+' '      MEDIA_CONCURRENCY: ${MEDIA_CONCURRENCY:-2}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+'
+
+run_mutation "the starter is handed the localization object-store key" \
+  edit "$COMPOSE" '      LOC_DATABASE_URL: ${LOC_DATABASE_URL}
+' '      LOC_DATABASE_URL: ${LOC_DATABASE_URL}
+      LOC_S3_SECRET_ACCESS_KEY: ${LOC_S3_SECRET_ACCESS_KEY}
+'
+
+run_mutation "the agents worker publishes a port on every interface" \
+  edit "$COMPOSE" '    command: ["python", "-m", "localization.workers.run", "agents"]
+' '    command: ["python", "-m", "localization.workers.run", "agents"]
+    ports:
+      - "8080:8080"
+'
 
 # --- controls: not invariants, must stay green --------------------------------
 run_control "change the Langfuse public URL" \

@@ -17,6 +17,27 @@ x-langfuse-env: &langfuse-env
   TELEMETRY_ENABLED: "false"
   TZ: UTC
 
+x-localization-build: &localization-build
+  # services/localization is its own Python project; the context is that folder.
+  context: ./services/localization
+
+# What every localization process reads to reach Temporal, the object store and
+# Langfuse. Anything else a process reads is listed on that service alone.
+x-localization-env: &localization-env
+  TEMPORAL_ADDRESS: ${TEMPORAL_ADDRESS:-temporal:7233}
+  TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
+  LANGFUSE_HOST: ${LANGFUSE_HOST:-http://langfuse-web:3000}
+  LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
+  LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
+
+x-localization-s3-env: &localization-s3-env
+  S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
+  S3_REGION: ${S3_REGION:-us-east-1}
+  S3_BUCKET: ${S3_BUCKET:-reup-media}
+  S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+  LOC_S3_ACCESS_KEY_ID: ${LOC_S3_ACCESS_KEY_ID}
+  LOC_S3_SECRET_ACCESS_KEY: ${LOC_S3_SECRET_ACCESS_KEY}
+
 services:
   nest:
     build:
@@ -416,6 +437,76 @@ services:
     depends_on:
       langfuse-web:
         condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # Localization processes (plan 261026-0147, phase 04). One image, built from
+  # services/localization; the command picks the role. None publishes a port.
+  # ---------------------------------------------------------------------------
+
+  # Turns localization_outbox rows into workflows. Stop it and the outbox keeps
+  # filling; nothing is lost.
+  localization-starter:
+    build: *localization-build
+    restart: unless-stopped
+    command: ["python", "-m", "localization.starter.outbox_starter"]
+    environment:
+      <<: *localization-env
+      LOC_DATABASE_URL: ${LOC_DATABASE_URL}
+      S3_BUCKET: ${S3_BUCKET:-reup-media}
+      TARGET_LANG: ${TARGET_LANG:-vi}
+      VOICE_PROVIDER: ${VOICE_PROVIDER:-voicestudio}
+      VOICE_ID: ${VOICE_ID:-}
+      VOICE_SETTINGS_JSON: ${VOICE_SETTINGS_JSON:-}
+      VOICESTUDIO_URL: ${VOICESTUDIO_URL:-}
+      VOICESTUDIO_API_KEY: ${VOICESTUDIO_API_KEY:-}
+      VOICESTUDIO_ALLOW_PRIVATE_HTTP_CIDRS: ${VOICESTUDIO_ALLOW_PRIVATE_HTTP_CIDRS:-100.64.0.0/10}
+      MAX_OPEN_WORKFLOWS: ${MAX_OPEN_WORKFLOWS:-10}
+      OUTBOX_MAX_ATTEMPTS: ${OUTBOX_MAX_ATTEMPTS:-5}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal-namespace-init:
+        condition: service_completed_successfully
+
+  # Queues: workflows, llm, io, stt, tts. The `workflows` queue needs nothing
+  # outside Temporal, so a VoiceStudio outage never stops a workflow task.
+  worker-agents:
+    build: *localization-build
+    restart: unless-stopped
+    command: ["python", "-m", "localization.workers.run", "agents"]
+    environment:
+      <<: [*localization-env, *localization-s3-env]
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OCR_MODEL: ${OCR_MODEL:-}
+      OCR_BBOX_FORMAT: ${OCR_BBOX_FORMAT:-}
+      VOICESTUDIO_URL: ${VOICESTUDIO_URL:-}
+      VOICESTUDIO_API_KEY: ${VOICESTUDIO_API_KEY:-}
+      VOICESTUDIO_ALLOW_PRIVATE_HTTP_CIDRS: ${VOICESTUDIO_ALLOW_PRIVATE_HTTP_CIDRS:-100.64.0.0/10}
+      STT_MODEL: ${STT_MODEL:-}
+      TTS_MODEL: ${TTS_MODEL:-}
+      STT_CONCURRENCY: ${STT_CONCURRENCY:-1}
+      TTS_CONCURRENCY: ${TTS_CONCURRENCY:-2}
+      LLM_CONCURRENCY: ${LLM_CONCURRENCY:-8}
+    depends_on:
+      temporal-namespace-init:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+
+  # Queue: media (Demucs, CPU heavy). MEDIA_CONCURRENCY bounds its memory.
+  worker-media:
+    build: *localization-build
+    restart: unless-stopped
+    command: ["python", "-m", "localization.workers.run", "media"]
+    environment:
+      <<: [*localization-env, *localization-s3-env]
+      MEDIA_CONCURRENCY: ${MEDIA_CONCURRENCY:-2}
+    depends_on:
+      temporal-namespace-init:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
 
 volumes:
   postgres_data:

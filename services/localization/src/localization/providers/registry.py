@@ -12,10 +12,13 @@ from localization.providers.vision_ocr import VisionOcr
 
 @dataclass(frozen=True)
 class Providers:
-    stt: SttProvider
-    tts: TtsProvider
-    ocr: OcrProvider
-    demucs: StemSeparator
+    """What a worker role needs. A role builds only the providers it uses: the
+    media worker has Demucs and nothing else, so it needs no provider settings."""
+
+    stt: SttProvider | None = None
+    tts: TtsProvider | None = None
+    ocr: OcrProvider | None = None
+    demucs: StemSeparator | None = None
 
 
 def build_providers(settings: Settings, http: httpx.AsyncClient | None = None) -> Providers:
@@ -27,3 +30,7 @@ def build_providers(settings: Settings, http: httpx.AsyncClient | None = None) -
         ocr=VisionOcr.from_settings(settings, http),
         demucs=DemucsSeparator(settings.demucs_bin),
     )
+
+
+def build_media_providers(settings: Settings) -> Providers:
+    return Providers(demucs=DemucsSeparator(settings.demucs_bin))

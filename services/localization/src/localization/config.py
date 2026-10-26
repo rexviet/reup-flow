@@ -2,15 +2,17 @@
 log line or a validation error never prints them."""
 
 import ipaddress
-from typing import Literal
+import json
+from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
-from pydantic import SecretStr, field_validator
+from pydantic import Field, SecretStr, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from localization.contracts.voice import VoiceRef, VoiceStudioSettings
+from localization.contracts.voice import SETTINGS_BY_PROVIDER, Provider, VoiceRef
 
 BBoxFormat = Literal["xyxy_px", "xyxy_norm1", "xyxy_norm1000", "yxyx_norm1000"]
+Concurrency = Annotated[int, Field(ge=1, le=64)]
 
 
 class ConfigError(ValueError):
@@ -34,7 +36,10 @@ class Settings(BaseSettings):
     voicestudio_url: str | None = None
     voicestudio_allow_private_http_cidrs: str = "100.64.0.0/10"
     voicestudio_api_key: SecretStr | None = None
+    voice_provider: Provider = "voicestudio"
     voice_id: str | None = None
+    voice_settings_json: str = "{}"
+    target_lang: str = "vi"
     stt_model: str | None = None
     tts_model: str | None = None
 
@@ -56,6 +61,18 @@ class Settings(BaseSettings):
     loc_s3_access_key_id: SecretStr | None = None
     loc_s3_secret_access_key: SecretStr | None = None
 
+    stt_concurrency: Concurrency = 1
+    tts_concurrency: Concurrency = 2
+    media_concurrency: Concurrency = 2
+    render_concurrency: Concurrency = 1
+    llm_concurrency: Concurrency = 8
+    max_open_workflows: Concurrency = 10
+    outbox_max_attempts: Concurrency = 5
+
+    langfuse_host: str | None = None
+    langfuse_public_key: SecretStr | None = None
+    langfuse_secret_key: SecretStr | None = None
+
     demucs_bin: str = "demucs"
     provider_timeout_seconds: float = 120.0
 
@@ -64,7 +81,7 @@ class Settings(BaseSettings):
     def _empty_format_is_unset(cls, value: object) -> object:
         return None if value == "" else value
 
-    @field_validator("voicestudio_url", mode="before")
+    @field_validator("voicestudio_url", "langfuse_host", mode="before")
     @classmethod
     def _empty_url_is_unset(cls, value: object) -> object:
         return None if value == "" else value
@@ -113,10 +130,21 @@ def load_settings() -> Settings:
 
 
 def voice_ref_from_settings(settings: Settings) -> VoiceRef:
-    """The voice every new workflow is started with. Carries the voice id only;
-    the API key stays in the provider's settings."""
+    """The voice every new workflow is started with. Carries the voice id and the
+    provider's closed settings model only; the API key stays in the provider's
+    settings."""
     if not settings.voice_id:
         raise ConfigError("VOICE_ID is not set")
-    return VoiceRef(
-        provider="voicestudio", voice_id=settings.voice_id, settings=VoiceStudioSettings()
-    )
+    try:
+        raw = json.loads(settings.voice_settings_json or "{}")
+        if not isinstance(raw, dict):
+            raise ValueError
+        voice_settings = SETTINGS_BY_PROVIDER[settings.voice_provider].model_validate(raw)
+        return VoiceRef(
+            provider=settings.voice_provider,
+            voice_id=settings.voice_id,
+            settings=voice_settings,  # type: ignore[arg-type]
+        )
+    except (ValueError, ValidationError):
+        # Never echo the value: a mistyped settings blob may hold a credential.
+        raise ConfigError("VOICE_SETTINGS_JSON is not a valid settings object") from None

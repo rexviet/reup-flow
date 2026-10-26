@@ -380,6 +380,11 @@ jobs:
 
       - uses: astral-sh/setup-uv@v5
 
+      # The preparation tests cut and probe real media with ffmpeg / ffprobe.
+      - name: ffmpeg
+        working-directory: .
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+
       - name: Install
         run: uv sync --frozen
 
