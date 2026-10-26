@@ -1,0 +1,23 @@
+plans/261026-0147-video-localization-workflow/phase-05-localizer-agent.md
+  s_0b729cf0d034d3::t_bba2532faaeef7 143
+  s_0b729cf0d034d3::t_1ddeb6c7e67627 107-142,144-147
+  s_0b729cf0d034d3::t_80213eb8d196bb 4
+plans/261026-0147-video-localization-workflow/plan.md
+  s_0b729cf0d034d3::t_80213eb8d196bb 189
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4b353baaa5df4d0dce101b741ef85d39562d081f",
+  "prompts": {},
+  "sessions": {
+    "s_0b729cf0d034d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9aa1a711-c362-45ab-8e48-1a9b19f8df48",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
