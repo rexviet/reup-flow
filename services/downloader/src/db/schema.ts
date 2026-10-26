@@ -143,6 +143,37 @@ export const videos = pgTable(
   ],
 );
 
+/**
+ * One row per finished download awaiting pickup by the localization side.
+ * Written by `markDone` in the same transaction that flips the video to
+ * `done`. Deliberately a plain `pgTable`, not `pgSchema(...)`: queries must
+ * follow `search_path` so each test run gets its own copy.
+ *
+ * `generation` is bumped to re-run a video; `state` is
+ * pending | dispatched | rejected | dead.
+ */
+export const localizationOutbox = pgTable(
+  'localization_outbox',
+  {
+    awemeId: text('aweme_id')
+      .primaryKey()
+      .references(() => videos.awemeId),
+    generation: integer('generation').notNull().default(1),
+    state: text('state').notNull().default('pending'),
+    enqueuedAt: tstz('enqueued_at').notNull().defaultNow(),
+    nextAttemptAt: tstz('next_attempt_at').notNull().defaultNow(),
+    dispatchedAt: tstz('dispatched_at'),
+    workflowId: text('workflow_id'),
+    dispatchAttempts: integer('dispatch_attempts').notNull().default(0),
+    lastError: text('last_error'),
+  },
+  (table) => [
+    index('localization_outbox_due_idx')
+      .on(table.nextAttemptAt)
+      .where(sql`${table.state} = 'pending'`),
+  ],
+);
+
 export type Profile = typeof profiles.$inferSelect;
 export type Job = typeof jobs.$inferSelect;
 export type Video = typeof videos.$inferSelect;

@@ -16,8 +16,12 @@ export const TEST_DATABASE_URL =
   process.env.TEST_DATABASE_URL ?? 'postgres://reup:reup@localhost:5432/reup';
 
 const MIGRATIONS_DIR = resolve(__dirname, '../../migrations');
-export const FORWARD_MIGRATION = resolve(MIGRATIONS_DIR, '260824-init-schema.sql');
-export const ROLLBACK_MIGRATION = resolve(MIGRATIONS_DIR, '260824-init-schema.down.sql');
+/** Applied in this order; rolled back in the reverse order. */
+const MIGRATION_NAMES = ['260824-init-schema', '261026-localization-outbox'];
+export const FORWARD_MIGRATIONS = MIGRATION_NAMES.map((n) => resolve(MIGRATIONS_DIR, `${n}.sql`));
+export const ROLLBACK_MIGRATIONS = MIGRATION_NAMES.map((n) =>
+  resolve(MIGRATIONS_DIR, `${n}.down.sql`),
+).reverse();
 
 /**
  * Every db suite gets its own Postgres schema, named per jest worker AND per
@@ -117,15 +121,15 @@ export async function dropSchema(schemaName: string): Promise<void> {
  */
 export async function applyForwardMigration(pool: Pool): Promise<void> {
   assertSafeDdlTarget(TEST_DATABASE_URL, 'TEST_DATABASE_URL');
-  await pool.query(readFileSync(FORWARD_MIGRATION, 'utf8'));
+  for (const file of FORWARD_MIGRATIONS) await pool.query(readFileSync(file, 'utf8'));
 }
 
 export async function applyRollbackMigration(pool: Pool): Promise<void> {
   assertSafeDdlTarget(TEST_DATABASE_URL, 'TEST_DATABASE_URL');
-  await pool.query(readFileSync(ROLLBACK_MIGRATION, 'utf8'));
+  for (const file of ROLLBACK_MIGRATIONS) await pool.query(readFileSync(file, 'utf8'));
 }
 
-/** Truncates the three tables so each test starts from a known-empty state. */
+/** Truncates the tables so each test starts from a known-empty state. */
 export async function truncateAll(pool: Pool): Promise<void> {
-  await pool.query('TRUNCATE videos, jobs, profiles RESTART IDENTITY CASCADE');
+  await pool.query('TRUNCATE videos, jobs, profiles, localization_outbox RESTART IDENTITY CASCADE');
 }

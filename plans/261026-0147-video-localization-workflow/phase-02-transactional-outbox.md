@@ -25,7 +25,7 @@ vẫn không biết gì về Temporal (D1, D2), và test cô lập theo `search_
 - Modify: ESLint config. Thêm `no-restricted-imports` cho `@temporalio/*`.
 - Modify: `services/downloader/test/support/db.ts`. Apply migration mới vào schema riêng của mỗi lần chạy.
 - Create: `scripts/backfill-localization-outbox.sql`
-- Create: `services/downloader/test/db/outbox.integration-spec.ts`
+- Create: `services/downloader/test/db/outbox.spec.ts`
 - Create: `services/downloader/test/mutations/phase-12.sh`
 - Modify: `scripts/run-mutations.sh`. Thêm dòng `12:1:0` vào `EXPECT`.
 
@@ -76,7 +76,7 @@ vẫn không biết gì về Temporal (D1, D2), và test cô lập theo `search_
 
 ## Verification
 
-Chạy `pnpm --filter @reup-flow/downloader test:integration -- outbox`:
+Chạy `pnpm --filter @reup-flow/downloader test -- outbox` (file test: `services/downloader/test/db/outbox.spec.ts`):
 
 | Test | Kỳ vọng |
 |---|---|
