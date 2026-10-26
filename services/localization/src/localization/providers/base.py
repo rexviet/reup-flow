@@ -1,10 +1,14 @@
 """Shared plumbing for the OpenAI-compatible HTTP providers."""
 
-from typing import Any
+from pathlib import Path
+from typing import Any, Protocol, runtime_checkable
 
 import httpx
 from opentelemetry import trace
 
+from localization.contracts.geometry import BBox
+from localization.contracts.models import TranscriptDocument
+from localization.contracts.voice import VoiceRef
 from localization.providers.errors import (
     PermanentProviderError,
     TransientProviderError,
@@ -12,6 +16,28 @@ from localization.providers.errors import (
 )
 
 _tracer = trace.get_tracer("localization.providers")
+
+
+@runtime_checkable
+class SttProvider(Protocol):
+    async def transcribe(
+        self, audio: bytes, *, filename: str = ..., language: str | None = ...
+    ) -> TranscriptDocument: ...
+
+
+@runtime_checkable
+class TtsProvider(Protocol):
+    async def synthesize(self, text: str, voice: VoiceRef) -> bytes: ...
+
+
+@runtime_checkable
+class OcrProvider(Protocol):
+    async def detect_region(self, frame_png: bytes, width: int, height: int) -> BBox | None: ...
+
+
+@runtime_checkable
+class StemSeparator(Protocol):
+    def separate(self, input_path: Path) -> tuple[Path, Path, Path]: ...
 
 
 class OpenAICompatClient:
@@ -54,7 +80,7 @@ class OpenAICompatClient:
                 span.set_attribute("provider.outcome", "connection_error")
                 raise TransientProviderError(f"{self._name}: connection error") from None
             span.set_attribute("http.status_code", response.status_code)
-            if response.status_code >= 400 or response.status_code < 200:
+            if not 200 <= response.status_code < 300:
                 raise classify_status(self._name, response.status_code)
             return response
 

@@ -1,7 +1,7 @@
 """The real STT/TTS provider classes against a real local HTTP server."""
 
 import pytest
-from tests.support.stub_server import WAV, Scenario, StubServer
+from tests.support.stub_server import STT_BODY, WAV, Scenario, StubServer
 
 from localization.config import Settings
 from localization.contracts import VoiceRef, VoiceStudioSettings
@@ -103,6 +103,56 @@ async def test_connection_failure_is_transient(monkeypatch: pytest.MonkeyPatch) 
     dead.stop()
     with pytest.raises(TransientProviderError):
         await OpenAICompatTts.from_settings(settings).synthesize("x", VOICE)
+
+
+@pytest.mark.parametrize("status", [301, 302, 307])
+async def test_a_redirect_is_not_a_success(
+    stub: StubServer, monkeypatch: pytest.MonkeyPatch, status: int
+) -> None:
+    stub.scenario = Scenario(status=status)
+    tts = OpenAICompatTts.from_settings(_settings(stub, monkeypatch))
+    with pytest.raises(PermanentProviderError):
+        await tts.synthesize("x", VOICE)
+
+
+@pytest.mark.parametrize("status", [301, 302, 307])
+async def test_a_redirect_is_not_a_success_for_stt(
+    stub: StubServer, monkeypatch: pytest.MonkeyPatch, status: int
+) -> None:
+    # The redirect carries a perfectly valid transcript, so only the status check
+    # can refuse it.
+    stub.scenario = Scenario(status=status, body_with_status=STT_BODY)
+    stt = OpenAICompatStt.from_settings(_settings(stub, monkeypatch))
+    with pytest.raises(PermanentProviderError):
+        await stt.transcribe(b"x")
+
+
+@pytest.mark.parametrize("body", [{"error": {"message": "quota"}}, {"text": "x"}, []])
+async def test_a_200_without_segments_is_not_a_transcript(
+    stub: StubServer, monkeypatch: pytest.MonkeyPatch, body: object
+) -> None:
+    stub.scenario = Scenario(json_body=body)
+    stt = OpenAICompatStt.from_settings(_settings(stub, monkeypatch))
+    with pytest.raises(PermanentProviderError):
+        await stt.transcribe(b"x")
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b'{"error": {"message": "quota exceeded"}}',
+        b"<html>gateway</html>",
+        b"RIFF",  # truncated header
+        b"RIFF\x00\x00\x00\x00AVI LIST",  # a RIFF container that is not WAVE
+    ],
+)
+async def test_a_200_that_is_not_a_wav_is_never_returned_as_audio(
+    stub: StubServer, monkeypatch: pytest.MonkeyPatch, body: bytes
+) -> None:
+    stub.scenario = Scenario(raw_body=body)
+    tts = OpenAICompatTts.from_settings(_settings(stub, monkeypatch))
+    with pytest.raises(PermanentProviderError, match="not a WAV"):
+        await tts.synthesize("x", VOICE)
 
 
 async def test_empty_audio_is_permanent(stub: StubServer, monkeypatch: pytest.MonkeyPatch) -> None:

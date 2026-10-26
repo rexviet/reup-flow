@@ -6,14 +6,14 @@ payload). The `*Document` models describe what is stored under those keys.
 
 from typing import Annotated, Literal
 
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, model_validator
 
 from localization.contracts.base import Contract
 from localization.contracts.geometry import BBox, NonNegativeInt, PositiveInt
-from localization.contracts.ids import AwemeId, ChannelId, Sha256
+from localization.contracts.ids import AwemeId, ChannelId, Sha256, SourceKey, StorageKey
 from localization.contracts.voice import VoiceRef
 
-Key = Annotated[str, Field(min_length=1, max_length=1024)]
+Key = StorageKey
 Text = Annotated[str, Field(max_length=4000)]
 
 
@@ -21,7 +21,7 @@ class LocalizationInput(Contract):
     aweme_id: AwemeId
     channel_id: ChannelId
     generation: NonNegativeInt
-    video_key: Key
+    video_key: SourceKey
     target_lang: Annotated[str, Field(pattern=r"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?$")]
     voice: VoiceRef
 
@@ -34,12 +34,24 @@ class SttWord(Contract):
     start_ms: NonNegativeInt
     end_ms: NonNegativeInt
 
+    @model_validator(mode="after")
+    def _ends_after_it_starts(self) -> "SttWord":
+        if self.end_ms < self.start_ms:
+            raise ValueError("end_ms must not be before start_ms")
+        return self
+
 
 class SttSegment(Contract):
     id: NonNegativeInt
     start_ms: NonNegativeInt
     end_ms: NonNegativeInt
     text: Text
+
+    @model_validator(mode="after")
+    def _ends_after_it_starts(self) -> "SttSegment":
+        if self.end_ms < self.start_ms:
+            raise ValueError("end_ms must not be before start_ms")
+        return self
 
 
 class TranscriptDocument(Contract):
@@ -72,6 +84,12 @@ class LocalizedSegment(Contract):
     src_zh: Text
     text_vi: Text
     on_screen: bool
+
+    @model_validator(mode="after")
+    def _ends_after_it_starts(self) -> "LocalizedSegment":
+        if self.end_ms < self.start_ms:
+            raise ValueError("end_ms must not be before start_ms")
+        return self
 
 
 class LocalizedScript(Contract):
@@ -125,6 +143,12 @@ class Caption(Contract):
     start_ms: NonNegativeInt
     end_ms: NonNegativeInt
     text: Text
+
+    @model_validator(mode="after")
+    def _ends_after_it_starts(self) -> "Caption":
+        if self.end_ms < self.start_ms:
+            raise ValueError("end_ms must not be before start_ms")
+        return self
 
 
 class EditSpec(Contract):

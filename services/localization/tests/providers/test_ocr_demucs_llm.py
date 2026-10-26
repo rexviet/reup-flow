@@ -40,6 +40,7 @@ def test_bbox_is_clamped_to_the_frame_and_empty_boxes_are_refused() -> None:
 
 
 def _ocr_settings(stub: StubServer, monkeypatch: pytest.MonkeyPatch, fmt: str | None) -> Settings:
+    monkeypatch.setenv("VOICESTUDIO_ALLOW_PRIVATE_HTTP_CIDRS", "127.0.0.0/8")
     monkeypatch.setenv("OPENROUTER_BASE_URL", stub.url)
     monkeypatch.setenv("OPENROUTER_API_KEY", "or-key")
     monkeypatch.setenv("OCR_MODEL", "vision/model")
@@ -173,6 +174,7 @@ def test_demucs_missing_binary_is_permanent(tmp_path: Path) -> None:
 def test_model_for_uses_the_configured_base_url_and_strips_the_prefix(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("VOICESTUDIO_ALLOW_PRIVATE_HTTP_CIDRS", "127.0.0.0/8")
     monkeypatch.setenv("OPENROUTER_BASE_URL", "http://127.0.0.1:9/v1")
     monkeypatch.setenv("OPENROUTER_API_KEY", "or-key")
     monkeypatch.setenv("LOCALIZER_MODEL", "openai:deepseek/deepseek-v4-pro")

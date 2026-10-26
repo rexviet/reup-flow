@@ -32,11 +32,13 @@ class Settings(BaseSettings):
     temporal_namespace: str = "default"
 
     voicestudio_url: str | None = None
-    voicestudio_allow_private_http_cidrs: str = ""
+    voicestudio_allow_private_http_cidrs: str = "100.64.0.0/10"
     voicestudio_api_key: SecretStr | None = None
     voice_id: str | None = None
     stt_model: str | None = None
     tts_model: str | None = None
+
+    loc_database_url: SecretStr | None = None
 
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_api_key: SecretStr | None = None
@@ -74,32 +76,36 @@ class Settings(BaseSettings):
         return value
 
     def model_post_init(self, __context: object) -> None:
+        cidrs = self.voicestudio_allow_private_http_cidrs
         if self.voicestudio_url is not None:
-            check_voicestudio_url(self.voicestudio_url, self.voicestudio_allow_private_http_cidrs)
+            check_endpoint_url("VOICESTUDIO_URL", self.voicestudio_url, cidrs)
+        check_endpoint_url("OPENROUTER_BASE_URL", self.openrouter_base_url, cidrs)
 
 
-def check_voicestudio_url(url: str, allow_private_http_cidrs: str) -> None:
+def check_endpoint_url(name: str, url: str, allow_private_http_cidrs: str) -> None:
     """https is always fine. Plain http is accepted only for an IP literal inside
-    the operator's allow-list, because the bearer token and the audio cross the
-    wire in the clear. Anything else refuses to start."""
+    the operator's allow-list, because a bearer token and the payload would cross
+    the wire in the clear. Anything else refuses to start."""
     parts = urlsplit(url)
     if parts.username is not None or parts.password is not None:
-        raise ConfigError("VOICESTUDIO_URL must not embed credentials")
+        raise ConfigError(f"{name} must not embed credentials")
     host = parts.hostname
     if host is None or parts.scheme not in ("http", "https"):
-        raise ConfigError("VOICESTUDIO_URL must be an http(s) URL with a host")
+        raise ConfigError(f"{name} must be an http(s) URL with a host")
     if parts.scheme == "https":
         return
     try:
         address = ipaddress.ip_address(host)
     except ValueError:
         raise ConfigError(
-            "VOICESTUDIO_URL uses http with a hostname; use https or an allow-listed IP"
+            f"{name} uses http with a hostname; use https or an allow-listed IP"
         ) from None
     if not any(address in net for net in _parse_cidrs(allow_private_http_cidrs)):
-        raise ConfigError(
-            "VOICESTUDIO_URL uses plain http outside VOICESTUDIO_ALLOW_PRIVATE_HTTP_CIDRS"
-        )
+        raise ConfigError(f"{name} uses plain http outside VOICESTUDIO_ALLOW_PRIVATE_HTTP_CIDRS")
+
+
+def check_voicestudio_url(url: str, allow_private_http_cidrs: str) -> None:
+    check_endpoint_url("VOICESTUDIO_URL", url, allow_private_http_cidrs)
 
 
 def load_settings() -> Settings:

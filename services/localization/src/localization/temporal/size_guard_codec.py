@@ -4,7 +4,7 @@ from temporalio.api.common.v1 import Payload
 from temporalio.converter import PayloadCodec
 from temporalio.exceptions import ApplicationError
 
-MAX_PAYLOAD_BYTES = 256 * 1024
+from localization.contracts.limits import MAX_PAYLOAD_BYTES
 
 
 class SizeGuardCodec(PayloadCodec):

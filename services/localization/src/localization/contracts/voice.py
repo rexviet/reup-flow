@@ -1,11 +1,13 @@
 import re
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, model_validator
 
 from localization.contracts.base import Contract
 
 _SECRET_FIELD_RE = re.compile(r"key|token|secret|password", re.IGNORECASE)
+
+Provider = Literal["voicestudio", "openai_compat"]
 
 
 class ProviderSettings(Contract):
@@ -30,7 +32,36 @@ class VoiceStudioSettings(ProviderSettings):
     instructions: Annotated[str, Field(max_length=500)] | None = None
 
 
+class OpenAICompatSettings(ProviderSettings):
+    speed: Annotated[float, Field(ge=0.25, le=4.0)] = 1.0
+
+
+# One entry per provider. Adding a provider is one line here plus its settings
+# class; no existing provider's contract changes.
+SETTINGS_BY_PROVIDER: dict[str, type[ProviderSettings]] = {
+    "voicestudio": VoiceStudioSettings,
+    "openai_compat": OpenAICompatSettings,
+}
+
+
 class VoiceRef(Contract):
-    provider: Literal["voicestudio"]
+    provider: Provider
     voice_id: Annotated[str, Field(min_length=1, max_length=128)]
-    settings: VoiceStudioSettings
+    settings: VoiceStudioSettings | OpenAICompatSettings
+
+    @model_validator(mode="before")
+    @classmethod
+    def _settings_follow_the_provider(cls, data: Any) -> Any:
+        """Discriminates on `provider`: the settings of a voice are parsed as the
+        class registered for its provider, never guessed from their fields."""
+        if isinstance(data, dict) and isinstance(data.get("settings"), dict):
+            settings_cls = SETTINGS_BY_PROVIDER.get(data.get("provider"))  # type: ignore[arg-type]
+            if settings_cls is not None:
+                data = {**data, "settings": settings_cls.model_validate(data["settings"])}
+        return data
+
+    @model_validator(mode="after")
+    def _settings_match_the_provider(self) -> "VoiceRef":
+        if type(self.settings) is not SETTINGS_BY_PROVIDER[self.provider]:
+            raise ValueError(f"settings of the wrong type for provider {self.provider}")
+        return self

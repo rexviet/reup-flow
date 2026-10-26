@@ -1,9 +1,20 @@
+import os
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
 
 from localization.providers.errors import PermanentProviderError, TransientProviderError
+
+# What demucs needs to run and find its cached weights; nothing else is passed on,
+# so a credential in the worker's environment never reaches the subprocess.
+_ENV_PASSTHROUGH = ("PATH", "HOME", "LANG", "LC_ALL", "TORCH_HOME", "XDG_CACHE_HOME")
+
+
+def _child_env(work_dir: Path) -> dict[str, str]:
+    env = {k: os.environ[k] for k in _ENV_PASSTHROUGH if k in os.environ}
+    env["TMPDIR"] = str(work_dir)
+    return env
 
 
 class DemucsSeparator:
@@ -30,7 +41,13 @@ class DemucsSeparator:
             str(input_path),
         ]
         try:
-            result = subprocess.run(argv, capture_output=True, timeout=self._timeout, check=False)
+            result = subprocess.run(
+                argv,
+                capture_output=True,
+                timeout=self._timeout,
+                check=False,
+                env=_child_env(work_dir),
+            )
         except subprocess.TimeoutExpired:
             shutil.rmtree(work_dir, ignore_errors=True)
             raise TransientProviderError("demucs: timeout") from None

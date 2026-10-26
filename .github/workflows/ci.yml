@@ -345,12 +345,33 @@ jobs:
           exit $fail
 
   # services/localization: lint, tests, and its mutation harnesses. The tests use
-  # a local Temporal dev server (downloaded by the temporalio test helper) and an
-  # in-process S3 double; the migration test skips itself without a Postgres.
+  # a local Temporal dev server (downloaded by the temporalio test helper), an
+  # in-process S3 double and the Postgres service below.
   # The runner's own test proves its guards (including "a harness that leaves a
   # .py mutation behind is POISONED") still go red.
   localization:
     runs-on: ubuntu-latest
+    # The migration test applies the SQL to a throwaway database on this
+    # Postgres and creates the `localization` role itself when it is missing. With
+    # CI set, a Postgres that cannot be reached FAILS that test instead of
+    # skipping it.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: reup
+          POSTGRES_PASSWORD: reup
+          POSTGRES_DB: reup
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U reup"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      POSTGRES_USER: reup
+      POSTGRES_PASSWORD: reup
     defaults:
       run:
         working-directory: services/localization

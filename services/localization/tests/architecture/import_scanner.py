@@ -34,7 +34,27 @@ FORBIDDEN_REACH = (
     "localization.providers",
     "localization.storage",
     "localization.config",
+    # Reading env/files, clocks, threads and ids, or loading code by name.
+    "pydantic_settings",
+    "dotenv",
+    "pathlib",
+    "tempfile",
+    "shutil",
+    "urllib",
+    "asyncio",
+    "threading",
+    "uuid",
+    "psycopg",
+    "importlib",
+    "builtins",
+    "ctypes",
+    "pickle",
 )
+
+# Names that load or run code, or open files, without an import statement. Calling
+# `__import__("os")` or `exec(...)` walks around any import allowlist.
+FORBIDDEN_CALLS = frozenset({"__import__", "eval", "exec", "compile", "open", "input"})
+FORBIDDEN_NAMES = frozenset({"__builtins__", "__loader__"})
 
 FIRST_PARTY = "localization"
 
@@ -64,21 +84,49 @@ def _imports(path: Path, package: str) -> list[str]:
     return names
 
 
+def _dynamic_escapes(path: Path) -> list[str]:
+    """Constructs in `path` that bypass the import allowlist."""
+    found: list[str] = []
+    for node in ast.walk(ast.parse(path.read_text(), filename=str(path))):
+        if isinstance(node, ast.Call):
+            fn = node.func
+            name = fn.id if isinstance(fn, ast.Name) else None
+            if name in FORBIDDEN_CALLS:
+                found.append(f"{name}()")
+        if isinstance(node, ast.Name) and node.id in FORBIDDEN_NAMES:
+            found.append(node.id)
+        if isinstance(node, ast.Attribute) and node.attr in FORBIDDEN_NAMES:
+            found.append(node.attr)
+    return found
+
+
 def _matches(name: str, roots: tuple[str, ...]) -> bool:
     return any(name == root or name.startswith(root + ".") for root in roots)
 
 
-def _module_file(src_root: Path, dotted: str) -> Path | None:
-    """The first-party file a dotted name resolves to, trying shorter prefixes so
-    `from localization.contracts import X` finds `contracts/__init__.py`."""
+def _module_files(src_root: Path, dotted: str) -> list[Path]:
+    """Every first-party file importing `dotted` executes: the module itself (or the
+    longest existing prefix, so `from pkg import name` finds `pkg/__init__.py`)
+    AND the `__init__.py` of each parent package, which Python runs first."""
     parts = dotted.split(".")
-    for end in range(len(parts), 0, -1):
+    target: Path | None = None
+    end = len(parts)
+    while end > 0 and target is None:
         base = src_root.joinpath(*parts[:end])
         if base.with_suffix(".py").is_file():
-            return base.with_suffix(".py")
-        if (base / "__init__.py").is_file():
-            return base / "__init__.py"
-    return None
+            target = base.with_suffix(".py")
+        elif (base / "__init__.py").is_file():
+            target = base / "__init__.py"
+        else:
+            end -= 1
+    if target is None:
+        return []
+    files = [target]
+    for i in range(1, end):
+        init = src_root.joinpath(*parts[:i]) / "__init__.py"
+        if init.is_file():
+            files.append(init)
+    return files
 
 
 def _package_of(src_root: Path, path: Path) -> str:
@@ -95,21 +143,23 @@ def scan_forbidden_reach(
     """Violations reachable from `entry` through first-party imports."""
     violations: list[Violation] = []
     seen: set[Path] = set()
-    stack = [entry]
+    stack = [entry, *_module_files(src_root, _package_of(src_root, entry))]
     while stack:
         path = stack.pop()
         if path in seen:
             continue
         seen.add(path)
+        for escape in _dynamic_escapes(path):
+            violations.append(
+                Violation(str(path.relative_to(src_root)), escape, "bypasses the import allowlist")
+            )
         for name in _imports(path, _package_of(src_root, path)):
             if _matches(name, forbidden):
                 violations.append(
                     Violation(str(path.relative_to(src_root)), name, "forbidden dependency")
                 )
             if _matches(name, (FIRST_PARTY,)):
-                target = _module_file(src_root, name)
-                if target is not None:
-                    stack.append(target)
+                stack.extend(_module_files(src_root, name))
     return violations
 
 

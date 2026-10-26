@@ -1,30 +1,43 @@
 """No secret in workflow input, history, spans, stdout or stderr.
 
-Every credential in the environment is a `canary-<uuid>`. The real provider class
-runs against a local HTTP server (200, 401, 500, timeout), and the server's error
-bodies echo the Authorization header the way a careless gateway does. Then
-history (including failure payloads), exported spans and the captured output
-streams are searched for any canary.
+Every credential in the environment is a `canary-<uuid>`. The real provider
+classes (TTS and STT with the VoiceStudio key, OCR with the OpenRouter key, the
+object store with the S3 keys) run against a local HTTP server or an in-process
+S3, in success and failure scenarios, and the server's error bodies echo the
+Authorization header the way a careless gateway does. Then history (including
+failure payloads), exported spans and the captured output streams are searched
+for any canary.
 """
 
 import sys
 import uuid
+from collections.abc import Iterator
 from dataclasses import dataclass
 
+import boto3
 import pytest
+from moto import mock_aws
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from temporalio.client import Client, WorkflowFailureError
+from temporalio.exceptions import ActivityError, ApplicationError
 from temporalio.worker import Worker
 
 from localization.config import Settings, voice_ref_from_settings
 from localization.contracts import LocalizationInput
-from tests.support.canary_flow import TASK_QUEUE, SynthesizeWorkflow, make_synthesize_activity
+from localization.storage.object_store import ObjectStore
+from tests.support.canary_flow import (
+    ARTIFACT_KEY,
+    TASK_QUEUE,
+    ProviderWorkflow,
+    make_activities,
+)
 from tests.support.stub_server import Scenario, StubServer
 
 _EXPORTER = InMemorySpanExporter()
+BUCKET = "reup-media"
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -52,13 +65,27 @@ def canaries(monkeypatch: pytest.MonkeyPatch, stub: StubServer) -> Canaries:
     monkeypatch.setenv("VOICESTUDIO_URL", stub.url)
     monkeypatch.setenv("VOICESTUDIO_ALLOW_PRIVATE_HTTP_CIDRS", "127.0.0.0/8")
     monkeypatch.setenv("VOICESTUDIO_API_KEY", c.voicestudio)
+    monkeypatch.setenv("OPENROUTER_BASE_URL", stub.url)
     monkeypatch.setenv("OPENROUTER_API_KEY", c.openrouter)
     monkeypatch.setenv("LOC_S3_ACCESS_KEY_ID", c.s3_id)
     monkeypatch.setenv("LOC_S3_SECRET_ACCESS_KEY", c.s3_secret)
     monkeypatch.setenv("VOICE_ID", "voice-1")
     monkeypatch.setenv("TTS_MODEL", "tts-model")
+    monkeypatch.setenv("STT_MODEL", "stt-model")
+    monkeypatch.setenv("OCR_MODEL", "vision/model")
+    monkeypatch.setenv("OCR_BBOX_FORMAT", "xyxy_px")
     monkeypatch.setenv("PROVIDER_TIMEOUT_SECONDS", "0.5")
     return c
+
+
+@pytest.fixture
+def s3_store(canaries: Canaries) -> Iterator[ObjectStore]:
+    """An in-process S3 reached through the real `ObjectStore.from_settings`, so
+    the S3 canaries are the credentials the boto client really signs with."""
+    with mock_aws():
+        boto3.client("s3", region_name="us-east-1").create_bucket(Bucket=BUCKET)
+        store = ObjectStore.from_settings(Settings())
+        yield store
 
 
 def find_leaks(
@@ -89,10 +116,8 @@ def _span_text() -> str:
     return "\n".join(parts)
 
 
-async def _run_scenario(
-    client: Client, settings: Settings
-) -> tuple[bytes, WorkflowFailureError | None]:
-    spec = LocalizationInput(
+def _spec(settings: Settings) -> LocalizationInput:
+    return LocalizationInput(
         aweme_id="7312345678901234567",
         channel_id="chan",
         generation=0,
@@ -100,16 +125,21 @@ async def _run_scenario(
         target_lang="vi",
         voice=voice_ref_from_settings(settings),
     )
+
+
+async def _run(
+    client: Client, kind: str, settings: Settings, store: ObjectStore | None
+) -> tuple[bytes, WorkflowFailureError | None]:
     failure: WorkflowFailureError | None = None
     async with Worker(
         client,
         task_queue=TASK_QUEUE,
-        workflows=[SynthesizeWorkflow],
-        activities=[make_synthesize_activity(settings)],
+        workflows=[ProviderWorkflow],
+        activities=make_activities(settings, store),
     ):
         handle = await client.start_workflow(
-            SynthesizeWorkflow.run,
-            spec,
+            ProviderWorkflow.run,
+            args=[kind, _spec(settings)],
             id=f"canary-{uuid.uuid4()}",
             task_queue=TASK_QUEUE,
         )
@@ -122,16 +152,38 @@ async def _run_scenario(
     return b"".join(event.SerializeToString() for event in history.events), failure
 
 
-SCENARIOS = {
-    "200": Scenario(status=200),
-    "401": Scenario(status=401, echo_authorization=True),
-    "500": Scenario(status=500, echo_authorization=True),
-    "timeout": Scenario(delay_seconds=1.5),
+def _chat(content: str) -> dict:
+    return {"choices": [{"message": {"content": content}}]}
+
+
+OK = {
+    "synthesize": Scenario(status=200),
+    "transcribe": Scenario(status=200),
+    "detect_region": Scenario(json_body=_chat('{"bbox": [100, 800, 900, 900]}')),
 }
 
 
-@pytest.mark.parametrize("name", list(SCENARIOS))
+def _http_scenarios(kind: str) -> dict[str, Scenario]:
+    return {
+        "200": OK[kind],
+        "401": Scenario(status=401, echo_authorization=True),
+        "500": Scenario(status=500, echo_authorization=True),
+        "timeout": Scenario(delay_seconds=1.5),
+    }
+
+
+# kind -> (span name, whose key the provider must have sent)
+HTTP_KINDS = {
+    "synthesize": ("provider.tts", "voicestudio"),
+    "transcribe": ("provider.stt", "voicestudio"),
+    "detect_region": ("provider.ocr", "openrouter"),
+}
+HTTP_CASES = [(kind, name) for kind in HTTP_KINDS for name in ("200", "401", "500", "timeout")]
+
+
+@pytest.mark.parametrize("kind, name", HTTP_CASES)
 async def test_no_canary_reaches_history_spans_or_output(
+    kind: str,
     name: str,
     canaries: Canaries,
     stub: StubServer,
@@ -139,26 +191,56 @@ async def test_no_canary_reaches_history_spans_or_output(
     capfd: pytest.CaptureFixture[str],
 ) -> None:
     _EXPORTER.clear()
-    stub.scenario = SCENARIOS[name]
+    stub.scenario = _http_scenarios(kind)[name]
     settings = Settings()
 
-    history, failure = await _run_scenario(temporal_client, settings)
+    history, failure = await _run(temporal_client, kind, settings, None)
     captured = capfd.readouterr()
 
-    # The scenario really happened, and the key really travelled to the provider.
+    # The scenario really happened, and the right key really travelled.
+    span_name, owner = HTTP_KINDS[kind]
+    sent = getattr(canaries, owner)
     assert stub.requests, "the provider never called the server"
-    assert stub.requests[0].headers["authorization"] == f"Bearer {canaries.voicestudio}"
-    if name == "200":
+    assert stub.requests[0].headers["authorization"] == f"Bearer {sent}"
+    assert (failure is None) == (name == "200")
+    assert any(s.name == span_name for s in _EXPORTER.get_finished_spans())
+
+    leaks = find_leaks(
+        canaries.all(), history=history, spans=_span_text(), output=captured.out + captured.err
+    )
+    assert leaks == {}
+
+
+@pytest.mark.parametrize("present", [True, False], ids=["present", "missing"])
+async def test_no_s3_canary_reaches_history_spans_or_output(
+    present: bool,
+    canaries: Canaries,
+    s3_store: ObjectStore,
+    temporal_client: Client,
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    _EXPORTER.clear()
+    if present:
+        s3_store.put_bytes(ARTIFACT_KEY, b"data")
+    settings = Settings()
+    # The store really signs with the canary credentials.
+    signer_credentials = s3_store._client._request_signer._credentials  # noqa: SLF001
+    assert signer_credentials.access_key == canaries.s3_id
+    assert signer_credentials.secret_key == canaries.s3_secret
+
+    history, failure = await _run(temporal_client, "fetch_artifact", settings, s3_store)
+    captured = capfd.readouterr()
+
+    if present:
         assert failure is None
     else:
         assert failure is not None
-    assert any(s.name == "provider.tts" for s in _EXPORTER.get_finished_spans())
-
+        activity_error = failure.cause
+        assert isinstance(activity_error, ActivityError)
+        assert isinstance(activity_error.cause, ApplicationError)
+        assert activity_error.cause.type == "ArtifactMissingError"
     leaks = find_leaks(
-        canaries.all(),
-        history=history,
-        spans=_span_text(),
-        output=captured.out + captured.err,
+        canaries.all(), history=history, spans=_span_text(), output=captured.out + captured.err
     )
     assert leaks == {}
 
@@ -189,32 +271,26 @@ def test_control_scanner_sees_a_canary_in_every_channel(
 
 
 async def test_control_a_leak_through_an_activity_failure_is_caught(
-    canaries: Canaries, stub: StubServer, temporal_client: Client
+    canaries: Canaries, temporal_client: Client
 ) -> None:
     from temporalio import activity
-    from temporalio.exceptions import ApplicationError
 
     @activity.defn(name="synthesize")
     async def leaky(spec: LocalizationInput) -> int:
         raise ApplicationError(f"upstream said: Bearer {canaries.voicestudio}", non_retryable=True)
 
     settings = Settings()
-    spec = LocalizationInput(
-        aweme_id="1",
-        channel_id="c",
-        generation=0,
-        video_key="k",
-        target_lang="vi",
-        voice=voice_ref_from_settings(settings),
-    )
     async with Worker(
         temporal_client,
         task_queue=TASK_QUEUE,
-        workflows=[SynthesizeWorkflow],
+        workflows=[ProviderWorkflow],
         activities=[leaky],
     ):
         handle = await temporal_client.start_workflow(
-            SynthesizeWorkflow.run, spec, id=f"canary-{uuid.uuid4()}", task_queue=TASK_QUEUE
+            ProviderWorkflow.run,
+            args=["synthesize", _spec(settings)],
+            id=f"canary-{uuid.uuid4()}",
+            task_queue=TASK_QUEUE,
         )
         with pytest.raises(WorkflowFailureError):
             await handle.result()

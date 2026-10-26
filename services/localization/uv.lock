@@ -355,6 +355,7 @@ dev = [
     { name = "psycopg", extra = ["binary"] },
     { name = "pytest" },
     { name = "pytest-asyncio" },
+    { name = "python-dotenv" },
     { name = "ruff" },
 ]
 
@@ -375,6 +376,7 @@ dev = [
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
     { name = "pytest", specifier = ">=8" },
     { name = "pytest-asyncio", specifier = ">=0.24" },
+    { name = "python-dotenv", specifier = ">=1.0" },
     { name = "ruff", specifier = ">=0.8" },
 ]
 

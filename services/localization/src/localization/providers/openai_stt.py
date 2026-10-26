@@ -62,7 +62,7 @@ class OpenAICompatStt:
 
     @staticmethod
     def _parse(body: Any) -> TranscriptDocument:
-        if not isinstance(body, dict):
+        if not isinstance(body, dict) or not isinstance(body.get("segments"), list):
             raise PermanentProviderError("stt: unexpected response shape")
         try:
             raw_segments = body.get("segments") or []

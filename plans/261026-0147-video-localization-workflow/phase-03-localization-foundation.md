@@ -181,7 +181,7 @@ Service mới, không ai phụ thuộc. Runner có commit riêng, revert đượ
 Hoàn thành 2026-10-26. G2 (VoiceStudio) và G5 (bbox) vẫn bị bỏ qua theo quyết định ở phase 00, nên provider được kiểm bằng stub HTTP local đi qua đúng class thật.
 
 Khác với plan:
-- Harness `localization:03` có **5** mutation, không phải 4: thêm mutation drift của `EditSpec` (D8 đặt mutation này ở harness Python). Hai control như plan. `EXPECT` ghi `localization:03:5:2`.
+- Harness `localization:03` có **11** mutation (plan nói 4): thêm drift của `EditSpec` (D8), hai kiểu vượt scanner, pre-check payload, 2xx/WAV và tiền tố `source/`. Hai control như plan. `EXPECT` ghi `localization:03:11:2`.
 - Selector cũ (`04`, `infra`, `12`) vẫn chỉ chọn harness của downloader. Service khác dùng `dir/phase`, hoặc `dir/*` cho cả service. CI downloader chạy `downloader/*`, job `localization` mới chạy `localization/*`.
 - `scripts/test-run-mutations.sh` kiểm các guard của chính runner trong một sandbox (gồm control "harness không restore file `.py/.tsx/.json/.ttf` thì guard D đỏ"). Chạy trong job `localization`.
 - Fingerprint bỏ qua `.venv`, `node_modules`, `__pycache__` và cache của pytest/ruff, vì chúng tự đổi và không phải source.

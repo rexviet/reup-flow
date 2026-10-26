@@ -28,6 +28,9 @@ class Scenario:
     echo_authorization: bool = False
     json_body: object | None = None
     raw_body: bytes | None = None
+    # A non-200 answer that carries a perfectly valid body, so only the status
+    # check can tell it from a success.
+    body_with_status: object | None = None
 
 
 @dataclass
@@ -66,8 +69,12 @@ class StubServer:
                 if sc.delay_seconds:
                     time.sleep(sc.delay_seconds)
                 if sc.status != 200:
-                    payload = {"error": "failed"}
-                    if sc.echo_authorization:
+                    payload = (
+                        sc.body_with_status
+                        if sc.body_with_status is not None
+                        else {"error": "failed"}
+                    )
+                    if sc.echo_authorization and isinstance(payload, dict):
                         payload["echo"] = self.headers.get("Authorization", "")
                     self._send(sc.status, "application/json", json.dumps(payload).encode())
                     return

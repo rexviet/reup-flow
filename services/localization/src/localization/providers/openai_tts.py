@@ -44,11 +44,13 @@ class OpenAICompatTts:
             "input": text,
             "voice": voice.voice_id,
             "response_format": "wav",
-            "speed": voice.settings.speed,
+            **voice.settings.model_dump(exclude_none=True),
         }
-        if voice.settings.instructions:
-            payload["instructions"] = voice.settings.instructions
         response = await self._client.post("/v1/audio/speech", json=payload)
-        if not response.content:
-            raise PermanentProviderError("tts: empty audio body")
-        return response.content
+        audio = response.content
+        # The result is cached forever under a hash of its inputs, so anything that
+        # is not a WAV (a 200 carrying a JSON error, an empty body) must never be
+        # stored as if it were audio.
+        if len(audio) < 12 or audio[:4] != b"RIFF" or audio[8:12] != b"WAVE":
+            raise PermanentProviderError("tts: response is not a WAV file")
+        return audio

@@ -7,6 +7,12 @@
 #   - no credential reaches input, history, spans or  (tests/test_secret_canary.py)
 #     output
 #   - the stored EditSpec schema matches the model    (tests/test_edit_spec_schema_drift.py)
+#   - the import scanner itself cannot be walked      (tests/architecture)
+#     around (parent __init__ files, __import__/exec)
+#   - an oversize payload built in a workflow fails   (tests/test_payload_in_workflow.py)
+#     it cleanly instead of retrying forever
+#   - only a real 2xx WAV is ever treated as audio    (tests/providers)
+#   - a source video key must live under source/      (tests/test_contract_hardening.py)
 #
 # A guard is evidence only if breaking its invariant turns it red, and the
 # controls say WHICH mechanism carries it. Protocol and rules: see
@@ -26,16 +32,24 @@ CLIENT=src/localization/temporal/client.py
 VOICE=src/localization/contracts/voice.py
 CONFIG=src/localization/config.py
 MODELS=src/localization/contracts/models.py
+SCANNER=tests/architecture/import_scanner.py
+LIMITS=src/localization/contracts/limits.py
+HTTP_BASE=src/localization/providers/base.py
+TTS=src/localization/providers/openai_tts.py
+IDS=src/localization/contracts/ids.py
 
 ARCH=tests/architecture/test_workflow_imports.py
 CODEC=tests/test_size_guard_codec.py
 CANARY=tests/test_secret_canary.py
 DRIFT=tests/test_edit_spec_schema_drift.py
+PAYLOAD=tests/test_payload_in_workflow.py
+PROVIDERS=tests/providers/test_openai_compat.py
+HARDENING=tests/test_contract_hardening.py
 
-mp_init "$WORKFLOWS" "$CLIENT" "$VOICE" "$CONFIG" "$MODELS"
+mp_init "$WORKFLOWS" "$CLIENT" "$VOICE" "$CONFIG" "$MODELS" "$SCANNER" "$LIMITS" "$HTTP_BASE" "$TTS" "$IDS"
 MP_TEST_CMD=(uv run pytest -q -p no:cacheprovider)
 
-mp_baseline "$ARCH $CODEC $CANARY $DRIFT"
+mp_baseline "$ARCH $CODEC $CANARY $DRIFT $PAYLOAD $PROVIDERS $HARDENING"
 
 # --- 1. workflow code imports `os` -------------------------------------------
 mp_mutation "a workflow module imports os"
@@ -68,8 +82,8 @@ restore
 # --- 4. a credential leaks into the workflow input -----------------------------
 mp_mutation "VoiceRef carries the VoiceStudio API key into the workflow input"
 apply_mutation "$VOICE" \
-  '    settings: VoiceStudioSettings' \
-  $'    settings: VoiceStudioSettings\n    upstream: str = ""' \
+  '    settings: VoiceStudioSettings | OpenAICompatSettings' \
+  $'    settings: VoiceStudioSettings | OpenAICompatSettings\n    upstream: str = ""' \
   "$CONFIG" \
   'provider="voicestudio", voice_id=settings.voice_id, settings=VoiceStudioSettings()' \
   $'provider="voicestudio",\n        voice_id=settings.voice_id,\n        settings=VoiceStudioSettings(),\n        upstream=settings.voicestudio_api_key.get_secret_value(),' \
@@ -84,6 +98,52 @@ apply_mutation "$MODELS" \
   && expect_red "$DRIFT" "test_stored_schema_matches_the_model"
 restore
 
+# --- 6. the import scanner skips the __init__ of a parent package -------------
+mp_mutation "the import scanner no longer scans parent packages' __init__.py"
+apply_mutation "$SCANNER" \
+  '    for i in range(1, end):' \
+  '    for i in range(1, 1):' \
+  && expect_red "$ARCH" \
+    "test_a_parent_packages_init_is_executed_so_it_is_scanned" \
+    "test_a_deeply_nested_import_scans_every_parent_init"
+restore
+
+# --- 7. the import scanner stops looking for __import__/exec/open --------------
+mp_mutation "the import scanner no longer detects dynamic escapes"
+apply_mutation "$SCANNER" \
+  '        for escape in _dynamic_escapes(path):' \
+  '        for escape in []:' \
+  && expect_red "$ARCH" "test_dynamic_escapes_from_the_allowlist_are_rejected"
+restore
+
+# --- 8. the payload pre-check does nothing --------------------------------------
+mp_mutation "ensure_payload_fits never raises"
+apply_mutation "$LIMITS" '    if size > limit:' '    if False:' \
+  && expect_red "$PAYLOAD" "test_precheck_fails_the_workflow_fast_and_non_retryably"
+restore
+
+# --- 9. a redirect counts as success ---------------------------------------------
+mp_mutation "the provider client accepts 3xx as success"
+apply_mutation "$HTTP_BASE" \
+  'if not 200 <= response.status_code < 300:' \
+  'if response.status_code >= 400:' \
+  && expect_red "$PROVIDERS" "test_a_redirect_is_not_a_success_for_stt"
+restore
+
+# --- 10. any non-empty body is accepted as TTS audio ------------------------------
+mp_mutation "TTS accepts any non-empty body as a WAV"
+apply_mutation "$TTS" \
+  'if len(audio) < 12 or audio[:4] != b"RIFF" or audio[8:12] != b"WAVE":' \
+  'if not audio:' \
+  && expect_red "$PROVIDERS" "test_a_200_that_is_not_a_wav_is_never_returned_as_audio"
+restore
+
+# --- 11. the source video can live anywhere -----------------------------------------
+mp_mutation "LocalizationInput.video_key is no longer required to be under source/"
+apply_mutation "$IDS" '    if not value.startswith(SOURCE_PREFIX):' '    if False:' \
+  && expect_red "$HARDENING" "test_the_source_video_must_live_under_source"
+restore
+
 # --- control A: an allowed import must not trip the architecture guard ---------
 # Shows the guard is an allowlist, not "any import in workflows/ fails".
 mp_mutation "CONTROL: a workflow module imports only allowlisted names"
@@ -96,8 +156,8 @@ restore
 # Shows the canary keys on the secret itself, not on any change to VoiceRef.
 mp_mutation "CONTROL: VoiceRef gains a field filled from a non-secret setting"
 apply_mutation "$VOICE" \
-  '    settings: VoiceStudioSettings' \
-  $'    settings: VoiceStudioSettings\n    upstream: str = ""' \
+  '    settings: VoiceStudioSettings | OpenAICompatSettings' \
+  $'    settings: VoiceStudioSettings | OpenAICompatSettings\n    upstream: str = ""' \
   "$CONFIG" \
   'provider="voicestudio", voice_id=settings.voice_id, settings=VoiceStudioSettings()' \
   $'provider="voicestudio",\n        voice_id=settings.voice_id,\n        settings=VoiceStudioSettings(),\n        upstream=settings.voice_id,' \

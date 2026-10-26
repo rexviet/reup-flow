@@ -29,15 +29,28 @@ def _admin_conninfo() -> str | None:
     return f"host={host} port=5432 user={user} password={password} dbname=postgres"
 
 
+def _unavailable(reason: str) -> None:
+    """Locally a missing Postgres skips; in CI it is a failure, because a skipped
+    migration test is a migration nobody tested."""
+    if os.environ.get("CI"):
+        pytest.fail(f"CI must run the migration test, but: {reason}")
+    pytest.skip(reason)
+
+
 @pytest.fixture
 def scratch_db() -> Iterator[psycopg.Connection]:
     admin_info = _admin_conninfo()
     if admin_info is None:
-        pytest.skip("POSTGRES_USER / POSTGRES_PASSWORD are not available")
+        _unavailable("POSTGRES_USER / POSTGRES_PASSWORD are not available")
     try:
         admin = psycopg.connect(admin_info, autocommit=True, connect_timeout=3)
     except psycopg.OperationalError:
-        pytest.skip("compose Postgres is not reachable on localhost:5432")
+        _unavailable("Postgres is not reachable on localhost:5432")
+    # The compose stack's db-init creates this role; a bare CI Postgres does not.
+    admin.execute(
+        "DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'localization') "
+        "THEN CREATE ROLE localization NOLOGIN; END IF; END $$"
+    )
     name = f"loc_migration_{uuid.uuid4().hex[:12]}"
     assert name != "reup"
     admin.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
@@ -113,3 +126,27 @@ def test_runs_are_keyed_by_video_and_generation(scratch_db: psycopg.Connection) 
         "SELECT review_rounds, needs_human, verdict FROM localization.runs WHERE generation = 0"
     ).fetchone()
     assert row == (0, False, None)
+
+
+def test_down_refuses_to_destroy_what_the_migration_did_not_create(
+    scratch_db: psycopg.Connection,
+) -> None:
+    scratch_db.execute(UP)
+    scratch_db.execute("CREATE TABLE localization.someone_elses (id int)")
+    scratch_db.execute("CREATE TABLE public.bystander (id int)")
+    with pytest.raises(psycopg.errors.DependentObjectsStillExist):
+        scratch_db.execute(DOWN)
+    # The whole script is one implicit transaction: the failure also rolled the
+    # table drops back, so nothing was lost.
+    assert {"someone_elses", "runs", "glossary", "voice_rates"} <= set(
+        _tables(scratch_db, "localization")
+    )
+    assert "bystander" in _tables(scratch_db, "public")
+
+
+def test_down_leaves_other_schemas_alone(scratch_db: psycopg.Connection) -> None:
+    scratch_db.execute("CREATE SCHEMA other")
+    scratch_db.execute("CREATE TABLE other.keepme (id int)")
+    scratch_db.execute(UP)
+    scratch_db.execute(DOWN)
+    assert list(_tables(scratch_db, "other")) == ["keepme"]

@@ -14,6 +14,7 @@ from localization.contracts.ids import (
     validate_key_name,
     validate_non_negative,
     validate_sha256,
+    validate_storage_key,
 )
 
 # --- keys -------------------------------------------------------------------
@@ -95,14 +96,17 @@ class ObjectStore:
         return cls(client, settings.s3_bucket)
 
     def put_bytes(self, key: str, data: bytes, *, content_type: str | None = None) -> None:
+        validate_storage_key(key)
         extra = {"ContentType": content_type} if content_type else {}
         self._client.put_object(Bucket=self._bucket, Key=key, Body=data, **extra)
 
     def put_file(self, key: str, path: Path, *, content_type: str | None = None) -> None:
+        validate_storage_key(key)
         extra = {"ContentType": content_type} if content_type else {}
         self._client.upload_file(str(path), self._bucket, key, ExtraArgs=extra or None)
 
     def get_bytes(self, key: str, *, produced_by: str) -> bytes:
+        validate_storage_key(key)
         try:
             response = self._client.get_object(Bucket=self._bucket, Key=key)
             return response["Body"].read()
@@ -112,6 +116,7 @@ class ObjectStore:
             raise
 
     def download_file(self, key: str, path: Path, *, produced_by: str) -> None:
+        validate_storage_key(key)
         try:
             self._client.download_file(self._bucket, key, str(path))
         except ClientError as exc:
@@ -120,6 +125,7 @@ class ObjectStore:
             raise
 
     def exists(self, key: str) -> bool:
+        validate_storage_key(key)
         try:
             self._client.head_object(Bucket=self._bucket, Key=key)
             return True
