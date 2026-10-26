@@ -133,6 +133,22 @@ class ObjectStore:
                 raise ArtifactMissingError(key, produced_by) from None
             raise
 
+    def copy(self, src_key: str, dst_key: str, *, produced_by: str) -> None:
+        """Copies an object inside the bucket without its bytes passing through this
+        process. A missing source is reported like any missing artifact."""
+        validate_storage_key(src_key)
+        validate_storage_key(dst_key)
+        try:
+            self._client.copy_object(
+                Bucket=self._bucket,
+                Key=dst_key,
+                CopySource={"Bucket": self._bucket, "Key": src_key},
+            )
+        except ClientError as exc:
+            if _is_missing(exc):
+                raise ArtifactMissingError(src_key, produced_by) from None
+            raise
+
     def metadata(self, key: str) -> dict[str, str] | None:
         """The user metadata of an object, or None when there is no such object."""
         validate_storage_key(key)

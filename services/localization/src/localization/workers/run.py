@@ -28,6 +28,7 @@ from localization.activities.dub_script import DubScriptActivities
 from localization.activities.dubber_ports import StoreDubberPorts
 from localization.activities.glossary import GlossaryStore
 from localization.activities.ingest import IngestActivity
+from localization.activities.layout_captions import LayoutCaptionsActivity
 from localization.activities.localizer_ports import StorePorts
 from localization.activities.persist import PersistActivity
 from localization.activities.synthesize import SynthesizeActivities, Synthesizer
@@ -102,11 +103,17 @@ def queue_specs(
             loudness_lufs=settings.loudness_lufs,
             true_peak_dbtp=settings.true_peak_dbtp,
         )
+        layout = LayoutCaptionsActivity(
+            store,
+            font_path=settings.caption_font_path,
+            cover_color=settings.cover_color,
+            cover_opacity=settings.cover_opacity,
+        )
         return [
             QueueSpec(
                 "media",
                 settings.media_concurrency,
-                activities=[ingest.ingest, assemble_audio.assemble_audio],
+                activities=[ingest.ingest, assemble_audio.assemble_audio, layout.layout_captions],
             )
         ]
     if role == "agents":

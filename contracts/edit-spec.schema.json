@@ -42,6 +42,11 @@
           "title": "End Ms",
           "type": "integer"
         },
+        "font_px": {
+          "exclusiveMinimum": 0,
+          "title": "Font Px",
+          "type": "integer"
+        },
         "segment_id": {
           "minimum": 0,
           "title": "Segment Id",
@@ -62,21 +67,35 @@
         "segment_id",
         "start_ms",
         "end_ms",
-        "text"
+        "text",
+        "font_px"
       ],
       "title": "Caption",
       "type": "object"
     },
     "Cover": {
       "additionalProperties": false,
-      "description": "Region painted over the burned-in source subtitle.",
+      "description": "Region painted over the burned-in source subtitle. The colour and opacity are\npart of the spec (and so of its hash): a render made with another colour is not\nthe same render. `opacity_pct` is an integer so the spec holds no float, which\ntwo languages would write differently.",
       "properties": {
+        "color": {
+          "pattern": "^#[0-9a-f]{6}$",
+          "title": "Color",
+          "type": "string"
+        },
+        "opacity_pct": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Opacity Pct",
+          "type": "integer"
+        },
         "region": {
           "$ref": "#/$defs/BBox"
         }
       },
       "required": [
-        "region"
+        "region",
+        "color",
+        "opacity_pct"
       ],
       "title": "Cover",
       "type": "object"
@@ -93,6 +112,9 @@
     "audio_sha256": {
       "title": "Audio Sha256",
       "type": "string"
+    },
+    "caption_box": {
+      "$ref": "#/$defs/BBox"
     },
     "captions": {
       "items": {
@@ -159,6 +181,7 @@
     "fps",
     "duration_ms",
     "cover",
+    "caption_box",
     "captions",
     "font"
   ],

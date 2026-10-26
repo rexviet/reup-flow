@@ -3,6 +3,8 @@ log line or a validation error never prints them."""
 
 import ipaddress
 import json
+import re
+from pathlib import Path
 from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
@@ -13,6 +15,14 @@ from localization.contracts.voice import SETTINGS_BY_PROVIDER, Provider, VoiceRe
 
 BBoxFormat = Literal["xyxy_px", "xyxy_norm1", "xyxy_norm1000", "yxyx_norm1000"]
 Concurrency = Annotated[int, Field(ge=1, le=64)]
+
+
+# <repo>/services/localization/src/localization/config.py. In a container the font is
+# mounted and CAPTION_FONT_PATH says where; this default is for a source checkout.
+DEFAULT_CAPTION_FONT = (
+    Path(__file__).resolve().parents[4] / "assets" / "fonts" / "BeVietnamPro-SemiBold.ttf"
+)
+_COLOR_RE = re.compile(r"#[0-9a-fA-F]{6}")
 
 
 class ConfigError(ValueError):
@@ -74,6 +84,11 @@ class Settings(BaseSettings):
     langfuse_public_key: SecretStr | None = None
     langfuse_secret_key: SecretStr | None = None
 
+    # The one font file captions are measured with here and drawn with by the renderer.
+    caption_font_path: str = str(DEFAULT_CAPTION_FONT)
+    cover_color: str = "#101010"
+    cover_opacity: float = Field(default=0.92, ge=0.0, le=1.0)
+
     loudness_lufs: float = Field(default=-14.0, le=0.0, ge=-40.0)
     true_peak_dbtp: float = Field(default=-1.5, le=0.0, ge=-9.0)
 
@@ -89,6 +104,13 @@ class Settings(BaseSettings):
     @classmethod
     def _empty_url_is_unset(cls, value: object) -> object:
         return None if value == "" else value
+
+    @field_validator("cover_color")
+    @classmethod
+    def _cover_color_is_hex(cls, value: str) -> str:
+        if _COLOR_RE.fullmatch(value) is None:
+            raise ValueError("COVER_COLOR must look like #101010")
+        return value.lower()
 
     @field_validator("voicestudio_allow_private_http_cidrs")
     @classmethod

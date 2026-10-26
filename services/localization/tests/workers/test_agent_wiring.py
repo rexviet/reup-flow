@@ -67,6 +67,22 @@ def test_the_media_worker_normalises_to_the_configured_loudness() -> None:
     assert (track.__self__._target, track.__self__._peak) == (-16.0, -2.0)  # type: ignore[attr-defined]  # noqa: SLF001
 
 
+def test_the_media_worker_lays_captions_out_with_the_configured_font_and_cover() -> None:
+    settings = Settings(caption_font_path="/fonts/x.ttf", cover_color="#ABCDEF", cover_opacity=0.5)
+    specs = {s.name: s for s in queue_specs("media", settings, STORE, PROVIDERS)}  # type: ignore[arg-type]
+    layout = next(
+        fn
+        for fn in specs["media"].activities
+        if fn.__temporal_activity_definition.name == "layout_captions"  # type: ignore[attr-defined]
+    )
+    held = layout.__self__  # type: ignore[attr-defined]
+    assert (held._font_path, held._cover_color, held._cover_opacity) == (  # noqa: SLF001
+        "/fonts/x.ttf",
+        "#abcdef",
+        0.5,
+    )
+
+
 def test_the_llm_queue_has_a_worker_even_though_it_has_no_plain_activities() -> None:
     specs = runnable(queue_specs("agents", Settings(), ObjectStore(object(), "b"), PROVIDERS))  # type: ignore[arg-type]
     assert "llm" in {s.name for s in specs}

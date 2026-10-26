@@ -66,3 +66,29 @@ def test_bad_settings_are_refused_without_echoing_them(blob: str) -> None:
 def test_a_missing_voice_id_is_refused() -> None:
     with pytest.raises(ConfigError, match="VOICE_ID"):
         voice_ref_from_settings(Settings())
+
+
+def test_the_caption_defaults_match_the_environment_contract() -> None:
+    s = Settings()
+    assert s.caption_font_path.endswith("assets/fonts/BeVietnamPro-SemiBold.ttf")
+    assert (s.cover_color, s.cover_opacity) == ("#101010", 0.92)
+
+
+def test_the_default_caption_font_is_a_file_in_the_repository() -> None:
+    from pathlib import Path
+
+    assert Path(Settings().caption_font_path).is_file()
+
+
+@pytest.mark.parametrize("value", ["red", "#fff", "101010", "#10101"])
+def test_a_cover_colour_must_be_six_hex_digits(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+    monkeypatch.setenv("COVER_COLOR", value)
+    with pytest.raises(ValidationError):
+        Settings()
+
+
+@pytest.mark.parametrize("value", ["-0.1", "1.1", "x"])
+def test_a_cover_opacity_is_a_fraction(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+    monkeypatch.setenv("COVER_OPACITY", value)
+    with pytest.raises(ValidationError):
+        Settings()

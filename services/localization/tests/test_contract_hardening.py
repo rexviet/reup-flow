@@ -140,7 +140,7 @@ def test_the_source_video_must_live_under_source(key: str) -> None:
         lambda: LocalizedSegment(
             id=0, start_ms=10, end_ms=9, slot_ms=0, src_zh="", text_vi="", on_screen=False
         ),
-        lambda: Caption(segment_id=0, start_ms=10, end_ms=9, text="a"),
+        lambda: Caption(segment_id=0, start_ms=10, end_ms=9, text="a", font_px=48),
     ],
 )
 def test_a_span_cannot_end_before_it_starts(build) -> None:

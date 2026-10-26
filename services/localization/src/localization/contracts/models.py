@@ -253,17 +253,28 @@ class LocalizationResult(Contract):
 # --- Render -----------------------------------------------------------------
 
 
+HexColor = Annotated[str, Field(pattern=r"^#[0-9a-f]{6}$")]
+
+
 class Cover(Contract):
-    """Region painted over the burned-in source subtitle."""
+    """Region painted over the burned-in source subtitle. The colour and opacity are
+    part of the spec (and so of its hash): a render made with another colour is not
+    the same render. `opacity_pct` is an integer so the spec holds no float, which
+    two languages would write differently."""
 
     region: BBox
+    color: HexColor
+    opacity_pct: Annotated[int, Field(ge=0, le=100)]
 
 
 class Caption(Contract):
     segment_id: NonNegativeInt
     start_ms: NonNegativeInt
     end_ms: NonNegativeInt
+    # Lines are separated by "\n": the layout decides where a line ends, the renderer
+    # draws exactly those lines at exactly this size.
     text: Text
+    font_px: PositiveInt
 
     @model_validator(mode="after")
     def _ends_after_it_starts(self) -> "Caption":
@@ -282,8 +293,20 @@ class EditSpec(Contract):
     fps: PositiveInt
     duration_ms: PositiveInt
     cover: Cover | None
+    # Where captions are centred: the cover when there is one, else a safe zone.
+    caption_box: BBox
     captions: tuple[Caption, ...]
     font: Annotated[str, Field(min_length=1, max_length=256)]
+
+
+class EditSpecRef(Contract):
+    """Where a laid-out `EditSpec` was stored, and what the renderer will key its
+    output by. `spec_sha256` is the hash of the canonical spec."""
+
+    spec_key: Key
+    spec_sha256: Sha256
+    script_version: NonNegativeInt
+    audio_sha256: Sha256
 
 
 # --- Review -----------------------------------------------------------------

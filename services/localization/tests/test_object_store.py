@@ -48,6 +48,20 @@ def test_file_round_trip(store: ObjectStore, tmp_path: Path) -> None:
     assert dest.read_bytes() == src.read_bytes()
 
 
+def test_copy_makes_the_same_bytes_available_under_the_new_key(store: ObjectStore) -> None:
+    store.put_bytes("source/1.mp4", b"video")
+    store.copy("source/1.mp4", work_key("1", 0, "source.mp4"), produced_by="ingest")
+    assert store.get_bytes(work_key("1", 0, "source.mp4"), produced_by="x") == b"video"
+    assert store.get_bytes("source/1.mp4", produced_by="x") == b"video"
+
+
+def test_copying_a_missing_object_names_the_producing_stage(store: ObjectStore) -> None:
+    with pytest.raises(ArtifactMissingError) as info:
+        store.copy("source/gone.mp4", work_key("1", 0, "source.mp4"), produced_by="ingest")
+    assert info.value.stage == "ingest"
+    assert not store.exists(work_key("1", 0, "source.mp4"))
+
+
 def test_missing_artifact_names_the_producing_stage(store: ObjectStore, tmp_path: Path) -> None:
     with pytest.raises(ArtifactMissingError) as info:
         store.get_bytes("work/1/r0/gone.json", produced_by="detect_subtitles")
