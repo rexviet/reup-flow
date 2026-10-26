@@ -7,7 +7,9 @@
  * own MinIO user). Each run writes under a prefix of its own and wipes it.
  */
 import {
+  AbortMultipartUploadCommand,
   CreateMultipartUploadCommand,
+  ListMultipartUploadsCommand,
   type S3Client,
 } from '@aws-sdk/client-s3';
 import { Readable } from 'node:stream';
@@ -356,14 +358,157 @@ describe('S3Storage (MinIO)', () => {
       expect(state.uploads).toEqual([]);
       expect(state.objects).toEqual([`${prefix}${KEY}`]);
     });
+
+    it('aborts every stale upload across several listing pages and touches nothing else', async () => {
+      const staleUploadMs = 1_000;
+      const stale: string[] = [];
+      for (let i = 0; i < 5; i++) stale.push(await orphan(prefix, `douyin/x/stale-${i}.mp4`));
+      // Stale by age, but under another prefix: not ours to abort.
+      const lookalike = uniqueTestPrefix('neighbour');
+      const outside = [await orphan(lookalike, 'a.mp4'), await orphan(lookalike, 'b.mp4')];
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 1_300));
+        const young = [await orphan(prefix, 'douyin/x/young-0.mp4'), await orphan(prefix, 'douyin/x/young-1.mp4')];
+
+        // Put the clock between the two batches, measured on the SERVER's
+        // Initiated stamps so a skewed local clock cannot decide the outcome.
+        const all = await listUploadsWithTime(client, env.bucket, prefix);
+        const staleTimes = all.filter((u) => stale.includes(u.uploadId)).map((u) => u.initiated);
+        const youngTimes = all.filter((u) => young.includes(u.uploadId)).map((u) => u.initiated);
+        const boundary = (Math.max(...staleTimes) + Math.min(...youngTimes)) / 2;
+        const storage = new S3Storage(client, {
+          bucket: env.bucket,
+          keyPrefix: prefix,
+          staleUploadMs,
+          listPageSize: 2,
+          now: () => boundary + staleUploadMs,
+        });
+
+        const removed = await storage.removeStaleTemp(0);
+
+        expect(removed).toHaveLength(5);
+        const left = (await listUploads(client, env.bucket, prefix)).map((u) => u.uploadId).sort();
+        expect(left).toEqual([...young].sort());
+        const untouched = (await listUploads(client, env.bucket, lookalike)).map((u) => u.uploadId).sort();
+        expect(untouched).toEqual([...outside].sort());
+      } finally {
+        await wipePrefix(client, env.bucket, lookalike);
+      }
+    });
+
+    it('aborts nothing when the cutoff cannot be parsed', async () => {
+      const uploadId = await orphan(prefix);
+      const storage = storageWith({ now: () => Date.now() + 2 * DAY_MS });
+
+      const removed = await storage.removeStaleTemp(Number.NaN);
+
+      expect(removed).toEqual([]);
+      expect((await snapshot()).uploads).toEqual([uploadId]);
+    });
+
+    it('does not report success when an abort is refused, but still reclaims what it can', async () => {
+      await orphan(prefix, 'douyin/x/a.mp4');
+      await orphan(prefix, 'douyin/x/b.mp4');
+      const denying = new S3Storage(
+        withAbortBehaviour(client, async () => {
+          throw Object.assign(new Error('Access Denied'), { name: 'AccessDenied' });
+        }),
+        { bucket: env.bucket, keyPrefix: prefix, staleUploadMs: DAY_MS, now: () => Date.now() + 2 * DAY_MS },
+      );
+
+      await expect(denying.removeStaleTemp(0)).rejects.toThrow(/2 stale upload\(s\) could not be aborted/);
+
+      expect((await snapshot()).uploads).toHaveLength(2);
+    });
+
+    it('treats an upload that its owner aborted first as handled', async () => {
+      await orphan(prefix);
+      const racing = new S3Storage(
+        // The owner gets there first: the real abort lands, and the sweep's
+        // call is answered the way AWS S3 answers an abort of a vanished
+        // upload. MinIO itself treats a repeated abort as success, so the
+        // error is injected rather than provoked.
+        withAbortBehaviour(client, async (send, command) => {
+          await send(command);
+          throw Object.assign(new Error('The specified upload does not exist.'), { name: 'NoSuchUpload' });
+        }),
+        { bucket: env.bucket, keyPrefix: prefix, staleUploadMs: DAY_MS, now: () => Date.now() + 2 * DAY_MS },
+      );
+
+      await expect(racing.removeStaleTemp(0)).resolves.toEqual([]);
+
+      expect((await snapshot()).uploads).toEqual([]);
+    });
   });
 
-  it('refuses an empty key prefix', () => {
-    expect(
-      () => new S3Storage(client, { bucket: env.bucket, keyPrefix: '', staleUploadMs: DAY_MS }),
-    ).toThrow(/prefix/);
+  describe('a put that fails early', () => {
+    it('destroys the source stream when the key is refused', async () => {
+      const source = Readable.from([payload(10)]);
+
+      await expect(storageWith().put('../escape.mp4', source)).rejects.toThrow(/escapes/);
+
+      expect(source.destroyed).toBe(true);
+    });
+
+    it('destroys the source stream when the store refuses to open the upload', async () => {
+      // The downloader's credential is granted source/* only; work/ is denied.
+      const denied = new S3Storage(client, {
+        bucket: env.bucket,
+        keyPrefix: `work/it-denied-${Date.now()}/`,
+        staleUploadMs: DAY_MS,
+      });
+      const source = Readable.from([payload(10)]);
+
+      await expect(denied.put(KEY, source, 10)).rejects.toThrow();
+
+      expect(source.destroyed).toBe(true);
+    });
+  });
+
+  describe('constructor', () => {
+    it.each([[''], ['source/a'], ['no-trailing-slash']])('refuses the key prefix %j', (keyPrefix) => {
+      expect(() => new S3Storage(client, { bucket: env.bucket, keyPrefix, staleUploadMs: DAY_MS })).toThrow(
+        /prefix/,
+      );
+    });
+
+    it.each([[Number.NaN], [0], [-1], [Infinity]])('refuses a stale-upload floor of %p', (staleUploadMs) => {
+      expect(() => new S3Storage(client, { bucket: env.bucket, keyPrefix: prefix, staleUploadMs })).toThrow(
+        /staleUploadMs/,
+      );
+    });
   });
 });
+
+type Send = (command: unknown) => Promise<unknown>;
+
+/** The real client, except that every AbortMultipartUpload goes through `behaviour`. */
+function withAbortBehaviour(
+  real: S3Client,
+  behaviour: (send: Send, command: unknown) => Promise<unknown>,
+): S3Client {
+  const send: Send = (command) => (real.send as Send).call(real, command);
+  return new Proxy(real, {
+    get(target, prop, receiver) {
+      if (prop === 'send') {
+        return (command: unknown) =>
+          command instanceof AbortMultipartUploadCommand ? behaviour(send, command) : send(command);
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+}
+
+async function listUploadsWithTime(
+  client: S3Client,
+  bucket: string,
+  prefix: string,
+): Promise<Array<{ uploadId: string; initiated: number }>> {
+  const res = await client.send(new ListMultipartUploadsCommand({ Bucket: bucket }));
+  return (res.Uploads ?? [])
+    .filter((u) => u.Key?.startsWith(prefix))
+    .map((u) => ({ uploadId: u.UploadId as string, initiated: (u.Initiated as Date).getTime() }));
+}
 
 async function waitFor(condition: () => Promise<boolean>, timeoutMs = 10_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;

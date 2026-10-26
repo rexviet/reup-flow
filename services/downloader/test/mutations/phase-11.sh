@@ -15,6 +15,9 @@
 #      (trap on EXIT INT TERM), saying so when it fires.
 #   4. A mutation can HANG instead of failing; a timeout is its own outcome,
 #      and the whole process tree is killed, not just the pnpm wrapper.
+#   5. A red suite is not yet a caught mutation: with MinIO down every test is
+#      red. So the suite must first be GREEN on pristine code (baseline), and
+#      each mutation must turn red the specific test that guards its invariant.
 #
 # Needs the compose stack up AND a reachable S3 endpoint. MinIO publishes no S3
 # port, so point S3_ENDPOINT at a loopback proxy onto the compose network, and
@@ -27,7 +30,8 @@ set -u
 cd "$(dirname "$0")/../.." || exit 1
 
 STORAGE=src/storage/s3.storage.ts
-PATTERN='s3\.'
+# Only the storage suites: the migration suite also matches a bare `s3.`.
+PATTERN='test/storage/s3\.'
 JEST_TIMEOUT_SECONDS=240
 
 for var in S3_ENDPOINT S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY; do
@@ -94,8 +98,8 @@ PY
 }
 
 run_mutation() {
-  local label=$1
-  shift
+  local label=$1 guard=$2
+  shift 2
   echo
   echo "=============================================================="
   echo "MUST-FAIL: $label"
@@ -117,15 +121,37 @@ run_mutation() {
     98) echo "OK: caught, but by HANGING -- ${JEST_TIMEOUT_SECONDS}s timeout"; caught=$((caught + 1)) ;;
     0)  echo "FAIL: suite stayed GREEN with the invariant broken -- these tests prove nothing."
         tail -20 "$SNAP/out.log"; fail=1 ;;
-    *)  echo "OK: caught. Failing tests:"; grep -E '✕|●.*›' "$SNAP/out.log" | sort -u | head -12 \
-          || tail -10 "$SNAP/out.log"
-        caught=$((caught + 1)) ;;
+    *)  if grep -F '●' "$SNAP/out.log" | grep -qF "$guard"; then
+          echo "OK: caught by: $guard"
+          grep -E '●.*›' "$SNAP/out.log" | sort -u | head -12
+          caught=$((caught + 1))
+        else
+          echo "FAIL: the suite went red, but NOT in the test that guards this invariant ($guard)."
+          echo "      Red elsewhere is not evidence (a dead MinIO makes everything red)."
+          grep -E '●.*›' "$SNAP/out.log" | sort -u | head -12 || tail -10 "$SNAP/out.log"
+          fail=1
+        fi ;;
   esac
   restore; verify_restored
 }
 
+# Baseline: the pristine code must pass, or nothing below measures anything.
+echo
+echo "=============================================================="
+echo "BASELINE: suite on pristine code must be green"
+echo "=============================================================="
+run_jest; base_rc=$?
+if [ "$base_rc" -ne 0 ]; then
+  echo "FATAL: the S3 suites do not pass on pristine code (rc=$base_rc; 1 red, 98 hung, 99 nothing ran)."
+  echo "       Is MinIO reachable at $S3_ENDPOINT with the downloader's credentials?"
+  grep -E '●.*›|Tests:' "$SNAP/out.log" | sort -u | head -8
+  exit 1
+fi
+echo "BASELINE green: $(grep -E '^Tests:' "$SNAP/out.log")"
+
 # A declined commit leaves the upload open: a full-size video per reaped download.
 run_mutation "decline no longer aborts the multipart upload" \
+  "answers null on decline and leaves no object and no unfinished upload" \
   edit "$STORAGE" "      if (beforeCommit && !(await beforeCommit())) {
         await this.abort(objectKey, uploadId);
         return null;" "      if (beforeCommit && !(await beforeCommit())) {
@@ -133,6 +159,7 @@ run_mutation "decline no longer aborts the multipart upload" \
 
 # A failed put leaves its parts in the store, billed and invisible to exists().
 run_mutation "a failed put no longer aborts its upload" \
+  "leaves no object and no unfinished upload when the stream is cut after a part was sent" \
   edit "$STORAGE" "    } catch (err) {
       await this.abort(objectKey, uploadId);
       throw err;" "    } catch (err) {
@@ -140,16 +167,19 @@ run_mutation "a failed put no longer aborts its upload" \
 
 # A truncated body commits as if it were complete.
 run_mutation "the advertised byte count is no longer enforced" \
+  "rejects a body shorter than advertised and commits nothing" \
   edit "$STORAGE" "if (expectedBytes !== undefined && bytes !== expectedBytes) {" \
   "if (expectedBytes !== undefined && bytes < 0) {"
 
 # The sweep aborts uploads of the same process that are still being written.
 run_mutation "the sweep ignores the in-flight registry" \
+  "does not touch an upload this process is still writing" \
   edit "$STORAGE" "        if (this.inFlight.has(uploadId)) continue;
 " ""
 
 # The sweep aborts another process's healthy upload: a lease-sized cutoff.
 run_mutation "the sweep uses the lease instead of the stale-upload threshold" \
+  "keeps an upload that is older than the lease but younger than the stale threshold" \
   edit "$STORAGE" "const threshold = Math.max(olderThanMs, this.opts.staleUploadMs);" \
   "const threshold = olderThanMs;"
 

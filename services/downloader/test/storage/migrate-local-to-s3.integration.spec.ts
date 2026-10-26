@@ -29,7 +29,7 @@ import {
   uniqueTestPrefix,
   wipePrefix,
 } from '../support/s3-test-env';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 jest.setTimeout(60_000);
@@ -153,6 +153,14 @@ describe('migrate-local-storage-to-s3', () => {
       expect(rows.map((r) => r.aweme_id)).toEqual(['1001', '1002', '1003']);
     });
 
+    it('needs no storage: a dry run never talks to S3', async () => {
+      await seedMixedLibrary();
+      await expect(runMigration({ db: pool, mode: 'dry-run', dataDir })).resolves.toMatchObject({
+        candidates: 3,
+        changed: 0,
+      });
+    });
+
     it('is allowed while a lane is active, since it writes nothing', async () => {
       await seed({ awemeId: '3001', secUserId: 'sec_a', status: 'downloading', content: null });
       await expect(run('dry-run')).resolves.toMatchObject({ candidates: 0 });
@@ -229,6 +237,28 @@ describe('migrate-local-storage-to-s3', () => {
       }
     });
 
+    it('releases every file descriptor when the store refuses each upload', async () => {
+      for (let i = 0; i < 40; i++) {
+        await seed({ awemeId: `${5000 + i}`, secUserId: 'sec_f', status: 'done', content: Buffer.alloc(64, i) });
+      }
+      // The downloader credential may only write under source/.
+      const denied = new S3Storage(client, {
+        bucket: env.bucket,
+        keyPrefix: `work/it-denied-${Date.now()}/`,
+        staleUploadMs: 86_400_000,
+      });
+      const openFds = () => readdirSync('/dev/fd').length;
+      const before = openFds();
+
+      const report = await runMigration({ db: pool, storage: denied, mode: 'migrate', dataDir });
+      // Descriptors of destroyed streams close on the next ticks.
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      expect(report.failures).toHaveLength(40);
+      expect(report.changed).toBe(0);
+      expect(openFds() - before).toBeLessThan(5);
+    });
+
     it('is idempotent: a second run finds nothing left to move', async () => {
       await seedMixedLibrary();
       await run('migrate');
@@ -289,6 +319,34 @@ describe('migrate-local-storage-to-s3', () => {
       expect(report.failures).toEqual([{ awemeId: '1002', reason: expect.stringContaining('no longer') }]);
       expect((await storagePaths())['1002']).toBe('s3://later/rewritten.mp4');
       expect((await pool.query(`SELECT aweme_id FROM storage_migration_map`)).rows).toEqual([{ aweme_id: '1002' }]);
+    });
+
+    it('leaves a row on S3, with its map entry, when the local file is gone', async () => {
+      await seed({ awemeId: '1001', secUserId: 'sec_a', status: 'done', content: Buffer.alloc(10, 1) });
+      await seed({ awemeId: '1002', secUserId: 'sec_a', status: 'done', content: Buffer.alloc(10, 2) });
+      const originals = await storagePaths();
+      await run('migrate');
+      const migrated = await storagePaths();
+      await rm(originals['1002'] as string);
+
+      const report = await runMigration({ db: pool, mode: 'revert', dataDir });
+
+      expect(report.changed).toBe(1);
+      expect(report.failures).toEqual([{ awemeId: '1002', reason: expect.stringContaining('missing') }]);
+      const after = await storagePaths();
+      expect(after['1001']).toBe(originals['1001']);
+      expect(after['1002']).toBe(migrated['1002']);
+      expect((await pool.query(`SELECT aweme_id FROM storage_migration_map`)).rows).toEqual([{ aweme_id: '1002' }]);
+    });
+
+    it('needs no storage at all: a revert never talks to S3', async () => {
+      await seed({ awemeId: '1001', secUserId: 'sec_a', status: 'done', content: Buffer.alloc(10, 1) });
+      const originals = await storagePaths();
+      await run('migrate');
+
+      await runMigration({ db: pool, mode: 'revert', dataDir });
+
+      expect(await storagePaths()).toEqual(originals);
     });
 
     it('can migrate again after a revert', async () => {

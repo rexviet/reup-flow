@@ -22,6 +22,8 @@ export interface S3StorageOptions {
   partSizeBytes?: number;
   /** Injected so a test can age an upload without waiting a day. */
   now?: () => number;
+  /** `MaxUploads` per listing request; injectable so a test can force pagination. */
+  listPageSize?: number;
 }
 
 export const DEFAULT_PART_SIZE_BYTES = 8 * 1024 * 1024;
@@ -53,8 +55,14 @@ export class S3Storage implements Storage {
     private readonly client: S3Client,
     private readonly opts: S3StorageOptions,
   ) {
-    if (opts.keyPrefix.length === 0) {
-      throw new Error('storage: S3 key prefix must not be empty');
+    // The trailing slash makes the prefix a directory boundary: without it
+    // `source/a` would also claim `source/ab/...` in the sweep.
+    if (opts.keyPrefix.length === 0 || !opts.keyPrefix.endsWith('/')) {
+      throw new Error('storage: S3 key prefix must be non-empty and end with "/"');
+    }
+    // NaN or a non-positive floor would make every upload look stale.
+    if (!Number.isFinite(opts.staleUploadMs) || opts.staleUploadMs <= 0) {
+      throw new Error('storage: staleUploadMs must be a positive finite number');
     }
     this.partSize = opts.partSizeBytes ?? DEFAULT_PART_SIZE_BYTES;
     if (this.partSize < MIN_PART_SIZE_BYTES) {
@@ -76,14 +84,25 @@ export class S3Storage implements Storage {
     expectedBytes?: number,
     beforeCommit?: BeforeCommit,
   ): Promise<PutResult | null> {
-    const objectKey = this.objectKey(key);
     const { bucket } = this.opts;
 
-    const created = await this.client.send(
-      new CreateMultipartUploadCommand({ Bucket: bucket, Key: objectKey }),
-    );
-    const uploadId = created.UploadId;
-    if (!uploadId) throw new Error(`storage: S3 returned no upload id for ${objectKey}`);
+    let objectKey: string;
+    let uploadId: string;
+    try {
+      objectKey = this.objectKey(key);
+      const created = await this.client.send(
+        new CreateMultipartUploadCommand({ Bucket: bucket, Key: objectKey }),
+      );
+      if (!created.UploadId) throw new Error(`storage: S3 returned no upload id for ${objectKey}`);
+      uploadId = created.UploadId;
+    } catch (err) {
+      // Nothing will ever read this stream now. A caller that opened a file
+      // for it (the migration script opens one per video) would otherwise
+      // keep the descriptor until garbage collection, and a bulk run against
+      // a store that refuses every put runs out of descriptors first.
+      stream.destroy();
+      throw err;
+    }
 
     // Registered before the first byte is sent, so a sweep cannot list the
     // upload without also seeing the claim on it.
@@ -139,6 +158,13 @@ export class S3Storage implements Storage {
         return null;
       }
 
+      // If the response to this call is lost after the server committed, the
+      // object exists while this put reports failure (and then aborts an
+      // upload that no longer exists, which is harmless). The outcome is an
+      // orphan object at the final key, never a corrupt one: the caller does
+      // not mark the video `done`, so the retry overwrites it with the same
+      // bytes. The client's request timeout is what keeps a hung socket from
+      // pinning this upload's in-flight entry forever.
       await this.client.send(
         new CompleteMultipartUploadCommand({
           Bucket: bucket,
@@ -192,14 +218,16 @@ export class S3Storage implements Storage {
    * a lease-sized cutoff (minutes) would abort a slow but healthy upload --
    * and the registry cannot veto an upload owned by another process.
    *
-   * Errors on individual uploads are swallowed (already completed or aborted by
-   * its owner, in the meantime). Listing errors propagate: a sweep that cannot
-   * see anything must not report success.
+   * An upload that vanished between listing and abort (`NoSuchUpload`) counts
+   * as handled. Any other abort error is collected and thrown once the sweep
+   * has finished, and listing errors propagate at once: a sweep that cannot see
+   * or cannot reclaim must not report success.
    */
   async removeStaleTemp(olderThanMs: number): Promise<string[]> {
     const threshold = Math.max(olderThanMs, this.opts.staleUploadMs);
     const cutoff = this.now() - threshold;
     const removed: string[] = [];
+    const failures: string[] = [];
 
     let keyMarker: string | undefined;
     let uploadIdMarker: string | undefined;
@@ -213,6 +241,7 @@ export class S3Storage implements Storage {
       const page = await this.client.send(
         new ListMultipartUploadsCommand({
           Bucket: this.opts.bucket,
+          MaxUploads: this.opts.listPageSize,
           KeyMarker: keyMarker,
           UploadIdMarker: uploadIdMarker,
         }),
@@ -222,7 +251,9 @@ export class S3Storage implements Storage {
         if (!key || !uploadId || !initiated) continue;
         if (!key.startsWith(this.opts.keyPrefix)) continue;
         if (this.inFlight.has(uploadId)) continue;
-        if (initiated.getTime() > cutoff) continue;
+        // Written so that an unparseable cutoff (NaN) skips the upload instead
+        // of treating everything as stale.
+        if (!(initiated.getTime() <= cutoff)) continue;
         try {
           await this.client.send(
             new AbortMultipartUploadCommand({
@@ -232,13 +263,24 @@ export class S3Storage implements Storage {
             }),
           );
           removed.push(`s3://${this.opts.bucket}/${key}?uploadId=${uploadId}`);
-        } catch {
-          // Finished or aborted by its owner since the listing.
+        } catch (err) {
+          // Finished or aborted by its owner since the listing: that is the
+          // outcome the sweep wanted. Anything else (AccessDenied, a dead
+          // network) means the garbage is still there, so it must not read as
+          // a successful sweep.
+          if (!isNoSuchUpload(err)) failures.push(`${key}: ${describeError(err)}`);
         }
       }
       if (!page.IsTruncated) break;
       keyMarker = page.NextKeyMarker;
       uploadIdMarker = page.NextUploadIdMarker;
+    }
+    // After the loop, so one refused abort does not stop the rest being reclaimed.
+    if (failures.length > 0) {
+      throw new Error(
+        `storage: ${failures.length} stale upload(s) could not be aborted (${removed.length} were): ` +
+          failures.slice(0, 3).join('; '),
+      );
     }
     return removed;
   }
@@ -288,12 +330,26 @@ export function createS3Storage(settings: S3Settings): S3Storage {
       accessKeyId: settings.accessKeyId,
       secretAccessKey: settings.secretAccessKey,
     },
+    // Without these a hung socket never errors, and `put` would sit on it
+    // forever with its upload id in the in-flight registry, which the sweep
+    // honours. `requestTimeout` is an idle-socket timeout, so a slow but
+    // progressing 8 MiB part is not cut.
+    requestHandler: { connectionTimeout: 10_000, requestTimeout: 120_000 },
   });
   return new S3Storage(client, {
     bucket: settings.bucket,
     keyPrefix: settings.keyPrefix,
     staleUploadMs: settings.staleUploadMs,
   });
+}
+
+function isNoSuchUpload(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { name?: string }).name === 'NoSuchUpload';
+}
+
+function describeError(err: unknown): string {
+  if (err instanceof Error) return `${err.name}: ${err.message}`;
+  return String(err);
 }
 
 function isNotFound(err: unknown): boolean {

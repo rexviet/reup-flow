@@ -43,11 +43,11 @@ import type { Storage } from '../services/downloader/src/storage/storage.interfa
 
 /** The slice of `pg.Pool` this script uses, so it can be driven by a test pool. */
 export interface MigrationDb {
-  query(text: string, params?: unknown[]): Promise<{ rows: any[]; rowCount: number | null }>;
+  query(text: string, params?: unknown[]): Promise<{ rows: unknown[]; rowCount: number | null }>;
   connect(): Promise<MigrationClient>;
 }
 export interface MigrationClient {
-  query(text: string, params?: unknown[]): Promise<{ rows: any[]; rowCount: number | null }>;
+  query(text: string, params?: unknown[]): Promise<{ rows: unknown[]; rowCount: number | null }>;
   release(): void;
 }
 
@@ -65,7 +65,8 @@ export interface MigrationReport {
 
 export interface MigrationOptions {
   db: MigrationDb;
-  storage: Storage;
+  /** Needed only to migrate; dry-run and revert never touch S3. */
+  storage?: Storage;
   mode: MigrationMode;
   dataDir: string;
   log?: (line: string) => void;
@@ -91,9 +92,10 @@ export async function runMigration(opts: MigrationOptions): Promise<MigrationRep
 
 async function refuseIfLanesAreWriting(db: MigrationDb): Promise<void> {
   const { rows } = await db.query(`SELECT count(*)::int AS n FROM videos WHERE status = 'downloading'`);
-  if (rows[0].n > 0) {
+  const downloading = (rows[0] as { n: number }).n;
+  if (downloading > 0) {
     throw new Error(
-      `refusing to run: ${rows[0].n} video(s) are 'downloading', so a lane is still active. ` +
+      `refusing to run: ${downloading} video(s) are 'downloading', so a lane is still active. ` +
         'Stop the lanes (LANES_ENABLED=false) and let the reaper settle them first.',
     );
   }
@@ -120,13 +122,24 @@ async function migrate(opts: MigrationOptions, log: (line: string) => void): Pro
 }
 
 async function migrateOne(opts: MigrationOptions, awemeId: string, oldPath: string): Promise<void> {
+  const { storage } = opts;
+  if (!storage) throw new Error('a storage is required to migrate');
   const key = keyFor(opts.dataDir, oldPath);
   const size = (await stat(oldPath)).size;
 
-  const put = await opts.storage.put(key, createReadStream(oldPath), size);
+  // One descriptor per video: released on every path, so a long run against a
+  // store that refuses every put cannot exhaust them.
+  const source = createReadStream(oldPath);
+  let put;
+  try {
+    put = await storage.put(key, source, size);
+  } catch (err) {
+    source.destroy();
+    throw err;
+  }
   // Belt and braces after `put`'s own byte check: the object must be readable
   // under the final key before any row is pointed at it.
-  if (put.bytes !== size || !(await opts.storage.exists(key))) {
+  if (put.bytes !== size || !(await storage.exists(key))) {
     throw new Error(`uploaded object for ${key} did not verify`);
   }
 
@@ -165,6 +178,11 @@ async function revert(opts: MigrationOptions, log: (line: string) => void): Prom
   for (const row of rows as Array<{ aweme_id: string; old_path: string; new_path: string }>) {
     const client = await opts.db.connect();
     try {
+      // Pointing a row back at a file that is gone would trade a working S3
+      // object for a dangling path. Leave the row, and its map entry, as they are.
+      if (!(await stat(row.old_path).catch(() => undefined))?.isFile()) {
+        throw new Error(`local file ${row.old_path} is missing; left on S3`);
+      }
       await client.query('BEGIN');
       // Only while the row still holds what this script wrote.
       const restored = await client.query(
@@ -217,6 +235,27 @@ function required(name: string): string {
   return value;
 }
 
+function storageFromEnv(): Storage {
+  const prefix = process.env.S3_KEY_PREFIX ?? 'source/';
+  if (!prefix.startsWith('source/') || !prefix.endsWith('/')) {
+    throw new Error("S3_KEY_PREFIX must start with 'source/' and end with '/'");
+  }
+  const staleUploadMs = Number(process.env.S3_STALE_UPLOAD_MS ?? 86_400_000);
+  if (!Number.isInteger(staleUploadMs) || staleUploadMs <= 0) {
+    throw new Error('S3_STALE_UPLOAD_MS must be a positive integer');
+  }
+  return createS3Storage({
+    endpoint: required('S3_ENDPOINT'),
+    region: process.env.S3_REGION ?? 'us-east-1',
+    forcePathStyle: (process.env.S3_FORCE_PATH_STYLE ?? 'true') !== 'false',
+    accessKeyId: required('S3_ACCESS_KEY_ID'),
+    secretAccessKey: required('S3_SECRET_ACCESS_KEY'),
+    bucket: process.env.S3_BUCKET ?? 'reup-media',
+    keyPrefix: prefix,
+    staleUploadMs,
+  });
+}
+
 async function main(argv: string[]): Promise<number> {
   const dryRun = flag(argv, '--dry-run');
   const isRevert = flag(argv, '--revert');
@@ -235,20 +274,9 @@ async function main(argv: string[]): Promise<number> {
     }
   }
 
-  const prefix = process.env.S3_KEY_PREFIX ?? 'source/';
-  if (!prefix.startsWith('source/') || !prefix.endsWith('/')) {
-    throw new Error("S3_KEY_PREFIX must start with 'source/' and end with '/'");
-  }
-  const storage = createS3Storage({
-    endpoint: required('S3_ENDPOINT'),
-    region: process.env.S3_REGION ?? 'us-east-1',
-    forcePathStyle: (process.env.S3_FORCE_PATH_STYLE ?? 'true') !== 'false',
-    accessKeyId: required('S3_ACCESS_KEY_ID'),
-    secretAccessKey: required('S3_SECRET_ACCESS_KEY'),
-    bucket: process.env.S3_BUCKET ?? 'reup-media',
-    keyPrefix: prefix,
-    staleUploadMs: Number(process.env.S3_STALE_UPLOAD_MS ?? 86_400_000),
-  });
+  // Only a migrate talks to S3: a dry run and a revert need the database and
+  // the local disk, so they must work without S3 credentials.
+  const storage = mode === 'migrate' ? storageFromEnv() : undefined;
 
   // `pg` is the downloader's dependency, not the repo root's.
   const requireFromDownloader = createRequire(resolve(__dirname, '../services/downloader/package.json'));
