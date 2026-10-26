@@ -1,3 +1,22 @@
+x-langfuse-env: &langfuse-env
+  DATABASE_URL: postgresql://langfuse:${LANGFUSE_DB_PASSWORD}@postgres:5432/langfuse
+  CLICKHOUSE_URL: http://clickhouse:8123
+  CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
+  CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+  CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+  CLICKHOUSE_CLUSTER_ENABLED: "false"
+  REDIS_CONNECTION_STRING: redis://langfuse:${LANGFUSE_REDIS_PASSWORD}@redis:6379
+  LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+  LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
+  LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+  LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_S3_ACCESS_KEY_ID}
+  LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_S3_SECRET_ACCESS_KEY}
+  LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+  SALT: ${SALT}
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+  TELEMETRY_ENABLED: "false"
+  TZ: UTC
+
 services:
   nest:
     build:
@@ -98,6 +117,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-reup}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-reup}
       POSTGRES_DB: ${POSTGRES_DB:-reup}
+      TZ: UTC
+      PGTZ: UTC
     ports:
       # Exposed for host-run integration tests (the SKIP LOCKED spike drives two
       # real concurrent transactions from jest on the host).
@@ -112,6 +133,23 @@ services:
 
   redis:
     image: redis:7-alpine
+    # noeviction: BullMQ (Langfuse) and the douyin cookie cache both treat a
+    # silently evicted key as data loss. Better to fail a write than to lose one.
+    # The ACL file is rendered at start so the committed template holds no
+    # credential; `docker-entrypoint.sh` then drops to the redis user.
+    environment:
+      LANGFUSE_REDIS_PASSWORD: ${LANGFUSE_REDIS_PASSWORD}
+    volumes:
+      - ./infra/redis/users.acl:/etc/redis/users.acl.tmpl:ro
+    command:
+      - sh
+      - -c
+      - |
+        set -eu
+        # aclfile syntax has no comments; the template does, so strip them.
+        sed -e '/^#/d' -e "s|__LANGFUSE_REDIS_PASSWORD__|$$LANGFUSE_REDIS_PASSWORD|g" /etc/redis/users.acl.tmpl > /tmp/users.acl
+        chown redis:redis /tmp/users.acl && chmod 600 /tmp/users.acl
+        exec docker-entrypoint.sh redis-server --maxmemory-policy noeviction --aclfile /tmp/users.acl
     ports:
       # Exposed so host-run tests can write douyin:cookie:current the same way
       # the nest service does.
@@ -149,5 +187,225 @@ services:
       nest:
         condition: service_healthy
 
+  # ---------------------------------------------------------------------------
+  # Video localization infra (plan 261026-0147, phase 00).
+  #
+  # Rules every service below follows, each enforced by
+  # services/downloader/test/compose-constraints.spec.ts:
+  #  - image pinned by @sha256 (a tag can be re-pointed upstream);
+  #  - environment is an explicit allowlist, never `env_file: .env`;
+  #  - only temporal-ui, langfuse-web and the MinIO console publish a port, and
+  #    all three bind 127.0.0.1.
+  # ---------------------------------------------------------------------------
+
+  # One-shot. Not /docker-entrypoint-initdb.d: that only runs on an empty
+  # volume, and the reup volume already holds data.
+  db-init:
+    image: postgres:16-alpine@sha256:f4610795587492cd4fb887c2dc3de301b813278bb6f616992061141b5f15ac36
+    restart: "no"
+    entrypoint: ["/bin/sh", "/create-databases.sh"]
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-reup}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-reup}
+      POSTGRES_DB: ${POSTGRES_DB:-reup}
+      TEMPORAL_DB_PASSWORD: ${TEMPORAL_DB_PASSWORD}
+      LANGFUSE_DB_PASSWORD: ${LANGFUSE_DB_PASSWORD}
+      LOCALIZATION_DB_PASSWORD: ${LOCALIZATION_DB_PASSWORD}
+    volumes:
+      - ./infra/postgres/create-databases.sh:/create-databases.sh:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # One-shot: applies the Temporal schemas as the `temporal` role, then exits.
+  temporal-admin-tools:
+    image: temporalio/admin-tools:1.29@sha256:4a17b5be706c56a9238fb7b5b32a36966cee14939658b20597837b2443b277c8
+    restart: "no"
+    entrypoint: ["/bin/sh", "/schema-init.sh"]
+    environment:
+      SQL_HOST: postgres
+      SQL_USER: temporal
+      SQL_PASSWORD: ${TEMPORAL_DB_PASSWORD}
+    volumes:
+      - ./infra/temporal/schema-init.sh:/schema-init.sh:ro
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+
+  temporal:
+    image: temporalio/server:1.29@sha256:688da708d0daca6ff8083334a4a7fbbdbc7e70d1cca8e2eda8c05b21fdbd601e
+    # No `ports:`. The frontend is reachable only from the compose network.
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_SEEDS: postgres
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: ${TEMPORAL_DB_PASSWORD}
+      DBNAME: temporal
+      VISIBILITY_DBNAME: temporal_visibility
+      TZ: UTC
+    healthcheck:
+      # The frontend binds the container IP, not loopback.
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/$$(hostname -i)/7233'"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+    depends_on:
+      temporal-admin-tools:
+        condition: service_completed_successfully
+
+  # One-shot: the plain server image does not create the namespace.
+  temporal-namespace-init:
+    image: temporalio/admin-tools:1.29@sha256:4a17b5be706c56a9238fb7b5b32a36966cee14939658b20597837b2443b277c8
+    restart: "no"
+    entrypoint: ["/bin/sh", "/namespace-init.sh"]
+    environment:
+      TEMPORAL_ADDRESS: ${TEMPORAL_ADDRESS:-temporal:7233}
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
+      TEMPORAL_RETENTION: 30d
+    volumes:
+      - ./infra/temporal/namespace-init.sh:/namespace-init.sh:ro
+    depends_on:
+      temporal:
+        condition: service_healthy
+
+  temporal-ui:
+    image: temporalio/ui:2.40.0@sha256:a98ed66e330cc5b6b432fe174d97dee47d745fa72a1938cf1f6b781dfc335477
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://127.0.0.1:8233
+    ports:
+      - "127.0.0.1:8233:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    depends_on:
+      temporal-namespace-init:
+        condition: service_completed_successfully
+
+  minio:
+    # Chainguard build: the community minio/minio image is archived. Local
+    # only; production uses real S3/R2 and the code only speaks the S3 API.
+    image: cgr.dev/chainguard/minio@sha256:268d68a2a3b6fc65f905a61f84d7eab6345ce6bff14f551e2b028ec31e6a1341
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      TZ: UTC
+    ports:
+      # Console only. The S3 API (9000) is reachable from the compose network.
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /minio/health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && read -r line <&3 && [[ $$line == *' 200 '* ]]"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  minio-init:
+    build:
+      context: .
+      dockerfile: infra/minio/Dockerfile
+    restart: "no"
+    environment:
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+      LOC_S3_ACCESS_KEY_ID: ${LOC_S3_ACCESS_KEY_ID}
+      LOC_S3_SECRET_ACCESS_KEY: ${LOC_S3_SECRET_ACCESS_KEY}
+      RENDER_S3_ACCESS_KEY_ID: ${RENDER_S3_ACCESS_KEY_ID}
+      RENDER_S3_SECRET_ACCESS_KEY: ${RENDER_S3_SECRET_ACCESS_KEY}
+      LANGFUSE_S3_ACCESS_KEY_ID: ${LANGFUSE_S3_ACCESS_KEY_ID}
+      LANGFUSE_S3_SECRET_ACCESS_KEY: ${LANGFUSE_S3_SECRET_ACCESS_KEY}
+    depends_on:
+      minio:
+        condition: service_healthy
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8@sha256:1ffa82edee000a42c09313bd9f1293d94c570aee74babc1b3ca9983a35fa597b
+    environment:
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      TZ: UTC
+    # No `ports:`. ClickHouse is reachable only by the Langfuse services.
+    # Idle ClickHouse alone can take several GB; the host also runs Demucs and
+    # Chromium (plan §7).
+    mem_limit: 2g
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./infra/clickhouse/low-memory.xml:/etc/clickhouse-server/config.d/low-memory.xml:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8123/ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  langfuse-web:
+    image: langfuse/langfuse:3@sha256:a343f64e035eb01aeea358703a0428945d909d01e19452509a5a830862dda878
+    environment:
+      <<: *langfuse-env
+      # Web-only: the worker has no use for the session secret, the seeded
+      # login or the signup switch, so it does not get them.
+      NEXTAUTH_URL: http://localhost:3100
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      AUTH_DISABLE_SIGNUP: "true"
+      LANGFUSE_INIT_ORG_ID: reup
+      LANGFUSE_INIT_ORG_NAME: reup
+      LANGFUSE_INIT_PROJECT_ID: localization
+      LANGFUSE_INIT_PROJECT_NAME: localization
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL}
+      LANGFUSE_INIT_USER_NAME: operator
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD}
+    ports:
+      # 3100, not 3000: 3000 is `nest`.
+      - "127.0.0.1:3100:3000"
+    healthcheck:
+      # Next.js binds the container hostname, not loopback.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://$$(hostname):3000/api/public/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+      clickhouse:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  langfuse-worker:
+    image: langfuse/langfuse-worker:3@sha256:8a28c946bb5401eef488153fa294db5a79bd99dd5c90db8e4d39559374c9ebd3
+    environment:
+      <<: *langfuse-env
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://$$(hostname):3030/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    depends_on:
+      langfuse-web:
+        condition: service_healthy
+
 volumes:
   postgres_data:
+  minio_data:
+  clickhouse_data:

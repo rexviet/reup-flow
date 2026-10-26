@@ -13,8 +13,13 @@ import { parse } from "yaml";
  * parser from the host fails" is a manual step nobody repeats.
  */
 describe("docker-compose.yml load-bearing constraints", () => {
+  // `merge: true`: YAML 1.2 core has no `<<` merge key by default, and the
+  // Langfuse services share an env anchor through it. Without this the shared
+  // keys would be invisible to every env assertion below and they would pass
+  // vacuously.
   const compose = parse(
-    readFileSync(path.join(__dirname, "..", "..", "..", "docker-compose.yml"), "utf-8")
+    readFileSync(path.join(__dirname, "..", "..", "..", "docker-compose.yml"), "utf-8"),
+    { merge: true }
   );
 
   it("parser publishes NO host ports", () => {
@@ -54,5 +59,222 @@ describe("docker-compose.yml load-bearing constraints", () => {
     for (const name of ["nest", "parser", "postgres", "redis"]) {
       expect(compose.services[name].healthcheck).toBeDefined();
     }
+  });
+
+  it("every long-running localization service has a healthcheck", () => {
+    for (const name of [
+      "temporal",
+      "temporal-ui",
+      "minio",
+      "clickhouse",
+      "langfuse-web",
+      "langfuse-worker",
+    ]) {
+      expect(compose.services[name].healthcheck).toBeDefined();
+    }
+  });
+});
+
+/**
+ * Video-localization infra (plan 261026-0147, phase 00). The services below
+ * hold a Postgres superuser-adjacent credential, object storage roots and a
+ * session secret. Each rule here exists because one wrong line in compose
+ * turns a private tool into a network-reachable one, silently.
+ */
+describe("docker-compose.yml localization infra", () => {
+  const root = path.join(__dirname, "..", "..", "..");
+  const compose = parse(readFileSync(path.join(root, "docker-compose.yml"), "utf-8"), {
+    merge: true,
+  });
+  type Service = {
+    image?: string;
+    ports?: string[];
+    restart?: string | boolean;
+    env_file?: unknown;
+    environment?: Record<string, unknown>;
+    depends_on: Record<string, { condition: string }>;
+    healthcheck?: unknown;
+    command?: unknown;
+    mem_limit?: unknown;
+  };
+  const services: Record<string, Service> = compose.services;
+
+  // Services that predate this plan keep their own, separately reasoned ports.
+  const LEGACY = new Set(["nest", "parser", "postgres", "redis", "web"]);
+  const added = Object.keys(services).filter((n) => !LEGACY.has(n));
+
+  const LANGFUSE_SHARED = [
+    "DATABASE_URL",
+    "CLICKHOUSE_URL",
+    "CLICKHOUSE_MIGRATION_URL",
+    "CLICKHOUSE_USER",
+    "CLICKHOUSE_PASSWORD",
+    "CLICKHOUSE_CLUSTER_ENABLED",
+    "REDIS_CONNECTION_STRING",
+    "LANGFUSE_S3_EVENT_UPLOAD_BUCKET",
+    "LANGFUSE_S3_EVENT_UPLOAD_REGION",
+    "LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT",
+    "LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID",
+    "LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY",
+    "LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE",
+    "SALT",
+    "ENCRYPTION_KEY",
+    "TELEMETRY_ENABLED",
+    "TZ",
+  ];
+  // The exact environment each added service may receive. A service gets what it
+  // reads and nothing else; a new variable is a deliberate edit to this table.
+  const ENV_ALLOWLIST: Record<string, string[]> = {
+    "db-init": [
+      "PGHOST",
+      "PGUSER",
+      "PGPASSWORD",
+      "POSTGRES_DB",
+      "TEMPORAL_DB_PASSWORD",
+      "LANGFUSE_DB_PASSWORD",
+      "LOCALIZATION_DB_PASSWORD",
+    ],
+    "temporal-admin-tools": ["SQL_HOST", "SQL_USER", "SQL_PASSWORD"],
+    temporal: [
+      "DB",
+      "DB_PORT",
+      "POSTGRES_SEEDS",
+      "POSTGRES_USER",
+      "POSTGRES_PWD",
+      "DBNAME",
+      "VISIBILITY_DBNAME",
+      "TZ",
+    ],
+    "temporal-namespace-init": ["TEMPORAL_ADDRESS", "TEMPORAL_NAMESPACE", "TEMPORAL_RETENTION"],
+    "temporal-ui": ["TEMPORAL_ADDRESS", "TEMPORAL_CORS_ORIGINS"],
+    minio: ["MINIO_ROOT_USER", "MINIO_ROOT_PASSWORD", "TZ"],
+    "minio-init": [
+      "MINIO_ENDPOINT",
+      "MINIO_ROOT_USER",
+      "MINIO_ROOT_PASSWORD",
+      "S3_ACCESS_KEY_ID",
+      "S3_SECRET_ACCESS_KEY",
+      "LOC_S3_ACCESS_KEY_ID",
+      "LOC_S3_SECRET_ACCESS_KEY",
+      "RENDER_S3_ACCESS_KEY_ID",
+      "RENDER_S3_SECRET_ACCESS_KEY",
+      "LANGFUSE_S3_ACCESS_KEY_ID",
+      "LANGFUSE_S3_SECRET_ACCESS_KEY",
+    ],
+    clickhouse: ["CLICKHOUSE_USER", "CLICKHOUSE_PASSWORD", "TZ"],
+    "langfuse-web": [
+      ...LANGFUSE_SHARED,
+      "NEXTAUTH_URL",
+      "NEXTAUTH_SECRET",
+      "AUTH_DISABLE_SIGNUP",
+      "LANGFUSE_INIT_ORG_ID",
+      "LANGFUSE_INIT_ORG_NAME",
+      "LANGFUSE_INIT_PROJECT_ID",
+      "LANGFUSE_INIT_PROJECT_NAME",
+      "LANGFUSE_INIT_PROJECT_PUBLIC_KEY",
+      "LANGFUSE_INIT_PROJECT_SECRET_KEY",
+      "LANGFUSE_INIT_USER_EMAIL",
+      "LANGFUSE_INIT_USER_NAME",
+      "LANGFUSE_INIT_USER_PASSWORD",
+    ],
+    "langfuse-worker": LANGFUSE_SHARED,
+  };
+
+  it("the table above covers every service this plan added, and nothing else is unaccounted for", () => {
+    // A service added later without an allowlist entry would be un-checked by
+    // the env test below. Make adding one a loud, deliberate edit.
+    expect(added.sort()).toEqual(Object.keys(ENV_ALLOWLIST).sort());
+  });
+
+  it("only temporal-ui, langfuse-web and the MinIO console publish a port", () => {
+    const publishers = added.filter((n) => (services[n].ports ?? []).length > 0).sort();
+    expect(publishers).toEqual(["langfuse-web", "minio", "temporal-ui"]);
+  });
+
+  it("no new service binds 0.0.0.0: every published port is pinned to 127.0.0.1", () => {
+    for (const name of added) {
+      for (const mapping of services[name].ports ?? []) {
+        const text = String(mapping);
+        expect(`${name}: ${text}`).toMatch(/^[a-z-]+: 127\.0\.0\.1:\d+:\d+$/);
+        expect(text).not.toContain("0.0.0.0");
+      }
+    }
+  });
+
+  it("langfuse-web does not collide with nest on host port 3000", () => {
+    const hostPorts = (services["langfuse-web"].ports ?? []).map((m) => m.split(":")[1]);
+    expect(hostPorts).not.toContain("3000");
+  });
+
+  it("Temporal, ClickHouse and the MinIO S3 API publish nothing", () => {
+    expect(services.temporal.ports).toBeUndefined();
+    expect(services.clickhouse.ports).toBeUndefined();
+    // minio publishes only its console; 9000 (S3) must not appear.
+    const minioPorts = (services.minio.ports ?? []).map(String);
+    expect(minioPorts.some((p) => /:9000$/.test(p))).toBe(false);
+  });
+
+  it("each added service receives exactly its own environment and never an env_file", () => {
+    for (const name of added) {
+      expect(services[name].env_file).toBeUndefined();
+      const env = Object.keys(services[name].environment ?? {}).sort();
+      expect({ name, env }).toEqual({ name, env: [...ENV_ALLOWLIST[name]].sort() });
+    }
+  });
+
+  it("no added service is handed a credential that belongs to another system", () => {
+    // Value-level, so renaming the key cannot dodge the allowlist above.
+    const forbiddenEverywhere = ["DOUYIN_COOKIE_FALLBACK", "API_KEY"];
+    for (const name of added) {
+      const values = JSON.stringify(services[name].environment ?? {});
+      for (const secret of forbiddenEverywhere) expect(`${name}:${values}`).not.toContain("${" + secret + "}");
+      // The Postgres superuser password is db-init's alone.
+      if (name !== "db-init") {
+        expect(`${name}:${values}`).not.toContain("${POSTGRES_PASSWORD");
+      }
+    }
+    // The MinIO root credential never reaches a Langfuse or Temporal container.
+    for (const name of ["langfuse-web", "langfuse-worker", "temporal", "temporal-ui", "clickhouse"]) {
+      expect(JSON.stringify(services[name].environment ?? {})).not.toContain("MINIO_ROOT");
+    }
+    // The session secret and the seeded login stay out of the worker.
+    const workerEnv = Object.keys(services["langfuse-worker"].environment ?? {});
+    expect(workerEnv).not.toContain("NEXTAUTH_SECRET");
+    expect(workerEnv).not.toContain("LANGFUSE_INIT_USER_PASSWORD");
+  });
+
+  it("every added image is pinned by digest, including the one inside the MinIO init Dockerfile", () => {
+    for (const name of added) {
+      const image: string | undefined = services[name].image;
+      if (image === undefined) continue; // minio-init is built, checked below
+      expect({ name, image }).toEqual({ name, image: expect.stringMatching(/@sha256:[0-9a-f]{64}$/) });
+    }
+    const dockerfile = readFileSync(path.join(root, "infra", "minio", "Dockerfile"), "utf-8");
+    // Every image the Dockerfile pulls: the base, plus the mc binary copied in.
+    const pulls = dockerfile.split("\n").filter((l) => /^(FROM|COPY --from=)/.test(l));
+    expect(pulls.length).toBeGreaterThanOrEqual(2);
+    for (const line of pulls) expect(line).toMatch(/@sha256:[0-9a-f]{64}/);
+  });
+
+  it("one-shot init services never restart, and dependents wait for them to COMPLETE", () => {
+    for (const name of ["db-init", "temporal-admin-tools", "temporal-namespace-init", "minio-init"]) {
+      expect(String(services[name].restart)).toBe("no");
+    }
+    // `service_started` on an init container is satisfied the instant it
+    // launches, i.e. before it has done anything.
+    expect(services["temporal-admin-tools"].depends_on["db-init"].condition).toBe("service_completed_successfully");
+    expect(services.temporal.depends_on["temporal-admin-tools"].condition).toBe("service_completed_successfully");
+    expect(services["langfuse-web"].depends_on["db-init"].condition).toBe("service_completed_successfully");
+    expect(services["langfuse-web"].depends_on["minio-init"].condition).toBe("service_completed_successfully");
+  });
+
+  it("redis refuses eviction and loads the ACL file", () => {
+    const command = JSON.stringify(services.redis.command);
+    expect(command).toContain("--maxmemory-policy noeviction");
+    expect(command).toContain("--aclfile");
+  });
+
+  it("clickhouse has a memory ceiling", () => {
+    expect(services.clickhouse.mem_limit).toBeDefined();
   });
 });

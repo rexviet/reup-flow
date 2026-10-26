@@ -1,0 +1,10 @@
+# Rendered by the redis service entrypoint: __LANGFUSE_REDIS_PASSWORD__ is
+# substituted from the environment into /tmp/users.acl before redis starts, so
+# the committed file never holds a credential.
+#
+# `default` keeps today's behaviour for the downloader and the parser.
+user default on nopass ~* &* +@all
+# Langfuse only touches its own keys: BullMQ queues (bull:*), its own state
+# (langfuse:*) and the API-key cache (api-key:*). Derived from a MONITOR capture
+# of a real trace-ingestion run in gate G4 (reports/gate-results.md).
+user langfuse on >__LANGFUSE_REDIS_PASSWORD__ ~bull:* ~langfuse:* ~api-key:* &* +@all -@admin -@dangerous +config|get +info +client|setname +client|setinfo +client|id

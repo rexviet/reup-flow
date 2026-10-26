@@ -19,3 +19,7 @@ services/downloader/test/**/certs/
 # Douyin, or SIGKILL run.sh before its teardown trap truncates, and this file
 # holds a live session cookie. Root-anchored `/data/` above does NOT cover it.
 services/downloader/test/spike-cookie-swap/data/
+/backups/
+
+# Phase 00 spike evidence is copied into reports/gate-results.md; the raw runs stay local.
+services/localization/spikes/out/
