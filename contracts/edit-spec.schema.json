@@ -1,0 +1,167 @@
+{
+  "$defs": {
+    "BBox": {
+      "additionalProperties": false,
+      "description": "Pixel box, `[x, y, w, h]` in the source frame.",
+      "properties": {
+        "h": {
+          "exclusiveMinimum": 0,
+          "title": "H",
+          "type": "integer"
+        },
+        "w": {
+          "exclusiveMinimum": 0,
+          "title": "W",
+          "type": "integer"
+        },
+        "x": {
+          "minimum": 0,
+          "title": "X",
+          "type": "integer"
+        },
+        "y": {
+          "minimum": 0,
+          "title": "Y",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "w",
+        "h"
+      ],
+      "title": "BBox",
+      "type": "object"
+    },
+    "Caption": {
+      "additionalProperties": false,
+      "properties": {
+        "end_ms": {
+          "minimum": 0,
+          "title": "End Ms",
+          "type": "integer"
+        },
+        "segment_id": {
+          "minimum": 0,
+          "title": "Segment Id",
+          "type": "integer"
+        },
+        "start_ms": {
+          "minimum": 0,
+          "title": "Start Ms",
+          "type": "integer"
+        },
+        "text": {
+          "maxLength": 4000,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "segment_id",
+        "start_ms",
+        "end_ms",
+        "text"
+      ],
+      "title": "Caption",
+      "type": "object"
+    },
+    "Cover": {
+      "additionalProperties": false,
+      "description": "Region painted over the burned-in source subtitle.",
+      "properties": {
+        "region": {
+          "$ref": "#/$defs/BBox"
+        }
+      },
+      "required": [
+        "region"
+      ],
+      "title": "Cover",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "audio_key": {
+      "maxLength": 1024,
+      "minLength": 1,
+      "title": "Audio Key",
+      "type": "string"
+    },
+    "audio_sha256": {
+      "title": "Audio Sha256",
+      "type": "string"
+    },
+    "captions": {
+      "items": {
+        "$ref": "#/$defs/Caption"
+      },
+      "title": "Captions",
+      "type": "array"
+    },
+    "cover": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Cover"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "duration_ms": {
+      "exclusiveMinimum": 0,
+      "title": "Duration Ms",
+      "type": "integer"
+    },
+    "font": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Font",
+      "type": "string"
+    },
+    "fps": {
+      "exclusiveMinimum": 0,
+      "title": "Fps",
+      "type": "integer"
+    },
+    "height": {
+      "exclusiveMinimum": 0,
+      "title": "Height",
+      "type": "integer"
+    },
+    "script_version": {
+      "minimum": 0,
+      "title": "Script Version",
+      "type": "integer"
+    },
+    "source_key": {
+      "maxLength": 1024,
+      "minLength": 1,
+      "title": "Source Key",
+      "type": "string"
+    },
+    "width": {
+      "exclusiveMinimum": 0,
+      "title": "Width",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "source_key",
+    "audio_key",
+    "audio_sha256",
+    "script_version",
+    "width",
+    "height",
+    "fps",
+    "duration_ms",
+    "cover",
+    "captions",
+    "font"
+  ],
+  "title": "EditSpec",
+  "type": "object"
+}
