@@ -292,3 +292,65 @@ describe("LANES_ENABLED (phase 4 §4.2)", () => {
     expect(() => parseEnv(validEnv({ LANES_ENABLED: raw }))).toThrow(/LANES_ENABLED/);
   });
 });
+
+describe("storage backend configuration", () => {
+  const S3 = {
+    STORAGE_BACKEND: "s3",
+    S3_ENDPOINT: "http://minio:9000",
+    S3_ACCESS_KEY_ID: "downloader",
+    S3_SECRET_ACCESS_KEY: "s3-secret-canary-0123456789",
+  };
+
+  it("defaults to the local backend and needs no S3 settings", () => {
+    const parsed = parseEnv(validEnv());
+    expect(parsed.STORAGE_BACKEND).toBe("local");
+    expect(parsed.S3_KEY_PREFIX).toBe("source/");
+    expect(parsed.S3_STALE_UPLOAD_MS).toBe(86_400_000);
+  });
+
+  it("treats the blank S3 values compose interpolates for an unset variable as unset", () => {
+    const parsed = parseEnv(
+      validEnv({ S3_ENDPOINT: "", S3_ACCESS_KEY_ID: "", S3_SECRET_ACCESS_KEY: "" }),
+    );
+    expect(parsed.S3_ENDPOINT).toBeUndefined();
+    expect(parsed.S3_ACCESS_KEY_ID).toBeUndefined();
+  });
+
+  it("accepts a complete s3 configuration", () => {
+    const parsed = parseEnv(validEnv(S3));
+    expect(parsed.STORAGE_BACKEND).toBe("s3");
+    expect(parsed.S3_BUCKET).toBe("reup-media");
+    expect(parsed.S3_FORCE_PATH_STYLE).toBe(true);
+  });
+
+  it.each(["S3_ENDPOINT", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"])(
+    "names %s when the s3 backend is selected without it",
+    (key) => {
+      expect(() => parseEnv(validEnv({ ...S3, [key]: undefined }))).toThrow(new RegExp(key));
+    },
+  );
+
+  it.each([[""], ["work/"], ["output/x/"], ["source"], ["sourcex/"], ["source/a"]])(
+    "rejects the S3_KEY_PREFIX %j",
+    (prefix) => {
+      expect(() => parseEnv(validEnv({ ...S3, S3_KEY_PREFIX: prefix }))).toThrow(/S3_KEY_PREFIX/);
+    },
+  );
+
+  it("accepts a prefix nested under source/", () => {
+    expect(parseEnv(validEnv({ ...S3, S3_KEY_PREFIX: "source/tenant-a/" })).S3_KEY_PREFIX).toBe(
+      "source/tenant-a/",
+    );
+  });
+
+  it("never echoes the S3 secret in a validation error", () => {
+    let message = "";
+    try {
+      parseEnv(validEnv({ ...S3, S3_KEY_PREFIX: "work/", S3_STALE_UPLOAD_MS: "-1" }));
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).toMatch(/S3_KEY_PREFIX/);
+    expect(message).not.toContain(S3.S3_SECRET_ACCESS_KEY);
+  });
+});

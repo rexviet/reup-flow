@@ -168,7 +168,7 @@ Hai chuyện ở phase 5, cùng một gốc: *test chỉ chứng minh được �
 | Cookie bị ban giữa job | 5, 7 | **RESOLVED ở phase 5** cho tín hiệu cấu trúc: `blocked` + giữ `max_cursor`, không phải `failed`. 3× 400 cũng park ở `blocked` nhưng **nói rõ nguyên nhân là UNKNOWN** kèm `TODO(phase-7)` — probe F4 là phase 7 |
 | Douyin đổi `a_bogus` | 10 | CI job hàng tuần: fetch upstream → `check-patch-size.sh` → pytest fork → grep `PATCH_NOTES.md` §5 → mở issue nếu lệch |
 | Upstream hoist header thành constant lúc import | 10 | Cookie **đóng băng lúc process start, không có exception**. Watch tỉ lệ job `blocked`, không watch exception |
-| Đầy đĩa giữa job | 10 | Preflight `total_videos × 30MB > freeBytes − 10GB` → từ chối. Chạy **sau** enumerate |
+| Đầy đĩa giữa job | 10 | Preflight `total_videos × 30MB > freeBytes − 10GB` → từ chối. Chạy **sau** enumerate. Backend S3 trả `freeBytes() = Infinity` (không có đĩa để đầy), nên preflight phải **bỏ qua** khi giá trị là `Infinity` |
 | IP Việt Nam bị chặn | vận hành | Proxy trong `config.yaml` của fork. Cần throughput hơn: nhiều instance parser sau proxy khác nhau |
 
 ---

@@ -244,7 +244,39 @@ jobs:
       #
       # It lives in-tree rather than inline here so it is runnable locally
       # against docker-compose, which is where it gets used most.
+      # The S3Storage harness (phase-11.sh) measures real multipart behaviour,
+      # so the step below needs a real S3 API. MinIO is started with the same
+      # pinned image as docker-compose.yml and provisioned by the repo's own
+      # infra/minio/init.sh, so the `downloader` user carries the production
+      # policy (source/* only). All credentials are throwaway, CI-only values.
+      - name: Start MinIO for the S3 suites
+        env:
+          CI_ROOT_USER: ci-minio-root
+          CI_ROOT_PASSWORD: ci-minio-root-secret-0123456789
+        run: |
+          set -eu
+          docker volume create ci_minio_data
+          docker run -d --name ci-minio -p 127.0.0.1:9000:9000 \
+            -v ci_minio_data:/data \
+            -e MINIO_ROOT_USER="$CI_ROOT_USER" -e MINIO_ROOT_PASSWORD="$CI_ROOT_PASSWORD" \
+            cgr.dev/chainguard/minio@sha256:268d68a2a3b6fc65f905a61f84d7eab6345ce6bff14f551e2b028ec31e6a1341 \
+            server /data
+          docker build -f infra/minio/Dockerfile -t ci-minio-init .
+          docker run --rm --network host \
+            -e MINIO_ENDPOINT=http://127.0.0.1:9000 \
+            -e MINIO_ROOT_USER="$CI_ROOT_USER" -e MINIO_ROOT_PASSWORD="$CI_ROOT_PASSWORD" \
+            -e S3_ACCESS_KEY_ID=downloader -e S3_SECRET_ACCESS_KEY=ci-downloader-secret-0123 \
+            -e LOC_S3_ACCESS_KEY_ID=localization -e LOC_S3_SECRET_ACCESS_KEY=ci-localization-secret-0123 \
+            -e RENDER_S3_ACCESS_KEY_ID=renderer -e RENDER_S3_SECRET_ACCESS_KEY=ci-renderer-secret-0123 \
+            -e LANGFUSE_S3_ACCESS_KEY_ID=langfuse -e LANGFUSE_S3_SECRET_ACCESS_KEY=ci-langfuse-secret-0123 \
+            ci-minio-init
+
       - name: Mutation -- every harness must go red where it says it does
+        env:
+          S3_ENDPOINT: http://127.0.0.1:9000
+          S3_BUCKET: reup-media
+          S3_ACCESS_KEY_ID: downloader
+          S3_SECRET_ACCESS_KEY: ci-downloader-secret-0123
         run: bash scripts/run-mutations.sh
 
       # The SPIKE 1 gate is only worth its green if it still fails when the

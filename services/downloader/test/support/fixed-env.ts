@@ -33,6 +33,14 @@ export function fixedEnv(overrides: Partial<Env> = {}): Env {
     // should start a 60s reaper against the live compose stack merely by
     // building an Env.
     LANES_ENABLED: false,
+    // Local disk, the default. A test of the s3 backend overrides the whole
+    // group; none of these values reach a network in the meantime.
+    STORAGE_BACKEND: 'local',
+    S3_REGION: 'us-east-1',
+    S3_BUCKET: 'reup-media',
+    S3_FORCE_PATH_STYLE: true,
+    S3_KEY_PREFIX: 'source/',
+    S3_STALE_UPLOAD_MS: 86_400_000,
     ...overrides,
   };
 }

@@ -1,7 +1,10 @@
 import type { Readable } from 'node:stream';
 
 export interface PutResult {
-  /** Absolute filesystem path of the committed file. */
+  /**
+   * Where the committed file lives: an absolute filesystem path for the local
+   * backend, `s3://bucket/key` (the full object key, prefix included) for S3.
+   */
   path: string;
   /** Bytes actually written. */
   bytes: number;
@@ -73,7 +76,11 @@ export interface Storage {
   ): Promise<PutResult | null>;
   /** True only for a COMMITTED file -- never for one still being written. */
   exists(key: string): Promise<boolean>;
-  /** Bytes available to an unprivileged writer. Feeds the phase-10 preflight. */
+  /**
+   * Bytes available to an unprivileged writer. Feeds the phase-10 preflight.
+   * An object store has no disk to fill, so the S3 backend answers `Infinity`
+   * and the preflight must skip its disk check for that value.
+   */
   freeBytes(): Promise<number>;
   /** Removes a committed file. A missing file is not an error. */
   remove(key: string): Promise<void>;
@@ -87,6 +94,12 @@ export interface Storage {
    * the reaper (phase 4 §4.3) needs one call it can make without knowing which
    * backend it is talking to. See the implementation for why the cutoff is read
    * off MTIME.
+   *
+   * On S3 the unit of garbage is an unfinished multipart upload, aged by its
+   * `Initiated` time rather than by mtime (an upload's `Initiated` never moves
+   * while it is still running), and the effective cutoff is
+   * `max(olderThanMs, S3_STALE_UPLOAD_MS)` -- a lease-sized cutoff would abort a
+   * healthy long upload, including one owned by another process.
    */
   removeStaleTemp(olderThanMs: number): Promise<string[]>;
 }
