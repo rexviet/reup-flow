@@ -1,0 +1,128 @@
+"""The real STT/TTS provider classes against a real local HTTP server."""
+
+import pytest
+from tests.support.stub_server import WAV, Scenario, StubServer
+
+from localization.config import Settings
+from localization.contracts import VoiceRef, VoiceStudioSettings
+from localization.providers.errors import (
+    PermanentProviderError,
+    TransientProviderError,
+    to_application_error,
+)
+from localization.providers.openai_stt import OpenAICompatStt
+from localization.providers.openai_tts import OpenAICompatTts
+
+VOICE = VoiceRef(
+    provider="voicestudio",
+    voice_id="voice-7",
+    settings=VoiceStudioSettings(speed=1.2, instructions="calm"),
+)
+
+
+def _settings(stub: StubServer, monkeypatch: pytest.MonkeyPatch) -> Settings:
+    monkeypatch.setenv("VOICESTUDIO_URL", stub.url)
+    monkeypatch.setenv("VOICESTUDIO_ALLOW_PRIVATE_HTTP_CIDRS", "127.0.0.0/8")
+    monkeypatch.setenv("VOICESTUDIO_API_KEY", "k-test")
+    monkeypatch.setenv("STT_MODEL", "stt-model")
+    monkeypatch.setenv("TTS_MODEL", "tts-model")
+    monkeypatch.setenv("PROVIDER_TIMEOUT_SECONDS", "0.5")
+    return Settings()
+
+
+async def test_tts_sends_model_voice_and_returns_the_audio(
+    stub: StubServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tts = OpenAICompatTts.from_settings(_settings(stub, monkeypatch))
+    audio = await tts.synthesize("xin chao", VOICE)
+    assert audio == WAV
+    request = stub.requests[0]
+    assert request.path == "/v1/audio/speech"
+    assert request.headers["authorization"] == "Bearer k-test"
+    import json
+
+    body = json.loads(request.body)
+    assert body["model"] == "tts-model"
+    assert body["voice"] == "voice-7"
+    assert body["input"] == "xin chao"
+    assert body["speed"] == 1.2
+    assert body["instructions"] == "calm"
+
+
+async def test_stt_requests_word_and_segment_timestamps_and_parses_them(
+    stub: StubServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stt = OpenAICompatStt.from_settings(_settings(stub, monkeypatch))
+    doc = await stt.transcribe(b"RIFFxxxx", language="zh")
+    request = stub.requests[0]
+    assert request.path == "/v1/audio/transcriptions"
+    for needle in (b"verbose_json", b"word", b"segment", b"stt-model", b'name="language"'):
+        assert needle in request.body, needle
+    assert request.body.count(b'name="timestamp_granularities[]"') == 2
+    assert doc.language == "zh"
+    assert doc.duration_ms == 3000
+    assert [(s.start_ms, s.end_ms, s.text) for s in doc.segments] == [(0, 1500, "ni hao")]
+    assert [(w.text, w.start_ms, w.end_ms) for w in doc.words] == [
+        ("ni", 0, 700),
+        ("hao", 700, 1500),
+    ]
+
+
+@pytest.mark.parametrize("status", [408, 429, 500, 502, 503])
+async def test_transient_statuses_are_retryable(
+    stub: StubServer, monkeypatch: pytest.MonkeyPatch, status: int
+) -> None:
+    stub.scenario = Scenario(status=status)
+    tts = OpenAICompatTts.from_settings(_settings(stub, monkeypatch))
+    with pytest.raises(TransientProviderError) as info:
+        await tts.synthesize("x", VOICE)
+    assert to_application_error(info.value).non_retryable is False
+
+
+@pytest.mark.parametrize("status", [400, 401, 403, 404, 422])
+async def test_other_4xx_are_permanent_and_non_retryable(
+    stub: StubServer, monkeypatch: pytest.MonkeyPatch, status: int
+) -> None:
+    stub.scenario = Scenario(status=status)
+    tts = OpenAICompatTts.from_settings(_settings(stub, monkeypatch))
+    with pytest.raises(PermanentProviderError) as info:
+        await tts.synthesize("x", VOICE)
+    assert to_application_error(info.value).non_retryable is True
+
+
+async def test_timeout_is_transient(stub: StubServer, monkeypatch: pytest.MonkeyPatch) -> None:
+    stub.scenario = Scenario(delay_seconds=1.5)
+    tts = OpenAICompatTts.from_settings(_settings(stub, monkeypatch))
+    with pytest.raises(TransientProviderError, match="timeout"):
+        await tts.synthesize("x", VOICE)
+
+
+async def test_connection_failure_is_transient(monkeypatch: pytest.MonkeyPatch) -> None:
+    dead = StubServer().start()
+    settings = _settings(dead, monkeypatch)
+    dead.stop()
+    with pytest.raises(TransientProviderError):
+        await OpenAICompatTts.from_settings(settings).synthesize("x", VOICE)
+
+
+async def test_empty_audio_is_permanent(stub: StubServer, monkeypatch: pytest.MonkeyPatch) -> None:
+    stub.scenario = Scenario(raw_body=b"")
+    tts = OpenAICompatTts.from_settings(_settings(stub, monkeypatch))
+    with pytest.raises(PermanentProviderError):
+        await tts.synthesize("x", VOICE)
+
+
+async def test_malformed_stt_body_is_permanent(
+    stub: StubServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stub.scenario = Scenario(json_body={"segments": [{"nope": 1}]})
+    stt = OpenAICompatStt.from_settings(_settings(stub, monkeypatch))
+    with pytest.raises(PermanentProviderError):
+        await stt.transcribe(b"x")
+
+
+def test_missing_configuration_fails_at_construction(monkeypatch: pytest.MonkeyPatch) -> None:
+    with pytest.raises(PermanentProviderError):
+        OpenAICompatTts.from_settings(Settings())
+    with pytest.raises(PermanentProviderError):
+        OpenAICompatStt.from_settings(Settings())

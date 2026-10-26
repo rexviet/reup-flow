@@ -1,0 +1,93 @@
+from typing import Any
+
+import httpx
+
+from localization.config import Settings
+from localization.contracts.models import SttSegment, SttWord, TranscriptDocument
+from localization.providers.base import OpenAICompatClient
+from localization.providers.errors import PermanentProviderError
+
+
+def _ms(seconds: Any) -> int:
+    return max(0, round(float(seconds) * 1000))
+
+
+class OpenAICompatStt:
+    """`POST /v1/audio/transcriptions` with `verbose_json`, word and segment
+    granularity (VoiceStudio, or any server speaking the same dialect)."""
+
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str | None,
+        model: str,
+        *,
+        timeout_seconds: float = 120.0,
+        http: httpx.AsyncClient | None = None,
+    ) -> None:
+        self._model = model
+        self._client = OpenAICompatClient(
+            "stt", base_url, api_key, timeout_seconds=timeout_seconds, http=http
+        )
+
+    @classmethod
+    def from_settings(
+        cls, settings: Settings, http: httpx.AsyncClient | None = None
+    ) -> "OpenAICompatStt":
+        if not settings.voicestudio_url or not settings.stt_model:
+            raise PermanentProviderError("stt: VOICESTUDIO_URL and STT_MODEL must be set")
+        key = settings.voicestudio_api_key
+        return cls(
+            settings.voicestudio_url,
+            key.get_secret_value() if key else None,
+            settings.stt_model,
+            timeout_seconds=settings.provider_timeout_seconds,
+            http=http,
+        )
+
+    async def transcribe(
+        self, audio: bytes, *, filename: str = "audio.wav", language: str | None = None
+    ) -> TranscriptDocument:
+        data: dict[str, str | list[str]] = {
+            "model": self._model,
+            "response_format": "verbose_json",
+            "timestamp_granularities[]": ["word", "segment"],
+        }
+        if language:
+            data["language"] = language
+        response = await self._client.post(
+            "/v1/audio/transcriptions", data=data, files={"file": (filename, audio)}
+        )
+        return self._parse(self._client.json(response))
+
+    @staticmethod
+    def _parse(body: Any) -> TranscriptDocument:
+        if not isinstance(body, dict):
+            raise PermanentProviderError("stt: unexpected response shape")
+        try:
+            raw_segments = body.get("segments") or []
+            segments = tuple(
+                SttSegment(
+                    id=int(s.get("id", i)),
+                    start_ms=_ms(s["start"]),
+                    end_ms=_ms(s["end"]),
+                    text=str(s.get("text", "")).strip(),
+                )
+                for i, s in enumerate(raw_segments)
+            )
+            raw_words = body.get("words")
+            if raw_words is None:
+                raw_words = [w for s in raw_segments for w in (s.get("words") or [])]
+            words = tuple(
+                SttWord(text=str(w["word"]).strip(), start_ms=_ms(w["start"]), end_ms=_ms(w["end"]))
+                for w in raw_words
+            )
+            duration = body.get("duration")
+            return TranscriptDocument(
+                language=body.get("language"),
+                duration_ms=_ms(duration) if duration is not None else None,
+                segments=segments,
+                words=words,
+            )
+        except (KeyError, TypeError, ValueError):
+            raise PermanentProviderError("stt: unexpected response shape") from None
