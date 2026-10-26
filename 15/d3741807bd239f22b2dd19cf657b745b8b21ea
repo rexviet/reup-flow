@@ -1,0 +1,160 @@
+services/localization/tests/replay/histories/phase-04/lost-vocals-ingest-rerun.json
+  s_0b729cf0d034d3::t_2c666633a387b7 1-760
+services/localization/tests/support/prep_fakes.py
+  s_0b729cf0d034d3::t_45d5c88ceb807e 1-84
+services/localization/tests/replay/histories/phase-04/plain-run.json
+  s_0b729cf0d034d3::t_2c666633a387b7 1-447
+services/localization/src/localization/providers/demucs_safe.py
+  s_0b729cf0d034d3::t_c3c234609f0d99 24-36
+  s_0b729cf0d034d3::t_bec5a64693cc42 38-45
+  s_0b729cf0d034d3::t_f78c75856b876e 4-8,17-20,37,46
+  s_0b729cf0d034d3::t_821c8d62c0c151 1-3,9-16,21-23,47-60
+.github/workflows/ci.yml
+  s_0b729cf0d034d3::t_4409cd83b7a5c2 383-387
+services/localization/pyproject.toml
+  s_0b729cf0d034d3::t_93fc074b09220e 14-15
+scripts/run-mutations.sh
+  s_0b729cf0d034d3::t_931e1b9beef1d5 102
+services/localization/src/localization/activities/persist.py
+  s_0b729cf0d034d3::t_ac9bdf2455d5e9 1-4,6-40
+  s_0b729cf0d034d3::t_0a679105dec61a 5
+services/localization/src/localization/contracts/models.py
+  s_0b729cf0d034d3::t_65b525b102a9ae 76-118
+services/localization/tests/replay/test_replay.py
+  s_0b729cf0d034d3::t_1ba2c4fd11693b 1-53
+services/localization/src/localization/config.py
+  s_0b729cf0d034d3::t_fa9cdaca24d020 5-6,9,12,15,39,41-42,64-75,84,133-135,138-150
+services/localization/src/localization/workers/run.py
+  s_0b729cf0d034d3::t_2a74093114a39b 27,86-89
+  s_0b729cf0d034d3::t_0a5f5147e9b501 1-26,28-85,90-98,100,103-104,106-118
+  s_0b729cf0d034d3::t_617a1c80cfcb64 99,101-102,105
+services/localization/tests/support/fanout_flow.py
+  s_0b729cf0d034d3::t_a40c9879b3c95b 1-22
+services/localization/migrations/261026-outbox-starter-grants.down.sql
+  s_0b729cf0d034d3::t_0d59172c1ada9a 1-2
+services/localization/src/localization/starter/outbox_starter.py
+  s_0b729cf0d034d3::t_d6fcf3d9cbe9e5 192,197-204
+  s_0b729cf0d034d3::t_abdeb86b4c866b 15,17,19,22,24-25,31,160-163,167,171,173-174,196,207,214
+  s_0b729cf0d034d3::t_617a1c80cfcb64 1-14,16,18,20-21,23,26-30,32-94,96-159,164-166,168-170,172,175-191,193-195,205-206,208-213,215-297
+  s_0b729cf0d034d3::t_f2e9428fab3aab 95
+services/localization/Dockerfile
+  s_0b729cf0d034d3::t_b961ba2f11a979 1-55
+services/localization/tests/test_dockerfile.py
+  s_0b729cf0d034d3::t_a4c530b8fffeae 1-46
+services/localization/src/localization/providers/voices.py
+  s_0b729cf0d034d3::t_1614ea04889401 1-54,61-69,72-92
+  s_0b729cf0d034d3::t_e10544aef4cd46 55-60,70-71
+services/localization/tests/test_demucs_safe.py
+  s_0b729cf0d034d3::t_a4c530b8fffeae 1-81
+services/localization/tests/support/scratch_db.py
+  s_0b729cf0d034d3::t_45d5c88ceb807e 1-62
+services/localization/src/localization/activities/ingest.py
+  s_0b729cf0d034d3::t_ce3930cc961fe1 33,64
+  s_0b729cf0d034d3::t_93d638fc615d1c 1-32,34-63,65-67
+services/localization/tests/starter/test_outbox_starter.py
+  s_0b729cf0d034d3::t_9a929e19704a06 369-370
+  s_0b729cf0d034d3::t_d6fcf3d9cbe9e5 1-190,194-312,317,319-351,353-368,371-489
+  s_0b729cf0d034d3::t_e6f7ad30306bd0 191-193,313-316,318
+  s_0b729cf0d034d3::t_0d59172c1ada9a 352
+docker-compose.yml
+  s_0b729cf0d034d3::t_583e57ca8a9fcd 20-40,441-509
+  s_0b729cf0d034d3::t_51867835c0ac74 510
+services/localization/src/localization/workflows/video_localization.py
+  s_0b729cf0d034d3::t_a5cb0514345680 112-124
+  s_0b729cf0d034d3::t_ef046621948aa3 108
+  s_0b729cf0d034d3::t_ce3930cc961fe1 1-107,109-111
+services/localization/src/localization/observability/tracing.py
+  s_0b729cf0d034d3::t_0a679105dec61a 1-30,42,45-46,48-68
+  s_0b729cf0d034d3::t_e828319d4bab46 31-41,43-44,47
+services/localization/tests/architecture/import_scanner.py
+  s_0b729cf0d034d3::t_ba1767fba4e319 16-19
+services/localization/tests/support/prep_worker.py
+  s_0b729cf0d034d3::t_c3648c860ba1a5 1-41
+services/localization/tests/providers/test_voices.py
+  s_0b729cf0d034d3::t_4e7be201b2d096 1-60
+services/localization/tests/test_worker_settings.py
+  s_0b729cf0d034d3::t_4e7be201b2d096 1-47
+services/localization/tests/workers/test_health.py
+  s_0b729cf0d034d3::t_4e7be201b2d096 1-52
+services/localization/tests/replay/record_histories.py
+  s_0b729cf0d034d3::t_2c666633a387b7 53
+  s_0b729cf0d034d3::t_4dd06686e44e45 1-52,54-60
+services/localization/src/localization/activities/ffmpeg.py
+  s_0b729cf0d034d3::t_ac9bdf2455d5e9 1-115,129-139,151-168
+  s_0b729cf0d034d3::t_ef046621948aa3 116-128,140-150
+services/localization/tests/workflows/test_prep_stage.py
+  s_0b729cf0d034d3::t_5f27f08247c809 29-36,130
+  s_0b729cf0d034d3::t_c3648c860ba1a5 13,43,51-53,57,127,141
+  s_0b729cf0d034d3::t_647ff807335dc4 59,134-136,184-189,326-328,352-354,366-368
+  s_0b729cf0d034d3::t_802791b5654d92 1-12,14-28,37-42,44-50,54-56,58,60-61,63-126,128-129,131-133,137-140,142-183,190-325,329-351,355-365,369-479
+  s_0b729cf0d034d3::t_a5cb0514345680 62
+services/localization/src/localization/providers/base.py
+  s_0b729cf0d034d3::t_1614ea04889401 63-68,76-77
+services/localization/tests/support/reordered_flow.py
+  s_0b729cf0d034d3::t_5d0f85ba150353 7-13,25
+  s_0b729cf0d034d3::t_1ba2c4fd11693b 1-6,14-24,26-32
+services/localization/src/localization/providers/registry.py
+  s_0b729cf0d034d3::t_2a74093114a39b 15-21,33-36
+services/localization/src/localization/temporal/client.py
+  s_0b729cf0d034d3::t_b26cea1b4ff71e 5,15-16,22
+services/localization/tests/test_tracing.py
+  s_0b729cf0d034d3::t_4e7be201b2d096 1-10,12-23,27-38,40-53
+  s_0b729cf0d034d3::t_e6f7ad30306bd0 24-26
+  s_0b729cf0d034d3::t_e828319d4bab46 11,39
+services/localization/tests/mutations/phase-03.sh
+  s_0b729cf0d034d3::t_55f7cfb4f674ca 88-89,96-97,162-163
+services/localization/src/localization/activities/transcribe.py
+  s_0b729cf0d034d3::t_93d638fc615d1c 1-85
+services/localization/tests/mutations/phase-04.sh
+  s_0b729cf0d034d3::t_1c964661140480 1-269
+services/localization/src/localization/contracts/__init__.py
+  s_0b729cf0d034d3::t_65b525b102a9ae 8,13,19-20,34,39,46-47
+services/localization/tests/replay/histories/phase-04/no-burned-in-subtitles.json
+  s_0b729cf0d034d3::t_2c666633a387b7 1-447
+services/localization/src/localization/activities/errors.py
+  s_0b729cf0d034d3::t_ac9bdf2455d5e9 1-14
+services/localization/src/localization/workers/health.py
+  s_0b729cf0d034d3::t_0a5f5147e9b501 1-88
+.env.example
+  s_0b729cf0d034d3::t_32f37580ddfb4a 124-126,128-145
+services/localization/tests/support/stub_server.py
+  s_0b729cf0d034d3::t_802791b5654d92 24-26,65-67,93-94
+services/localization/.dockerignore
+  s_0b729cf0d034d3::t_9cdaf71615a073 1-7
+services/localization/src/localization/activities/detect_subtitles.py
+  s_0b729cf0d034d3::t_93d638fc615d1c 1-11,13-47,49-91,93-112
+  s_0b729cf0d034d3::t_ce3930cc961fe1 12,48,92
+services/localization/tests/support/inputs.py
+  s_0b729cf0d034d3::t_45d5c88ceb807e 1-14
+services/localization/tests/workers/test_queue_concurrency.py
+  s_0b729cf0d034d3::t_c3648c860ba1a5 46-47
+  s_0b729cf0d034d3::t_a40c9879b3c95b 1-45,48-105
+services/localization/tests/starter/test_grants.py
+  s_0b729cf0d034d3::t_0d59172c1ada9a 1-62
+services/downloader/test/mutations/phase-infra.sh
+  s_0b729cf0d034d3::t_931e1b9beef1d5 36,203-221
+  s_0b729cf0d034d3::t_62dad15981f2bf 222
+services/localization/migrations/261026-outbox-starter-grants.sql
+  s_0b729cf0d034d3::t_0d59172c1ada9a 1-13
+services/downloader/test/compose-constraints.spec.ts
+  s_0b729cf0d034d3::t_4015ba4c7e7a83 125-139,196-226,292-318
+  s_0b729cf0d034d3::t_173f34f3999b8f 319
+services/localization/uv.lock
+  s_0b729cf0d034d3::t_7dd80157a34933 200-211,357,359,379,381,494-566
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "15d3741807bd239f22b2dd19cf657b745b8b21ea",
+  "prompts": {},
+  "sessions": {
+    "s_0b729cf0d034d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9aa1a711-c362-45ab-8e48-1a9b19f8df48",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
