@@ -186,7 +186,7 @@ Phase 00 ──GATE──> Phase 01..10
 
 ---
 
-> **Trạng thái 2026-10-26:** phase 00 `in-progress`. Hạ tầng xong; G1, G2, G3, G4, G6 đạt (G2 chấp nhận ở mức 9/10 theo quyết định của người dùng); G5 chưa chạy (thiếu nhãn bbox). Phase 01–03 đã làm xong. G5 vẫn tạm bỏ qua. Xem phần "Tiến độ" trong [phase-00](./phase-00-infra-and-spike-gate.md) để biết việc còn lại và cách quay lại.
+> **Trạng thái 2026-10-26:** phase 00 `in-progress`. Hạ tầng xong; G1, G2, G3, G4, G6 đạt (G2 chấp nhận ở mức 9/10 theo quyết định của người dùng); G5 chưa chạy (thiếu nhãn bbox). Phase 01–04 đã làm xong (phase 04 còn bước thủ công cần cấu hình provider, xem phần Tiến độ của nó). G5 vẫn tạm bỏ qua. Xem phần "Tiến độ" trong [phase-00](./phase-00-infra-and-spike-gate.md) để biết việc còn lại và cách quay lại.
 
 ## 4. Phase index
 

@@ -1,7 +1,7 @@
 ---
 phase: 4
 title: "Starter, worker, replay test, tracing và các activity chuẩn bị"
-status: pending
+status: completed
 priority: P1
 effort: "2.5d"
 dependencies: [1, 2, 3]
@@ -167,3 +167,17 @@ Outbox có dòng cho mọi video `done`, kể cả `storage_path` local; starter
 ## Rollback
 
 Dừng `localization-starter`. Outbox vẫn tích dòng, không mất gì.
+
+## Tiến độ
+
+Hoàn thành code và test 2026-10-26. Mục "Thủ công" (chèn dòng outbox, xem workflow chạy xong bước 2 trên Temporal UI và một trace trên Langfuse) **chưa chạy**: `.env` chưa có `VOICE_ID`, `STT_MODEL`, `TTS_MODEL`, `OCR_BBOX_FORMAT` (G5 chưa chạy) và `LOC_DATABASE_URL`, nên `worker-agents` và `localization-starter` không khởi động được. Đã kiểm thủ công phần còn lại: image build được, `worker-media` chạy từ compose và poll queue `media` trên Temporal thật, Demucs chạy trong image với `--network none` và `weights_only=True` trên một video thật.
+
+Khác với plan:
+- Harness `localization:04` có **26** mutation và 2 control (plan liệt kê 4 mutation). `downloader:infra` thêm 3 mutation (14 mutation, 2 control). `EXPECT` đã cập nhật.
+- Allowlist import của `workflows/` thêm `temporalio.common`, `temporalio.exceptions`, `collections.abc` (retry policy, bắt `ActivityError`, `Callable`). Đây là các module thuần dữ liệu.
+- `VOICE_ID` là cấu hình: starter kiểm nó có trong `GET /v1/audio/voices` của provider trước khi dispatch (server âm thầm rơi về preset nếu id lạ). Provider không trả lời thì starter tạm dừng, không đụng vào dòng. Vì vậy starter nhận thêm `VOICESTUDIO_URL`, `VOICESTUDIO_API_KEY`, `VOICESTUDIO_ALLOW_PRIVATE_HTTP_CIDRS` (bảng §6 chưa ghi). Thêm `VOICE_PROVIDER`, `VOICE_SETTINGS_JSON`, `TARGET_LANG`.
+- `worker-media` không build provider nào ngoài Demucs, nên không cần cấu hình VoiceStudio hay OpenRouter. Queue `llm` và `tts` chưa có activity nên chưa có `Worker`.
+- Demucs 4.0.1 chặn torchaudio dưới 2.1, mà `add_safe_globals` cần torch 2.4+. Image override đúng một ràng buộc đó (torch/torchaudio 2.5.1, CPU). Checkpoint chứa một số global ngoài model class (`Fraction`, numpy scalar và dtype, `_codecs.encode`); `demucs_safe` chỉ cho phép đúng các global liệt kê bằng `pickletools`.
+- Cần grant cho role `localization` trên `videos` (SELECT) và `localization_outbox` (SELECT, UPDATE): `services/localization/migrations/261026-outbox-starter-grants.sql`. Chưa áp lên `reup`: cần `pg_dump` trước. Bảng outbox cũng chưa được áp lên `reup`.
+- Histories trong `tests/replay/histories/phase-04/` là 3 lần chạy thật của workflow thật trên Temporal dev server, với activity giả (replay chỉ cần event). Ghi lại bằng `uv run python -m tests.replay.record_histories phase-04`. Chưa có history từ pipeline chạy provider thật; thêm khi chạy được bước thủ công.
+- CI job `localization` cài thêm `ffmpeg`.
