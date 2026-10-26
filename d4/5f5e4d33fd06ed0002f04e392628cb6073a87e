@@ -1,0 +1,55 @@
+services/localization/spikes/g3_render_span.ts
+  s_8bcbfc0b728659::t_3a88697b161b0a 1-59
+services/localization/spikes/g3_trace.py
+  s_8bcbfc0b728659::t_6bf3cf24282ae0 28-37
+  s_8bcbfc0b728659::t_31fff15abee2e9 38,62-66,68,72-73,76
+  s_8bcbfc0b728659::t_8bb34ad3201d6a 40,122-132,146,156,165,195,205,211,231-236,248-251,253,255,261-262
+  s_8bcbfc0b728659::t_53a9119f1d4e65 48-59,185-186,237-245,247,258-260
+  s_8bcbfc0b728659::t_524bcc09baf11d 201-204,206-209,212-215,217-220,222-224
+  s_8bcbfc0b728659::t_afddc7fc62e3c7 1-27,39,41-47,60-61,67,69-71,74-75,77-121,133-145,147-155,157-164,166-184,187-194,196-200,210,216,221,225-230,246,252,254,256-257,263-281
+services/localization/spikes/pyproject.toml
+  s_8bcbfc0b728659::t_c1069b5f8683d5 1-17
+services/localization/spikes/Dockerfile
+  s_8bcbfc0b728659::t_d368097fb8e13b 1-8,10-13
+  s_8bcbfc0b728659::t_9bff3315e5dacc 9
+services/localization/spikes/g6_history_size.py
+  s_8bcbfc0b728659::t_f856469e403da1 1-201
+services/localization/spikes/run.sh
+  s_8bcbfc0b728659::t_95d4f5410e2488 1-20,22
+  s_8bcbfc0b728659::t_f8b10a14e3717d 21
+services/localization/spikes/g2_voicestudio.py
+  s_8bcbfc0b728659::t_4d52d9d986564c 1-64,67-149
+  s_8bcbfc0b728659::t_f4e76491e70a8a 65-66
+services/localization/spikes/g5_ocr_bbox.py
+  s_8bcbfc0b728659::t_d03ac9c17698d3 1-108
+services/localization/spikes/g1_durable_agent.py
+  s_8bcbfc0b728659::t_8af76bee971b55 228,250-251,259
+  s_8bcbfc0b728659::t_d2b83e1bad2ea1 27,152-157
+  s_8bcbfc0b728659::t_91820125b37fa2 1-26,28-39,41-88,104-109,111-118,120-124,126-134,142-151,158-173,176-227,229-231,244-249,253-258,260-261,264-265,267-313
+  s_8bcbfc0b728659::t_ee9519ae2956c8 125
+  s_8bcbfc0b728659::t_183cc112515e2f 40,89-103,110,119,135-141,174-175,232-243,252,262-263,266
+services/localization/spikes/package.json
+  s_8bcbfc0b728659::t_3c8c45f9968f0a 1-18
+services/localization/spikes/fixtures/g5-labels.json
+  s_8bcbfc0b728659::t_0c2fcd9d237b92 1
+services/localization/spikes/package-lock.json
+  s_8bcbfc0b728659::t_ae154c4bad47ec 1-2958
+services/localization/spikes/uv.lock
+  s_8bcbfc0b728659::t_b96600368c313f 1-1257
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d45f5e4d33fd06ed0002f04e392628cb6073a87e",
+  "prompts": {},
+  "sessions": {
+    "s_8bcbfc0b728659": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ada12eee-662a-412c-a049-157635af2b9d",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
