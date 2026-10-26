@@ -1,0 +1,84 @@
+services/downloader/src/lanes/reaper.lane.ts
+  s_92153f0c6ce139::t_766fbb03e73dfe 120-123
+services/downloader/test/storage/s3.cross-process.integration.spec.ts
+  s_92153f0c6ce139::t_20f6f2f4ed10eb 1-43,48-52,54-136
+  s_92153f0c6ce139::t_8e7a990e43bf9e 53
+  s_92153f0c6ce139::t_59cc66cea3ca8d 44-47
+services/downloader/test/support/s3-slow-upload-child.ts
+  s_92153f0c6ce139::t_8c2b9275ae9b83 1-46
+services/downloader/test/storage/s3.storage.integration.spec.ts
+  s_92153f0c6ce139::t_ddca96917e7ee0 32-34
+  s_92153f0c6ce139::t_74b59ceada7356 78-90
+  s_92153f0c6ce139::t_01e1769f2cc2cb 1-31,35-45,51-77,91-104,106-116,118-136,138-193,195-215,217-295,297-375
+  s_92153f0c6ce139::t_e6f8b3b8ee6fdc 46-50
+  s_92153f0c6ce139::t_10b3849dd4a48e 105,117,137,194,216,296
+docker-compose.yml
+  s_92153f0c6ce139::t_73def120b4b8f1 58-69
+services/downloader/test/mutations/phase-11.sh
+  s_92153f0c6ce139::t_820a76f0d5cf16 144
+  s_92153f0c6ce139::t_374a19c4253e9b 1-143,145-165
+plans/260824-2152-douyin-downloader/plan.md
+  s_92153f0c6ce139::t_ee91aebb1dc77b 171
+services/downloader/test/support/fixed-env.ts
+  s_92153f0c6ce139::t_0b1fef73cf6fec 36-43
+services/downloader/src/storage/storage.interface.ts
+  s_92153f0c6ce139::t_93427c1c8bf563 4-7,79-83,97-102
+services/downloader/test/storage/migrate-local-to-s3.integration.spec.ts
+  s_92153f0c6ce139::t_bd5eb89e607385 1-315
+services/downloader/src/storage/s3.storage.ts
+  s_92153f0c6ce139::t_bb677e55f0e091 1-7,9-206,213-269,299-303
+  s_92153f0c6ce139::t_71e3c7e09f4c89 8
+  s_92153f0c6ce139::t_389aa03afad544 270-298
+  s_92153f0c6ce139::t_c919b074dff225 207-212
+services/downloader/src/storage/storage.module.ts
+  s_92153f0c6ce139::t_1c4dab4647b92c 5,11-17,20-21,46
+  s_92153f0c6ce139::t_1244afd4d30b32 18-19,22-27,33-37,45
+services/downloader/test/support/s3-test-env.ts
+  s_92153f0c6ce139::t_a9759d21a5585a 63-83
+  s_92153f0c6ce139::t_bbee92dca8568c 1-62,84-112
+scripts/run-mutations.sh
+  s_92153f0c6ce139::t_098a9d53917107 62-63,76
+plans/261026-0147-video-localization-workflow/phase-01-s3-storage.md
+  s_92153f0c6ce139::t_a2f3b32c2b7f97 102-113
+  s_92153f0c6ce139::t_ad5eefd81f71f2 4
+services/downloader/migrations/261026-storage-migration-map.sql
+  s_92153f0c6ce139::t_644589eb2df6e0 1-22
+services/downloader/migrations/261026-storage-migration-map.down.sql
+  s_92153f0c6ce139::t_20ed089212611c 1-11
+scripts/migrate-local-storage-to-s3.ts
+  s_92153f0c6ce139::t_124849c40167dd 5-6
+  s_92153f0c6ce139::t_1ce5e4263e2219 171
+  s_92153f0c6ce139::t_1aa1f264b04aad 232-233
+  s_92153f0c6ce139::t_89eb33befbf125 1-4,7-11,15-170,172-231,234-283
+  s_92153f0c6ce139::t_6dece83296824f 12-14
+services/downloader/test/env.spec.ts
+  s_92153f0c6ce139::t_2c1a867849e9f9 295-356
+services/downloader/package.json
+  s_92153f0c6ce139::t_6c2937f879d855 15
+services/downloader/src/config/env.ts
+  s_92153f0c6ce139::t_7179af8bd94f57 207-208
+  s_92153f0c6ce139::t_9a3c8ce4ffd24b 33-44
+  s_92153f0c6ce139::t_2e8f57e1438d3d 183-189,191-206,209-215,218-228
+  s_92153f0c6ce139::t_50e7adc6031f4e 190
+  s_92153f0c6ce139::t_a8add9b31045ee 32
+services/downloader/src/bootstrap.ts
+  s_92153f0c6ce139::t_93427c1c8bf563 59-61
+pnpm-lock.yaml
+  s_92153f0c6ce139::t_83b6a8c4979d80 34,41-43,101,194-265,1177-1200,1582-1584,3748-3912,4733-4765,5295-5296,7288
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ee208a5ab4458f490feda6ec038e934b3b46b98a",
+  "prompts": {},
+  "sessions": {
+    "s_92153f0c6ce139": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "30235d5c-3b00-4588-94b5-c8a55a5f2e99",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
