@@ -1,0 +1,21 @@
+plans/261026-0147-video-localization-workflow/phase-00-infra-and-spike-gate.md
+  s_8bcbfc0b728659::t_062cbf858e1e21 154-181
+plans/261026-0147-video-localization-workflow/plan.md
+  s_8bcbfc0b728659::t_c78f65b8153299 189-190
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d2e2c5d4a3cc041ff41c76bcfa8dfa4e30d227cf",
+  "prompts": {},
+  "sessions": {
+    "s_8bcbfc0b728659": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ada12eee-662a-412c-a049-157635af2b9d",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
