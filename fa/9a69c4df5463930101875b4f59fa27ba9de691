@@ -1,0 +1,19 @@
+services/downloader/test/mutations/phase-04.sh
+  s_92153f0c6ce139::t_a94db2ceaf9b6f 424
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "fa9a69c4df5463930101875b4f59fa27ba9de691",
+  "prompts": {},
+  "sessions": {
+    "s_92153f0c6ce139": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "30235d5c-3b00-4588-94b5-c8a55a5f2e99",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
