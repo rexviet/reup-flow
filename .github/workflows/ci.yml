@@ -277,7 +277,9 @@ jobs:
           S3_BUCKET: reup-media
           S3_ACCESS_KEY_ID: downloader
           S3_SECRET_ACCESS_KEY: ci-downloader-secret-0123
-        run: bash scripts/run-mutations.sh
+        # The downloader's harnesses only: the localization ones need Python and
+        # run in the `localization` job below.
+        run: bash scripts/run-mutations.sh 'downloader/*'
 
       # The SPIKE 1 gate is only worth its green if it still fails when the
       # lock is removed. It did not, once: two tests named for concurrency
@@ -341,6 +343,38 @@ jobs:
           diff -q docker-compose.yml /tmp/dc.bak >/dev/null || { echo "::error::restore failed"; exit 1; }
 
           exit $fail
+
+  # services/localization: lint, tests, and its mutation harnesses. The tests use
+  # a local Temporal dev server (downloaded by the temporalio test helper) and an
+  # in-process S3 double; the migration test skips itself without a Postgres.
+  # The runner's own test proves its guards (including "a harness that leaves a
+  # .py mutation behind is POISONED") still go red.
+  localization:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/localization
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Install
+        run: uv sync --frozen
+
+      - name: Lint
+        run: uv run ruff check
+
+      - name: Test
+        run: uv run pytest -q
+
+      - name: Mutation -- every localization harness must go red where it says it does
+        working-directory: .
+        run: bash scripts/run-mutations.sh 'localization/*'
+
+      - name: Mutation runner -- its own guards must go red
+        working-directory: .
+        run: bash scripts/test-run-mutations.sh
 
   # SPIKE 2 gate -- the Redis -> parser cookie contract.
   #
