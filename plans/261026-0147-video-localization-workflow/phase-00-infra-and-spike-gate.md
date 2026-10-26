@@ -151,3 +151,31 @@ chạy được. Phase này chưa có code domain.
 2. Drop các database và role mới.
 3. `GRANT CONNECT ON DATABASE reup TO PUBLIC` để trả lại quyền cũ.
 4. Restore `reup` từ backup nếu cần.
+
+## Tiến độ (cập nhật 2026-10-26)
+
+Kết quả đầy đủ, bằng chứng và lệnh tái hiện: [reports/gate-results.md](./reports/gate-results.md).
+Code nằm trên nhánh `feat/localization-phase-00-infra` (3 commit, chưa push).
+
+**Đã xong**
+- [x] Hạ tầng compose: `db-init`, Temporal (+ `temporal-admin-tools`, `temporal-namespace-init`, `temporal-ui`), MinIO (+ `minio-init`), ClickHouse, Langfuse web và worker. Healthy, init job chạy lại vẫn exit 0.
+- [x] Role Postgres riêng, ACL Redis cho Langfuse (pattern `bull:*`, `langfuse:*`, `api-key:*`), policy MinIO theo prefix, lifecycle `work/` 30 ngày, retention namespace 30 ngày.
+- [x] `compose-constraints.spec.ts` (17 test) và harness `phase-infra.sh` (11 mutation, 2 control) đã đăng ký trong `scripts/run-mutations.sh`.
+- [x] G1 PASS (scripted và 2 model OpenRouter thật), G3 PASS, G4 PASS, G6 PASS (transcript tổng hợp).
+
+**Chưa xong**
+- [ ] **G2:** cần `VOICESTUDIO_URL`, `VOICESTUDIO_API_KEY`, `VOICE_ID`, `STT_MODEL`, `TTS_MODEL`, và bật `OMNIVOICE_API_KEY` trên máy VoiceStudio. Sau đó hand-align 10 câu (≤ 200 ms).
+- [ ] **G5:** cần `OCR_BBOX_FORMAT` và 20 frame gán nhãn tay từ 5 video **có sub cứng** (các video mẫu đã thử không có) trong `services/localization/spikes/fixtures/g5-labels.json`.
+- [ ] G6 đo lại với transcript thật khi có STT.
+- [ ] `.env` còn để trống `JUDGE_MODEL` và `OCR_BBOX_FORMAT`.
+
+**Quyết định của người dùng (2026-10-26):** triển khai các phase 01 trở đi trước, tạm bỏ qua G2 và G5, quay lại chạy các gate đó khi VoiceStudio sẵn sàng rồi chỉnh các phase sau nếu cần. Phase chịu ảnh hưởng: 04 (bước 2b `detect_subtitles`, G5), 05 (hằng số tốc độ đọc D6, G2), 06 và 08 (VoiceStudio thật, G2). Mọi phần phụ thuộc phải nằm sau interface provider, không viết cứng giả định.
+
+## Quay lại thì bắt đầu như sau
+
+1. `git checkout feat/localization-phase-00-infra`, rồi `docker compose up -d --wait` (không bật `nest`, `parser`, `web` nếu không cần: `nest` chạy lane tải video).
+2. Điền các biến còn thiếu vào `.env` (không chép dấu `<>` hay comment từ mẫu).
+3. Chạy từ `services/localization/spikes` sau `set -a; . ../../../.env; set +a`:
+   - G2: `./run.sh uv run python g2_voicestudio.py`
+   - G5: `./run.sh uv run python g5_ocr_bbox.py`
+4. Ghi kết quả vào `reports/gate-results.md`, đối chiếu từng phase đã làm ở danh sách ảnh hưởng ở trên và sửa nếu lệch. Chỉ khi cả sáu gate xong mới đổi `status` của phase này sang `completed`.
