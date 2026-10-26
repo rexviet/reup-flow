@@ -56,6 +56,9 @@ export async function createApp(): Promise<{ app: INestApplication; env: Env }> 
   redactor.registerSecret(env.API_KEY);
   redactor.registerSecret(env.DATABASE_URL);
   redactor.registerSecret(env.REDIS_URL);
+  if (env.S3_SECRET_ACCESS_KEY) {
+    redactor.registerSecret(env.S3_SECRET_ACCESS_KEY);
+  }
   if (process.env.DOUYIN_COOKIE_FALLBACK) {
     redactor.registerSecret(process.env.DOUYIN_COOKIE_FALLBACK);
   }

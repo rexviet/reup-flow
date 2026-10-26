@@ -1,7 +1,7 @@
 ---
 phase: 1
 title: "S3Storage cho downloader"
-status: pending
+status: completed
 priority: P1
 effort: "1d"
 dependencies: [0]
@@ -99,3 +99,15 @@ R2 có thể khác S3 ở `ListMultipartUploads`. Kiểm khi chọn provider pro
 2. Đặt `STORAGE_BACKEND=local`.
 
 File local vẫn còn nguyên, vì script không xoá.
+
+## Kết quả thực hiện
+
+- Test integration đặt tên `*.integration.spec.ts` (không phải `-integration-spec.ts`), vì `jest.integration.config.js` chỉ nhận regex đó.
+- **MinIO không lọc `ListMultipartUploads` theo prefix** nếu prefix không phải là key đầy đủ: prefix `source/x/` trả rỗng, key đúng trả upload. Đã đo trực tiếp. Nếu gửi `Prefix` lên server thì mọi sweep thành no-op im lặng, và mọi assert "không còn upload dở" pass rỗng. `removeStaleTemp` và helper test vì vậy liệt kê cả bucket rồi lọc prefix ở client. Đây chính là rủi ro "R2 khác S3 ở `ListMultipartUploads`" ở mục Risk, nay đã có bằng chứng cho MinIO. Còn phải kiểm R2 khi chọn provider production.
+- `reaper.lane.ts` không đổi hành vi: `max(olderThanMs, S3_STALE_UPLOAD_MS)` nằm trong `S3Storage.removeStaleTemp`, để mọi caller đều được bảo vệ, chỉ thêm comment.
+- Script migrate đòi `--lanes-stopped` và `--backup-file` (file dump không rỗng) cho `migrate`/`revert`, và từ chối chạy khi còn video `downloading`. `--revert` chỉ ghi lại dòng còn giữ đúng đường dẫn script đã ghi, rồi xoá dòng khỏi map.
+- Chạy ts-node cho script cần `--project tsconfig.json` (xem đầu file script).
+- Chạy test integration từ host: S3 API của MinIO không publish port. Dùng proxy tạm bind loopback, gỡ sau khi xong, không commit:
+  `docker run -d --rm --name reup-s3-test-proxy --network reup-flow_default -p 127.0.0.1:19000:9000 alpine/socat tcp-listen:9000,fork,reuseaddr tcp-connect:minio:9000`
+  rồi `S3_ENDPOINT=http://127.0.0.1:19000` cùng `S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY` của user `downloader` trong `.env`. Mỗi lần chạy ghi dưới prefix `source/it-<nhãn>-<uuid>/` riêng và tự dọn.
+- `scripts/run-mutations.sh` dòng `11:5:0` cần cùng các biến S3 đó trong môi trường.

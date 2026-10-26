@@ -30,6 +30,19 @@ function boundedInt(label: string, min: number, max: number) {
 }
 
 /**
+ * An optional string where an empty value means "not set". docker-compose
+ * interpolates an unset `${VAR:-}` to `""`, and a local-backend deployment
+ * must not fail validation over credentials it never uses; the s3 backend's
+ * superRefine still rejects them when they are actually needed.
+ */
+function blankAsUnset() {
+  return z
+    .string()
+    .optional()
+    .transform((value) => (value === undefined || value === "" ? undefined : value));
+}
+
+/**
  * An env var read as a boolean.
  *
  * NOT `z.coerce.boolean()`, which is a trap here: it applies JavaScript
@@ -167,8 +180,52 @@ export const envSchema = z
      * reaper against the live compose stack as a side effect of booting.
      */
     LANES_ENABLED: booleanFlag("LANES_ENABLED").default(true),
+    /**
+     * Where committed videos live. `local` keeps the DATA_DIR behaviour; `s3`
+     * speaks the S3 API (MinIO locally, S3 or R2 in production) and needs the
+     * S3_* group below, which the superRefine enforces only for that backend so
+     * a local deployment configures nothing new.
+     */
+    STORAGE_BACKEND: z.enum(["local", "s3"]).default("local"),
+    S3_ENDPOINT: blankAsUnset(),
+    S3_REGION: z.string().min(1, "S3_REGION must not be empty").default("us-east-1"),
+    S3_BUCKET: z.string().min(1, "S3_BUCKET must not be empty").default("reup-media"),
+    S3_FORCE_PATH_STYLE: booleanFlag("S3_FORCE_PATH_STYLE").default(true),
+    /**
+     * Prefix every object key is written under. Non-empty, and it must sit
+     * under `source/`: the downloader's credential is granted nothing outside
+     * `source/*`, so any other prefix would boot cleanly and then fail every put
+     * with AccessDenied. The trailing slash makes the prefix a directory
+     * boundary (`source/a` must not also match `source/ab/`).
+     */
+    S3_KEY_PREFIX: z
+      .string()
+      .default("source/")
+      .refine((v) => v.startsWith("source/") && v.endsWith("/"), {
+        message: "S3_KEY_PREFIX must start with 'source/' and end with '/'",
+      }),
+    S3_ACCESS_KEY_ID: blankAsUnset(),
+    S3_SECRET_ACCESS_KEY: blankAsUnset(),
+    /**
+     * Age past which an unfinished multipart upload is garbage. NOT the lease:
+     * an upload's `Initiated` time never moves while it is still running, and a
+     * second process (a migration script, the old pod during a rolling deploy)
+     * is invisible to this process's in-flight registry.
+     */
+    S3_STALE_UPLOAD_MS: positiveInt("S3_STALE_UPLOAD_MS").default(86_400_000),
   })
   .superRefine((val, ctx) => {
+    if (val.STORAGE_BACKEND === "s3") {
+      for (const name of ["S3_ENDPOINT", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"] as const) {
+        if (!val[name]) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [name],
+            message: `${name} is required when STORAGE_BACKEND=s3`,
+          });
+        }
+      }
+    }
     if (val.ENUMERATE_SLEEP_MS_MIN > val.ENUMERATE_SLEEP_MS_MAX) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,

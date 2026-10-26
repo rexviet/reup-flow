@@ -117,6 +117,10 @@ export class ReaperLane extends LaneRunner {
     // so its bytes are not garbage -- and deleting a live download's temp file
     // makes its `rename` fail with ENOENT, which phase 2's journal records
     // losing a day to.
+    //
+    // On S3 the storage raises this to `S3_STALE_UPLOAD_MS` itself: an upload's
+    // `Initiated` time does not move while it runs, so a lease-sized cutoff
+    // would abort healthy uploads, including other processes' ones.
     const removed = await this.attempt(signal, failures, 'stale .tmp', () =>
       this.storage.removeStaleTemp(this.opts.leaseSeconds * 1000),
     );
