@@ -29,7 +29,7 @@ from localization.config import Settings
 from localization.contracts import (
     BBox,
     LocalizationInput,
-    PrepResult,
+    LocalizationResult,
     SttWord,
     SubtitleTrack,
     TranscriptDocument,
@@ -56,7 +56,7 @@ async def _run(client: Client, fakes: PrepFakes):
             make_input(),
             id=f"video-7001-g1-{uuid.uuid4()}",
             task_queue="workflows",
-            result_type=PrepResult,
+            result_type=LocalizationResult,
         )
         try:
             return handle, await asyncio.wait_for(handle.result(), timeout=10)
@@ -79,11 +79,13 @@ async def _scheduled(handle) -> list[tuple[str, str]]:
 async def test_preparation_runs_each_stage_once_on_its_own_queue(temporal_client: Client) -> None:
     fakes = PrepFakes(delay_seconds=0.5)
     handle, result = await _run(temporal_client, fakes)
-    assert isinstance(result, PrepResult), result
-    assert result.subtitles.region == REGION
-    assert result.transcript.segment_count == 2
+    assert isinstance(result, LocalizationResult), result
+    assert result.prep.subtitles.region == REGION
+    assert result.prep.transcript.segment_count == 2
     assert dict(fakes.calls) == {"ingest": 1, "transcribe": 1, "detect_subtitles": 1}
-    assert await _scheduled(handle) == [
+    # The preparation stages come first, in order, each on its own queue; what
+    # follows is the Localizer stage (tests/agents).
+    assert (await _scheduled(handle))[:3] == [
         ("ingest", "media"),
         ("transcribe", "stt"),
         ("detect_subtitles", "io"),
@@ -93,7 +95,7 @@ async def test_preparation_runs_each_stage_once_on_its_own_queue(temporal_client
 async def test_transcribe_and_detect_run_at_the_same_time(temporal_client: Client) -> None:
     fakes = PrepFakes(delay_seconds=0.8)
     _, result = await _run(temporal_client, fakes)
-    assert isinstance(result, PrepResult), result
+    assert isinstance(result, LocalizationResult), result
     spans = {name: (start, end) for name, start, end in fakes.spans}
     (t_start, t_end), (d_start, d_end) = spans["transcribe"], spans["detect_subtitles"]
     assert max(t_start, d_start) < min(t_end, d_end), "2a and 2b did not overlap"
@@ -104,7 +106,7 @@ async def test_a_lost_artifact_reruns_the_stage_that_made_it_exactly_once(
 ) -> None:
     fakes = PrepFakes(lose_vocals_on_ingest_runs={1})
     handle, result = await _run(temporal_client, fakes)
-    assert isinstance(result, PrepResult), result
+    assert isinstance(result, LocalizationResult), result
     assert fakes.calls["ingest"] == 2
     scheduled = [name for name, _ in await _scheduled(handle)]
     assert scheduled.count("ingest") == 2
@@ -163,7 +165,7 @@ def test_the_workflow_names_only_activities_that_are_registered() -> None:
         for fn in spec.activities
     }
     source = Path("src/localization/workflows/video_localization.py").read_text()
-    for name in ("ingest", "transcribe", "detect_subtitles"):
+    for name in ("ingest", "transcribe", "detect_subtitles", "voice_rate", "assemble_script"):
         assert f'"{name}"' in source
         assert name in registered
 

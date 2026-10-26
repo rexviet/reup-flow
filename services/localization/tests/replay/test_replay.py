@@ -7,6 +7,8 @@ the replay fails and the run is stuck. Every history recorded under
 with `workflow.patched("<name>")` so old histories still take their old path.
 """
 
+import base64
+import json
 from pathlib import Path
 
 import pytest
@@ -34,10 +36,46 @@ def _history(path: Path) -> WorkflowHistory:
     return WorkflowHistory.from_json(f"replay-{path.stem}", path.read_text())
 
 
+def _patches(path: Path) -> set[str]:
+    """Ids of the `workflow.patched()` markers recorded in a history."""
+    found: set[str] = set()
+    for event in json.loads(path.read_text())["events"]:
+        marker = event.get("markerRecordedEventAttributes")
+        if marker and marker["markerName"] == "core_patch":
+            payload = marker["details"]["patch-data"]["payloads"][0]["data"]
+            found.add(json.loads(base64.b64decode(payload))["id"])
+    return found
+
+
+def _of(phase: str) -> list[Path]:
+    return [p for p in HISTORIES if p.parent.name == phase]
+
+
 def test_there_are_histories_to_replay() -> None:
     """An empty directory would make every replay test below pass vacuously."""
-    names = {p.stem for p in HISTORIES}
-    assert {"plain-run", "no-burned-in-subtitles", "lost-vocals-ingest-rerun"} <= names
+    for phase in ("phase-04", "phase-05"):
+        names = {p.stem for p in _of(phase)}
+        assert {"plain-run", "no-burned-in-subtitles", "lost-vocals-ingest-rerun"} <= names, phase
+    assert {"glossary-and-estimate-tools", "answer-rejected-then-fixed"} <= {
+        p.stem for p in _of("phase-05")
+    }
+
+
+def test_the_histories_recorded_before_the_localizer_stage_are_really_without_it() -> None:
+    """They are the proof that a run already in flight when the stage shipped still
+    replays; a recording that already had the stage would prove nothing."""
+    for path in _of("phase-04"):
+        text = path.read_text()
+        assert "voice_rate" not in text, path.name
+        assert "localize-script" not in _patches(path), path.name
+
+
+def test_the_histories_recorded_with_the_localizer_stage_have_it() -> None:
+    for path in _of("phase-05"):
+        text = path.read_text()
+        assert "localize-script" in _patches(path), path.name
+        assert "agent__localizer__model_request" in text, path.name
+        assert "assemble_script" in text, path.name
 
 
 @pytest.mark.parametrize("path", HISTORIES, ids=lambda p: f"{p.parent.name}/{p.stem}")

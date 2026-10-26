@@ -149,6 +149,36 @@ class LocalizedScriptRef(Contract):
     version: NonNegativeInt
 
 
+class LocalizedLine(Contract):
+    """One translated line as the Localizer returns it: the text only. Timing,
+    slot and source text come from the transcript, never from the model."""
+
+    id: NonNegativeInt
+    text_vi: Text
+
+
+class LocalizedLines(Contract):
+    lines: tuple[LocalizedLine, ...]
+
+
+class ScriptResult(Contract):
+    """What the Localizer stage leaves behind. `needs_human` is raised when a
+    translated line carries a contact (URL, domain, phone number) the source line
+    did not; the run must then not be published without a person looking."""
+
+    script: LocalizedScriptRef
+    needs_human: bool
+    flagged_segment_ids: tuple[NonNegativeInt, ...]
+
+
+class LocalizationResult(Contract):
+    """What a run returns. `script` is None for a run that began before the
+    Localizer stage existed."""
+
+    prep: PrepResult
+    script: ScriptResult | None
+
+
 # --- Dubbing ----------------------------------------------------------------
 
 STRETCH_MIN = 0.85

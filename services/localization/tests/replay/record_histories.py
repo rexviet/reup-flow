@@ -1,6 +1,6 @@
 """Records workflow histories to replay in CI.
 
-    uv run python -m tests.replay.record_histories phase-04
+    uv run python -m tests.replay.record_histories phase-05
 
 Each scenario is a real execution of the real workflow on a local Temporal server
 (activities are the in-memory stand-ins, which is all the history needs: replay
@@ -17,36 +17,63 @@ from pathlib import Path
 
 from temporalio.testing import WorkflowEnvironment
 
-from localization.contracts import PrepResult
+from localization.contracts import LocalizationResult
 from localization.temporal.client import connect
 from tests.support.inputs import make_input
+from tests.support.localizer_fakes import LocalizerFakes, ScriptedModel, translate_all
 from tests.support.prep_fakes import PrepFakes
 from tests.support.prep_worker import prep_workers
 
 HISTORIES = Path(__file__).parent / "histories"
 
-SCENARIOS = {
-    "plain-run": PrepFakes(),
-    "no-burned-in-subtitles": PrepFakes(region=None),
-    "lost-vocals-ingest-rerun": PrepFakes(lose_vocals_on_ingest_runs={1}),
+# `phase-04` holds runs recorded before the Localizer stage existed. They are kept
+# as they are: they are what proves a run already in flight still resumes, so that
+# set is never re-recorded.
+SCENARIOS: dict[str, dict[str, tuple[PrepFakes, LocalizerFakes]]] = {
+    "phase-05": {
+        "plain-run": (PrepFakes(), LocalizerFakes()),
+        "no-burned-in-subtitles": (PrepFakes(region=None), LocalizerFakes()),
+        "lost-vocals-ingest-rerun": (PrepFakes(lose_vocals_on_ingest_runs={1}), LocalizerFakes()),
+        "glossary-and-estimate-tools": (
+            PrepFakes(),
+            LocalizerFakes(
+                model=ScriptedModel(
+                    tool_calls=(
+                        ("read_transcript", {}),
+                        ("glossary_lookup", {"terms": ["手机"]}),
+                        ("estimate_duration", {"texts": ["xin chào"]}),
+                        ("glossary_upsert", {"term_zh": "手机", "term_vi": "điện thoại"}),
+                    )
+                )
+            ),
+        ),
+        "answer-rejected-then-fixed": (
+            PrepFakes(),
+            LocalizerFakes(
+                model=ScriptedModel(answers=(lambda ids: translate_all(ids[:-1]), translate_all))
+            ),
+        ),
+    }
 }
 
 
 async def record(phase: str) -> None:
+    if phase not in SCENARIOS:
+        raise SystemExit(f"nothing to record for {phase!r}; known: {sorted(SCENARIOS)}")
     out = HISTORIES / phase
     out.mkdir(parents=True, exist_ok=True)
     env = await WorkflowEnvironment.start_local()
     try:
         client = await connect(env.client.service_client.config.target_host)
-        for name, fakes in SCENARIOS.items():
-            async with prep_workers(client, fakes):
+        for name, (fakes, localizing) in SCENARIOS[phase].items():
+            async with prep_workers(client, fakes, localizing):
                 aweme_id = str(7000 + len(list(out.glob("*.json"))))
                 handle = await client.start_workflow(
                     "VideoLocalizationWorkflow",
                     make_input(aweme_id),
                     id=f"video-{aweme_id}-g1-{uuid.uuid4().hex[:6]}",
                     task_queue="workflows",
-                    result_type=PrepResult,
+                    result_type=LocalizationResult,
                 )
                 await asyncio.wait_for(handle.result(), timeout=60)
                 history = await handle.fetch_history()
@@ -57,4 +84,4 @@ async def record(phase: str) -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(record(sys.argv[1] if len(sys.argv) > 1 else "phase-04"))
+    asyncio.run(record(sys.argv[1] if len(sys.argv) > 1 else "phase-05"))

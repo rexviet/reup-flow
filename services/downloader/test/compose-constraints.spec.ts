@@ -210,8 +210,10 @@ describe("docker-compose.yml localization infra", () => {
     "worker-agents": [
       ...LOCALIZATION_COMMON,
       ...LOCALIZATION_S3,
+      "LOC_DATABASE_URL",
       "OPENROUTER_BASE_URL",
       "OPENROUTER_API_KEY",
+      "LOCALIZER_MODEL",
       "OCR_MODEL",
       "OCR_BBOX_FORMAT",
       "VOICESTUDIO_URL",

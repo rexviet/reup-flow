@@ -31,6 +31,7 @@ class PrepFakes:
     lose_vocals_on_ingest_runs: set[int] = field(default_factory=set)
     region: BBox | None = REGION
     delay_seconds: float = 0.0
+    segment_count: int = 2
     store: set[str] = field(default_factory=set)
     calls: Counter = field(default_factory=Counter)
     # (activity, monotonic enter, monotonic exit)
@@ -70,7 +71,8 @@ class PrepFakes:
             if vocals_key not in fakes.store:
                 raise ArtifactMissingError(vocals_key, "ingest")
             return Transcript(
-                transcript_key=work_key(spec.aweme_id, 0, "transcript.json"), segment_count=2
+                transcript_key=work_key(spec.aweme_id, 0, "transcript.json"),
+                segment_count=fakes.segment_count,
             )
 
         @activity.defn(name="detect_subtitles")

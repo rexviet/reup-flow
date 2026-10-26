@@ -111,6 +111,31 @@ def probe_video(path: Path) -> VideoInfo:
     return parse_probe(body)
 
 
+def probe_duration_ms(path: Path) -> int:
+    """Length of an audio file, from its container."""
+    result = _run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(path),
+        ],  # fmt: skip
+        what="ffprobe",
+        timeout=60,
+    )
+    try:
+        seconds = float(result.stdout.decode().strip())
+    except ValueError:
+        seconds = 0.0
+    if result.returncode != 0 or seconds <= 0:
+        raise PermanentProviderError("ffprobe: the audio has no measurable length")
+    return round(seconds * 1000)
+
+
 def extract_audio(video: Path, out_wav: Path) -> None:
     result = _run(
         [

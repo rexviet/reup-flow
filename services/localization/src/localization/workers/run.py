@@ -15,16 +15,25 @@ import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import timedelta
+from typing import Any
 
+from pydantic_ai.durable_exec.temporal import AgentPlugin
 from temporalio.client import Client
 from temporalio.worker import Worker
 
+from localization.activities.assemble_script import AssembleScriptActivity
 from localization.activities.detect_subtitles import DetectSubtitlesActivity
+from localization.activities.glossary import GlossaryStore
 from localization.activities.ingest import IngestActivity
+from localization.activities.localizer_ports import StorePorts
 from localization.activities.persist import PersistActivity
 from localization.activities.transcribe import TranscribeActivity
+from localization.activities.voice_rate import VoiceRateActivity, VoiceRateStore
+from localization.agents.localizer import bind_ports
+from localization.agents.temporal import bind_model_factory, localizer
 from localization.config import ConfigError, Settings, load_settings
 from localization.observability.tracing import init_tracing
+from localization.providers.llm import model_for
 from localization.providers.registry import Providers, build_media_providers, build_providers
 from localization.storage.object_store import ObjectStore
 from localization.temporal.client import connect
@@ -42,6 +51,7 @@ class QueueSpec:
     limit: int | None = None
     workflows: Sequence[type] = ()
     activities: Sequence[Callable] = field(default_factory=tuple)
+    plugins: Sequence[Any] = ()
 
 
 def build_worker(client: Client, spec: QueueSpec) -> Worker:
@@ -51,6 +61,7 @@ def build_worker(client: Client, spec: QueueSpec) -> Worker:
         task_queue=spec.name,
         workflows=list(spec.workflows),
         activities=list(spec.activities),
+        plugins=list(spec.plugins),
         max_concurrent_activities=spec.limit,
         # On shutdown, in-flight activities get this long to finish before they are
         # cancelled; compose's stop_grace_period is longer, so a deploy does not
@@ -59,33 +70,69 @@ def build_worker(client: Client, spec: QueueSpec) -> Worker:
     )
 
 
+def _database_url(settings: Settings) -> str:
+    url = settings.loc_database_url
+    return url.get_secret_value() if url is not None else ""
+
+
 def queue_specs(
-    role: str, settings: Settings, store: ObjectStore, providers: Providers
+    role: str,
+    settings: Settings,
+    store: ObjectStore,
+    providers: Providers,
+    engine: Callable[[], str | None] = lambda: None,
 ) -> list[QueueSpec]:
-    """`workflows`, `llm` and `tts` have no activities yet in this build: a queue
-    with nothing to run gets no worker."""
+    """A queue with nothing to run gets no worker. `engine` names the speech engine
+    VoiceStudio reports as active; it is part of a measured voice's identity."""
     if role == "media":
         ingest = IngestActivity(store, providers.demucs)
         return [QueueSpec("media", settings.media_concurrency, activities=[ingest.ingest])]
     if role == "agents":
         transcribe = TranscribeActivity(store, providers.stt)
         detect = DetectSubtitlesActivity(store, providers.ocr)
+        database_url = _database_url(settings)
+        assemble = AssembleScriptActivity(store)
+        voice_rate = VoiceRateActivity(
+            providers.tts,
+            VoiceRateStore(database_url),
+            model=settings.tts_model,
+            engine=engine,
+        )
+        # The Localizer's model requests (`llm`) and its tools (`io`) are activities
+        # of the agent; its plugin registers them on the queue's worker.
+        agent = AgentPlugin(localizer)
         return [
             QueueSpec("workflows", workflows=[VideoLocalizationWorkflow]),
-            QueueSpec("llm", settings.llm_concurrency),
+            QueueSpec("llm", settings.llm_concurrency, plugins=[agent]),
             QueueSpec(
                 "io",
                 settings.io_concurrency,
-                activities=[detect.detect_subtitles, PersistActivity(store).persist_json],
+                activities=[
+                    detect.detect_subtitles,
+                    PersistActivity(store).persist_json,
+                    assemble.assemble_script,
+                ],
+                plugins=[agent],
             ),
             QueueSpec("stt", settings.stt_concurrency, activities=[transcribe.transcribe]),
-            QueueSpec("tts", settings.tts_concurrency),
+            QueueSpec("tts", settings.tts_concurrency, activities=[voice_rate.voice_rate]),
         ]
     raise ConfigError(f"unknown worker role {role!r}; expected 'agents' or 'media'")
 
 
 def runnable(specs: Sequence[QueueSpec]) -> list[QueueSpec]:
-    return [s for s in specs if s.workflows or s.activities]
+    return [s for s in specs if s.workflows or s.activities or s.plugins]
+
+
+def bind_agent_runtime(settings: Settings, store: ObjectStore) -> None:
+    """What the Localizer's activities need on this process: the model that answers
+    its requests and the ports its tools use. Refuses to start without them, so a
+    missing setting is found at startup and not on the first video."""
+    if settings.loc_database_url is None:
+        raise ConfigError("LOC_DATABASE_URL is not set")
+    model = model_for("localizer", settings)
+    bind_model_factory(lambda: model)
+    bind_ports(StorePorts(store, GlossaryStore(_database_url(settings))))
 
 
 async def serve(role: str) -> int:
@@ -95,9 +142,20 @@ async def serve(role: str) -> int:
     if role not in ("agents", "media"):
         raise ConfigError(f"unknown worker role {role!r}; expected 'agents' or 'media'")
     providers = build_providers(settings) if role == "agents" else build_media_providers(settings)
-    specs = runnable(queue_specs(role, settings, ObjectStore.from_settings(settings), providers))
-    workers = [build_worker(client, spec) for spec in specs]
+    store = ObjectStore.from_settings(settings)
     health = VoiceStudioHealth.from_settings(settings) if role == "agents" else None
+    if role == "agents":
+        bind_agent_runtime(settings, store)
+    specs = runnable(
+        queue_specs(
+            role,
+            settings,
+            store,
+            providers,
+            engine=(lambda: health.state.engine) if health is not None else (lambda: None),
+        )
+    )
+    workers = [build_worker(client, spec) for spec in specs]
     log.info("worker %s serving queues %s", role, [s.name for s in specs])
 
     loop = asyncio.get_running_loop()

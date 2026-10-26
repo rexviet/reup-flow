@@ -484,8 +484,10 @@ services:
       - /tmp:size=512m,mode=1777
     environment:
       <<: [*localization-env, *localization-s3-env]
+      LOC_DATABASE_URL: ${LOC_DATABASE_URL}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      LOCALIZER_MODEL: ${LOCALIZER_MODEL:-}
       OCR_MODEL: ${OCR_MODEL:-}
       OCR_BBOX_FORMAT: ${OCR_BBOX_FORMAT:-}
       VOICESTUDIO_URL: ${VOICESTUDIO_URL:-}
