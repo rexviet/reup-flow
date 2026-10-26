@@ -164,7 +164,7 @@ Code nằm trên nhánh `feat/localization-phase-00-infra` (3 commit, chưa push
 - [x] G1 PASS (scripted và 2 model OpenRouter thật), G3 PASS, G4 PASS, G6 PASS (transcript tổng hợp).
 
 **Chưa xong**
-- [ ] **G2:** cần `VOICESTUDIO_URL`, `VOICESTUDIO_API_KEY`, `VOICE_ID`, `STT_MODEL`, `TTS_MODEL`, và bật `OMNIVOICE_API_KEY` trên máy VoiceStudio. Sau đó hand-align 10 câu (≤ 200 ms).
+- [x] **G2:** đã chạy 2026-10-26 trên VoiceStudio thật. Auth 401, voice, TTS và STT (với `language=zh`) đạt; hand-align 9/10 câu trong 200 ms, người dùng chấp nhận mức này. Còn lại cho các phase sau: STT phải gửi `language`, phản hồi không có tên engine, server chưa có giọng tiếng Việt. Chi tiết ở `reports/gate-results.md`.
 - [ ] **G5:** cần `OCR_BBOX_FORMAT` và 20 frame gán nhãn tay từ 5 video **có sub cứng** (các video mẫu đã thử không có) trong `services/localization/spikes/fixtures/g5-labels.json`.
 - [ ] G6 đo lại với transcript thật khi có STT.
 - [ ] `.env` còn để trống `JUDGE_MODEL` và `OCR_BBOX_FORMAT`.

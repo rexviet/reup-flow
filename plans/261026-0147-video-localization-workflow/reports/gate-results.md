@@ -1,11 +1,11 @@
 # Phase 00 gate results
 
-Date: 2026-10-26. Verdict: **infra done; G1, G3, G4, G6 pass; G2 and G5 blocked on user inputs. Gate not yet cleared.**
+Date: 2026-10-26. Verdict: **infra done; G1, G2, G3, G4, G6 pass (G2 accepted at 9/10 by the user); G5 blocked on labels. Gate not yet cleared.**
 
 | Gate | Result | Note |
 |---|---|---|
 | G1 | **PASS** | Resume after SIGKILL proven with a scripted model and with two real OpenRouter models (`deepseek/deepseek-v4.1-flash`, `deepseek/deepseek-v4-pro`); both call tools |
-| G2 | **BLOCKED** | No `VOICESTUDIO_URL`. Script ready, selftest green |
+| G2 | **PASS (accepted at 9/10 by the user, 2026-10-26)** | Run 2026-10-26 against a live VoiceStudio over a `trycloudflare` https tunnel. Auth, voice and TTS measured; STT timestamps good with `language=zh`; hand alignment 9/10 within 200 ms (1 fail, cause not yet confirmed). See "G2 run" below |
 | G3 | **PASS** (with caveat) | One trace per run, Node span present, kill+resume adds no spans |
 | G4 | **PASS** | Role isolation, schema unchanged, `count_workflows` works, Redis ACL derived and verified, spec green |
 | G5 | **BLOCKED** | No OpenRouter key, and the sampled `data/` videos have no burned-in subtitles to label. Labels file is an empty template |
@@ -69,6 +69,31 @@ Reproduce: `./run.sh uv run python g3_trace.py`. Run A uninterrupted; runs B1–
 Reproduce: `./run.sh uv run python g6_history_size.py`. Transcript is synthetic (3 min, per-character word timestamps, 40 KB realistic / 78 KB stress), tool and model activities are real, sizes read from Temporal history.
 Max model-request input: 62,553 B realistic, 111,601 B stress, under 204,800 B. Phase 05 does not need 60-second windows, but re-measure with a real transcript.
 
+## G2 run (2026-10-26, live VoiceStudio)
+
+URL class: `https/hostname` (a temporary `trycloudflare` tunnel; fine for the gate, not for a long-lived `VOICESTUDIO_URL`).
+
+| Check | Result |
+|---|---|
+| Request without a key | **401** `API key required`. Pass. (An earlier tunnel host answered 403 on host-name allow-listing before auth was reached.) |
+| `GET /v1/audio/voices` contains `VOICE_ID` | `demo0001` exists (type `profile`, language English). The other 13 entries are OpenAI aliases (`alloy`, `nova`, ...) that map silently to the active engine's default voice. Pass for the check, but see findings |
+| `POST /v1/audio/speech` (`tts-1`, `demo0001`) | 200, measurable. Sentence of 12 syllables read in 3.15 s = **3.81 syllables/s** (English profile voice reading Vietnamese, so not yet a usable rate for D6) |
+| STT, default language (`whisper-1`) | Unreliable: language auto-detect returned Sinhala for one clip and French for another. Fails as a Chinese transcriber without a language hint |
+| STT, `language=zh` | 3 of 3 clips with speech returned word timestamps for every character: **missing-word ratio 0.0** (measured as text chars vs joined word chars), 201-253 chars per 45 s clip |
+| Clips with no usable result | 5 of 11 tried returned an empty transcript with `duration: 0.0` (music or no speech, not verified). `missing_word_ratio` returns 0.0 for an empty text, so the spike's own metric reads empty clips as perfect |
+
+Findings that change later phases:
+1. The transcription request MUST pass `language` (`zh` for source video). Phase 04 `transcribe` and the `SttProvider` settings need a language field.
+2. `g2_voicestudio.py` must count an empty transcript as a failure, not 0.0 missing. Not yet fixed.
+3. `STT_MODEL` and `TTS_MODEL` are OpenAI aliases for whichever engine is active; the response carries no `engine` field (`engine: null`), so the engine that feeds the cache key (plan.md §0.4) cannot be read from the response. Needs an explicit way to record it (config value, or a server endpoint if one exists).
+4. There is no Vietnamese voice on this server yet; D6 speech rate (phase 05) and the dubbing phases need one. Unknown voice ids fall back silently, so `VOICE_ID` must be checked against `/voices` before every run.
+5. Hand alignment, done by the user by ear (EXACT window vs the window widened by 200 ms): **9 of 10 sentences pass**. Sentence #10 (clip ending 94878780, 35.67 s to 43.63 s) fails: the 200 ms-padded clip still cuts the tail. That window is 7.96 s, right at the 8 s limit the sheet builder splits at, so the cut may come from the builder splitting a sentence mid-phrase rather than from the server's timestamp. Not confirmed: the tunnel went away before the words around 43.6 s could be inspected.
+6. The user listened to the two clips the server returned empty for: music only, so empty is the correct answer.
+7. **Decision (user, 2026-10-26): accept 9/10 as G2 pass.** The one failure is unexplained and may come from the sheet builder splitting a sentence at its 8 s limit; it was not re-checked. Carry-overs that still bind later phases: transcription must send `language`; the active engine name is not in the response; no Vietnamese voice exists on the server yet.
+8. Automated STT re-run with `language=zh` and empty-as-failure: 5 clips with speech measured, missing-word ratio 0.0 on all 5.
+
+Reproduce: `VOICE_ID=demo0001 STT_MODEL=whisper-1 TTS_MODEL=tts-1 ./run.sh uv run python g2_voicestudio.py` with `VOICESTUDIO_URL` and `VOICESTUDIO_API_KEY` in the environment (kept in the gitignored `.env`).
+
 ## Deviations from the phase file
 
 - Added `temporal-namespace-init` (the plain server image creates no namespace) and `infra/temporal/*.sh`, `infra/clickhouse/low-memory.xml`, `infra/minio/Dockerfile` (the official `mc` image is not anonymously pullable and the Chainguard one has no shell).
@@ -78,5 +103,5 @@ Max model-request input: 62,553 B realistic, 111,601 B stress, under 204,800 B. 
 ## To unblock
 
 1. G5 needs `OCR_BBOX_FORMAT` (one of `xyxy_px`, `xyxy_norm1`, `xyxy_norm1000`, `yxyx_norm1000`) once labels exist.
-2. Set `VOICESTUDIO_URL`, `VOICESTUDIO_API_KEY`, `VOICE_ID`, `STT_MODEL`, `TTS_MODEL`, enable `OMNIVOICE_API_KEY` on that host → run G2, then hand-align 10 sentences.
+2. G2: hand-align 10 sentences (≤ 200 ms), add a Vietnamese voice on the VoiceStudio host, and decide how to read the active engine name.
 3. Provide 5 videos with burned-in Chinese subtitles and hand-label 20 frames in `spikes/fixtures/g5-labels.json`.

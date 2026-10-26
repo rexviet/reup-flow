@@ -28,7 +28,11 @@ KEY = os.environ.get("VOICESTUDIO_API_KEY", "")
 VOICE_ID = os.environ.get("VOICE_ID", "")
 STT_MODELS = [m for m in os.environ.get("G2_STT_MODELS", os.environ.get("STT_MODEL", "")).split(",") if m]
 TTS_MODEL = os.environ.get("TTS_MODEL", "")
+# Without a language hint the server auto-detects and gets Chinese speech badly
+# wrong (observed: Sinhala, French), so the spike always sends one.
+STT_LANGUAGE = os.environ.get("G2_STT_LANGUAGE", "zh")
 SAMPLE_VIDEOS = 5
+CANDIDATE_VIDEOS = 30
 
 _PUNCT = re.compile(r"[\s　，。！？、；：“”‘’（）()\[\]{}.,!?;:\"'—-]+")
 _DIGIT_WORDS = "không một hai ba bốn năm sáu bảy tám chín".split()
@@ -104,11 +108,16 @@ def main() -> int:
     ids = [v.get("id") or v.get("voice_id") or v.get("name") for v in (voices.json().get("voices", voices.json()) if voices.status_code == 200 else [])]
     result["voice_exists"] = VOICE_ID in ids
 
-    videos = sorted(Path("/data").rglob("*.mp4"))[:: max(1, len(list(Path("/data").rglob("*.mp4"))) // SAMPLE_VIDEOS)][:SAMPLE_VIDEOS]
+    # Many downloaded videos are music-only, so scan an evenly spaced candidate list
+    # and stop once SAMPLE_VIDEOS of them actually produced a transcript.
+    all_videos = sorted(Path("/data").rglob("*.mp4"))
+    videos = all_videos[:: max(1, len(all_videos) // CANDIDATE_VIDEOS)][:CANDIDATE_VIDEOS]
     with tempfile.TemporaryDirectory() as tmp:
         for model in STT_MODELS or [""]:
             rates = []
             for v in videos:
+                if sum("missing_word_ratio" in r for r in rates) >= SAMPLE_VIDEOS:
+                    break
                 wav = Path(tmp) / f"{v.stem}.wav"
                 _extract_audio(v, wav)
                 with wav.open("rb") as f:
@@ -116,12 +125,17 @@ def main() -> int:
                         "/v1/audio/transcriptions",
                         headers=_h(True),
                         files={"file": (wav.name, f, "audio/wav")},
-                        data={"model": model, "response_format": "verbose_json", "timestamp_granularities[]": "word"},
+                        data={"model": model, "language": STT_LANGUAGE, "response_format": "verbose_json", "timestamp_granularities[]": "word"},
                     )
                 if resp.status_code != 200:
                     rates.append({"video": v.name, "error": resp.status_code})
                     continue
                 body = resp.json()
+                if not _PUNCT.sub("", body.get("text", "")):
+                    # missing_word_ratio() answers 0.0 for an empty text, which would
+                    # read a silent or failed clip as perfect. Report it as what it is.
+                    rates.append({"video": v.name, "error": "empty_transcript", "duration": body.get("duration")})
+                    continue
                 rates.append({"video": v.name, "missing_word_ratio": round(missing_word_ratio(body.get("text", ""), body.get("words", [])), 4), "engine": body.get("engine")})
             result["stt"][model or "default"] = rates
 
@@ -136,7 +150,14 @@ def main() -> int:
             result["tts"] = {"error": sp.status_code}
 
     result["manual_alignment"] = "PENDING: 10 hand-labelled sentences, <=200 ms drift, need a human"
-    ok = result["auth"]["requires_key"] and result["voice_exists"] and "seconds" in result["tts"]
+    measured = [r for rs in result["stt"].values() for r in rs if "missing_word_ratio" in r]
+    result["stt_clips_measured"] = len(measured)
+    ok = (
+        result["auth"]["requires_key"]
+        and result["voice_exists"]
+        and "seconds" in result["tts"]
+        and len(measured) >= 3
+    )
     result["verdict"] = "PENDING-MANUAL" if ok else "FAIL"
     result["reproduce"] = "./run.sh uv run python g2_voicestudio.py"
     os.makedirs("out", exist_ok=True)
