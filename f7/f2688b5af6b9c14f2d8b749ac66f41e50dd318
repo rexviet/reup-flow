@@ -1,0 +1,19 @@
+scripts/test-run-mutations.sh
+  s_92153f0c6ce139::t_551da70b3f08eb 9-16,23-25,27-30,48,50-55,75-77,80-81,91-92,95,98-101,114-213,215-218,220-223,225-238,240-270,272-279,281-287,289-292,300-309,312-321,324-390,394,397
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f7f2688b5af6b9c14f2d8b749ac66f41e50dd318",
+  "prompts": {},
+  "sessions": {
+    "s_92153f0c6ce139": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "30235d5c-3b00-4588-94b5-c8a55a5f2e99",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
