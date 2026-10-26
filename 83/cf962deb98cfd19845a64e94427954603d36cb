@@ -1,0 +1,53 @@
+services/downloader/test/support/s3-slow-upload-child.ts
+  s_92153f0c6ce139::t_17a011ac057f1b 12-16
+scripts/migrate-local-storage-to-s3.ts
+  s_92153f0c6ce139::t_68b466f7abb68d 46,50,68-69,95-96,98
+  s_92153f0c6ce139::t_505652d06658a4 181-185
+  s_92153f0c6ce139::t_963f75e9e19bec 238-258
+  s_92153f0c6ce139::t_f8570289fd8478 277-279
+  s_92153f0c6ce139::t_4686450d038fb4 125-126,130-139,142
+services/downloader/src/storage/s3.storage.ts
+  s_92153f0c6ce139::t_c7bf0f23fd2c31 333-337
+  s_92153f0c6ce139::t_6892248bd7889b 25-26
+  s_92153f0c6ce139::t_9d93dcecb82169 161-167
+  s_92153f0c6ce139::t_19537b6d64b3a8 244
+  s_92153f0c6ce139::t_60f5ccd7853673 221-224,230
+  s_92153f0c6ce139::t_586bcfaf3b5041 346-354
+  s_92153f0c6ce139::t_1483d8de4200ee 58-65
+  s_92153f0c6ce139::t_80dbf0f4fef47d 89-105,284
+  s_92153f0c6ce139::t_b33487294ffff9 254-256,266-271,278-283
+.env.example
+  s_92153f0c6ce139::t_ed1c4946ee0c7a 58-69
+services/downloader/test/storage/s3.storage.integration.spec.ts
+  s_92153f0c6ce139::t_bdb2fd8e6564b8 427-430,433
+  s_92153f0c6ce139::t_ea458a37ab2384 361-363,365,367-426,431-432,434-465,468-479,483-511
+  s_92153f0c6ce139::t_1d5af71aa158a2 364
+  s_92153f0c6ce139::t_eca7b6bab27c9c 10,12
+  s_92153f0c6ce139::t_d630f415354096 366
+  s_92153f0c6ce139::t_c688e551465833 512
+services/downloader/test/storage/migrate-local-to-s3.integration.spec.ts
+  s_92153f0c6ce139::t_8bf76e47637536 156-163
+  s_92153f0c6ce139::t_dba569b20475e8 240-261
+  s_92153f0c6ce139::t_e29f00645f408e 32
+  s_92153f0c6ce139::t_f29b555e8c87c6 324-351
+.github/workflows/ci.yml
+  s_92153f0c6ce139::t_a79d9b555d807a 247-273,275-279
+services/downloader/test/mutations/phase-11.sh
+  s_92153f0c6ce139::t_f9686bd846582c 18-20,33-34,101-102,124-133,138-151,154,162,170,176,182
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "83cf962deb98cfd19845a64e94427954603d36cb",
+  "prompts": {},
+  "sessions": {
+    "s_92153f0c6ce139": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "30235d5c-3b00-4588-94b5-c8a55a5f2e99",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
