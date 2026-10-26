@@ -145,3 +145,22 @@ Workflow dừng ở bước 2.
 - Transcript rất dài (nhiều trang 60 segment) làm lịch sử hội thoại lớn dần; chưa chia cửa sổ.
 - Bộ đếm âm tiết từ Latin chỉ ước lượng (±1 âm tiết một từ).
 - Engine của giọng lấy từ health check của VoiceStudio; khi chưa có thì khoá dùng `null` và đo lại khi engine xuất hiện.
+
+## Sau review
+
+**Đã sửa**
+- Hội thoại của agent có chặn kích thước. Mỗi model request gửi lại cả lịch sử; trước đây vượt 256 KiB thì codec ném lỗi lúc mã hoá command, Temporal thử lại task mãi và run nằm RUNNING giữ một slot `MAX_OPEN_WORKFLOWS`. Giờ: tối đa `MAX_SEGMENTS` = 150 segment (đo: 60 segment dày ≈ 45 KB một request, dưới 1 KB mỗi segment) và capability `ConversationSizeGuard` đo hội thoại (`payload_size`) trước mỗi request, vượt 192 KiB thì ném `ApplicationError` `PayloadTooLarge` không retry, workflow FAILED trong vài giây. Test: transcript quá dài, và câu trả lời sai dài làm hội thoại phình ra khi validator bắt gửi lại.
+- **Bước tiếp theo đã chọn (chưa làm): chạy Localizer theo cửa sổ 60 giây** (`LocalizerDeps.window` và tool đọc theo cửa sổ đã có, glossary dùng chung giữa các cửa sổ, ghép dòng ở `assemble_script`). Cần khi có video dài hơn 150 segment; hiện chúng bị từ chối rõ ràng thay vì treo.
+- `glossary_upsert` chỉ lưu khi `term_zh` có trong transcript của run; câu trả lời "đã có" bọc `term_vi` đã lưu trong khối không tin cậy; `estimate_duration` từ chối danh sách quá 60 chữ thay vì cắt im lặng; INSTRUCTIONS nói khi nào gọi `read_onscreen_text` và nó chỉ trả phần trùng thời gian; `voice_rate` từ chối tốc độ ngoài 2 đến 8 âm tiết/giây (không retry, không lưu); `vi_syllables` đọc "007" từng chữ số và "-5" là "âm năm".
+
+**Quyết định mở cho người dùng**
+- Dòng dịch chứa liên lạc (tên miền, số điện thoại) mà dòng nguồn cũng có vẫn **không** bị cờ `needs_human`: phase này quy định cờ chỉ khi liên lạc "không có trong `src_zh`" và fixture của plan đặt tên miền ngay trong lời thoại. Nếu muốn cờ mọi liên lạc trong dòng lồng tiếng, đổi `contacts_missing_from_source` thành `find_contacts` (một dòng, kèm sửa test); đổi lại là việc của người dùng.
+- Model của Localizer: `.env` đang để `deepseek/deepseek-v4-pro`, treo quá 240 s ở lượt thứ ba trong hai lần thử; `deepseek/deepseek-v4.1-flash` xong trong 30 đến 40 s. Chưa đổi cấu hình; cần chọn trước khi chạy thật.
+
+**Giới hạn đã biết thêm**
+- Chữ trên màn hình vẫn không được dịch (hợp đồng `SubtitleCue` không có chữ); `read_onscreen_text` chỉ báo trùng thời gian.
+- Trần 20 lần ghi glossary là đếm rồi chèn trong một câu lệnh: các tool call song song trong cùng một run có thể vượt vài dòng.
+- Id trong script là vị trí trong transcript sau khi sắp xếp, không phải id của nhà cung cấp: các phase sau phải đọc transcript qua `read_transcript_document`.
+- Activity `voice_rate` không gắn session Langfuse (nó không biết `aweme_id`), và model request chưa có span LLM riêng (cần cho AC7 ở phase 09).
+- Không có đường sửa/xoá một dòng glossary đã lưu ngoài SQL thủ công.
+- Hằng số trên (150 segment, 192 KiB, khoảng 2 đến 8 âm tiết/giây) chưa được đo với transcript và giọng thật.

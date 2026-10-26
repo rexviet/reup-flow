@@ -26,6 +26,8 @@ _PERCENT_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*(?:%|％)")
 _MONEY_PREFIX_RE = re.compile(r"([$¥￥€£])\s*(\d[\d.,]*)")
 _MONEY_SUFFIX_RE = re.compile(r"(\d[\d.,]*)\s*([$¥￥€£₫đ])(?![A-Za-zÀ-ỹ])")
 _THOUSAND_K_RE = re.compile(r"(\d+)\s*[kK](?![A-Za-z])")
+# "-5" after a space or at the start is minus five: "âm năm".
+_NEGATIVE_RE = re.compile(r"(?<![\w])-(?=\d)")
 # Currency sign -> how it is read, as words to count.
 _CURRENCY_WORDS = {
     "$": "đô la",
@@ -45,6 +47,9 @@ _ACRONYM_MAX = 4
 
 
 def _spell_integer(digits: str) -> str:
+    if len(digits) > 1 and digits.startswith("0"):
+        # A code or a number with leading zeros ("007") is read digit by digit.
+        return " ".join(num2words(int(d), lang="vi") for d in digits)
     try:
         return num2words(int(digits), lang="vi")
     except (OverflowError, ValueError, NotImplementedError):
@@ -69,6 +74,7 @@ def _spell_amount(text: str) -> str:
 
 def numbers_to_words(text: str) -> str:
     """Rewrites every number in `text` as the Vietnamese words that read it."""
+    text = _NEGATIVE_RE.sub("âm ", text)
     text = _PERCENT_RE.sub(lambda m: f" {_spell_amount(m.group(1))} phần trăm ", text)
     text = _MONEY_PREFIX_RE.sub(
         lambda m: f" {_spell_amount(m.group(2).rstrip('.,'))} {_CURRENCY_WORDS[m.group(1)]} ", text

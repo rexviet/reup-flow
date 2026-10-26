@@ -42,7 +42,7 @@ from localization.storage.object_store import work_key
 
 DEFAULT_SEGMENTS = (
     SegmentView(0, 0, 1500, "大家好，欢迎来到我的频道"),
-    SegmentView(1, 1800, 3000, "今天我们来看看这个新手机"),
+    SegmentView(1, 1800, 3000, "今天我们来看看这个新手机和苹果"),
 )
 
 
@@ -85,7 +85,7 @@ class FakePorts:
         if reason is not None:
             return SaveResult("rejected", f"not saved: {reason}")
         if (channel_id, term_zh) in self.glossary:
-            return SaveResult("exists", "not changed")
+            return SaveResult("exists", "not changed", self.glossary[(channel_id, term_zh)])
         if self.saved_by[workflow_id] >= MAX_WRITES_PER_RUN:
             return SaveResult("limit", "not saved: limit")
         self.glossary[(channel_id, term_zh)] = term_vi

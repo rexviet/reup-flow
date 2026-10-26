@@ -33,7 +33,7 @@ class StallsAfterTheFirstWrite(FakePorts):
         if not self._marker.exists():
             self._marker.write_text("written")
             await asyncio.sleep(600)
-        return SaveResult(outcome.status, outcome.message)
+        return SaveResult(outcome.status, outcome.message, outcome.existing)
 
 
 async def main(address: str, conninfo: str, marker: str) -> None:

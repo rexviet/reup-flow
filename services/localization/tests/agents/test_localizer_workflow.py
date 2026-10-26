@@ -3,6 +3,7 @@ what is written, and what happens when the model or a tool misbehaves."""
 
 import asyncio
 import json
+import time
 import uuid
 from collections import Counter
 
@@ -15,8 +16,8 @@ from temporalio.client import Client, WorkflowFailureError
 from localization.activities.assemble_script import AssembleScriptActivity
 from localization.activities.glossary import GlossaryStore
 from localization.activities.localizer_ports import StorePorts
-from localization.agents.localizer import SegmentView
-from localization.agents.temporal import USAGE_LIMITS
+from localization.agents.localizer import SaveResult, SegmentView
+from localization.agents.temporal import MAX_SEGMENTS, USAGE_LIMITS
 from localization.contracts import (
     LocalizationResult,
     LocalizedScript,
@@ -154,6 +155,49 @@ async def test_a_runaway_agent_is_stopped_by_the_usage_limit(temporal_client: Cl
     assert ("assemble_script", "io") not in await scheduled(handle)
 
 
+# --- a conversation too big to send --------------------------------------------------
+
+
+async def _status(handle) -> str:
+    return (await handle.describe()).status.name
+
+
+async def test_a_transcript_too_long_for_one_piece_fails_the_run_at_once(
+    temporal_client: Client,
+) -> None:
+    model = ScriptedModel()
+    localizing = LocalizerFakes(model=model)
+    started = time.monotonic()
+    handle, outcome = await run_workflow(
+        temporal_client, PrepFakes(segment_count=MAX_SEGMENTS + 1), localizing
+    )
+    assert isinstance(outcome, WorkflowFailureError), outcome
+    assert time.monotonic() - started < 10
+    assert await _status(handle) == "FAILED"
+    assert outcome.cause.type == "PayloadTooLarge"
+    assert model.requests == 0, "tokens were spent on a transcript that cannot be read"
+
+
+async def test_a_conversation_grown_by_a_long_wrong_answer_fails_the_run_instead_of_hanging(
+    temporal_client: Client,
+) -> None:
+    """The transcript fits. The model answers with sixty long lines and leaves one
+    out, so the retry would send the transcript and that answer again: past what one
+    request may carry. The run must end FAILED, not sit RUNNING."""
+    segments = [SegmentView(i, i * 3000, i * 3000 + 2800, "这是一个句子，" * 90) for i in range(60)]
+    long_wrong = ScriptedModel(
+        answers=(lambda ids: [{"id": i, "text_vi": "dài " * 700} for i in ids[:-1]],)
+    )
+    localizing = LocalizerFakes(ports=FakePorts(segment_list=segments), model=long_wrong)
+    started = time.monotonic()
+    handle, outcome = await run_workflow(temporal_client, PrepFakes(segment_count=60), localizing)
+    assert isinstance(outcome, WorkflowFailureError), outcome
+    assert time.monotonic() - started < 15
+    assert await _status(handle) == "FAILED"
+    assert outcome.cause.type == "PayloadTooLarge"
+    assert long_wrong.answer_attempts == 1
+
+
 # --- a lost input --------------------------------------------------------------------
 
 
@@ -232,7 +276,7 @@ async def test_a_tool_retried_after_its_write_committed_adds_no_second_glossary_
             if attempts["save_term"] == 1:
                 # The row is in; the worker dies before it can say so.
                 raise ConnectionResetError("lost the connection after commit")
-            return type("R", (), {"status": outcome.status, "message": outcome.message})()
+            return SaveResult(outcome.status, outcome.message, outcome.existing)
 
     localizing = LocalizerFakes(
         ports=LosesTheFirstAck(),

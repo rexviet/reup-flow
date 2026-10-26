@@ -14,6 +14,7 @@ from pathlib import Path
 
 import psycopg
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from localization.activities.errors import provider_errors
 from localization.activities.ffmpeg import probe_duration_ms, run_blocking
@@ -31,6 +32,12 @@ SAMPLE_TEXT = (
     "Kết quả khiến mình khá bất ngờ, nên hãy xem hết video này nhé."
 )
 SAMPLE_VERSION = 1
+
+# A voice that speaks outside this is not a voice the estimate can be trusted for:
+# the audio was truncated, padded with silence, or is not the sample at all. The
+# number would be stored for good, so it is refused instead.
+MIN_SYLLABLES_PER_SEC = 2.0
+MAX_SYLLABLES_PER_SEC = 8.0
 
 SELECT_SQL = "SELECT syllables_per_sec FROM localization.voice_rates WHERE voice_hash = %s"
 INSERT_SQL = """
@@ -108,4 +115,11 @@ class VoiceRateActivity:
         with provider_errors():
             wav = await self._tts.synthesize(SAMPLE_TEXT, voice)
         rate = await run_blocking(rate_from_audio, wav)
+        if not MIN_SYLLABLES_PER_SEC <= rate <= MAX_SYLLABLES_PER_SEC:
+            raise ApplicationError(
+                f"the voice read the sample at {rate:.1f} syllables a second, outside "
+                f"{MIN_SYLLABLES_PER_SEC} to {MAX_SYLLABLES_PER_SEC}; nothing was stored",
+                type="ImplausibleVoiceRate",
+                non_retryable=True,
+            )
         return await self._store.put(key, rate)

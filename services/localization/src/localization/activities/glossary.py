@@ -60,6 +60,7 @@ class GlossaryRow:
 class UpsertOutcome:
     status: Literal["inserted", "exists", "rejected", "limit"]
     message: str
+    existing: str | None = None
 
 
 def _digits(text: str) -> set[str]:
@@ -140,8 +141,7 @@ class GlossaryStore:
             existing = await (await conn.execute(EXISTING_SQL, (channel_id, term_zh))).fetchone()
         if existing is not None:
             return UpsertOutcome(
-                "exists",
-                f"not changed: the channel already fixes this term as {existing[0]!r}; use that",
+                "exists", "not changed: the channel already fixes this term", existing[0]
             )
         return UpsertOutcome(
             "limit", f"not saved: this run already added {MAX_WRITES_PER_RUN} terms"

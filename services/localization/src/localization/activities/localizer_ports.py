@@ -66,4 +66,4 @@ class StorePorts:
             aweme_id=aweme_id,
             workflow_id=workflow_id,
         )
-        return SaveResult(outcome.status, outcome.message)
+        return SaveResult(outcome.status, outcome.message, outcome.existing)

@@ -16,15 +16,23 @@ from datetime import timedelta
 from typing import Any
 
 from pydantic_ai import Agent, UsageLimits
+from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.durable_exec.temporal import TemporalDurability
-from pydantic_ai.messages import ModelMessage, ModelResponse
-from pydantic_ai.models import Model, ModelRequestParameters, StreamedResponse
+from pydantic_ai.messages import ModelMessage, ModelMessagesTypeAdapter, ModelResponse
+from pydantic_ai.models import (
+    Model,
+    ModelRequestContext,
+    ModelRequestParameters,
+    StreamedResponse,
+)
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.tools import RunContext
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ApplicationError
 from temporalio.workflow import ActivityConfig
 
 from localization.agents.localizer import IO_TOOLS, PURE_TOOLS, LocalizerDeps, build_localizer
+from localization.contracts.limits import MAX_PAYLOAD_BYTES, payload_size
 from localization.contracts.models import LocalizedLines
 
 LLM_QUEUE = "llm"
@@ -126,16 +134,48 @@ class DeferredModel(Model):
             yield response
 
 
+# Every model request re-sends the whole conversation, and a conversation that grows
+# past the payload limit does not fail the run: the codec raises while the workflow's
+# commands are encoded, Temporal retries that task forever, and the run sits RUNNING.
+# So the size is checked here, in the workflow, and an oversize conversation fails the
+# run with a clear error instead. The margin leaves room for the rest of the request.
+MAX_CONVERSATION_BYTES = MAX_PAYLOAD_BYTES * 3 // 4
+# Measured: a request carrying 60 dense segments of speech (the three-minute case) is
+# about 45 KB, i.e. under 1 KB a segment, and an answer is of the same order. This many
+# segments keeps one read plus one wrong answer well inside the limit; a longer video
+# needs the transcript read in windows.
+MAX_SEGMENTS = 150
+
+
+class ConversationSizeGuard(AbstractCapability[LocalizerDeps]):
+    """Fails the run, non-retryably, before a request whose conversation is too big."""
+
+    async def before_model_request(
+        self, ctx: RunContext[LocalizerDeps], request_context: ModelRequestContext
+    ) -> ModelRequestContext:
+        size = payload_size(ModelMessagesTypeAdapter.dump_json(request_context.messages))
+        if size > MAX_CONVERSATION_BYTES:
+            raise ApplicationError(
+                f"the Localizer conversation is {size} bytes, over the "
+                f"{MAX_CONVERSATION_BYTES} byte limit; the transcript is too long to read in one "
+                "piece",
+                type="PayloadTooLarge",
+                non_retryable=True,
+            )
+        return request_context
+
+
 def build_durable_localizer() -> Agent[LocalizerDeps, LocalizedLines]:
     return build_localizer(
         MODEL_ALIAS,
         tool_metadata=TOOL_METADATA,
         capabilities=[
+            ConversationSizeGuard(),
             TemporalDurability(
                 models={MODEL_ALIAS: DeferredModel(MODEL_ALIAS)},
                 model_activity_config=MODEL_ACTIVITY,
                 activity_config=TOOL_ACTIVITY,
-            )
+            ),
         ],
     )
 
@@ -153,6 +193,13 @@ USAGE_LIMITS = UsageLimits(request_limit=60, tool_calls_limit=200)
 async def run_localizer(deps: LocalizerDeps) -> LocalizedLines:
     """Runs the Localizer to completion and returns its lines. The prompt names only
     the ids to cover; the transcript itself is read through the tools."""
+    if deps.segment_count > MAX_SEGMENTS:
+        raise ApplicationError(
+            f"the transcript has {deps.segment_count} segments, over the {MAX_SEGMENTS} the "
+            "Localizer reads in one piece",
+            type="PayloadTooLarge",
+            non_retryable=True,
+        )
     last = deps.segment_count - 1
     result = await localizer.run(
         f"Localize this video's transcript into Vietnamese. The segment ids are 0 to {last}.",

@@ -166,3 +166,23 @@ async def test_two_workers_measuring_a_new_voice_at_once_agree_on_one_rate(gloss
     )
     assert rates[0] == rates[1]
     assert len(stored(conn)) == 1
+
+
+@pytest.mark.parametrize("seconds", [0.5, 3.0, 60.0], ids=["near-empty", "truncated", "padded"])
+async def test_an_implausible_reading_is_refused_and_never_stored(
+    glossary_db, seconds: float
+) -> None:
+    info, conn = glossary_db
+    act = activity_for(FakeTts(seconds=seconds), info)
+    with pytest.raises(ApplicationError) as err:
+        await ActivityEnvironment().run(act.voice_rate, voice())
+    assert err.value.type == "ImplausibleVoiceRate"
+    assert err.value.non_retryable
+    assert stored(conn) == []
+
+
+async def test_a_reading_at_the_edge_of_the_range_is_kept(glossary_db) -> None:
+    info, conn = glossary_db
+    seconds = count_syllables(SAMPLE_TEXT) / 7.9
+    await ActivityEnvironment().run(activity_for(FakeTts(seconds), info).voice_rate, voice())
+    assert len(stored(conn)) == 1

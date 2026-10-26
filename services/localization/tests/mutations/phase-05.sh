@@ -376,6 +376,56 @@ apply_mutation "$RUN" \
   && expect_red "$T_WIRING" "test_the_llm_queue_has_a_worker_even_though_it_has_no_plain_activities"
 restore
 
+# --- conversation size, glossary provenance, instructions, voice bounds, number edge cases --------------------
+mp_mutation "a conversation over the request size limit is sent on, and the run hangs RUNNING"
+apply_mutation "$TEMPORAL" '        if size > MAX_CONVERSATION_BYTES:' '        if False:' \
+  && expect_red "$T_WF -k conversation_grown" \
+    "test_a_conversation_grown_by_a_long_wrong_answer_fails_the_run_instead_of_hanging"
+restore
+
+mp_mutation "a transcript with too many segments is handed to the agent"
+apply_mutation "$TEMPORAL" '    if deps.segment_count > MAX_SEGMENTS:' '    if False:' \
+  && expect_red "$T_WF -k too_long_for_one_piece" \
+    "test_a_transcript_too_long_for_one_piece_fails_the_run_at_once"
+restore
+
+mp_mutation "a glossary term the transcript never contained is saved"
+apply_mutation "$AGENT" \
+  "    if not needle or not any(needle in normalise(s.text) for s in seen):" \
+  "    if False:" \
+  && expect_red "$T_LOC" "test_a_term_that_is_not_in_the_transcript_is_not_saved"
+restore
+
+mp_mutation "the stored term in a repeat reply is shown outside the untrusted block"
+apply_mutation "$AGENT" '            + wrap_untrusted(result.existing)' '            + result.existing' \
+  && expect_red "$T_LOC" "test_the_stored_term_in_a_repeat_reply_is_shown_inside_an_untrusted_block"
+restore
+
+mp_mutation "the instructions no longer tell the model about the on-screen tool"
+apply_mutation "$AGENT" 'Call read_onscreen_text once.' 'Skip the on-screen tool.' \
+  && expect_red "$T_LOC" "test_the_instructions_say_when_to_use_the_on_screen_tool"
+restore
+
+mp_mutation "estimate_duration silently cuts a list that is too long"
+apply_mutation "$AGENT" '    if len(texts) > ESTIMATE_BATCH:' '    if False:' \
+  && expect_red "$T_LOC" "test_estimate_duration_refuses_a_list_it_would_have_cut_short"
+restore
+
+mp_mutation "an implausible voice reading is stored as the voice's rate"
+apply_mutation "$VOICE_RATE" '        if not MIN_SYLLABLES_PER_SEC <= rate <= MAX_SYLLABLES_PER_SEC:' '        if False:' \
+  && expect_red "$T_RATE" "test_an_implausible_reading_is_refused_and_never_stored"
+restore
+
+mp_mutation "a number with leading zeros is read as a number"
+apply_mutation "$SYLLABLES" '    if len(digits) > 1 and digits.startswith("0"):' '    if False:' \
+  && expect_red "$T_SYLLABLES" "test_syllables_of_a_line_as_it_is_read_aloud"
+restore
+
+mp_mutation "a minus sign is not read as 'âm'"
+apply_mutation "$SYLLABLES" '    text = _NEGATIVE_RE.sub("âm ", text)' '    text = text' \
+  && expect_red "$T_SYLLABLES" "test_syllables_of_a_line_as_it_is_read_aloud"
+restore
+
 # --- controls: changes that must NOT matter ------------------------------------------------------------------------
 mp_mutation "CONTROL: the instructions are reworded (no command changes, so every history still replays)"
 apply_mutation "$AGENT" \

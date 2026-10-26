@@ -30,6 +30,12 @@ from localization.text.vi_syllables import (
         ("$100", 4),
         # TikTok: tích tóc
         ("TikTok là AI", 2 + 1 + 2),
+        # leading zeros are read digit by digit: không không bảy
+        ("số 007", 1 + 3),
+        # âm năm độ
+        ("-5 độ", 3),
+        # a range is not a minus: năm, mười
+        ("5-10", 1 + 1),
         # Apple (ap-ple) Store (one syllable in English) ở đây
         ("Apple Store ở đây", 2 + 1 + 1 + 1),
     ],

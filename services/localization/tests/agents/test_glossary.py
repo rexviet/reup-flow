@@ -48,7 +48,8 @@ async def test_the_reply_to_a_repeat_tells_the_agent_which_term_to_use(glossary_
     store = GlossaryStore(info)
     await _save(store, "苹果", "Apple")
     again = await _save(store, "苹果", "quả táo")
-    assert "Apple" in again.message
+    assert again.existing == "Apple"
+    assert "Apple" not in again.message
 
 
 async def test_a_retried_write_after_the_row_landed_adds_nothing(glossary_db) -> None:
