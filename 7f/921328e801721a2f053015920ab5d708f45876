@@ -1,0 +1,28 @@
+services/localization/tests/mutations/phase-04.sh
+  s_0b729cf0d034d3::t_440be88148bd91 41,61,64,68,416-432
+  s_0b729cf0d034d3::t_759e155dfc8736 433
+plans/261026-0147-video-localization-workflow/phase-04-starter-and-prep-activities.md
+  s_0b729cf0d034d3::t_440be88148bd91 200-208
+services/localization/src/localization/providers/vision_ocr.py
+  s_0b729cf0d034d3::t_72900eefde4253 18-23,72,92-93
+scripts/run-mutations.sh
+  s_0b729cf0d034d3::t_440be88148bd91 96-97,141
+services/localization/tests/providers/test_ocr_demucs_llm.py
+  s_0b729cf0d034d3::t_ad103bdb0a8bc8 106-143
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7f921328e801721a2f053015920ab5d708f45876",
+  "prompts": {},
+  "sessions": {
+    "s_0b729cf0d034d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9aa1a711-c362-45ab-8e48-1a9b19f8df48",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
