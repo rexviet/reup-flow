@@ -388,6 +388,23 @@ describe("docker-compose.yml localization infra", () => {
     expect(services["worker-render"].mem_limit).toBeDefined();
   });
 
+  it("the render worker's memory limit covers its measured peak and both of the pages it can fill", () => {
+    // Measured: a 60 s 1080x1920 render peaks at 4.1 GiB resident. /tmp (tmpfs) and
+    // /dev/shm pages count against the same cgroup limit, so a cap that fits beside the
+    // peak, filled, is the only budget the OOM killer cannot beat.
+    const MEASURED_PEAK_MB = 4200;
+    const mb = (value: unknown): number => {
+      const m = /^(\d+)(m|mb|g|gb)$/i.exec(String(value));
+      if (!m) throw new Error(`not a size: ${String(value)}`);
+      return Number(m[1]) * (m[2].toLowerCase().startsWith("g") ? 1024 : 1);
+    };
+    const svc = services["worker-render"] as unknown as { tmpfs: string[] };
+    const tmpfs = mb(/size=(\d+[mg])/.exec(svc.tmpfs[0])![1]);
+    const shm = mb(services["worker-render"].shm_size);
+    const limit = mb(services["worker-render"].mem_limit);
+    expect(limit).toBeGreaterThanOrEqual(MEASURED_PEAK_MB + tmpfs + shm);
+  });
+
   it("the render worker's concurrency comes from RENDER_CONCURRENCY and defaults to one", () => {
     expect(services["worker-render"].environment?.RENDER_CONCURRENCY).toBe(
       "${RENDER_CONCURRENCY:-1}",

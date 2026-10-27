@@ -3,16 +3,22 @@ its line is spoken, the cover is the burned-in subtitle grown by 6%, and the sto
 carries the script version and the audio hash it was made for."""
 
 import base64
+import hashlib
+import unicodedata
+from pathlib import Path
 
 import boto3
 import pytest
 from moto import mock_aws
+from pydantic import ValidationError
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
+from localization.activities import layout_captions as layout_module
 from localization.activities.layout_captions import (
     BOX_PADDING,
     FONT_SIZES,
+    MIN_BOX_HEIGHT,
     FontMeter,
     LayoutCaptionsActivity,
     fit,
@@ -25,6 +31,7 @@ from localization.activities.synthesize import META_TEXT, Synthesizer
 from localization.config import DEFAULT_CAPTION_FONT
 from localization.contracts import (
     BBox,
+    Caption,
     DubbedAudio,
     DubSegment,
     DubSegmentsDocument,
@@ -238,7 +245,12 @@ async def test_the_cover_is_grown_and_the_captions_sit_in_it(store: ObjectStore)
     assert spec.cover is not None
     assert spec.cover.region == grow_cover(subs.region, 1080, 1920)
     assert (spec.cover.color, spec.cover.opacity_pct) == ("#101010", 92)
-    assert spec.caption_box == spec.cover.region
+    # The cover is only 112 px tall: the caption box is made tall enough for two lines.
+    box = spec.caption_box
+    assert box.h >= MIN_BOX_HEIGHT
+    assert box.x == spec.cover.region.x and box.w == spec.cover.region.w
+    centre = lambda b: b.y + b.h / 2  # noqa: E731
+    assert abs(centre(box) - centre(spec.cover.region)) <= 1
 
 
 async def test_without_a_burned_in_subtitle_there_is_no_cover(store: ObjectStore) -> None:
@@ -373,3 +385,163 @@ async def test_nothing_is_stored_when_the_layout_is_refused(store: ObjectStore) 
     with pytest.raises(ApplicationError):
         await run(store, ref, subs, dub)
     assert not store.exists(work_key("7001", 1, "edit-spec.json"))
+
+
+# --- limits on what a file somebody else made can ask of the renderer -------------------
+
+
+@pytest.mark.parametrize(
+    ("over", "what"),
+    [
+        ({"width": 8192}, "8192x1920"),
+        ({"height": 4097}, "4097"),
+        ({"fps": 240}, "240 fps"),
+        ({"duration_ms": 16 * 60 * 1000}, "960000 ms"),
+        ({"duration_ms": 0}, "no length"),
+    ],
+)
+async def test_a_video_too_large_for_the_renderer_is_refused_for_good(
+    store: ObjectStore, over: dict, what: str
+) -> None:
+    ref, subs, dub = await stage(store, ["Xin chào"])
+    big = ingest().model_copy(update=over)
+    with pytest.raises(ApplicationError, match=what) as info:
+        await run(store, ref, subs, dub, prep=big)
+    assert (info.value.type, info.value.non_retryable) == ("VideoOutOfBounds", True)
+    assert not store.exists(work_key("7001", 1, "edit-spec.json"))
+
+
+async def test_a_video_at_the_limits_is_accepted(store: ObjectStore) -> None:
+    ref, subs, dub = await stage(store, ["Xin chào"], region=None)
+    edge = ingest(width=4096, height=4096).model_copy(update={"fps": 120})
+    _, spec = await run(store, ref, subs, dub, prep=edge)
+    assert (spec.width, spec.height, spec.fps) == (4096, 4096, 120)
+
+
+async def test_too_many_captions_are_refused_for_good(
+    store: ObjectStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ref, subs, dub = await stage(store, ["Xin chào"])
+    one = Caption(segment_id=0, start_ms=0, end_ms=1, text="a", font_px=48)
+    monkeypatch.setattr(layout_module, "build_captions", lambda *a, **k: (one,) * 2001)
+    with pytest.raises(ApplicationError) as info:
+        await run(store, ref, subs, dub)
+    assert (info.value.type, info.value.non_retryable) == ("InvalidEditSpec", True)
+
+
+def test_the_spec_model_enforces_the_same_limits() -> None:
+    base = EditSpec.model_validate(
+        {
+            "source_key": "work/7001/r0/source.mp4",
+            "audio_key": "work/7001/r1/dubbed.wav",
+            "audio_sha256": AUDIO_SHA,
+            "script_version": 1,
+            "width": 1080,
+            "height": 1920,
+            "fps": 30,
+            "duration_ms": 1000,
+            "cover": None,
+            "caption_box": {"x": 0, "y": 0, "w": 10, "h": 10},
+            "captions": [],
+            "font": "f.ttf",
+            "font_sha256": "d" * 64,
+        }
+    )
+    for field, value in (("width", 4097), ("fps", 121), ("duration_ms", 900_001)):
+        with pytest.raises(ValidationError):
+            EditSpec.model_validate({**base.model_dump(), field: value})
+
+
+# --- the font is identified by its bytes --------------------------------------------------
+
+
+async def test_the_spec_names_the_font_by_the_hash_of_its_bytes(store: ObjectStore) -> None:
+    ref, subs, dub = await stage(store, ["Xin chào"])
+    _, spec = await run(store, ref, subs, dub)
+    assert spec.font_sha256 == hashlib.sha256(Path(FONT).read_bytes()).hexdigest()
+
+
+def test_a_font_with_other_bytes_has_another_identity(tmp_path: Path) -> None:
+    other = tmp_path / "BeVietnamPro-SemiBold.ttf"
+    other.write_bytes(Path(FONT).read_bytes() + b"\0")
+    assert FontMeter(str(other)).sha256 != FontMeter(FONT).sha256
+
+
+# --- characters the font lacks ----------------------------------------------------------------
+
+
+@pytest.mark.parametrize("text", ["你好 Xin chào", "Xin chào \U0001f600", "Tên: 王"])
+async def test_a_character_the_font_lacks_is_refused_for_good_naming_the_segment(
+    store: ObjectStore, text: str
+) -> None:
+    ref, subs, dub = await stage(store, ["Xin chào", text])
+    with pytest.raises(ApplicationError) as info:
+        await run(store, ref, subs, dub)
+    assert (info.value.type, info.value.non_retryable) == ("UncoveredGlyphs", True)
+    assert "segment 1" in str(info.value) and "segment 0" not in str(info.value)
+    assert not store.exists(work_key("7001", 1, "edit-spec.json"))
+
+
+def test_vietnamese_in_either_unicode_form_is_covered() -> None:
+    text = "Tiếng Việt: ắ ầ ẫ ự ộ ở Đ đ"
+    assert meter.missing_chars(text) == []
+    assert meter.missing_chars(unicodedata.normalize("NFD", text)) == []
+    assert meter.missing_chars("Xin\u00a0chào,\n“thế”… 100%") == []
+
+
+def test_the_missing_characters_are_listed() -> None:
+    assert meter.missing_chars("a你b你\U0001f600") == sorted({"你", "\U0001f600"})
+
+
+# --- the cover is a subtitle, not a stray detection -------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "region",
+    [
+        BBox(x=0, y=500, w=1080, h=800),  # a third of the way up and 800 px tall
+        BBox(x=0, y=0, w=1080, h=1000),  # more than half the frame
+    ],
+)
+async def test_a_detected_region_too_large_to_be_a_subtitle_is_refused(
+    store: ObjectStore, region: BBox
+) -> None:
+    ref, subs, dub = await stage(store, ["Xin chào"], region=region)
+    with pytest.raises(ApplicationError, match="detect_subtitles") as info:
+        await run(store, ref, subs, dub)
+    assert (info.value.type, info.value.non_retryable) == ("ImplausibleCover", True)
+
+
+async def test_a_tall_but_plausible_subtitle_band_is_accepted(store: ObjectStore) -> None:
+    # 30% of the frame's height is a large subtitle, and still a subtitle.
+    ref, subs, dub = await stage(
+        store, ["Xin chào"], region=BBox(x=100, y=1200, w=880, h=int(1920 * 0.30))
+    )
+    _, spec = await run(store, ref, subs, dub)
+    assert spec.cover is not None
+
+
+async def test_a_thin_cover_still_gets_a_caption_box_of_two_lines(store: ObjectStore) -> None:
+    ref, subs, dub = await stage(store, ["Xin chào"], region=BBox(x=100, y=1800, w=880, h=40))
+    _, spec = await run(store, ref, subs, dub)
+    assert spec.caption_box.h >= MIN_BOX_HEIGHT
+    assert spec.caption_box.y + spec.caption_box.h <= 1920
+
+
+# --- the source copy and the startup check ---------------------------------------------------
+
+
+async def test_a_source_downloaded_again_is_copied_again(store: ObjectStore) -> None:
+    ref, subs, dub = await stage(store, ["Xin chào"])
+    await run(store, ref, subs, dub)
+    store.put_bytes("source/7001.mp4", b"a different video")
+    _, spec = await run(store, ref, subs, dub)
+    assert store.get_bytes(spec.source_key, produced_by="test") == b"a different video"
+
+
+def test_the_layout_stage_refuses_to_start_without_raqm(
+    store: ObjectStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(layout_module.features, "check", lambda name: False)
+    with pytest.raises(RuntimeError, match="raqm"):
+        layout(store)

@@ -47,6 +47,7 @@ export const SPEC_KEY = `work/${AWEME}/r1/edit-spec.json`;
 export const SOURCE_BYTES = Buffer.from("pretend this is a video");
 export const AUDIO_BYTES = Buffer.from("pretend this is a dubbed track");
 export const FONT_NAME = "BeVietnamPro-SemiBold.ttf";
+export const FONT_BYTES = Buffer.from("pretend this is a font");
 
 export function sha256(data: Buffer): string {
   return createHash("sha256").update(data).digest("hex");
@@ -72,6 +73,7 @@ export function makeSpec(over: Partial<EditSpec> = {}): EditSpec {
       { segment_id: 0, start_ms: 0, end_ms: 3000, text: "Xin chào các bạn", font_px: 48 },
     ],
     font: FONT_NAME,
+    font_sha256: sha256(FONT_BYTES),
     ...over,
   };
 }

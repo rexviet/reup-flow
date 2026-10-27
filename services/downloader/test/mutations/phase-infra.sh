@@ -35,7 +35,7 @@ cp "$RENDER_DOCKERFILE" "$SNAP/render.Dockerfile"
 fail=0
 # Outcome counters. The final verdict is arithmetic over these, not an absence
 # of FAIL lines: a harness that dies before running a mutation prints no FAIL.
-EXPECT_MUTATIONS=21
+EXPECT_MUTATIONS=22
 EXPECT_CONTROLS=2
 caught=0
 green=0
@@ -238,6 +238,13 @@ run_mutation "the agents worker is stopped after docker's default 10 seconds" \
 run_mutation "the render worker loses its shared memory size" \
   edit "$COMPOSE" '    shm_size: 1gb
 ' ''
+
+run_mutation "the render worker's /tmp can grow past what its memory limit leaves room for" \
+  edit "$COMPOSE" '      - /tmp:size=1g,mode=1777
+    environment:
+      <<: [*localization-env, *renderer-s3-env]' '      - /tmp:size=4g,mode=1777
+    environment:
+      <<: [*localization-env, *renderer-s3-env]'
 
 run_mutation "the render worker is handed the localization object-store key" \
   edit "$COMPOSE" '      RENDER_CONCURRENCY: ${RENDER_CONCURRENCY:-1}

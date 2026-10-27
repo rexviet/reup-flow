@@ -21,6 +21,7 @@ const placeholder: EditSpec = {
   caption_box: { x: 0, y: 0, w: 1, h: 1 },
   captions: [],
   font: "",
+  font_sha256: "",
 };
 
 export const RemotionRoot: React.FC = () => (

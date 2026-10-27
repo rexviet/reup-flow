@@ -70,6 +70,17 @@ def _is_missing(exc: ClientError) -> bool:
     return exc.response.get("Error", {}).get("Code") in _MISSING_CODES
 
 
+def _is_missing_on_head(exc: ClientError) -> bool:
+    """A HEAD on a key that is not there. A caller without an unconditioned
+    `s3:ListBucket` (this service's policy allows listing only under its prefixes) is told
+    403 rather than 404 by AWS S3 and some compatible stores, which cannot be told apart
+    from a real refusal. The key space is confined by the policy and a real refusal fails
+    again on the write that follows, so a 403 here means "not there"."""
+    code = exc.response.get("Error", {}).get("Code")
+    status = exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+    return _is_missing(exc) or code in ("403", "Forbidden", "AccessDenied") or status == 403
+
+
 # --- store ------------------------------------------------------------------
 
 
@@ -155,7 +166,7 @@ class ObjectStore:
         try:
             head = self._client.head_object(Bucket=self._bucket, Key=key)
         except ClientError as exc:
-            if _is_missing(exc):
+            if _is_missing_on_head(exc):
                 return None
             raise
         return dict(head.get("Metadata") or {})
@@ -166,6 +177,6 @@ class ObjectStore:
             self._client.head_object(Bucket=self._bucket, Key=key)
             return True
         except ClientError as exc:
-            if _is_missing(exc):
+            if _is_missing_on_head(exc):
                 return False
             raise

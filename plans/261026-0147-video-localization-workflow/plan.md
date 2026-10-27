@@ -262,7 +262,8 @@ nhận đúng các biến của nó.
 | `STT_CONCURRENCY`, `TTS_CONCURRENCY`, `MEDIA_CONCURRENCY`, `RENDER_CONCURRENCY`, `LLM_CONCURRENCY`, `IO_CONCURRENCY` | worker-* | `1`, `2`, `2`, `1`, `8`, `2` | 04, 07 |
 | `MAX_OPEN_WORKFLOWS`, `OUTBOX_MAX_ATTEMPTS` | starter | `10`, `5` | 04 |
 | `LOUDNESS_LUFS`, `TRUE_PEAK_DBTP` | worker-media | `-14`, `-1.5` | 06 |
-| `CAPTION_FONT_PATH`, `COVER_COLOR`, `COVER_OPACITY` | worker-media, worker-render | `assets/fonts/BeVietnamPro-SemiBold.ttf`, `#101010`, `0.92` | 07 |
+| `CAPTION_FONT_PATH` | worker-media, worker-render (the same file on both sides; its sha256 is in the `EditSpec`) | `assets/fonts/BeVietnamPro-SemiBold.ttf` | 07 |
+| `COVER_COLOR`, `COVER_OPACITY` | worker-media only (the layout stage writes them into the `EditSpec`, so they are part of the render's hash) | `#101010`, `0.92` | 07 |
 | `LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | worker-*, starter | — | 04 |
 
 **Ràng buộc GPU:** `STT_CONCURRENCY + TTS_CONCURRENCY ≤` số GPU worker của VoiceStudio.

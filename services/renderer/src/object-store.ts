@@ -84,7 +84,10 @@ export class S3ObjectStore implements ObjectStore {
       await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: key }));
       return true;
     } catch (err) {
-      if (isMissing(err)) return false;
+      // The renderer's policy lets it list only under work/, so AWS S3 (and stores that
+      // follow it) answer 403, not 404, for a key that is not there. A real refusal
+      // fails again on the upload that follows, so 403 here means "not there".
+      if (isMissing(err) || (err as AwsError).$metadata?.httpStatusCode === 403) return false;
       throw err;
     }
   }

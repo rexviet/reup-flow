@@ -11,6 +11,7 @@ import type { RenderVideo, RenderVideoArgs } from "../src/remotion-render";
 import {
   AUDIO_BYTES,
   AWEME,
+  FONT_BYTES,
   FONT_NAME,
   makeSpec,
   SOURCE_BYTES,
@@ -19,7 +20,6 @@ import {
   MemoryStore,
 } from "./support/memory-store";
 
-const FONT_BYTES = Buffer.from("pretend this is a font");
 let tmp: string;
 let fontPath: string;
 
@@ -282,5 +282,199 @@ describe("what a render refuses, for good", () => {
     const { render } = setup(store);
     const err = await refused(() => render(input));
     expect(err.nonRetryable).toBe(true);
+  });
+});
+
+
+describe("what a render does when two ask for the same spec at once", () => {
+  // A render that holds until the test lets it go, so the second request arrives while
+  // the first is running.
+  function gated() {
+    let started!: () => void;
+    const hasStarted = new Promise<void>((resolve) => (started = resolve));
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const renderVideo: RenderVideo = async ({ outputLocation }) => {
+      started();
+      await gate;
+      fs.writeFileSync(outputLocation, "mp4");
+    };
+    return { renderVideo, hasStarted, release };
+  }
+
+  it("renders it once and gives both the same answer", async () => {
+    const store = storeWith();
+    const g = gated();
+    const { render, invocations } = setup(store, g.renderVideo);
+    const first = render(input);
+    await g.hasStarted;
+    const second = render(input);
+    // Give the second request every chance to start a render of its own.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    g.release();
+    const [a, b] = await Promise.all([first, second]);
+    expect(b).toEqual(a);
+    expect(invocations.count(a.spec_sha256)).toBe(1);
+    expect(store.uploads).toEqual([a.render_key]);
+  });
+
+  it("control: two different specs at once do overlap", async () => {
+    const store = storeWith();
+    const other = makeSpec({
+      captions: [{ segment_id: 0, start_ms: 0, end_ms: 3000, text: "Tạm biệt", font_px: 48 }],
+    });
+    store.put(`work/${AWEME}/r2/edit-spec.json`, JSON.stringify(other));
+    let running = 0;
+    let peak = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const { render } = setup(store, async ({ outputLocation }) => {
+      running += 1;
+      peak = Math.max(peak, running);
+      await gate;
+      running -= 1;
+      fs.writeFileSync(outputLocation, "mp4");
+    });
+    const both = Promise.all([
+      render(input),
+      render({ aweme_id: AWEME, spec_key: `work/${AWEME}/r2/edit-spec.json` }),
+    ]);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    release();
+    await both;
+    expect(peak).toBe(2);
+  });
+
+  it("lets the same spec be rendered again once the first render has finished and failed", async () => {
+    const store = storeWith();
+    let attempts = 0;
+    const { render } = setup(store, async ({ outputLocation }) => {
+      attempts += 1;
+      if (attempts === 1) throw new Error("chromium crashed");
+      fs.writeFileSync(outputLocation, "mp4");
+    });
+    await expect(render(input)).rejects.toThrow("chromium crashed");
+    await expect(render(input)).resolves.toMatchObject({ spec_sha256: expect.any(String) });
+  });
+});
+
+describe("what stops a render", () => {
+  it("passes the activity's cancellation to the renderer, which stops and leaves nothing", async () => {
+    const store = storeWith();
+    const controller = new AbortController();
+    let seen: AbortSignal | undefined;
+    let started!: () => void;
+    const hasStarted = new Promise<void>((resolve) => (started = resolve));
+    const invocations = new RenderInvocations();
+    const tmpRoot = path.join(tmp, "work");
+    fs.mkdirSync(tmpRoot);
+    const render = createRenderActivity({
+      store,
+      fontPath,
+      invocations,
+      heartbeat: () => undefined,
+      tmpRoot,
+      cancellation: () => controller.signal,
+      renderVideo: async ({ signal }) => {
+        seen = signal;
+        started();
+        await new Promise<never>((_resolve, reject) =>
+          signal?.addEventListener("abort", () => reject(new Error("cancelled")), { once: true }),
+        );
+      },
+    });
+    const running = render(input);
+    await hasStarted;
+    controller.abort();
+    await expect(running).rejects.toThrow("cancelled");
+    expect(seen?.aborted).toBe(true);
+    expect(fs.readdirSync(tmpRoot)).toEqual([]);
+    expect(store.uploads).toEqual([]);
+  });
+
+  it("gives up for good on a render that outlives its deadline", async () => {
+    const store = storeWith();
+    const render = createRenderActivity({
+      store,
+      fontPath,
+      invocations: new RenderInvocations(),
+      heartbeat: () => undefined,
+      tmpRoot: tmp,
+      deadlineMs: 50,
+      renderVideo: ({ signal }) =>
+        new Promise<never>((_resolve, reject) =>
+          signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true }),
+        ),
+    });
+    try {
+      await render(input);
+      throw new Error("expected the deadline to end the render");
+    } catch (err) {
+      const failure = err as { type?: string; nonRetryable?: boolean };
+      expect([failure.type, failure.nonRetryable]).toEqual(["RenderDeadline", true]);
+    }
+    expect(store.uploads).toEqual([]);
+  });
+
+  it("heartbeats while it downloads, before the renderer has reported anything", async () => {
+    const store = storeWith();
+    const slow = Object.create(store) as MemoryStore;
+    slow.download = async (key, destination) => {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      return store.download(key, destination);
+    };
+    const beats: number[] = [];
+    let beatsWhenRenderStarted = -1;
+    const render = createRenderActivity({
+      store: slow,
+      fontPath,
+      invocations: new RenderInvocations(),
+      heartbeat: (p) => beats.push(p),
+      heartbeatIntervalMs: 20,
+      tmpRoot: tmp,
+      renderVideo: async ({ outputLocation }) => {
+        beatsWhenRenderStarted = beats.length;
+        fs.writeFileSync(outputLocation, "mp4");
+      },
+    });
+    await render(input);
+    expect(beatsWhenRenderStarted).toBeGreaterThanOrEqual(3);
+  });
+
+  it("stops heartbeating when the render is over", async () => {
+    const beats: number[] = [];
+    const render = createRenderActivity({
+      store: storeWith(),
+      fontPath,
+      invocations: new RenderInvocations(),
+      heartbeat: (p) => beats.push(p),
+      heartbeatIntervalMs: 10,
+      tmpRoot: tmp,
+      renderVideo: writes(),
+    });
+    await render(input);
+    const after = beats.length;
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(beats).toHaveLength(after);
+  });
+});
+
+describe("what else a render refuses, for good", () => {
+  it("a spec that is not JSON", async () => {
+    const store = storeWith();
+    store.put(SPEC_KEY, "{not json");
+    const { render } = setup(store);
+    await expect(render(input)).rejects.toMatchObject({
+      type: "InvalidEditSpec",
+      nonRetryable: true,
+    });
+  });
+
+  it("a font with the right name and other bytes", async () => {
+    fs.writeFileSync(fontPath, Buffer.concat([FONT_BYTES, Buffer.from("!")]));
+    const store = storeWith();
+    const { render } = setup(store);
+    await expect(render(input)).rejects.toMatchObject({ type: "FontMismatch", nonRetryable: true });
+    expect(store.downloads).toEqual([]);
   });
 });

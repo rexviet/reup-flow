@@ -557,13 +557,17 @@ services:
     # render finish instead of killing it.
     stop_grace_period: 660s
     # Chromium keeps frames in shared memory; Docker's default /dev/shm is 64 MB, which a
-    # long or wide render exhausts with a crashed tab and no useful message.
-    shm_size: 1gb
-    # Chromium and the compositor are what this worker spends memory on (plan §7).
-    mem_limit: 4g
+    # long or wide render can exhaust with a crashed tab and no useful message.
+    shm_size: 512m
+    # Measured on a 60 s 1080x1920 HEVC render in this image (2 tabs, 512 MB video cache,
+    # see services/renderer/src/remotion-render.ts): peak 4.1 GiB resident, 52 MB of /tmp,
+    # about 40 MB of /dev/shm. tmpfs and shm pages count against the container's memory,
+    # so the limit covers the measured peak PLUS both caps, filled; compose-constraints.spec.ts
+    # keeps it that way. The same render in a 4 GB container was killed by the OOM killer.
+    mem_limit: 6g
     # The source video, the dubbed track and the output are written here, per render.
     tmpfs:
-      - /tmp:size=4g,mode=1777
+      - /tmp:size=1g,mode=1777
     environment:
       <<: [*localization-env, *renderer-s3-env]
       RENDER_CONCURRENCY: ${RENDER_CONCURRENCY:-1}

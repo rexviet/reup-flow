@@ -10,6 +10,7 @@ Needs `pnpm install` for services/renderer and ffmpeg. Set LOC_SKIP_RENDERER=1 t
 on a machine that has neither; a missing prerequisite is otherwise a failure, never a skip.
 """
 
+import hashlib
 import os
 import shutil
 import subprocess
@@ -146,7 +147,7 @@ def render(tmp_path_factory: pytest.TempPathFactory):
         timeout=300,
     )  # fmt: skip
     assert result.returncode == 0, result.stdout[-2000:] + result.stderr[-2000:]
-    return spec, out, meter
+    return spec, out, meter, work
 
 
 def _caption_pixels(video: Path, seconds: float, box: BBox) -> Image.Image:
@@ -195,7 +196,7 @@ def _merge_lines(bands: list[tuple[int, int, int]], lines: int) -> list[tuple[in
 
 
 def test_the_text_is_drawn_as_wide_as_the_layout_measured_it(render) -> None:
-    spec, video, meter = render
+    spec, video, meter, _ = render
     assert len(spec.captions) == len(TEXTS)
     for caption in spec.captions:
         middle = (caption.start_ms + caption.end_ms) / 2000
@@ -212,10 +213,31 @@ def test_the_text_is_drawn_as_wide_as_the_layout_measured_it(render) -> None:
 
 
 def test_the_text_stays_inside_the_box_it_was_fitted_to(render) -> None:
-    spec, video, _ = render
+    spec, video, _, _ = render
     for caption in spec.captions:
         middle = (caption.start_ms + caption.end_ms) / 2000
         image = _caption_pixels(video, middle, spec.caption_box)
         bands = _line_bands(image)
         assert bands, "no text drawn"
         assert all(left > 0 and right < spec.caption_box.w - 1 for _, left, right in bands)
+
+
+def test_the_renderer_draws_with_the_font_the_layout_measured_and_no_other(render) -> None:
+    spec, _, meter, work = render
+    assert spec.font_sha256 == meter.sha256 == hashlib.sha256(Path(FONT).read_bytes()).hexdigest()
+    # The same file name with other bytes is not the same font: the renderer refuses it.
+    other = work / "other" / Path(FONT).name
+    other.parent.mkdir(exist_ok=True)
+    other.write_bytes(Path(FONT).read_bytes() + b"\0")
+    result = subprocess.run(
+        ["pnpm", "-C", str(RENDERER), "run", "render:local", "--",
+         "--spec", str(work / "spec.json"), "--source", str(work / "source.mp4"),
+         "--audio", str(work / "audio.wav"), "--font", str(other),
+         "--out", str(work / "refused.mp4")],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )  # fmt: skip
+    assert result.returncode != 0
+    assert "FontMismatch" in result.stdout + result.stderr
+    assert not (work / "refused.mp4").exists()

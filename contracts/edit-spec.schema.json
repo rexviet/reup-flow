@@ -110,6 +110,7 @@
       "type": "string"
     },
     "audio_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
       "title": "Audio Sha256",
       "type": "string"
     },
@@ -120,6 +121,7 @@
       "items": {
         "$ref": "#/$defs/Caption"
       },
+      "maxItems": 2000,
       "title": "Captions",
       "type": "array"
     },
@@ -135,6 +137,7 @@
     },
     "duration_ms": {
       "exclusiveMinimum": 0,
+      "maximum": 900000,
       "title": "Duration Ms",
       "type": "integer"
     },
@@ -144,13 +147,20 @@
       "title": "Font",
       "type": "string"
     },
+    "font_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Font Sha256",
+      "type": "string"
+    },
     "fps": {
       "exclusiveMinimum": 0,
+      "maximum": 120,
       "title": "Fps",
       "type": "integer"
     },
     "height": {
       "exclusiveMinimum": 0,
+      "maximum": 4096,
       "title": "Height",
       "type": "integer"
     },
@@ -167,6 +177,7 @@
     },
     "width": {
       "exclusiveMinimum": 0,
+      "maximum": 4096,
       "title": "Width",
       "type": "integer"
     }
@@ -183,7 +194,8 @@
     "cover",
     "caption_box",
     "captions",
-    "font"
+    "font",
+    "font_sha256"
   ],
   "title": "EditSpec",
   "type": "object"

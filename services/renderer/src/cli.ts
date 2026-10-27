@@ -7,6 +7,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { startAssetServer } from "./asset-server";
 import { createSpecValidator } from "./edit-spec";
+import { checkFont } from "./font";
 import { bundleComposition, remotionRenderer } from "./remotion-render";
 
 function arg(name: string): string {
@@ -18,6 +19,7 @@ function arg(name: string): string {
 
 async function main(): Promise<void> {
   const spec = createSpecValidator()(JSON.parse(fs.readFileSync(arg("spec"), "utf8")));
+  checkFont(spec, arg("font"));
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "render-cli-"));
   const server = await (async () => {
     fs.copyFileSync(arg("source"), path.join(dir, "source.mp4"));

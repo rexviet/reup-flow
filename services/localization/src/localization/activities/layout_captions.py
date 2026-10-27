@@ -9,12 +9,17 @@ It never writes or changes text, so it must not reach an agent.
 """
 
 import asyncio
+import hashlib
+import math
 import re
+import unicodedata
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
-from PIL import ImageFont
+from fontTools.ttLib import TTFont
+from PIL import ImageFont, features
+from pydantic import ValidationError
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
@@ -33,6 +38,7 @@ from localization.contracts import (
     LocalizedScriptRef,
     SubtitleTrack,
 )
+from localization.contracts.models import MAX_DURATION_MS, MAX_FPS, MAX_FRAME_PX
 from localization.contracts.spec_hash import spec_sha256
 from localization.observability.tracing import tag_session
 from localization.storage.object_store import ObjectStore, work_key
@@ -48,6 +54,18 @@ BOX_PADDING = 0.04
 # Where captions go when the video has no burned-in subtitle: x, y, w, h as
 # fractions of the frame.
 SAFE_ZONE = (0.05, 0.78, 0.90, 0.14)
+
+# Line height as a multiple of the font size. The renderer's composition uses the same
+# number (LINE_HEIGHT in LocalizedVideo.tsx).
+LINE_HEIGHT = 1.25
+# A caption box is at least two lines of the largest size tall, so text that wraps to two
+# lines never overflows a thin cover.
+MIN_BOX_HEIGHT = math.ceil(MAX_LINES * FONT_SIZES[0] * LINE_HEIGHT)
+# A burned-in subtitle is a band near an edge. A detected region taller than this
+# fraction of the frame, or covering more than the area fraction, is a stray detection,
+# not a subtitle; painting it over the picture at 92% opacity would hide the video.
+MAX_COVER_HEIGHT_FRACTION = 0.35
+MAX_COVER_AREA_FRACTION = 0.4
 
 _SPACES = re.compile(r"\s+")
 
@@ -68,6 +86,8 @@ class FontMeter:
         self.path = font_path
         self._fonts: dict[int, ImageFont.FreeTypeFont] = {}
         self._inked: dict[int, ImageFont.FreeTypeFont] = {}
+        self._sha256: str | None = None
+        self._cmap: set[int] | None = None
 
     def font(self, size: int) -> ImageFont.FreeTypeFont:
         """The font at `size` times MEASURE_SCALE."""
@@ -75,6 +95,31 @@ class FontMeter:
         if font is None:
             font = self._fonts[size] = ImageFont.truetype(self.path, size * MEASURE_SCALE)
         return font
+
+    @property
+    def sha256(self) -> str:
+        """The identity of the font: the hash of its bytes."""
+        if self._sha256 is None:
+            self._sha256 = hashlib.sha256(Path(self.path).read_bytes()).hexdigest()
+        return self._sha256
+
+    def missing_chars(self, text: str) -> list[str]:
+        """Characters of `text` the font has no glyph for. The renderer would draw them
+        as empty boxes, and the slim image it runs in has no other font to fall back to."""
+        if self._cmap is None:
+            self._cmap = set(TTFont(self.path, lazy=True).getBestCmap())
+        missing: set[str] = set()
+        for char in unicodedata.normalize("NFC", text):
+            if unicodedata.category(char) in ("Cc", "Cf", "Zs", "Zl", "Zp"):
+                continue
+            if ord(char) in self._cmap:
+                continue
+            # A precomposed letter the font lacks is fine if its parts are there.
+            parts = unicodedata.normalize("NFD", char)
+            if len(parts) > 1 and all(ord(p) in self._cmap for p in parts):
+                continue
+            missing.add(char)
+        return sorted(missing)
 
     def width(self, text: str, size: int) -> float:
         """The advance width of `text` at `size`: what a line takes up."""
@@ -162,6 +207,31 @@ def grow_cover(region: BBox, frame_w: int, frame_h: int) -> BBox:
     return BBox(x=left, y=top, w=max(1, right - left), h=max(1, bottom - top))
 
 
+def check_cover_plausible(region: BBox, frame_w: int, frame_h: int) -> None:
+    """Refuses a detected region too large to be a subtitle. The subtitle detector's
+    output is the only thing that can be wrong here, so the stage to run again is
+    `detect_subtitles`."""
+    height_fraction = region.h / frame_h
+    area_fraction = (region.w * region.h) / (frame_w * frame_h)
+    if height_fraction > MAX_COVER_HEIGHT_FRACTION or area_fraction > MAX_COVER_AREA_FRACTION:
+        raise ApplicationError(
+            f"the detected subtitle region covers {height_fraction:.0%} of the frame's height "
+            f"and {area_fraction:.0%} of its area; that is not a subtitle "
+            "(stage: detect_subtitles)",
+            type="ImplausibleCover",
+            non_retryable=True,
+        )
+
+
+def caption_box_for(cover: BBox, frame_h: int) -> BBox:
+    """The cover, made tall enough for two lines of the largest size."""
+    if cover.h >= MIN_BOX_HEIGHT:
+        return cover
+    top = cover.y - (MIN_BOX_HEIGHT - cover.h) // 2
+    top = max(0, min(top, frame_h - MIN_BOX_HEIGHT))
+    return BBox(x=cover.x, y=top, w=cover.w, h=min(MIN_BOX_HEIGHT, frame_h))
+
+
 def safe_zone(frame_w: int, frame_h: int) -> BBox:
     fx, fy, fw, fh = SAFE_ZONE
     return BBox(
@@ -194,6 +264,43 @@ def caption_spans(
         if end > segment.start_ms:
             spans.append((segment.id, segment.start_ms, end, text))
     return spans
+
+
+def check_glyph_coverage(spans: list[tuple[int, int, int, str]], meter: FontMeter) -> None:
+    """A caption with a character the font lacks would be burned into the video as an
+    empty box. The text is the Localizer's, so this is refused for good and names the
+    segments; the stage to run again is `localize`."""
+    bad = {sid: meter.missing_chars(text) for sid, _, _, text in spans}
+    bad = {sid: chars for sid, chars in bad.items() if chars}
+    if bad:
+        detail = "; ".join(
+            f"segment {sid}: {' '.join(chars)}" for sid, chars in sorted(bad.items())
+        )
+        raise ApplicationError(
+            f"the caption font has no glyph for {detail} (stage: localize)",
+            type="UncoveredGlyphs",
+            non_retryable=True,
+        )
+
+
+def check_renderable(ingest: IngestResult) -> None:
+    """The size, rate and length of the source come from ffprobe on a file somebody else
+    made. Past these limits the renderer would hold its only slot for hours."""
+    problems = []
+    if ingest.width > MAX_FRAME_PX or ingest.height > MAX_FRAME_PX:
+        problems.append(f"{ingest.width}x{ingest.height} is over {MAX_FRAME_PX} px")
+    if ingest.fps > MAX_FPS:
+        problems.append(f"{ingest.fps} fps is over {MAX_FPS}")
+    if ingest.duration_ms > MAX_DURATION_MS:
+        problems.append(f"{ingest.duration_ms} ms is over {MAX_DURATION_MS}")
+    if ingest.duration_ms <= 0:
+        problems.append("the video has no length")
+    if problems:
+        raise ApplicationError(
+            "the video cannot be rendered: " + "; ".join(problems),
+            type="VideoOutOfBounds",
+            non_retryable=True,
+        )
 
 
 def build_captions(
@@ -232,13 +339,19 @@ def lay_out(
 ) -> EditSpec:
     cover = None
     if subtitles.region is not None:
+        check_cover_plausible(subtitles.region, ingest.width, ingest.height)
         cover = Cover(
             region=grow_cover(subtitles.region, ingest.width, ingest.height),
             color=cover_color,
             opacity_pct=round(cover_opacity * 100),
         )
-    box = cover.region if cover else safe_zone(ingest.width, ingest.height)
+    box = (
+        caption_box_for(cover.region, ingest.height)
+        if cover
+        else safe_zone(ingest.width, ingest.height)
+    )
     spans = caption_spans(script, doc, ingest.duration_ms)
+    check_glyph_coverage(spans, meter)
     return EditSpec(
         source_key=source_key,
         audio_key=dub.audio_key,
@@ -252,6 +365,7 @@ def lay_out(
         caption_box=box,
         captions=build_captions(spans, meter, box),
         font=Path(meter.path).name,
+        font_sha256=meter.sha256,
     )
 
 
@@ -288,6 +402,10 @@ class LayoutCaptionsActivity:
         cover_color: str,
         cover_opacity: float,
     ) -> None:
+        # Without raqm PIL lays text out with its basic engine, which positions glyphs
+        # differently from the browser: the measurements would drift from the pixels.
+        if not features.check("raqm"):
+            raise RuntimeError("Pillow was built without raqm; caption measurements need it")
         self._store = store
         self._font_path = font_path
         self._cover_color = cover_color
@@ -320,22 +438,31 @@ class LayoutCaptionsActivity:
             self._store.get_bytes(dub.segments_key, produced_by="dub_script")
         )
         check_one_translation(script, ref, dub, doc)
+        check_renderable(ingest)
         # The renderer's storage key reaches `work/` only, so the source video it draws
-        # is copied there (inside the store, no bytes through this process).
+        # is copied there (inside the store, no bytes through this process). Always
+        # copied: a source downloaded again for the same id must not be rendered stale.
         source_key = work_key(spec.aweme_id, 0, "source.mp4")
-        if not self._store.exists(source_key):
-            self._store.copy(spec.video_key, source_key, produced_by="ingest")
-        edit_spec = lay_out(
-            script=script,
-            doc=doc,
-            subtitles=subtitles,
-            ingest=ingest,
-            dub=dub,
-            source_key=source_key,
-            meter=_meter(self._font_path),
-            cover_color=self._cover_color,
-            cover_opacity=self._cover_opacity,
-        )
+        self._store.copy(spec.video_key, source_key, produced_by="ingest")
+        try:
+            edit_spec = lay_out(
+                script=script,
+                doc=doc,
+                subtitles=subtitles,
+                ingest=ingest,
+                dub=dub,
+                source_key=source_key,
+                meter=_meter(self._font_path),
+                cover_color=self._cover_color,
+                cover_opacity=self._cover_opacity,
+            )
+        except ValidationError as exc:
+            # The same inputs fail the same way (too many captions, say).
+            raise ApplicationError(
+                f"the layout does not fit the edit spec's limits: {exc.error_count()} problem(s)",
+                type="InvalidEditSpec",
+                non_retryable=True,
+            ) from None
         spec_key = work_key(spec.aweme_id, round, "edit-spec.json")
         self._store.put_bytes(
             spec_key, edit_spec.model_dump_json().encode(), content_type="application/json"

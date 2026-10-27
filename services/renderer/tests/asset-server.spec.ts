@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as http from "node:http";
+import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 import { startAssetServer, type AssetServer } from "../src/asset-server";
@@ -140,5 +141,32 @@ describe("the asset server", () => {
     const server = await serve();
     await server.close();
     await expect(get(server.url("clip.wav"))).rejects.toMatchObject({ code: "ECONNREFUSED" });
+  });
+
+  it("closes the file when a client goes away in the middle of it", async () => {
+    fs.writeFileSync(path.join(dir, "big.mp4"), Buffer.alloc(16 * 1024 * 1024, 1));
+    const server = await serve();
+    const token = server.baseUrl.split("/").pop();
+    const openFiles = () => fs.readdirSync("/dev/fd").length;
+    const before = openFiles();
+    await Promise.all(
+      Array.from(
+        { length: 20 },
+        () =>
+          new Promise<void>((resolve) => {
+            const socket = net.connect(portOf(server), "127.0.0.1", () => {
+              socket.write(`GET /${token}/big.mp4 HTTP/1.1\r\nHost: x\r\n\r\n`);
+            });
+            // Hang up as soon as the first bytes arrive, with most of the file unsent.
+            socket.once("data", () => {
+              socket.destroy();
+              resolve();
+            });
+          }),
+      ),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    // Sockets and streams are gone; allow a little slack for the runtime's own handles.
+    expect(openFiles() - before).toBeLessThanOrEqual(2);
   });
 });

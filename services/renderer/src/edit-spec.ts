@@ -44,6 +44,7 @@ export interface EditSpec {
   caption_box: BBox;
   captions: Caption[];
   font: string;
+  font_sha256: string;
 }
 
 // <repo>/services/renderer/{src,dist}/edit-spec.* -> <repo>/contracts

@@ -9,6 +9,7 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import type { AddressInfo } from "node:net";
 import * as path from "node:path";
+import { pipeline } from "node:stream";
 
 export interface AssetServer {
   /** `http://127.0.0.1:<port>/<token>` with no trailing slash. */
@@ -92,7 +93,8 @@ export async function startAssetServer(dir: string): Promise<AssetServer> {
       res.end();
       return;
     }
-    fs.createReadStream(file, { start, end }).pipe(res);
+    // `pipeline`, not `pipe`: a client that goes away mid-body must close the file too.
+    pipeline(fs.createReadStream(file, { start, end }), res, () => undefined);
   });
 
   await new Promise<void>((resolve, reject) => {

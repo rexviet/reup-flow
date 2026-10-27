@@ -31,6 +31,7 @@ def _base(**over: object) -> dict:
         "caption_box": {"x": 54, "y": 1498, "w": 972, "h": 269},
         "captions": [],
         "font": "BeVietnamPro-SemiBold.ttf",
+        "font_sha256": "e" * 64,
     }
     spec.update(over)
     return spec

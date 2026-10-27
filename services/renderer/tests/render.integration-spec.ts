@@ -9,6 +9,7 @@ import * as path from "node:path";
 import { createHash, randomInt } from "node:crypto";
 import { createRenderActivity, renderKey, RenderInvocations } from "../src/activities/render";
 import { loadSettings } from "../src/config";
+import { fontSha256 } from "../src/font";
 import { S3ObjectStore } from "../src/object-store";
 import { bundleComposition, remotionRenderer } from "../src/remotion-render";
 import { frameAt, durationInFrames } from "../src/frames";
@@ -64,6 +65,7 @@ beforeAll(async () => {
       { segment_id: 0, start_ms: 0, end_ms: 3000, text: "Xin chào các bạn", font_px: 48 },
     ],
     font: path.basename(FONT_PATH),
+    font_sha256: fontSha256(FONT_PATH),
   };
   const specFile = path.join(dir, "edit-spec.json");
   fs.writeFileSync(specFile, JSON.stringify(spec));

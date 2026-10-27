@@ -39,13 +39,16 @@ CONFIG=src/config.ts
 WORKER=src/worker.ts
 TRACING=src/tracing.ts
 VIDEO=src/remotion/LocalizedVideo.tsx
+FONT=src/font.ts
+TSSTORE=src/object-store.ts
 L=../localization/src/localization
 LAYOUT=$L/activities/layout_captions.py
 SPECHASH=$L/contracts/spec_hash.py
 MODELS=$L/contracts/models.py
+PYSTORE=$L/storage/object_store.py
 
 mp_init "$RENDER" "$ASSETS" "$SPECTS" "$CONFIG" "$WORKER" "$TRACING" "$VIDEO" \
-  "$LAYOUT" "$SPECHASH" "$MODELS"
+  "$LAYOUT" "$SPECHASH" "$MODELS" "$FONT" "$TSSTORE" "$PYSTORE"
 MP_TIMEOUT_SECONDS=${MP_TIMEOUT_SECONDS:-300}
 
 JEST=(node tests/mutations/jest-protocol.js)
@@ -56,18 +59,20 @@ T_RENDER=tests/render.spec.ts
 T_ASSETS=tests/asset-server.spec.ts
 T_CONTRACT=tests/edit-spec.contract.spec.ts
 T_CONFIG=tests/config.spec.ts
+T_STORE=tests/object-store.spec.ts
 T_CONC=tests/concurrency.integration-spec.ts
 T_TRACE=tests/tracing.integration-spec.ts
 P_LAYOUT=tests/activities/test_layout_captions.py
 P_PARITY=tests/integration/test_font_parity.py
 P_ARCH=tests/architecture/test_single_translation.py
 P_DRIFT=tests/test_edit_spec_schema_drift.py
+P_STORE=tests/test_object_store.py
 
 MP_TEST_CMD=("${JEST[@]}")
-mp_baseline "$T_RENDER $T_ASSETS $T_CONTRACT $T_CONFIG"
+mp_baseline "$T_RENDER $T_ASSETS $T_CONTRACT $T_CONFIG $T_STORE"
 mp_baseline "$T_CONC $T_TRACE"
 MP_TEST_CMD=("${PYTEST[@]}")
-mp_baseline "$P_LAYOUT $P_PARITY $P_ARCH $P_DRIFT"
+mp_baseline "$P_LAYOUT $P_PARITY $P_ARCH $P_DRIFT $P_STORE"
 
 use_jest() { MP_TEST_CMD=("${JEST[@]}"); }
 use_pytest() { MP_TEST_CMD=("${PYTEST[@]}"); }
@@ -94,7 +99,7 @@ apply_mutation "$RENDER" 'if (sha256File(audio) !== spec.audio_sha256) {' 'if (f
 restore
 
 mp_mutation "the font is not checked against the one the spec was laid out with"
-apply_mutation "$RENDER" 'if (path.basename(deps.fontPath) !== spec.font) {' 'if (false) {' \
+apply_mutation "$FONT" 'if (name !== spec.font) {' 'if (false) {' \
   && expect_red "$T_RENDER" "a spec laid out with another font"
 restore
 
@@ -105,7 +110,7 @@ restore
 
 # --- nothing outlives a render ---------------------------------------------------------------------------
 mp_mutation "the render's folder is not removed"
-apply_mutation "$RENDER" '      fs.rmSync(dir, { recursive: true, force: true });' '' \
+apply_mutation "$RENDER" '      if (dir) fs.rmSync(dir, { recursive: true, force: true });' '' \
   && expect_red "$T_RENDER" \
     "removes its folder and stops its server when it succeeds" \
     "removes its folder, stops its server and uploads nothing when the renderer fails"
@@ -283,6 +288,103 @@ apply_mutation "$LAYOUT" '@append' $'\nimport localization.agents.localizer  # n
   && expect_red "$P_ARCH" "test_stage_does_not_reach_an_agent"
 restore
 
+# --- a render is shared, bounded in time and stoppable ---------------------------------------------------
+use_jest
+mp_mutation "two requests for the same spec each start a render"
+apply_mutation "$RENDER" $'    const running = inFlight.get(sha);\n    if (running) return running;\n' '' \
+  && expect_red "$T_RENDER" "renders it once and gives both the same answer"
+restore
+
+mp_mutation "a render has no deadline"
+apply_mutation "$RENDER" 'AbortSignal.timeout(deps.deadlineMs ?? DEFAULT_RENDER_DEADLINE_MS)' 'new AbortController().signal' \
+  && expect_red "$T_RENDER" "gives up for good on a render that outlives its deadline"
+restore
+
+mp_mutation "the renderer is not given the signal that stops it"
+apply_mutation "$RENDER" $'          signal,\n        });' $'        });' \
+  && expect_red "$T_RENDER" "passes the activity" "gives up for good on a render that outlives"
+restore
+
+mp_mutation "nothing heartbeats between the renderer's reports"
+apply_mutation "$RENDER" 'deps.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS' '1e9' \
+  && expect_red "$T_RENDER" "heartbeats while it downloads"
+restore
+
+mp_mutation "the heartbeat timer outlives the render"
+apply_mutation "$RENDER" '      clearInterval(beat);' '' \
+  && expect_red "$T_RENDER" "stops heartbeating when the render is over"
+restore
+
+mp_mutation "a spec that is not JSON is retried"
+apply_mutation "$RENDER" 'refuse("the edit spec is not valid JSON", "InvalidEditSpec");' 'throw new Error("bad json");' \
+  && expect_red "$T_RENDER" "a spec that is not JSON"
+restore
+
+# --- the font is identified by its bytes -----------------------------------------------------------------
+mp_mutation "the renderer does not compare the font's hash"
+apply_mutation "$FONT" 'if (fontSha256(fontPath) !== spec.font_sha256) {' 'if (false) {' \
+  && expect_red "$T_RENDER" "a font with the right name and other bytes"
+restore
+
+# --- a missing object may be told as 403 -----------------------------------------------------------------
+mp_mutation "the renderer treats a 403 on HEAD as a failure"
+apply_mutation "$TSSTORE" 'if (isMissing(err) || (err as AwsError).$metadata?.httpStatusCode === 403) return false;' 'if (isMissing(err)) return false;' \
+  && expect_red "$T_STORE" "says an object is missing when the store answers 403"
+restore
+
+# --- the asset server closes what it opens ---------------------------------------------------------------
+mp_mutation "a client that hangs up mid-file leaves the file open"
+apply_mutation "$ASSETS" 'pipeline(fs.createReadStream(file, { start, end }), res, () => undefined);' 'fs.createReadStream(file, { start, end }).pipe(res);' \
+  && expect_red "$T_ASSETS" "closes the file when a client goes away"
+restore
+
+use_pytest
+mp_mutation "the Python store treats a 403 on HEAD as a failure"
+apply_mutation "$PYSTORE" 'return _is_missing(exc) or code in ("403", "Forbidden", "AccessDenied") or status == 403' 'return _is_missing(exc)' \
+  && expect_red "$P_STORE" "test_a_403_on_head_means_the_object_is_not_there"
+restore
+
+mp_mutation "the layout writes a hash that is not the font's"
+apply_mutation "$LAYOUT" '        font_sha256=meter.sha256,' '        font_sha256="0" * 64,' \
+  && expect_red "$P_LAYOUT" "test_the_spec_names_the_font_by_the_hash_of_its_bytes"
+restore
+
+mp_mutation "the layout does not look for characters the font lacks"
+apply_mutation "$LAYOUT" $'    check_glyph_coverage(spans, meter)\n' '' \
+  && expect_red "$P_LAYOUT" "test_a_character_the_font_lacks_is_refused_for_good_naming_the_segment"
+restore
+
+mp_mutation "the layout does not check the video against the renderer's limits"
+apply_mutation "$LAYOUT" $'        check_renderable(ingest)\n' '' \
+  && expect_red "$P_LAYOUT" "test_a_video_too_large_for_the_renderer_is_refused_for_good"
+restore
+
+mp_mutation "the spec model allows frames of any size"
+apply_mutation "$MODELS" 'MAX_FRAME_PX = 4096' 'MAX_FRAME_PX = 100000' \
+  && expect_red "$P_LAYOUT" "test_the_spec_model_enforces_the_same_limits" \
+  && true
+restore
+
+mp_mutation "a stray detection becomes a cover over most of the frame"
+apply_mutation "$LAYOUT" $'        check_cover_plausible(subtitles.region, ingest.width, ingest.height)\n' '' \
+  && expect_red "$P_LAYOUT" "test_a_detected_region_too_large_to_be_a_subtitle_is_refused"
+restore
+
+mp_mutation "a thin cover leaves a caption box too small for two lines"
+apply_mutation "$LAYOUT" '        caption_box_for(cover.region, ingest.height)' '        cover.region' \
+  && expect_red "$P_LAYOUT" "test_a_thin_cover_still_gets_a_caption_box_of_two_lines" "test_the_cover_is_grown_and_the_captions_sit_in_it"
+restore
+
+mp_mutation "a source downloaded again is not copied again"
+apply_mutation "$LAYOUT" $'        self._store.copy(spec.video_key, source_key, produced_by="ingest")\n' $'        if not self._store.exists(source_key):\n            self._store.copy(spec.video_key, source_key, produced_by="ingest")\n' \
+  && expect_red "$P_LAYOUT" "test_a_source_downloaded_again_is_copied_again"
+restore
+
+mp_mutation "the layout stage starts without raqm"
+apply_mutation "$LAYOUT" 'if not features.check("raqm"):' 'if False:' \
+  && expect_red "$P_LAYOUT" "test_the_layout_stage_refuses_to_start_without_raqm"
+restore
+
 # --- controls: changes that are not invariants ---------------------------------------------------------------
 use_jest
 mp_mutation "control: the server's directory check alone is removed (its file list still holds)"
@@ -299,6 +401,11 @@ use_pytest
 mp_mutation "control: only the first of the two version checks is removed (the second still refuses)"
 apply_mutation "$LAYOUT" 'if dub.script_version != ref.version or dub.script_key != ref.script_key:' 'if False:' \
   && expect_green "$P_LAYOUT" "either version check alone still refuses a track made for another script"
+restore
+
+mp_mutation "control: the fallback that accepts a precomposed letter by its parts is removed (the font has every Vietnamese letter whole)"
+apply_mutation "$LAYOUT" 'if len(parts) > 1 and all(ord(p) in self._cmap for p in parts):' 'if False:' \
+  && expect_green "$P_LAYOUT" "the decomposition fallback is not what covers Vietnamese"
 restore
 
 mp_mutation "control: the caption shadow is removed, which is not text the measurement looks at"

@@ -128,14 +128,14 @@ downloader:04:20:2
 downloader:05:36:4
 downloader:06:14:3
 downloader:07:28:5
-downloader:infra:21:2
+downloader:infra:22:2
 downloader:11:5:0
 downloader:12:1:0
 localization:03:11:2
 localization:04:47:2
 localization:05:57:2
 localization:06:61:3
-renderer:07:37:4
+renderer:07:55:5
 "
 
 # Files any harness in the set is allowed to touch. Checksummed before and after

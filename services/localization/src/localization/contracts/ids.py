@@ -72,7 +72,8 @@ def validate_non_negative(value: int, what: str) -> int:
 
 AwemeId = Annotated[str, AfterValidator(validate_aweme_id)]
 ChannelId = Annotated[str, AfterValidator(validate_channel_id)]
-Sha256 = Annotated[str, AfterValidator(validate_sha256)]
+# The pattern is also what lands in the JSON Schema the renderer validates with.
+Sha256 = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$"), AfterValidator(validate_sha256)]
 StorageKey = Annotated[
     str, Field(min_length=1, max_length=STORAGE_KEY_MAX), AfterValidator(validate_storage_key)
 ]

@@ -42,9 +42,9 @@ Remotion dùng license miễn phí (≤3 người, theo xác nhận của ngư�
 
 **Compose và test**
 - `docker-compose.yml`: thêm `worker-render`, `shm_size`, env allowlist.
-- `services/renderer/test/edit-spec.contract.spec.ts`
-- `services/renderer/test/render.integration-spec.ts`
-- `services/renderer/test/mutations/phase-07.sh` và dòng `EXPECT`.
+- `services/renderer/tests/edit-spec.contract.spec.ts`
+- `services/renderer/tests/render.integration-spec.ts`
+- `services/renderer/tests/mutations/phase-07.sh` và dòng `EXPECT`.
 - `tests/activities/test_layout_captions.py`
 - `tests/integration/test_font_parity.py`
 
@@ -105,7 +105,7 @@ Dừng `worker-render`. Workflow chờ ở bước 7.
 
 ## Tiến độ
 
-**Trạng thái: in-progress.** Code, test tự động, mutation, image Docker và một lần render thật trong container đã xong và xanh. Chưa đóng phase vì chưa chạy với stack compose đầy đủ (`worker-render` chưa được `docker compose up` cùng Temporal và MinIO thật; Python workflow chưa gọi `render`, việc nối là của phase 08) và vì span `render` chưa được kiểm trong một trace do Python khởi tạo (chỉ kiểm bằng client/workflow TS; đường Python sang TS đã chứng minh ở G3 của phase 00, chưa chạy lại).
+**Trạng thái: in-progress.** Code, test tự động (mutation: chờ lần chạy cuối), image Docker và một lần render thật trong container đã xong và xanh. Chưa đóng phase vì chưa chạy với stack compose đầy đủ (`worker-render` chưa được `docker compose up` cùng Temporal và MinIO thật; Python workflow chưa gọi `render`, việc nối là của phase 08) và vì span `render` chưa được kiểm trong một trace do Python khởi tạo (chỉ kiểm bằng client/workflow TS; đường Python sang TS đã chứng minh ở G3 của phase 00, chưa chạy lại).
 
 **Đã làm và đã kiểm**
 - `activities/layout_captions.py` (queue `media`): đo bằng PIL với `CAPTION_FONT_PATH`, tối đa 2 dòng, cỡ 48 xuống 32 (bước 4), vẫn không vừa thì tách cue theo từ, thời gian chia theo độ dài chữ, không hở không chồng. Hộp che là vùng sub cũ nới 6% mỗi cạnh (kẹp trong khung); `region=None` thì không có hộp che và chữ ở vùng an toàn. Cue hiện từ đầu segment tới hết slot hoặc hết thời gian đọc (cái nào dài hơn), không lấn cue sau, không quá cuối video. Từ chối không retry (`ScriptDubMismatch`) nếu track dựng từ phiên bản script khác hoặc một dòng đọc khác với dòng viết. Ghi `work/{id}/r{round}/edit-spec.json`, trả `EditSpecRef` (key, `spec_sha256`, `script_version`, `audio_sha256`).
@@ -117,8 +117,8 @@ Dừng `worker-render`. Workflow chờ ở bước 7.
 - Render thật (`render.integration-spec.ts`, MinIO thật với user `renderer` chỉ trên `work/*`): video HEVC 1080x1920 cắt 3 giây từ một clip Douyin thật trong `data/` (transcode sang HEVC, vì các clip tải về đều là H.264), số frame và độ dài khớp spec trong ±1 frame, có stream AAC, pixel hộp che đúng màu (độ mờ 100 để màu chính xác), ảnh nằm ngoài hộp che, chữ trắng nằm trong, cue chưa tới thì không hiện chữ, render lại cùng spec không tăng `render_invocations` và không upload lại.
 - Overlap: với `RENDER_CONCURRENCY=1`, 3 render do một workflow phát cùng lúc có đỉnh chồng nhau là 1; control (giới hạn 3) thì là 3. Tracing: span `RunActivity:render` nằm trong trace của client; control không gắn interceptor thì không có.
 - Image Docker: base pin digest, Chrome Headless Shell tải trong image và dừng build nếu sha256 sai (cả x64 và arm64), `pnpm install --frozen-lockfile`. Chạy thật trong container (arm64, user `node`): render 3 giây ra mp4 H.264 và AAC.
-- Compose: `worker-render` (`shm_size: 1gb`, `mem_limit`, `/tmp` tmpfs có cỡ, `stop_grace_period` dài hơn shutdown 10 phút của worker, env allowlist, không port). `worker-media` mount `assets/fonts` và nhận `CAPTION_FONT_PATH`, `COVER_COLOR`, `COVER_OPACITY`. `compose-constraints.spec.ts` mở rộng; `downloader:infra` thêm 5 mutation (shm, key của localization lọt vào renderer, RENDER_CONCURRENCY, checksum Chrome, font hai phía khác nhau).
-- Mutation: `renderer:07` có 37 mutation và 4 control (khai trong `EXPECT`); `downloader:infra` 21/2. Lần chạy đầu bắt được 5 vấn đề của chính harness (mẫu tên test phải đứng ngay sau tiền tố của dòng FAILED; mutation bỏ `server.close` làm jest treo; một kiểm tra phiên bản bị kiểm tra khác che nên mutation đơn lẻ không đỏ, đã đổi thành mutation đôi và thêm control); đã sửa, không bỏ.
+- Compose: `worker-render` (`shm_size: 512m`, `mem_limit: 6g`, `/tmp` tmpfs 1g (cỡ đã đo, xem Sau review), `stop_grace_period` dài hơn shutdown 10 phút của worker, env allowlist, không port). `worker-media` mount `assets/fonts` và nhận `CAPTION_FONT_PATH`, `COVER_COLOR`, `COVER_OPACITY`. `compose-constraints.spec.ts` mở rộng; `downloader:infra` thêm 6 mutation (shm, key của localization lọt vào renderer, RENDER_CONCURRENCY, checksum Chrome, font hai phía khác nhau, `/tmp` vượt phần bộ nhớ còn lại).
+- Mutation: **đã đăng ký, chưa chạy lại ở trạng thái cuối** (theo quyết định của người dùng, mutation chạy một lần sau khi xong cả 10 phase). Harness `renderer:07` có 55 mutation và 5 control, `downloader:infra` 22 và 2, đã khai trong `EXPECT`. Trong lúc phát triển, trước quyết định đó, harness `renderer:07` đã chạy xanh ở 37/37 mutation (lần đầu bắt được 5 vấn đề của chính harness: mẫu tên test phải đứng ngay sau tiền tố của dòng FAILED; mutation bỏ `server.close` làm jest treo; một kiểm tra phiên bản bị kiểm tra khác che nên mutation đơn lẻ không đỏ, đã đổi thành mutation đôi và thêm control) và, sau review, 55/55 với 5 control; bản chạy toàn bộ cuối cùng bị dừng giữa chừng, cây nguồn đã kiểm sạch sau đó. Bằng chứng mutation cuối cùng: chờ lần chạy cuối.
 - Không đổi code workflow nên không ghi lại history replay; các history cũ vẫn replay xanh trong `uv run pytest`.
 
 **Khác với phase file**
@@ -133,8 +133,8 @@ Dừng `worker-render`. Workflow chờ ở bước 7.
 **Chưa kiểm được (nói thẳng)**
 1. Chưa `docker compose up worker-render` trong stack đầy đủ; chỉ chạy image đó bằng `docker run` với `cli.js`, chưa chạy worker với Temporal và MinIO thật trong container.
 2. Chưa kiểm cross-language span: Python workflow gọi activity TS và span `render` cùng trace Langfuse (AC7 phụ thuộc, phase 09/10).
-3. `shm_size`: render thử trong container với `/dev/shm` mặc định 64 MB cho clip 3 giây vẫn chạy; cấu hình 1gb là phòng cho video dài hoặc nhiều tab, chưa có số đo.
-4. Mọi font/độ rộng đo trên một font, một clip. Video 60 giây thật chưa render; thời gian và bộ nhớ chưa biết.
+3. `shm_size`: render thử trong container với `/dev/shm` mặc định 64 MB cho clip 3 giây vẫn chạy; 512m là phòng cho video dài hoặc nhiều tab (đo được ~40 MB dùng trên clip 60 s).
+4. Độ rộng chữ đo trên một font; video 60 s thật đã render trong container để đo bộ nhớ (xem Sau review) nhưng chỉ một clip.
 
 **Giới hạn đã biết**
 - Một từ dài hơn hộp chữ không tách được: đặt riêng ở 32 px và tràn hộp.
@@ -144,3 +144,28 @@ Dừng `worker-render`. Workflow chờ ở bước 7.
 - `render.integration-spec` để lại vài object nhỏ dưới `work/` của MinIO (user renderer không có quyền xoá; lifecycle 30 ngày).
 - Counter `render_invocations` nằm trong bộ nhớ tiến trình (và là thuộc tính của span `render`), chưa là metric xuất ra ngoài; phase 10 cần đọc nó bằng span trên Langfuse.
 - Hợp đồng input/output của activity `render` (`{aweme_id, spec_key}` và `{render_key, spec_sha256}`) mới có ở phía TS; phase 08 thêm model Python khi nối.
+
+## Sau review
+
+Sáu mục Medium đầu và M7 đã sửa. Các guard mới có mutation đã đăng ký trong `phase-07.sh` và `phase-infra.sh` (chưa chạy lại ở trạng thái cuối); test thường, lint, typecheck và `test:integration` đã chạy xanh.
+
+**Đã sửa**
+- **Giới hạn đầu vào của renderer.** `EditSpec` có trần: khung 4096 px, 120 fps, 15 phút, 2000 caption (Pydantic và JSON Schema, ajv kiểm lại). `layout_captions` từ chối không retry (`VideoOutOfBounds`, `InvalidEditSpec`) khi file vượt trần. Renderer có deadline 30 phút cho một lần render (`RenderDeadline`, không retry) và dừng được: tín hiệu huỷ của activity và deadline đi tới `renderMedia` qua `cancelSignal`.
+- **Font xác định bằng byte.** `EditSpec.font_sha256`; layout tính, renderer so và từ chối không retry (`FontMismatch`) nếu khác, cả trong activity lẫn `cli.ts`. Test parity đo pixel thêm: font cùng tên khác byte bị từ chối, không có file ra.
+- **Ký tự font không có** (你, emoji, ...): layout kiểm cmap bằng `fontTools` (một chữ có sẵn dạng dựng sẵn hoặc đủ phần tách đều được coi là có). **Quyết định: từ chối không retry (`UncoveredGlyphs`) và nêu id segment và ký tự**, không cờ-và-vẫn-render. Lý do: ô trống đốt vào video là lỗi người xem thấy mà không ai sửa được sau; text là của Localizer nên stage chạy lại là `localize`. Hệ quả cho phase 08: một bản dịch giữ nguyên tên Trung hay emoji sẽ làm run dừng ở bước này; phase 08 phải định tuyến lỗi này về Localizer hoặc `needs_human`, và có thể muốn prompt Localizer cấm ký tự ngoài tiếng Việt.
+- **Dùng chung và huỷ.** Hai yêu cầu cùng spec trong một tiến trình chỉ có một `renderMedia` (single-flight); test chồng nhau có control (hai spec khác nhau thì chồng nhau). Heartbeat định kỳ 5 s suốt tải, render và upload, không chỉ khi Remotion báo.
+- **Bộ nhớ, có đo.** Render 60 s 1080x1920 HEVC trong image (`--memory=4g`): với mặc định của Remotion (số tab theo CPU của máy chủ 10 nhân, cache video theo RAM của máy chủ) container bị OOM-kill sau 20 s. Đặt 2 tab và cache video 512 MB: ở 4 GB vẫn bị OOM-kill (sau ~130 s, bộ nhớ leo tới 3.9 GiB); ở 6 GB chạy xong (exit 0), đỉnh 4.1 GiB resident, 52 MB `/tmp`, khoảng 40 MB `/dev/shm`, 182 s tường cho 60 s video (container 6 GB, exit 0). Compose: `mem_limit: 6g`, `/tmp` tmpfs 1g, `shm_size: 512m`; `compose-constraints.spec.ts` kiểm `mem_limit >= 4200 MB + tmpfs + shm` và có mutation.
+- **Hộp che.** Vùng sub phát hiện cao hơn 35% chiều cao khung hoặc phủ hơn 40% diện tích bị từ chối không retry (`ImplausibleCover`, stage chạy lại là `detect_subtitles`); hộp chữ cao tối thiểu hai dòng 48 px (120 px), mở rộng quanh hộp che khi hộp che mỏng.
+- **403 khi HEAD.** `exists()` của renderer và `exists`/`metadata` của `ObjectStore` Python coi 403 là "không có" (AWS S3 trả 403, không phải 404, khi principal chỉ có `ListBucket` theo tiền tố); 403 khi đọc vẫn là lỗi. Có test với client giả; chưa kiểm trên AWS S3/R2 thật.
+- Plan §6: `COVER_*` chỉ ở worker-media. File list của phase file ghi `tests/`.
+- Lows sửa: asset server đóng file khi client ngắt giữa chừng (`pipeline`, có test đếm fd); JSON hỏng là lỗi không retry; `r0/source.mp4` luôn được sao chép lại (nguồn tải lại không bị render cũ); layout từ chối khởi động khi Pillow thiếu raqm.
+
+**Giới hạn đã biết (Low, ghi nhận)**
+- Deadline và các trần là hằng số trong code, chưa cấu hình được qua env.
+- `CopyObject` chỉ thử với moto (moto không áp IAM); thử với policy localization thật ở phase 08.
+- Không có `.dockerignore` ở gốc repo; apt không ghim version; `curl` và `unzip` còn trong image chạy.
+- Chưa có `spec_version`: thêm field vào `EditSpec` làm mọi hash đổi, và image renderer cũ từ chối spec mới (`InvalidEditSpec`). Thêm trước lần đổi field đầu tiên sau khi chạy thật.
+- Xoay hình (metadata rotate) và VFR chưa thử; codec lạ là lỗi retryable của Remotion.
+- Một segment cùng `start_ms` với segment sau không có caption; một span rất ngắn tách nhiều mảnh cho cue dưới một frame.
+- Single-flight chỉ trong một tiến trình: hai replica `worker-render` vẫn có thể render cùng một spec cùng lúc (tốn CPU, kết quả giống nhau và ghi nguyên vẹn). Replica nhân giới hạn `RENDER_CONCURRENCY` và bộ nhớ lên.
+- Số đo bộ nhớ trên một clip, một máy (Docker VM 8 GB, 10 nhân).

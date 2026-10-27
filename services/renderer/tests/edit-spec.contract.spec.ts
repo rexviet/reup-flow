@@ -68,12 +68,25 @@ describe("a spec the schema must refuse", () => {
     ["a negative position", (s) => (part(s, "caption_box").x = -1)],
     ["a zero-sized frame", (s) => (s.width = 0)],
     ["a fractional frame rate", (s) => (s.fps = 29.97)],
+    ["a frame wider than the limit", (s) => (s.width = 4097)],
+    ["a frame taller than the limit", (s) => (s.height = 4097)],
+    ["a frame rate above the limit", (s) => (s.fps = 121)],
+    ["a video longer than the limit", (s) => (s.duration_ms = 15 * 60 * 1000 + 1)],
+    ["more captions than the limit", (s) => (s.captions = Array(2001).fill(caption(s)))],
+    ["a missing font hash", (s) => delete s.font_sha256],
+    ["a font hash that is not a sha256", (s) => (s.font_sha256 = "abc")],
   ];
 
   it.each(broken)("%s", (_label, mutate) => {
     const spec = good();
     mutate(spec);
     expect(() => validate(spec)).toThrow(/invalid EditSpec/);
+  });
+
+  it("accepts a video exactly at the limits", () => {
+    const spec = good();
+    Object.assign(spec, { width: 4096, height: 4096, fps: 120, duration_ms: 15 * 60 * 1000 });
+    expect(() => validate(spec)).not.toThrow();
   });
 
   it("is refused for good, so the activity is not retried", () => {

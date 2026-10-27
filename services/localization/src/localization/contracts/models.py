@@ -283,20 +283,32 @@ class Caption(Contract):
         return self
 
 
+# What the renderer will agree to draw. The numbers come from ffprobe on a file somebody
+# else made, so each has a ceiling: without one a crafted file holds the single render
+# slot for hours.
+MAX_FRAME_PX = 4096
+MAX_FPS = 120
+MAX_DURATION_MS = 15 * 60 * 1000
+MAX_CAPTIONS = 2000
+
+
 class EditSpec(Contract):
     source_key: Key
     audio_key: Key
     audio_sha256: Sha256
     script_version: NonNegativeInt
-    width: PositiveInt
-    height: PositiveInt
-    fps: PositiveInt
-    duration_ms: PositiveInt
+    width: Annotated[int, Field(gt=0, le=MAX_FRAME_PX)]
+    height: Annotated[int, Field(gt=0, le=MAX_FRAME_PX)]
+    fps: Annotated[int, Field(gt=0, le=MAX_FPS)]
+    duration_ms: Annotated[int, Field(gt=0, le=MAX_DURATION_MS)]
     cover: Cover | None
     # Where captions are centred: the cover when there is one, else a safe zone.
     caption_box: BBox
-    captions: tuple[Caption, ...]
+    captions: Annotated[tuple[Caption, ...], Field(max_length=MAX_CAPTIONS)]
     font: Annotated[str, Field(min_length=1, max_length=256)]
+    # The font's identity is its bytes, not its name: layout measured with one file, and
+    # the renderer refuses to draw with another.
+    font_sha256: Sha256
 
 
 class EditSpecRef(Contract):

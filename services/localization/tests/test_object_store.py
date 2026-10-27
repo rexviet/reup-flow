@@ -3,6 +3,7 @@ from pathlib import Path
 
 import boto3
 import pytest
+from botocore.exceptions import ClientError
 from moto import mock_aws
 from temporalio import activity
 from temporalio.client import Client, WorkflowFailureError
@@ -126,3 +127,37 @@ def test_live_minio_round_trip_with_the_localization_credentials() -> None:
     assert live.get_bytes(key, produced_by="probe") == b"ok"
     with pytest.raises(ArtifactMissingError):
         live.get_bytes(key + ".absent", produced_by="probe")
+
+
+class _HeadRefused:
+    """A client whose HEAD answers 403 for a key that is not there, as AWS S3 does for a
+    principal that may only list under a prefix."""
+
+    def __init__(self, status: int = 403, code: str = "403") -> None:
+        self._error = ClientError(
+            {"Error": {"Code": code}, "ResponseMetadata": {"HTTPStatusCode": status}},
+            "HeadObject",
+        )
+
+    def head_object(self, **_: object) -> dict:
+        raise self._error
+
+
+def test_a_403_on_head_means_the_object_is_not_there() -> None:
+    store = ObjectStore(_HeadRefused(), "b")
+    assert store.exists("work/1/r0/x.json") is False
+    assert store.metadata("work/1/r0/x.json") is None
+
+
+def test_other_errors_on_head_are_not_reported_as_missing() -> None:
+    with pytest.raises(ClientError):
+        ObjectStore(_HeadRefused(500, "InternalError"), "b").exists("work/1/r0/x.json")
+
+
+def test_a_403_on_get_is_not_reported_as_a_missing_artifact() -> None:
+    class Refused:
+        def get_object(self, **_: object) -> dict:
+            raise ClientError({"Error": {"Code": "AccessDenied"}}, "GetObject")
+
+    with pytest.raises(ClientError):
+        ObjectStore(Refused(), "b").get_bytes("work/1/r0/x.json", produced_by="s")
