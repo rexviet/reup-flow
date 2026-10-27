@@ -1,0 +1,21 @@
+services/localization/src/localization/providers/demucs.py
+  s_0b729cf0d034d3::t_c62e35e02a7f62 12-23
+services/localization/tests/providers/test_demucs_runtime.py
+  s_0b729cf0d034d3::t_c62e35e02a7f62 103-130
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "90e39d1993cc98582493e6713e7f5b7b3dfe1f05",
+  "prompts": {},
+  "sessions": {
+    "s_0b729cf0d034d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9aa1a711-c362-45ab-8e48-1a9b19f8df48",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
