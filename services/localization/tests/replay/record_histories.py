@@ -207,6 +207,35 @@ SCENARIOS: dict[str, dict[str, Scenario]] = {
             ),
         ),
     },
+    # Runs recorded with the voice's rate measured beside the ingest. Every set above is
+    # from before it, and is what proves a run already in flight still resumes.
+    "voice-rate-with-ingest": {
+        "plain-run": (PrepFakes(), LocalizerFakes(), DubFakes(), ReviewFakes()),
+        "rate-outlasts-the-preparation": (
+            PrepFakes(),
+            LocalizerFakes(rate_seconds=2.0),
+            DubFakes(),
+            ReviewFakes(),
+        ),
+        "lost-vocals-ingest-rerun": (
+            PrepFakes(lose_vocals_on_ingest_runs={1}, delay_seconds=0.3),
+            LocalizerFakes(rate_seconds=1.0),
+            DubFakes(),
+            ReviewFakes(),
+        ),
+        "voice-rate-fails-for-good": (
+            PrepFakes(ingest_seconds=3.0),
+            LocalizerFakes(
+                rate_error=ApplicationError(
+                    "the voice is not known to the provider",
+                    type="PermanentProviderError",
+                    non_retryable=True,
+                )
+            ),
+            DubFakes(),
+            ReviewFakes(),
+        ),
+    },
 }
 
 

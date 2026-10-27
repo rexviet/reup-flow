@@ -73,6 +73,9 @@ REVIEW_PATCH = "review-publish"
 # Marks a run that asks, before another round, whether a rerun could fix what the review
 # found. A run recorded before that went straight to the rerun.
 UNFIXABLE_PATCH = "stop-unfixable-review"
+# Marks a run that measures the voice's speaking rate while the video is being prepared. A
+# run recorded before measured it after the preparation, just before the Localizer.
+VOICE_RATE_PATCH = "voice-rate-with-ingest"
 
 # Reviews of one run: the first looks at the first render, the second at the render made
 # after the one rerun a failed review sends the run back for.
@@ -211,6 +214,7 @@ DUB_ROUND = 0
 
 # `asyncio.FIRST_EXCEPTION`, spelled out because workflow code does not import asyncio.
 _FIRST_EXCEPTION = "FIRST_EXCEPTION"
+_FIRST_COMPLETED = "FIRST_COMPLETED"
 
 
 def _failed(handle: workflow.ActivityHandle) -> bool:
@@ -247,6 +251,8 @@ class VideoLocalizationWorkflow:
         # What the dubbing stage needs from the Localizer stage, kept so a script
         # that is lost and made again replaces the one the stage works from.
         self._rate: float = 0.0
+        # True when the rate was measured during the preparation (and is in `_rate`).
+        self._rate_measured = False
         # The speech engine the voice reported, and what the Dubber decided about each
         # line it was given: a rerun of the dubbing for some lines keeps the others'.
         self._engine: str | None = None
@@ -329,10 +335,11 @@ class VideoLocalizationWorkflow:
         return prep.model_copy(update={"subtitles": subtitles})
 
     async def _localize_once(self, spec: LocalizationInput, prep: PrepResult) -> ScriptResult:
-        rate = await workflow.execute_activity(
-            "voice_rate", spec.voice, result_type=float, **VOICE_RATE
-        )
-        self._rate = rate
+        if not self._rate_measured:
+            self._rate = await workflow.execute_activity(
+                "voice_rate", spec.voice, result_type=float, **VOICE_RATE
+            )
+        rate = self._rate
         transcript_key = prep.transcript.transcript_key
         subtitle_key = prep.subtitles.subtitle_key
         lines = await run_localizer(
@@ -353,8 +360,38 @@ class VideoLocalizationWorkflow:
             **ASSEMBLE_SCRIPT,
         )
 
+    def _start_rate(self, spec: LocalizationInput) -> workflow.ActivityHandle:
+        return workflow.start_activity("voice_rate", spec.voice, result_type=float, **VOICE_RATE)
+
+    async def _ingest_beside_rate(
+        self, spec: LocalizationInput
+    ) -> tuple[IngestResult, workflow.ActivityHandle]:
+        """Ingest and the voice's rate measured at the same time. Whichever fails first
+        fails the run and stops the other: nothing is paid for a run that cannot finish."""
+        ingesting = workflow.start_activity("ingest", spec, result_type=IngestResult, **INGEST)
+        rating = self._start_rate(spec)
+        try:
+            # The preparation goes on as soon as the ingest is done, the rate still running.
+            while not ingesting.done():
+                running = [h for h in (ingesting, rating) if not h.done()]
+                await workflow.wait(running, return_when=_FIRST_COMPLETED)
+                if _failed(rating):
+                    await rating
+            return await ingesting, rating
+        except BaseException:
+            for handle in (ingesting, rating):
+                if not handle.done():
+                    handle.cancel()
+            raise
+
     async def _prepare(self, spec: LocalizationInput) -> PrepResult:
-        ingest = await self._ingest(spec)
+        # The voice does not depend on the video: its rate is measured while the video is
+        # ingested, and settled with the stages after it.
+        rating: workflow.ActivityHandle | None = None
+        if workflow.patched(VOICE_RATE_PATCH):
+            ingest, rating = await self._ingest_beside_rate(spec)
+        else:
+            ingest = await self._ingest(spec)
         # 2a and 2b are independent; both are started before either is awaited.
         transcribing = workflow.start_activity(
             "transcribe", args=[spec, ingest.vocals_key], result_type=Transcript, **TRANSCRIBE
@@ -362,7 +399,6 @@ class VideoLocalizationWorkflow:
         detecting = workflow.start_activity(
             "detect_subtitles", spec, result_type=SubtitleTrack, **DETECT_SUBTITLES
         )
-        await workflow.wait([transcribing, detecting], return_when=_FIRST_EXCEPTION)
         stages = {
             "transcribe": (
                 transcribing,
@@ -380,11 +416,14 @@ class VideoLocalizationWorkflow:
                 ),
             ),
         }
-        # A stage that already failed is settled first, so a failure is acted on as
-        # soon as it happens instead of after the slower sibling finishes.
-        order = sorted(stages, key=lambda n: not _failed(stages[n][0]))
-        results = {}
+        if rating is not None:
+            stages["rate"] = (rating, lambda: self._start_rate(spec))
         try:
+            await workflow.wait([h for h, _ in stages.values()], return_when=_FIRST_EXCEPTION)
+            # A stage that already failed is settled first, so a failure is acted on as
+            # soon as it happens instead of after the slower sibling finishes.
+            order = sorted(stages, key=lambda n: not _failed(stages[n][0]))
+            results = {}
             for name in order:
                 handle, restart = stages[name]
                 results[name] = await self._settle(handle, restart, spec)
@@ -394,6 +433,9 @@ class VideoLocalizationWorkflow:
                 if not handle.done():
                     handle.cancel()
             raise
+        if rating is not None:
+            self._rate = results["rate"]
+            self._rate_measured = True
         return PrepResult(
             ingest=ingest, transcript=results["transcribe"], subtitles=results["detect"]
         )

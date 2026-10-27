@@ -133,7 +133,9 @@ harness_dir() {
 # the Reviewer): 55 mutations, 2 controls (registered, not yet run). Then nine for the rerun
 # that cannot fix what the review found (time to the end of the video, the slot, a problem
 # that came back, the rerun question's replay marker, the activity and its wiring;
-# registered, not yet run): 64.
+# registered, not yet run): 64. Then nine for the voice's rate measured beside the
+# ingest (overlap, its marker, a failure of either stopping the other, 2a and 2b waiting
+# for it, measured once; registered, not yet run): 73.
 # The phase 0 spike mutations (test/spike-cookie-swap/mutations, and the SKIP
 # LOCKED / compose pair inlined in ci.yml) are deliberately NOT here: they need
 # a built parser image or a compose file edit, and are gated separately in CI.
@@ -152,7 +154,7 @@ localization:03:11:2
 localization:04:62:2
 localization:05:64:2
 localization:06:61:3
-localization:08:64:2
+localization:08:73:2
 localization:09:10:0
 renderer:07:67:5
 "

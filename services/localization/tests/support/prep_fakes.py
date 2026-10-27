@@ -21,6 +21,7 @@ from localization.contracts import (
     Transcript,
 )
 from localization.storage.object_store import ArtifactMissingError, work_key
+from tests.support.rendezvous import Rendezvous
 
 REGION = BBox(x=100, y=900, w=800, h=80)
 
@@ -32,6 +33,14 @@ class PrepFakes:
     region: BBox | None = REGION
     delay_seconds: float = 0.0
     segment_count: int = 2
+    # Ingest only finishes once the other sides of this rendezvous are in flight too.
+    meeting: Rendezvous | None = None
+    # Ingest runs for this long (heartbeating, so a cancel reaches it) before it answers.
+    ingest_seconds: float = 0.0
+    # Ingest fails for good with this error, after the rendezvous.
+    ingest_error: Exception | None = None
+    # (monotonic enter, monotonic exit) of each `ingest` call.
+    ingest_spans: list[tuple[float, float]] = field(default_factory=list)
     store: set[str] = field(default_factory=set)
     calls: Counter = field(default_factory=Counter)
     # (activity, monotonic enter, monotonic exit)
@@ -49,7 +58,16 @@ class PrepFakes:
         @activity.defn(name="ingest")
         async def ingest(spec: LocalizationInput) -> IngestResult:
             fakes.calls["ingest"] += 1
+            entered = time.monotonic()
             await fakes._busy("ingest")
+            if fakes.meeting is not None:
+                await fakes.meeting.meet("ingest")
+            for _ in range(int(fakes.ingest_seconds * 10)):
+                activity.heartbeat()
+                await asyncio.sleep(0.1)
+            fakes.ingest_spans.append((entered, time.monotonic()))
+            if fakes.ingest_error is not None:
+                raise fakes.ingest_error
             vocals = work_key(spec.aweme_id, 0, "vocals.wav")
             if fakes.calls["ingest"] not in fakes.lose_vocals_on_ingest_runs:
                 fakes.store.add(vocals)

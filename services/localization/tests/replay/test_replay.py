@@ -21,6 +21,7 @@ from localization.temporal.client import guarded_data_converter
 from localization.workflows.video_localization import VideoLocalizationWorkflow
 from tests.support.reordered_flow import ReorderedWorkflow
 from tests.support.ungated_dub_flow import UngatedDubWorkflow
+from tests.support.ungated_rate_flow import UngatedRateWorkflow
 from tests.support.ungated_review_flow import UngatedReviewWorkflow
 from tests.support.ungated_route_flow import UngatedRouteWorkflow
 
@@ -222,3 +223,63 @@ async def test_control_the_rerun_question_without_its_marker_breaks_the_older_hi
     nothing."""
     with pytest.raises(NondeterminismError):
         await _replayer(UngatedRouteWorkflow).replay_workflow(_history(path))
+
+
+NEW_RATE = "voice-rate-with-ingest"
+
+
+def _scheduled(path: Path) -> list[str]:
+    """The activities a history scheduled, in order."""
+    return [
+        e["activityTaskScheduledEventAttributes"]["activityType"]["name"]
+        for e in json.loads(path.read_text())["events"]
+        if "activityTaskScheduledEventAttributes" in e
+    ]
+
+
+def test_the_histories_recorded_with_the_rate_beside_the_ingest_have_it() -> None:
+    by = {p.stem: _scheduled(p) for p in _of(NEW_RATE)}
+    assert {
+        "plain-run",
+        "rate-outlasts-the-preparation",
+        "lost-vocals-ingest-rerun",
+        "voice-rate-fails-for-good",
+    } <= by.keys()
+    for path in _of(NEW_RATE):
+        assert "voice-rate-with-ingest" in _patches(path), path.name
+    # The rate is asked for once, right after the ingest is, and not again by the
+    # Localizer stage.
+    for name, scheduled in by.items():
+        assert scheduled.count("voice_rate") == 1, name
+        assert scheduled[:2] == ["ingest", "voice_rate"], name
+    assert by["lost-vocals-ingest-rerun"].count("ingest") == 2
+    failed = _of(NEW_RATE)[-1].read_text()
+    assert _of(NEW_RATE)[-1].stem == "voice-rate-fails-for-good"
+    assert "EVENT_TYPE_ACTIVITY_TASK_CANCEL_REQUESTED" in failed
+    assert "EVENT_TYPE_WORKFLOW_EXECUTION_FAILED" in failed
+
+
+def test_the_histories_recorded_before_the_rate_moved_are_really_without_it() -> None:
+    """The rate was asked for after the preparation in every one of them (or not at all,
+    before the Localizer stage existed)."""
+    for path in HISTORIES:
+        if path.parent.name == NEW_RATE:
+            continue
+        assert "voice-rate-with-ingest" not in _patches(path), path.name
+        scheduled = _scheduled(path)
+        if "voice_rate" in scheduled:
+            assert scheduled.index("voice_rate") > scheduled.index("detect_subtitles"), path.name
+
+
+@pytest.mark.parametrize(
+    "path",
+    [p for p in HISTORIES if p.parent.name != NEW_RATE],
+    ids=lambda p: f"{p.parent.name}/{p.stem}",
+)
+async def test_control_the_rate_beside_the_ingest_without_its_marker_breaks_the_older_histories(
+    path: Path,
+) -> None:
+    """The marker is what lets a run recorded before the rate moved replay: the same move
+    made without it must be rejected, or the real workflow's marker proves nothing."""
+    with pytest.raises(NondeterminismError):
+        await _replayer(UngatedRateWorkflow).replay_workflow(_history(path))

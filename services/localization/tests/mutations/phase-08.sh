@@ -49,6 +49,7 @@ T_LOOP=tests/workflows/test_review_loop.py
 T_ONE=tests/workflows/test_one_translation.py
 T_ROUTE=tests/workflows/test_review_routing.py
 T_UNFIX=tests/workflows/test_unfixable_review.py
+T_RATE=tests/workflows/test_voice_rate_overlap.py
 T_PAYLOAD=tests/workflows/test_review_payloads.py
 T_PUBLISH=tests/activities/test_publish.py
 T_REVIEWER=tests/agents/test_reviewer.py
@@ -65,7 +66,7 @@ mp_init "$WORKFLOW" "$ROUTING" "$PUBLISH" "$REVIEWER" "$REVIEWACT" "$GLYPHS" "$L
 MP_TEST_CMD=(uv run pytest -q -p no:cacheprovider)
 MP_TIMEOUT_SECONDS=${MP_TIMEOUT_SECONDS:-400}
 
-mp_baseline "$T_LOOP $T_ONE $T_ROUTE $T_UNFIX $T_PAYLOAD $T_PUBLISH $T_REVIEWER $T_REVIEWACT $T_GLYPHS $T_LOCALIZER $T_DUBSCRIPT $T_ASSEMBLESCRIPT $T_WIRING $T_REPLAY $T_DUBSTAGE"
+mp_baseline "$T_LOOP $T_ONE $T_ROUTE $T_UNFIX $T_RATE $T_PAYLOAD $T_PUBLISH $T_REVIEWER $T_REVIEWACT $T_GLYPHS $T_LOCALIZER $T_DUBSCRIPT $T_ASSEMBLESCRIPT $T_WIRING $T_REPLAY $T_DUBSTAGE"
 
 # --- which stage a failed review sends the run back to ---------------------------------------------------
 mp_mutation "a failed review of one line runs the Localizer and everything after it again"
@@ -439,6 +440,61 @@ mp_mutation "the activity that measures the time left is not served"
 apply_mutation "$RUN" $'                    dub.segment_room,\n' \
   $'' \
   && expect_red "$T_WIRING" "test_the_review_and_the_publish_are_served_on_the_queues_the_workflow_sends_them_to"
+restore
+
+# --- the voice's rate is measured beside the ingest ----------------------------------------------------
+mp_mutation "the voice's rate is measured after the ingest, not beside it"
+apply_mutation "$WORKFLOW" $'        rating = self._start_rate(spec)\n        try:\n            # The preparation' \
+  $'        await ingesting\n        rating = self._start_rate(spec)\n        try:\n            # The preparation' \
+  && expect_red "$T_RATE" "test_the_voice_rate_and_the_ingest_are_in_flight_at_the_same_time"
+restore
+
+mp_mutation "the rate is never measured beside the ingest"
+apply_mutation "$WORKFLOW" $'        if workflow.patched(VOICE_RATE_PATCH):' \
+  $'        if False:' \
+  && expect_red "$T_RATE $T_REPLAY" "test_the_voice_rate_and_the_ingest_are_in_flight_at_the_same_time" "test_every_recorded_history_still_replays"
+restore
+
+mp_mutation "a run recorded before the rate moved is made to measure it beside the ingest"
+apply_mutation "$WORKFLOW" $'        if workflow.patched(VOICE_RATE_PATCH):' \
+  $'        if True:' \
+  && expect_red "$T_REPLAY" "test_every_recorded_history_still_replays"
+restore
+
+mp_mutation "a rate that cannot be measured does not stop the ingest"
+apply_mutation "$WORKFLOW" $'                if _failed(rating):\n                    await rating\n            return await ingesting, rating' \
+  $'                pass\n            return await ingesting, rating' \
+  && expect_red "$T_RATE" "test_a_voice_that_cannot_be_measured_fails_the_run_and_stops_the_ingest"
+restore
+
+mp_mutation "an ingest that fails does not stop the rate"
+apply_mutation "$WORKFLOW" $'        except BaseException:\n            for handle in (ingesting, rating):\n                if not handle.done():\n                    handle.cancel()\n            raise' \
+  $'        except BaseException:\n            raise' \
+  && expect_red "$T_RATE" "test_an_ingest_that_fails_stops_the_voice_rate_that_is_still_running"
+restore
+
+mp_mutation "the preparation stages wait for the rate"
+apply_mutation "$WORKFLOW" $'                await workflow.wait(running, return_when=_FIRST_COMPLETED)' \
+  $'                await workflow.wait(running, return_when=_FIRST_EXCEPTION)' \
+  && expect_red "$T_RATE" "test_the_preparation_goes_on_while_the_rate_is_still_being_measured"
+restore
+
+mp_mutation "a rate that fails while 2a and 2b run is not noticed until they finish"
+apply_mutation "$WORKFLOW" $'            await workflow.wait([h for h, _ in stages.values()], return_when=_FIRST_EXCEPTION)' \
+  $'            await workflow.wait([transcribing, detecting], return_when=_FIRST_EXCEPTION)' \
+  && expect_red "$T_RATE" "test_a_voice_rate_that_fails_after_the_ingest_stops_the_stages_still_running"
+restore
+
+mp_mutation "the Localizer stage measures the rate again"
+apply_mutation "$WORKFLOW" $'        if not self._rate_measured:' \
+  $'        if True:' \
+  && expect_red "$T_RATE" "test_the_rate_is_measured_once_and_the_localizer_works_from_it"
+restore
+
+mp_mutation "the rate measured beside the ingest is thrown away"
+apply_mutation "$WORKFLOW" $'            self._rate = results["rate"]' \
+  $'            self._rate = 0.5' \
+  && expect_red "$T_RATE" "test_the_rate_is_measured_once_and_the_localizer_works_from_it"
 restore
 
 # --- the worker ------------------------------------------------------------------------------------------

@@ -87,10 +87,11 @@ async def test_preparation_runs_each_stage_once_on_its_own_queue(temporal_client
     assert result.prep.subtitles.region == REGION
     assert result.prep.transcript.segment_count == 2
     assert dict(fakes.calls) == {"ingest": 1, "transcribe": 1, "detect_subtitles": 1}
-    # The preparation stages come first, in order, each on its own queue; what
-    # follows is the Localizer stage (tests/agents).
-    assert (await _scheduled(handle))[:3] == [
+    # The preparation stages come first, in order, each on its own queue (the voice's
+    # rate is measured beside the ingest); what follows is the Localizer stage (tests/agents).
+    assert (await _scheduled(handle))[:4] == [
         ("ingest", "media"),
+        ("voice_rate", "tts"),
         ("transcribe", "stt"),
         ("detect_subtitles", "io"),
     ]

@@ -6,7 +6,9 @@ scripted model is a `FunctionModel` that calls the tools a script names and then
 answers, so the agent, its validator and its durable execution all run for real.
 """
 
+import asyncio
 import re
+import time
 from collections import Counter
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
@@ -39,6 +41,7 @@ from localization.contracts import (
 )
 from localization.contracts.voice import VoiceRef
 from localization.storage.object_store import work_key
+from tests.support.rendezvous import Rendezvous
 
 DEFAULT_SEGMENTS = (
     SegmentView(0, 0, 1500, "大家好，欢迎来到我的频道"),
@@ -186,6 +189,14 @@ class LocalizerFakes:
     assembled: list[tuple[int, int]] = field(default_factory=list)
     # Segments the first translation is flagged for (a contact its source lacks).
     flagged_ids: tuple[int, ...] = ()
+    # `voice_rate` only answers once the other sides of this rendezvous are in flight too.
+    meeting: Rendezvous | None = None
+    # It runs for this long (heartbeating, so a cancel reaches it) before it answers.
+    rate_seconds: float = 0.0
+    # It fails with this error instead of answering, after the rendezvous.
+    rate_error: Exception | None = None
+    # (monotonic enter, monotonic exit) of each `voice_rate` call.
+    rate_spans: list[tuple[float, float]] = field(default_factory=list)
 
     def activities(self) -> list[Callable]:
         fakes = self
@@ -193,6 +204,15 @@ class LocalizerFakes:
         @activity.defn(name="voice_rate")
         async def voice_rate(voice: VoiceRef) -> float:
             fakes.calls["voice_rate"] += 1
+            entered = time.monotonic()
+            if fakes.meeting is not None:
+                await fakes.meeting.meet("rate")
+            for _ in range(int(fakes.rate_seconds * 10)):
+                activity.heartbeat()
+                await asyncio.sleep(0.1)
+            fakes.rate_spans.append((entered, time.monotonic()))
+            if fakes.rate_error is not None:
+                raise fakes.rate_error
             return fakes.rate
 
         @activity.defn(name="assemble_script")

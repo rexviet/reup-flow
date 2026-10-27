@@ -101,15 +101,14 @@ async def test_model_requests_run_on_llm_tools_on_io_and_the_pure_tool_runs_in_t
     assert {q for name, q in acts if name.startswith("agent__")} <= {"llm", "io"}
 
 
-async def test_the_stage_comes_after_preparation_and_the_voice_rate_before_the_agent(
+async def test_the_stage_comes_after_preparation_and_the_voice_rate_is_known_before_the_agent(
     temporal_client: Client,
 ) -> None:
     handle, _ = await run_workflow(temporal_client, PrepFakes(), LocalizerFakes())
     names = [name for name, _ in await scheduled(handle)]
-    assert names[:3] == ["ingest", "transcribe", "detect_subtitles"] or set(names[1:3]) == {
-        "transcribe",
-        "detect_subtitles",
-    }
+    # The voice's rate is asked for beside the ingest, then the two preparation stages.
+    assert names[:2] == ["ingest", "voice_rate"]
+    assert set(names[2:4]) == {"transcribe", "detect_subtitles"}
     assert names.index("voice_rate") < names.index("agent__localizer__model_request")
     assert names.index("agent__localizer__model_request") < names.index("assemble_script")
     # The dubbing stage follows the script: the Localizer's stage ends at assemble_script.
