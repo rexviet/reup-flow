@@ -1,0 +1,63 @@
+services/localization/tests/workflows/test_prep_stage.py
+  s_0b729cf0d034d3::t_bbd7b5972e0ec2 90-92,94
+services/localization/src/localization/workflows/video_localization.py
+  s_0b729cf0d034d3::t_019f419e91536e 76-78,254-255,338-342,363,365-370,372-373,380-386,388-394,419-420,422-426,436-438
+  s_0b729cf0d034d3::t_3cdecd443127f4 364,371
+  s_0b729cf0d034d3::t_99429c21544fc2 217,374-379
+services/localization/tests/replay/record_histories.py
+  s_0b729cf0d034d3::t_b8dcf00e650068 210-238
+services/localization/tests/replay/histories/voice-rate-with-ingest/rate-outlasts-the-preparation.json
+  s_0b729cf0d034d3::t_b8dcf00e650068 1-3233
+services/localization/tests/workflows/test_voice_rate_overlap.py
+  s_0b729cf0d034d3::t_c208ea94605a4a 14,85-90,94,97
+  s_0b729cf0d034d3::t_55ae2382c44d0a 163-164,166
+  s_0b729cf0d034d3::t_a4bd39ab73f1bc 27-34,116,127,147,150
+  s_0b729cf0d034d3::t_bbd7b5972e0ec2 1-13,15-26,35-70,82-84,91-93,98-115,117-126,128-146,148-149,151-162,165,167-176
+  s_0b729cf0d034d3::t_99429c21544fc2 71-81
+  s_0b729cf0d034d3::t_a27aa37db2675b 95-96
+services/localization/tests/replay/histories/voice-rate-with-ingest/plain-run.json
+  s_0b729cf0d034d3::t_b8dcf00e650068 1-3187
+services/localization/tests/support/localizer_fakes.py
+  s_0b729cf0d034d3::t_3c3c05c1d9de64 44
+  s_0b729cf0d034d3::t_819deca86851dd 9,11,192-199,207-215
+services/localization/tests/replay/test_replay.py
+  s_0b729cf0d034d3::t_c969262bfc09c1 231-239,241,250,252-259,269-271
+  s_0b729cf0d034d3::t_7e7e414dc0fade 24,226-230,240,242-249,251,260-268,272-285
+plans/261026-0147-video-localization-workflow/phase-05-localizer-agent.md
+  s_0b729cf0d034d3::t_1b3e54e079d6c9 194-203
+  s_0b729cf0d034d3::t_65b53fe4125b7e 204-205
+services/localization/tests/support/ungated_rate_flow.py
+  s_0b729cf0d034d3::t_b8dcf00e650068 1-21
+services/localization/tests/support/prep_fakes.py
+  s_0b729cf0d034d3::t_bbd7b5972e0ec2 42-43,61,68
+  s_0b729cf0d034d3::t_819deca86851dd 24,36-41,63-67,69-70
+services/localization/tests/replay/histories/voice-rate-with-ingest/lost-vocals-ingest-rerun.json
+  s_0b729cf0d034d3::t_b8dcf00e650068 1-3500
+services/localization/tests/replay/histories/voice-rate-with-ingest/voice-rate-fails-for-good.json
+  s_0b729cf0d034d3::t_b8dcf00e650068 1-517
+scripts/run-mutations.sh
+  s_0b729cf0d034d3::t_f13f62f470a84c 136-138,157
+services/localization/tests/mutations/phase-08.sh
+  s_0b729cf0d034d3::t_f13f62f470a84c 52,69,445-498
+  s_0b729cf0d034d3::t_041d24748f70d5 499
+services/localization/tests/support/rendezvous.py
+  s_0b729cf0d034d3::t_819deca86851dd 1-32
+services/localization/tests/agents/test_localizer_workflow.py
+  s_0b729cf0d034d3::t_f1a3aa03871f6a 104,109-111
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4ae7f3be3daa8623728c748177fe24964aa2360f",
+  "prompts": {},
+  "sessions": {
+    "s_0b729cf0d034d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9aa1a711-c362-45ab-8e48-1a9b19f8df48",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
