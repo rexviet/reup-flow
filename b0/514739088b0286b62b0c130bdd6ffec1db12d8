@@ -1,0 +1,47 @@
+services/localization/tests/agents/test_assemble_script.py
+  s_0b729cf0d034d3::t_5ae883c342bb4b 188-202
+  s_0b729cf0d034d3::t_494e03cb84d5b6 179,185-187
+  s_0b729cf0d034d3::t_cc0fe0e7aacc31 174-178,180-184
+services/localization/tests/text/test_slots.py
+  s_0b729cf0d034d3::t_cc0fe0e7aacc31 1-37
+services/localization/tests/agents/test_localizer_workflow.py
+  s_0b729cf0d034d3::t_cc0fe0e7aacc31 19,31-37,386-387,451-499
+services/localization/tests/mutations/phase-05.sh
+  s_0b729cf0d034d3::t_00759912e46185 464
+  s_0b729cf0d034d3::t_5ae883c342bb4b 48,63,456-463,465-491
+  s_0b729cf0d034d3::t_7ebf010f0d876f 492
+services/localization/tests/agents/test_localizer.py
+  s_0b729cf0d034d3::t_cc0fe0e7aacc31 14-15,28-33,302-345
+services/localization/src/localization/activities/assemble_script.py
+  s_0b729cf0d034d3::t_33f6791cdf9c45 15-19
+  s_0b729cf0d034d3::t_97eedd4d9b091c 62,75
+scripts/run-mutations.sh
+  s_0b729cf0d034d3::t_00759912e46185 102,140
+services/localization/tests/support/localizer_fakes.py
+  s_0b729cf0d034d3::t_cc0fe0e7aacc31 150-173
+  s_0b729cf0d034d3::t_4cc61e1e9f3ae0 149
+services/localization/src/localization/text/slots.py
+  s_0b729cf0d034d3::t_1cb6e1b87cd950 1-30
+plans/261026-0147-video-localization-workflow/phase-05-localizer-agent.md
+  s_0b729cf0d034d3::t_19b23822c21495 182-193
+services/localization/src/localization/activities/localizer_ports.py
+  s_0b729cf0d034d3::t_b7d7c1721b0abf 11,29-34,48-52
+services/localization/src/localization/agents/localizer.py
+  s_0b729cf0d034d3::t_38ad538f799b99 16,21-23,40-46,69-73,118-120,202,280-291,352-364,382
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b0514739088b0286b62b0c130bdd6ffec1db12d8",
+  "prompts": {},
+  "sessions": {
+    "s_0b729cf0d034d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9aa1a711-c362-45ab-8e48-1a9b19f8df48",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
