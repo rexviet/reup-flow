@@ -1,0 +1,48 @@
+services/localization/tests/activities/test_layout_captions.py
+  s_0b729cf0d034d3::t_c77e1a7df76908 147,155,166
+  s_0b729cf0d034d3::t_3e3ce37cc1077d 145,148-154,156-165
+services/localization/tests/mutations/phase-04.sh
+  s_0b729cf0d034d3::t_360f7e4bb300ec 42,64,68,72,397,449-488
+  s_0b729cf0d034d3::t_ae65bc41ebcfa5 489
+services/localization/tests/activities/test_subtitle_pixels.py
+  s_0b729cf0d034d3::t_5b5257a15c19eb 205
+  s_0b729cf0d034d3::t_c77e1a7df76908 1-204,206-231
+services/localization/src/localization/activities/detect_subtitles.py
+  s_0b729cf0d034d3::t_1345e0731b1c3d 15,57-58,77,132,135-137
+  s_0b729cf0d034d3::t_3706a3313a97e5 59-60
+services/renderer/tests/mutations/phase-07.sh
+  s_0b729cf0d034d3::t_a1e08b49aaeeec 215-217,221
+  s_0b729cf0d034d3::t_360f7e4bb300ec 211-212
+  s_0b729cf0d034d3::t_8194cba49678c2 213-214
+scripts/run-mutations.sh
+  s_0b729cf0d034d3::t_a1e08b49aaeeec 98-100,144,148
+services/localization/src/localization/activities/layout_captions.py
+  s_0b729cf0d034d3::t_3706a3313a97e5 54,59-61,214-222
+  s_0b729cf0d034d3::t_c77e1a7df76908 55-58
+services/localization/src/localization/activities/subtitle_pixels.py
+  s_0b729cf0d034d3::t_b64de09a1b617d 29-31,35,96
+  s_0b729cf0d034d3::t_1345e0731b1c3d 1-28,32-34,36-39,44-95,97-99,109-131
+  s_0b729cf0d034d3::t_1463098a263dab 40-43,100-108
+services/localization/tests/workflows/test_prep_stage.py
+  s_0b729cf0d034d3::t_3e3ce37cc1077d 433,445,447,455-457,465,469,472,475,481-486,533,535
+plans/261026-0147-video-localization-workflow/phase-04-starter-and-prep-activities.md
+  s_0b729cf0d034d3::t_2b18996e2fd09d 209-221
+plans/261026-0147-video-localization-workflow/phase-07-captions-and-renderer.md
+  s_0b729cf0d034d3::t_79c887c4060c82 176-179
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2bf7f266e2ab5e5822c0ab47ad171527bd86cefb",
+  "prompts": {},
+  "sessions": {
+    "s_0b729cf0d034d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9aa1a711-c362-45ab-8e48-1a9b19f8df48",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
