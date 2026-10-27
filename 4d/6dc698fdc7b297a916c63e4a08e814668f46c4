@@ -1,0 +1,162 @@
+services/localization/src/localization/contracts/models.py
+  s_0b729cf0d034d3::t_256995480b8584 403-406
+  s_0b729cf0d034d3::t_18a61fa0742073 152-160,260-261,368-402
+services/localization/src/localization/text/glyphs.py
+  s_0b729cf0d034d3::t_a0d6c1271af16d 1-50
+services/localization/tests/support/dub_fakes.py
+  s_0b729cf0d034d3::t_99f19a97ebae99 25,152-157,206-210,213-215,217,226,229-230
+services/localization/tests/replay/histories/phase-08/needs-a-person-after-two-reviews.json
+  s_0b729cf0d034d3::t_18b20875a9fc1c 1-6064
+plans/261026-0147-video-localization-workflow/plan.md
+  s_0b729cf0d034d3::t_8f445e0e6d3685 189
+services/localization/tests/support/localizer_fakes.py
+  s_0b729cf0d034d3::t_99f19a97ebae99 160-163,175-180,183-184,187-188,190-191
+services/localization/tests/replay/histories/phase-08/layout-fails-for-good.json
+  s_0b729cf0d034d3::t_18b20875a9fc1c 1-2919
+services/localization/tests/support/review_fakes.py
+  s_0b729cf0d034d3::t_4c660f0c304006 22,82-85,156,169-172
+  s_0b729cf0d034d3::t_f8686e154dd980 20,86-87,114-122
+  s_0b729cf0d034d3::t_1849867c2d625c 1-19,21,23-81,88-113,123-155,157-168,173-179
+services/localization/tests/workflows/test_review_routing.py
+  s_0b729cf0d034d3::t_15622c28eb9ac9 1-46
+services/localization/tests/agents/test_assemble_script.py
+  s_0b729cf0d034d3::t_71e43deb8cea9c 98-121
+services/localization/tests/support/ungated_review_flow.py
+  s_0b729cf0d034d3::t_18b20875a9fc1c 1-26
+services/localization/src/localization/activities/assemble_script.py
+  s_0b729cf0d034d3::t_0b9ae4ddc9b418 38,79,92-98,100-102,106-107,110
+services/localization/tests/replay/histories/phase-08/dubber-runs-again-for-one-line.json
+  s_0b729cf0d034d3::t_18b20875a9fc1c 1-4806
+services/localization/tests/agents/test_localizer.py
+  s_0b729cf0d034d3::t_71e43deb8cea9c 76-88
+services/localization/tests/workflows/test_dubbing_stage.py
+  s_0b729cf0d034d3::t_8c0b346d05fdd7 76-77,294-299
+services/localization/tests/support/prep_worker.py
+  s_0b729cf0d034d3::t_99f19a97ebae99 15,41,49-50,52,64-65,71,81,96-100
+  s_0b729cf0d034d3::t_b4807630ae30bc 66-70
+services/localization/tests/text/test_glyphs.py
+  s_0b729cf0d034d3::t_8a931e0db9bf99 1-13,15-50
+  s_0b729cf0d034d3::t_71e43deb8cea9c 14
+services/localization/src/localization/agents/reviewer.py
+  s_0b729cf0d034d3::t_5ff7c4565b76e3 1-17,20-61,63-229,231,234-240,248-256
+  s_0b729cf0d034d3::t_73ec3d4bdaef7c 62
+  s_0b729cf0d034d3::t_27b2b3e0cc29a5 18,230,232-233,241-247
+  s_0b729cf0d034d3::t_cc1b7a8f219e69 19
+plans/261026-0147-video-localization-workflow/phase-08-reviewer-and-publish.md
+  s_0b729cf0d034d3::t_f2da46c84604c4 111
+  s_0b729cf0d034d3::t_8f445e0e6d3685 158-159,179-180
+  s_0b729cf0d034d3::t_339d9a49cddece 114
+  s_0b729cf0d034d3::t_ee484ccbeaf213 107,131-132
+  s_0b729cf0d034d3::t_d0ef4642db2367 4,27,31,96-106,108-110,112,115-130,134-157,160-178,181-215
+  s_0b729cf0d034d3::t_cd1c0eb22486ac 113,133
+services/localization/tests/activities/test_review_render.py
+  s_0b729cf0d034d3::t_24d6e0fe276956 1-350
+services/localization/tests/workflows/test_review_payloads.py
+  s_0b729cf0d034d3::t_4c660f0c304006 1-167
+services/localization/tests/replay/histories/phase-08/layout-runs-again.json
+  s_0b729cf0d034d3::t_18b20875a9fc1c 1-3630
+services/localization/src/localization/activities/script_document.py
+  s_0b729cf0d034d3::t_0b9ae4ddc9b418 26-29,39
+  s_0b729cf0d034d3::t_efd11a4a06326e 38
+services/localization/src/localization/activities/dub_script.py
+  s_0b729cf0d034d3::t_596393befabddc 18
+  s_0b729cf0d034d3::t_0b9ae4ddc9b418 31,48-50,65-67,104-109,116-119,128,130-131,154
+services/localization/tests/activities/test_publish.py
+  s_0b729cf0d034d3::t_6b9f40c97d532a 1-252
+services/localization/tests/replay/histories/phase-08/flagged-translation-needs-a-person.json
+  s_0b729cf0d034d3::t_18b20875a9fc1c 1-3191
+services/localization/src/localization/agents/localizer.py
+  s_0b729cf0d034d3::t_a0d6c1271af16d 26,294-295,305-309
+services/localization/src/localization/workflows/review_routing.py
+  s_0b729cf0d034d3::t_8a931e0db9bf99 48-50
+  s_0b729cf0d034d3::t_73ec3d4bdaef7c 10,23,42,53
+  s_0b729cf0d034d3::t_15622c28eb9ac9 44,52,54,56
+  s_0b729cf0d034d3::t_d526be081ed155 1-9,11-16,18-21,25-30,32-41,43,45-47,51,55,57-59
+  s_0b729cf0d034d3::t_59f55eb5e25839 17,22,24,31
+services/localization/tests/replay/histories/phase-08/localizer-runs-again-with-the-notes.json
+  s_0b729cf0d034d3::t_18b20875a9fc1c 1-5508
+services/localization/src/localization/activities/review_render.py
+  s_0b729cf0d034d3::t_e522ae4e403b91 1-114,116-200
+  s_0b729cf0d034d3::t_efd11a4a06326e 115
+services/localization/tests/agents/test_reviewer.py
+  s_0b729cf0d034d3::t_fd536b51a7261d 1-4,6-71,76-108,110-124,128-239,241-244,246-280,292-318,324-331,333-342,344-345,396-401
+  s_0b729cf0d034d3::t_73ec3d4bdaef7c 5,125-127,281-291,319-323,332,343
+  s_0b729cf0d034d3::t_fc9b7040ff3909 72-75,109,240,245
+  s_0b729cf0d034d3::t_27b2b3e0cc29a5 346-364
+  s_0b729cf0d034d3::t_e0eaf6356f5ebd 365-395
+services/localization/tests/support/file_s3.py
+  s_0b729cf0d034d3::t_1849867c2d625c 62-65,71-72
+  s_0b729cf0d034d3::t_b4807630ae30bc 66-70
+services/localization/tests/replay/test_replay.py
+  s_0b729cf0d034d3::t_e886aeca2b0d71 111-115
+  s_0b729cf0d034d3::t_42efb849f66706 24,65-73,98-110,116-120,123,125-130,132,174-184
+  s_0b729cf0d034d3::t_36de34239a11d1 133
+  s_0b729cf0d034d3::t_f3ee0fde5bae60 121-122,124,131
+  s_0b729cf0d034d3::t_4188d43c4b23c3 134-135
+services/localization/src/localization/workflows/video_localization.py
+  s_0b729cf0d034d3::t_c5ce713a5d6f09 233-234,605-607,614,622
+  s_0b729cf0d034d3::t_02265030a0214d 506-508,512-515
+  s_0b729cf0d034d3::t_72bf07ae491277 654-655,694-695
+  s_0b729cf0d034d3::t_1d46a3058537da 312,432-434
+  s_0b729cf0d034d3::t_c53fff9e928293 26-27,29,36-40,47,54-55,62-68,154-197,227-232,247-250,402,408,435,437-438,441-443,447,453
+  s_0b729cf0d034d3::t_dfd290042170eb 495-505,509-511,516-604,608-613,615-621,623-653,656-693,696-720
+services/localization/src/localization/agents/dubber.py
+  s_0b729cf0d034d3::t_a0d6c1271af16d 56-59
+services/localization/tests/mutations/phase-08.sh
+  s_0b729cf0d034d3::t_cd1c0eb22486ac 46,63,208-219
+  s_0b729cf0d034d3::t_79c08fb640a368 1-24,28-45,47-48,50-62,64-66,68-79,86-207,220-378
+  s_0b729cf0d034d3::t_4acb73c534ea84 25-27,49,67,80-85
+scripts/run-mutations.sh
+  s_0b729cf0d034d3::t_79c08fb640a368 122
+  s_0b729cf0d034d3::t_cd1c0eb22486ac 123,142
+services/downloader/test/compose-constraints.spec.ts
+  s_0b729cf0d034d3::t_1c112a6bce3cd6 227
+services/localization/src/localization/workers/run.py
+  s_0b729cf0d034d3::t_9fe6f89ef2ac2a 34-35,136-143,150-154,167,197-198
+services/localization/tests/architecture/import_scanner.py
+  s_0b729cf0d034d3::t_0c42f710c51a71 23-24
+services/localization/tests/activities/test_dub_script.py
+  s_0b729cf0d034d3::t_71e43deb8cea9c 151-201
+services/localization/tests/workers/test_agent_wiring.py
+  s_0b729cf0d034d3::t_2b84a9bbd5a3b9 4-5,229-303
+  s_0b729cf0d034d3::t_842d4d06e6d162 61-75,176-188,194,207,220
+services/localization/src/localization/activities/publish.py
+  s_0b729cf0d034d3::t_efd11a4a06326e 1-129
+services/localization/src/localization/contracts/__init__.py
+  s_0b729cf0d034d3::t_18a61fa0742073 6,23-26,53,67-70
+services/localization/tests/replay/record_histories.py
+  s_0b729cf0d034d3::t_18b20875a9fc1c 18-19,29,37-41,117-180,192-195,204-208,217
+services/localization/tests/replay/histories/phase-08/published-at-the-first-review.json
+  s_0b729cf0d034d3::t_18b20875a9fc1c 1-3191
+services/localization/src/localization/agents/temporal.py
+  s_0b729cf0d034d3::t_a0d6c1271af16d 37-43,229,231-233,235,295,297-299,301,304-305
+  s_0b729cf0d034d3::t_72bf07ae491277 13,215,217-220,230,234,291,293-294,296,300
+  s_0b729cf0d034d3::t_d6ec0333264732 21
+  s_0b729cf0d034d3::t_734f05773fe388 206-214,236-239,302-303,306-307
+docker-compose.yml
+  s_0b729cf0d034d3::t_cb3f978aa8ac3e 491-493,495
+  s_0b729cf0d034d3::t_1c112a6bce3cd6 503-504
+services/localization/tests/workflows/test_review_loop.py
+  s_0b729cf0d034d3::t_bd37fba310e8c9 154,214,331
+  s_0b729cf0d034d3::t_02265030a0214d 456-475
+  s_0b729cf0d034d3::t_4d693aa8ef6716 419-420
+  s_0b729cf0d034d3::t_3913760d70e8ac 1-153,155-213,215-330,332-418,421-455
+services/localization/tests/workflows/test_one_translation.py
+  s_0b729cf0d034d3::t_f8686e154dd980 1-126
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4d6dc698fdc7b297a916c63e4a08e814668f46c4",
+  "prompts": {},
+  "sessions": {
+    "s_0b729cf0d034d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9aa1a711-c362-45ab-8e48-1a9b19f8df48",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
