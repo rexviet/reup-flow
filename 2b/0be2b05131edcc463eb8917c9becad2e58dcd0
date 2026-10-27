@@ -1,0 +1,26 @@
+services/localization/tests/test_dockerfile.py
+  s_0b729cf0d034d3::t_fe19d0dc11e8d6 55-56,59-60,63,66
+  s_0b729cf0d034d3::t_931906e661f351 47-54,57-58,61-62,64-65
+services/localization/tests/workers/test_agent_wiring.py
+  s_0b729cf0d034d3::t_931906e661f351 212-232
+docker-compose.yml
+  s_0b729cf0d034d3::t_ea719a389362e6 521-526
+services/localization/src/localization/workers/run.py
+  s_0b729cf0d034d3::t_931906e661f351 34,218-229,247-250
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2b0be2b05131edcc463eb8917c9becad2e58dcd0",
+  "prompts": {},
+  "sessions": {
+    "s_0b729cf0d034d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9aa1a711-c362-45ab-8e48-1a9b19f8df48",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
