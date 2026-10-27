@@ -24,6 +24,7 @@ from tests.support.ungated_dub_flow import UngatedDubWorkflow
 from tests.support.ungated_rate_flow import UngatedRateWorkflow
 from tests.support.ungated_review_flow import UngatedReviewWorkflow
 from tests.support.ungated_route_flow import UngatedRouteWorkflow
+from tests.support.ungated_single_flow import UngatedSingleWorkflow
 
 HISTORIES = sorted((Path(__file__).parent / "histories").glob("*/*.json"))
 
@@ -226,6 +227,7 @@ async def test_control_the_rerun_question_without_its_marker_breaks_the_older_hi
 
 
 NEW_RATE = "voice-rate-with-ingest"
+ONE_REQUEST = "single-request"
 
 
 def _scheduled(path: Path) -> list[str]:
@@ -263,7 +265,7 @@ def test_the_histories_recorded_before_the_rate_moved_are_really_without_it() ->
     """The rate was asked for after the preparation in every one of them (or not at all,
     before the Localizer stage existed)."""
     for path in HISTORIES:
-        if path.parent.name == NEW_RATE:
+        if path.parent.name in (NEW_RATE, ONE_REQUEST):
             continue
         assert "voice-rate-with-ingest" not in _patches(path), path.name
         scheduled = _scheduled(path)
@@ -273,7 +275,7 @@ def test_the_histories_recorded_before_the_rate_moved_are_really_without_it() ->
 
 @pytest.mark.parametrize(
     "path",
-    [p for p in HISTORIES if p.parent.name != NEW_RATE],
+    [p for p in HISTORIES if p.parent.name not in (NEW_RATE, ONE_REQUEST)],
     ids=lambda p: f"{p.parent.name}/{p.stem}",
 )
 async def test_control_the_rate_beside_the_ingest_without_its_marker_breaks_the_older_histories(
@@ -283,3 +285,61 @@ async def test_control_the_rate_beside_the_ingest_without_its_marker_breaks_the_
     made without it must be rejected, or the real workflow's marker proves nothing."""
     with pytest.raises(NondeterminismError):
         await _replayer(UngatedRateWorkflow).replay_workflow(_history(path))
+
+
+def test_the_histories_recorded_with_the_one_request_agents_have_them() -> None:
+    by = {p.stem: p for p in _of(ONE_REQUEST)}
+    assert {
+        "one-request-translation",
+        "translation-repaired-once",
+        "dubber-in-one-request",
+        "tool-loop-by-setting",
+    } == by.keys()
+    for path in by.values():
+        assert "localizer-single-request" in _patches(path), path.name
+        assert "localizer_context" in _scheduled(path), path.name
+    single = _scheduled(by["one-request-translation"])
+    assert single.count("agent__localizer_single__model_request") == 1
+    assert "agent__localizer_repair__model_request" not in single
+    assert "agent__localizer__model_request" not in single
+    repaired = _scheduled(by["translation-repaired-once"])
+    assert repaired.count("agent__localizer_single__model_request") == 1
+    assert repaired.count("agent__localizer_repair__model_request") == 1
+    dubbed = by["dubber-in-one-request"]
+    assert "dubber-single-request" in _patches(dubbed)
+    assert _scheduled(dubbed).count("agent__dubber_single__model_request") == 1
+    # The setting that keeps the loop is recorded too: the marker is there, the context
+    # activity answered "no", and the loop's own requests follow.
+    loop = _scheduled(by["tool-loop-by-setting"])
+    assert "agent__localizer__model_request" in loop and "agent__dubber__model_request" in loop
+    assert not any("single" in name or "repair" in name for name in loop)
+
+
+def test_the_histories_recorded_before_the_one_request_agents_are_really_without_them() -> None:
+    for path in HISTORIES:
+        if path.parent.name == ONE_REQUEST:
+            continue
+        assert "localizer-single-request" not in _patches(path), path.name
+        assert "dubber-single-request" not in _patches(path), path.name
+        assert "localizer_context" not in _scheduled(path), path.name
+        assert "dubber_context" not in _scheduled(path), path.name
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        p
+        for p in HISTORIES
+        # A run that ends before the Localizer stage never reaches the context.
+        if p.parent.name not in ("phase-04", ONE_REQUEST) and p.stem != "voice-rate-fails-for-good"
+    ],
+    ids=lambda p: f"{p.parent.name}/{p.stem}",
+)
+async def test_control_the_localizer_context_without_its_marker_breaks_the_older_histories(
+    path: Path,
+) -> None:
+    """The marker is what lets a run recorded before the one-request mode replay the tool
+    loop: the same context read without it must be rejected, or the real workflow's marker
+    proves nothing. (Histories from before the Localizer stage end at its own marker.)"""
+    with pytest.raises(NondeterminismError):
+        await _replayer(UngatedSingleWorkflow).replay_workflow(_history(path))

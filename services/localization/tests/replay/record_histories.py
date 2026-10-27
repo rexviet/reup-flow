@@ -23,7 +23,13 @@ from localization.contracts import LocalizationResult
 from localization.temporal.client import connect
 from tests.support.dub_fakes import DubFakes, ScriptedDubber
 from tests.support.inputs import make_input
-from tests.support.localizer_fakes import LocalizerFakes, ScriptedModel, translate_all
+from tests.support.localizer_fakes import (
+    LocalizerFakes,
+    OneRequestModel,
+    ScriptedModel,
+    segment_ids_in,
+    translate_all,
+)
 from tests.support.prep_fakes import PrepFakes
 from tests.support.prep_worker import prep_workers
 from tests.support.review_fakes import ReviewFakes, issue, verdict
@@ -236,6 +242,52 @@ SCENARIOS: dict[str, dict[str, Scenario]] = {
             ReviewFakes(),
         ),
     },
+}
+
+
+# Answers for the agents that answer in one request: lines that fit, lines of which one is
+# over its slot, and the rewrite that fixes it.
+SHORT = "xin chào các bạn"
+LONG = "một hai ba bốn năm sáu bảy tám chín mười một hai"
+
+
+def _fits(prompt: str) -> list[dict]:
+    return [{"id": i, "text_vi": SHORT} for i in segment_ids_in(prompt)]
+
+
+def _one_long(prompt: str) -> list[dict]:
+    return [{"id": i, "text_vi": LONG if i == 1 else SHORT} for i in segment_ids_in(prompt)]
+
+
+def _shorter_dub(prompt: str) -> list[dict]:
+    return [{"id": i, "text_vi": "câu ngắn"} for i in (0, 1)]
+
+
+SCENARIOS["single-request"] = {
+    "one-request-translation": (
+        PrepFakes(),
+        LocalizerFakes(mode="single", model=OneRequestModel(answers=(_fits,))),
+        DubFakes(),
+        ReviewFakes(),
+    ),
+    "translation-repaired-once": (
+        PrepFakes(),
+        LocalizerFakes(mode="single", model=OneRequestModel(answers=(_one_long, _fits))),
+        DubFakes(),
+        ReviewFakes(),
+    ),
+    "dubber-in-one-request": (
+        PrepFakes(),
+        LocalizerFakes(mode="single", model=OneRequestModel(answers=(_fits,))),
+        DubFakes(unfit_ids=(0, 1), mode="single", dubber=OneRequestModel(answers=(_shorter_dub,))),
+        ReviewFakes(),
+    ),
+    "tool-loop-by-setting": (
+        PrepFakes(),
+        LocalizerFakes(mode="tools"),
+        DubFakes(unfit_ids=(0, 1), mode="tools", dubber=ScriptedDubber(rewrites_per_segment=2)),
+        ReviewFakes(),
+    ),
 }
 
 
