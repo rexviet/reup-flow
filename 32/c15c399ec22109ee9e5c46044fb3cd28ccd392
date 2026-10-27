@@ -1,0 +1,37 @@
+services/localization/src/localization/activities/review_render.py
+  s_0b729cf0d034d3::t_8accb99dd50647 45,117
+services/localization/src/localization/providers/errors.py
+  s_0b729cf0d034d3::t_8accb99dd50647 25-32
+scripts/run-mutations.sh
+  s_0b729cf0d034d3::t_8135785feeb20c 97-98,142
+services/localization/src/localization/providers/vision_ocr.py
+  s_0b729cf0d034d3::t_8accb99dd50647 11,90-91,93-97,103-105
+services/localization/tests/activities/test_review_render.py
+  s_0b729cf0d034d3::t_497b171e8dc84d 316,318,325-333
+  s_0b729cf0d034d3::t_926598204660c3 334-335
+services/localization/tests/providers/test_ocr_demucs_llm.py
+  s_0b729cf0d034d3::t_497b171e8dc84d 12-16,84,90-91,94,99-107,110,113,115-125,127,154,163
+services/localization/tests/workflows/test_prep_stage.py
+  s_0b729cf0d034d3::t_497b171e8dc84d 39,498-504,506-507,522-525,761-832
+services/localization/tests/mutations/phase-04.sh
+  s_0b729cf0d034d3::t_8135785feeb20c 42,63,66,70,436-457
+  s_0b729cf0d034d3::t_3fda5164debd13 458
+services/localization/src/localization/activities/detect_subtitles.py
+  s_0b729cf0d034d3::t_8accb99dd50647 25,40-44,142-148,153,188-190,196-200
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "32c15c399ec22109ee9e5c46044fb3cd28ccd392",
+  "prompts": {},
+  "sessions": {
+    "s_0b729cf0d034d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9aa1a711-c362-45ab-8e48-1a9b19f8df48",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
