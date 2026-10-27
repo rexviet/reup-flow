@@ -117,6 +117,8 @@ harness_dir() {
 # server's token / loopback / path guard, the schema and the hash agree with Python, one
 # render at a time, the trace interceptor, the layout's cover / line breaking / cue timing /
 # one translation / what the spec carries, the font measured is the font drawn): +37, +4.
+# A shared render belongs to all its callers (the last one to leave stops it), the deadline
+# grows with the video, the frame is bounded by area: +10, +0 (registered, not yet run).
 # The phase 0 spike mutations (test/spike-cookie-swap/mutations, and the SKIP
 # LOCKED / compose pair inlined in ci.yml) are deliberately NOT here: they need
 # a built parser image or a compose file edit, and are gated separately in CI.
@@ -135,7 +137,7 @@ localization:03:11:2
 localization:04:47:2
 localization:05:57:2
 localization:06:61:3
-renderer:07:55:5
+renderer:07:65:5
 "
 
 # Files any harness in the set is allowed to touch. Checksummed before and after

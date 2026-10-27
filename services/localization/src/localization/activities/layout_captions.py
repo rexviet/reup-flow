@@ -38,7 +38,12 @@ from localization.contracts import (
     LocalizedScriptRef,
     SubtitleTrack,
 )
-from localization.contracts.models import MAX_DURATION_MS, MAX_FPS, MAX_FRAME_PX
+from localization.contracts.models import (
+    MAX_DURATION_MS,
+    MAX_FPS,
+    MAX_FRAME_AREA,
+    MAX_FRAME_PX,
+)
 from localization.contracts.spec_hash import spec_sha256
 from localization.observability.tracing import tag_session
 from localization.storage.object_store import ObjectStore, work_key
@@ -289,6 +294,8 @@ def check_renderable(ingest: IngestResult) -> None:
     problems = []
     if ingest.width > MAX_FRAME_PX or ingest.height > MAX_FRAME_PX:
         problems.append(f"{ingest.width}x{ingest.height} is over {MAX_FRAME_PX} px")
+    if ingest.width * ingest.height > MAX_FRAME_AREA:
+        problems.append(f"{ingest.width}x{ingest.height} is over {MAX_FRAME_AREA} pixels")
     if ingest.fps > MAX_FPS:
         problems.append(f"{ingest.fps} fps is over {MAX_FPS}")
     if ingest.duration_ms > MAX_DURATION_MS:

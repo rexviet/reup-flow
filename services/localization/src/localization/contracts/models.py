@@ -287,6 +287,9 @@ class Caption(Contract):
 # else made, so each has a ceiling: without one a crafted file holds the single render
 # slot for hours.
 MAX_FRAME_PX = 4096
+# The render's memory and scratch budget was measured on a 1080x1920 clip and sized for
+# frames up to this many pixels: a long side alone does not bound it.
+MAX_FRAME_AREA = 1920 * 1088
 MAX_FPS = 120
 MAX_DURATION_MS = 15 * 60 * 1000
 MAX_CAPTIONS = 2000
@@ -309,6 +312,12 @@ class EditSpec(Contract):
     # The font's identity is its bytes, not its name: layout measured with one file, and
     # the renderer refuses to draw with another.
     font_sha256: Sha256
+
+    @model_validator(mode="after")
+    def _frame_fits_the_render_budget(self) -> "EditSpec":
+        if self.width * self.height > MAX_FRAME_AREA:
+            raise ValueError(f"{self.width}x{self.height} is over {MAX_FRAME_AREA} pixels")
+        return self
 
 
 class EditSpecRef(Contract):

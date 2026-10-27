@@ -53,6 +53,11 @@ export const EDIT_SPEC_SCHEMA_PATH = path.resolve(
   "../../../contracts/edit-spec.schema.json",
 );
 
+// The render's memory and scratch budget was sized for frames of up to this many pixels
+// (localization.contracts.models.MAX_FRAME_AREA). A schema cannot say "width times
+// height", so it is checked here.
+export const MAX_FRAME_AREA = 1920 * 1088;
+
 export type SpecValidator = (value: unknown) => EditSpec;
 
 export function createSpecValidator(schemaPath: string = EDIT_SPEC_SCHEMA_PATH): SpecValidator {
@@ -66,7 +71,14 @@ export function createSpecValidator(schemaPath: string = EDIT_SPEC_SCHEMA_PATH):
       // The same bytes fail the same way: retrying cannot help.
       throw ApplicationFailure.nonRetryable(`invalid EditSpec: ${why}`, "InvalidEditSpec");
     }
-    return value as EditSpec;
+    const spec = value as EditSpec;
+    if (spec.width * spec.height > MAX_FRAME_AREA) {
+      throw ApplicationFailure.nonRetryable(
+        `invalid EditSpec: ${spec.width}x${spec.height} is over ${MAX_FRAME_AREA} pixels`,
+        "InvalidEditSpec",
+      );
+    }
+    return spec;
   };
 }
 

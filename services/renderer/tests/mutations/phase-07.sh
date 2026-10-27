@@ -291,13 +291,43 @@ restore
 # --- a render is shared, bounded in time and stoppable ---------------------------------------------------
 use_jest
 mp_mutation "two requests for the same spec each start a render"
-apply_mutation "$RENDER" $'    const running = inFlight.get(sha);\n    if (running) return running;\n' '' \
+apply_mutation "$RENDER" '    let shared = inFlight.get(sha);' '    let shared: SharedRender | undefined;' \
   && expect_red "$T_RENDER" "renders it once and gives both the same answer"
 restore
 
 mp_mutation "a render has no deadline"
-apply_mutation "$RENDER" 'AbortSignal.timeout(deps.deadlineMs ?? DEFAULT_RENDER_DEADLINE_MS)' 'new AbortController().signal' \
+apply_mutation "$RENDER" $'    const timeout = AbortSignal.timeout(\n      deps.deadlineMs ?? renderDeadlineMs(spec.duration_ms),\n    );' '    const timeout = new AbortController().signal;' \
   && expect_red "$T_RENDER" "gives up for good on a render that outlives its deadline"
+restore
+
+mp_mutation "the first caller's cancellation stops a render that others still wait for"
+apply_mutation "$RENDER" '      if (joined.callers === 0) {' '      if (true) {' \
+  && expect_red "$T_RENDER" "keeps rendering for the one that stays" "keeps rendering for the first when only the one that joined goes"
+restore
+
+mp_mutation "a caller that is cancelled keeps waiting for the render"
+apply_mutation "$RENDER" 'return await untilCancelled(joined.promise, own);' 'return await joined.promise;' \
+  && expect_red "$T_RENDER" "a caller that is cancelled stops waiting even though the render goes on"
+restore
+
+mp_mutation "the render goes on after its last caller has gone"
+apply_mutation "$RENDER" $'        joined.stop.abort(new Error("every caller of this render has gone"));\n' '' \
+  && expect_red "$T_RENDER" "stops the render, and leaves nothing, when the last one has gone"
+restore
+
+mp_mutation "a caller joins a render that is being stopped"
+apply_mutation "$RENDER" $'        if (inFlight.get(sha) === joined) inFlight.delete(sha);\n        joined.stop.abort' $'        joined.stop.abort' \
+  && expect_red "$T_RENDER" "a caller that comes while the last one is stopping the render starts its own"
+restore
+
+mp_mutation "a deadline that falls while downloading is retried"
+apply_mutation "$RENDER" 'if (timeout.aborted && !shared.stop.signal.aborted) {' 'if (false) {' \
+  && expect_red "$T_RENDER" "ends a render with the deadline, for good, even when the time ran out while downloading" "gives up for good on a render that outlives its deadline"
+restore
+
+mp_mutation "the deadline does not grow with the video"
+apply_mutation "$RENDER" 'RENDER_DEADLINE_PER_VIDEO_MS = 6;' 'RENDER_DEADLINE_PER_VIDEO_MS = 0;' \
+  && expect_red "$T_RENDER" "grows with the length of the video" "gives the longest video the spec allows more than"
 restore
 
 mp_mutation "the renderer is not given the signal that stops it"
@@ -414,3 +444,26 @@ apply_mutation "$VIDEO" '      textShadow: "0 2px 6px rgba(0, 0, 0, 0.75)",' '' 
 restore
 
 mp_finish
+
+# --- the frame is bounded by area, not only by side ------------------------------------------------------
+mp_mutation "the spec model checks each side but not the pixels together"
+apply_mutation "$MODELS" '        if self.width * self.height > MAX_FRAME_AREA:' '        if False:' \
+  && expect_red "$P_LAYOUT" "test_the_spec_model_enforces_the_same_limits"
+restore
+
+mp_mutation "the layout accepts a frame with too many pixels"
+apply_mutation "$LAYOUT" '    if ingest.width * ingest.height > MAX_FRAME_AREA:' '    if False:' \
+  && expect_red "$P_LAYOUT" "test_a_video_too_large_for_the_renderer_is_refused_for_good"
+restore
+
+use_jest
+mp_mutation "the renderer's schema check accepts a frame with too many pixels"
+apply_mutation "$SPECTS" '    if (spec.width * spec.height > MAX_FRAME_AREA) {' '    if (false) {' \
+  && expect_red "$T_CONTRACT" "each side within its limit but too many pixels together"
+restore
+
+use_pytest
+mp_mutation "the renderer states another area limit than the model"
+apply_mutation "$SPECTS" 'export const MAX_FRAME_AREA = 1920 * 1088;' 'export const MAX_FRAME_AREA = 1920 * 1080;' \
+  && expect_red "$P_DRIFT" "test_the_area_limit_the_renderer_checks_is_the_one_the_model_has"
+restore

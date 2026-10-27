@@ -5,7 +5,14 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
-import { createRenderActivity, renderKey, RenderInvocations } from "../src/activities/render";
+import {
+  createRenderActivity,
+  RENDER_DEADLINE_BASE_MS,
+  RENDER_DEADLINE_PER_VIDEO_MS,
+  renderDeadlineMs,
+  renderKey,
+  RenderInvocations,
+} from "../src/activities/render";
 import { specSha256 } from "../src/edit-spec";
 import type { RenderVideo, RenderVideoArgs } from "../src/remotion-render";
 import {
@@ -109,7 +116,15 @@ describe("what a render is keyed by", () => {
     const { render, invocations } = setup(store);
     const first = await render(input);
     const edited = makeSpec({
-      captions: [{ segment_id: 0, start_ms: 0, end_ms: 3000, text: "Tạm biệt", font_px: 48 }],
+      captions: [
+        {
+          segment_id: 0,
+          start_ms: 0,
+          end_ms: 3000,
+          text: "Tạm biệt",
+          font_px: 48,
+        },
+      ],
     });
     store.put(SPEC_KEY, JSON.stringify(edited));
     const second = await render(input);
@@ -125,7 +140,10 @@ describe("what a render is keyed by", () => {
     const { render } = setup(store);
     const first = await render(input);
     const spec = makeSpec();
-    store.put(SPEC_KEY, JSON.stringify({ ...spec, cover: { ...spec.cover!, color: "#ffffff" } }));
+    store.put(
+      SPEC_KEY,
+      JSON.stringify({ ...spec, cover: { ...spec.cover!, color: "#ffffff" } }),
+    );
     expect((await render(input)).render_key).not.toBe(first.render_key);
   });
 });
@@ -190,7 +208,9 @@ describe("what a render leaves behind", () => {
     });
     await render(input);
     expect(fs.readdirSync(tmpRoot)).toEqual([]);
-    await expect(fetchUrl(base)).rejects.toMatchObject({ code: "ECONNREFUSED" });
+    await expect(fetchUrl(base)).rejects.toMatchObject({
+      code: "ECONNREFUSED",
+    });
   });
 
   it("removes its folder, stops its server and uploads nothing when the renderer fails", async () => {
@@ -202,7 +222,9 @@ describe("what a render leaves behind", () => {
     });
     await expect(render(input)).rejects.toThrow("chromium crashed");
     expect(fs.readdirSync(tmpRoot)).toEqual([]);
-    await expect(fetchUrl(base)).rejects.toMatchObject({ code: "ECONNREFUSED" });
+    await expect(fetchUrl(base)).rejects.toMatchObject({
+      code: "ECONNREFUSED",
+    });
     expect(store.uploads).toEqual([]);
   });
 
@@ -259,7 +281,9 @@ describe("what a render refuses, for good", () => {
   });
 
   it("a spec that points at another video's files", async () => {
-    const store = storeWith(makeSpec({ source_key: "work/9999/r0/source.mp4" }));
+    const store = storeWith(
+      makeSpec({ source_key: "work/9999/r0/source.mp4" }),
+    );
     const { render } = setup(store);
     const err = await refused(() => render(input));
     expect([err.type, err.nonRetryable]).toEqual(["InvalidEditSpec", true]);
@@ -267,9 +291,18 @@ describe("what a render refuses, for good", () => {
   });
 
   it.each([
-    ["an aweme id that is not digits", { aweme_id: "../1", spec_key: SPEC_KEY }],
-    ["a spec outside the video's folder", { aweme_id: AWEME, spec_key: "work/9999/r1/edit-spec.json" }],
-    ["a spec key that climbs out", { aweme_id: AWEME, spec_key: `work/${AWEME}/../9999/x.json` }],
+    [
+      "an aweme id that is not digits",
+      { aweme_id: "../1", spec_key: SPEC_KEY },
+    ],
+    [
+      "a spec outside the video's folder",
+      { aweme_id: AWEME, spec_key: "work/9999/r1/edit-spec.json" },
+    ],
+    [
+      "a spec key that climbs out",
+      { aweme_id: AWEME, spec_key: `work/${AWEME}/../9999/x.json` },
+    ],
   ])("%s", async (_label, bad) => {
     const { render } = setup(storeWith());
     const err = await refused(() => render(bad));
@@ -284,7 +317,6 @@ describe("what a render refuses, for good", () => {
     expect(err.nonRetryable).toBe(true);
   });
 });
-
 
 describe("what a render does when two ask for the same spec at once", () => {
   // A render that holds until the test lets it go, so the second request arrives while
@@ -321,7 +353,15 @@ describe("what a render does when two ask for the same spec at once", () => {
   it("control: two different specs at once do overlap", async () => {
     const store = storeWith();
     const other = makeSpec({
-      captions: [{ segment_id: 0, start_ms: 0, end_ms: 3000, text: "Tạm biệt", font_px: 48 }],
+      captions: [
+        {
+          segment_id: 0,
+          start_ms: 0,
+          end_ms: 3000,
+          text: "Tạm biệt",
+          font_px: 48,
+        },
+      ],
     });
     store.put(`work/${AWEME}/r2/edit-spec.json`, JSON.stringify(other));
     let running = 0;
@@ -354,7 +394,202 @@ describe("what a render does when two ask for the same spec at once", () => {
       fs.writeFileSync(outputLocation, "mp4");
     });
     await expect(render(input)).rejects.toThrow("chromium crashed");
-    await expect(render(input)).resolves.toMatchObject({ spec_sha256: expect.any(String) });
+    await expect(render(input)).resolves.toMatchObject({
+      spec_sha256: expect.any(String),
+    });
+  });
+});
+
+describe("what a render shared by two callers does when one of them goes", () => {
+  // Two callers of one spec, each with a cancellation of its own, on one render that
+  // holds until the test lets it go.
+  function shared() {
+    const store = storeWith();
+    const first = new AbortController();
+    const second = new AbortController();
+    const turn: { current: AbortController } = { current: first };
+    const beats: number[] = [];
+    let started!: () => void;
+    const hasStarted = new Promise<void>((resolve) => (started = resolve));
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let renderSignal: AbortSignal | undefined;
+    const tmpRoot = path.join(tmp, "shared");
+    fs.mkdirSync(tmpRoot);
+    const invocations = new RenderInvocations();
+    const render = createRenderActivity({
+      store,
+      fontPath,
+      invocations,
+      heartbeat: (p) => beats.push(p),
+      heartbeatIntervalMs: 10,
+      tmpRoot,
+      cancellation: () => turn.current.signal,
+      renderVideo: async ({ outputLocation, signal }) => {
+        renderSignal = signal;
+        started();
+        await Promise.race([
+          gate,
+          new Promise<never>((_resolve, reject) =>
+            signal?.addEventListener(
+              "abort",
+              () => reject(new Error("render stopped")),
+              {
+                once: true,
+              },
+            ),
+          ),
+        ]);
+        fs.writeFileSync(outputLocation, "mp4");
+      },
+    });
+    const callFirst = () => {
+      turn.current = first;
+      return render(input);
+    };
+    const callSecond = () => {
+      turn.current = second;
+      return render(input);
+    };
+    return {
+      store,
+      first,
+      second,
+      beats,
+      hasStarted,
+      release,
+      tmpRoot,
+      invocations,
+      callFirst,
+      callSecond,
+      renderSignal: () => renderSignal,
+    };
+  }
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 80));
+
+  it("keeps rendering for the one that stays, and hands it the result", async () => {
+    const s = shared();
+    const a = s.callFirst();
+    await s.hasStarted;
+    const b = s.callSecond();
+    await settle();
+    s.first.abort(new Error("first cancelled"));
+    await expect(a).rejects.toThrow("first cancelled");
+    await settle();
+    expect(s.renderSignal()?.aborted).toBe(false);
+    s.release();
+    const out = await b;
+    expect(s.store.objects.get(out.render_key)?.toString()).toBe("mp4");
+    expect(s.invocations.count(out.spec_sha256)).toBe(1);
+  });
+
+  it("keeps rendering for the first when only the one that joined goes", async () => {
+    const s = shared();
+    const a = s.callFirst();
+    await s.hasStarted;
+    const b = s.callSecond();
+    await settle();
+    s.second.abort(new Error("second cancelled"));
+    await expect(b).rejects.toThrow("second cancelled");
+    expect(s.renderSignal()?.aborted).toBe(false);
+    s.release();
+    await expect(a).resolves.toMatchObject({ spec_sha256: expect.any(String) });
+  });
+
+  it("stops the render, and leaves nothing, when the last one has gone", async () => {
+    const s = shared();
+    const a = s.callFirst();
+    await s.hasStarted;
+    const b = s.callSecond();
+    await settle();
+    s.first.abort(new Error("first cancelled"));
+    await expect(a).rejects.toThrow("first cancelled");
+    s.second.abort(new Error("second cancelled"));
+    await expect(b).rejects.toThrow("second cancelled");
+    expect(s.renderSignal()?.aborted).toBe(true);
+    expect(fs.readdirSync(s.tmpRoot)).toEqual([]);
+    expect(s.store.uploads).toEqual([]);
+  });
+
+  it("a caller that is cancelled stops waiting even though the render goes on", async () => {
+    const s = shared();
+    const a = s.callFirst();
+    await s.hasStarted;
+    const b = s.callSecond();
+    await settle();
+    s.second.abort(new Error("second cancelled"));
+    // It must not wait for the render, which is still held.
+    await expect(b).rejects.toThrow("second cancelled");
+    s.release();
+    await a;
+  });
+
+  it("keeps the one that stays alive with heartbeats of its own", async () => {
+    const s = shared();
+    const a = s.callFirst();
+    await s.hasStarted;
+    const b = s.callSecond();
+    await settle();
+    s.first.abort(new Error("first cancelled"));
+    await expect(a).rejects.toThrow();
+    const before = s.beats.length;
+    await settle();
+    expect(s.beats.length).toBeGreaterThan(before);
+    s.release();
+    await b;
+  });
+
+  it("a caller that comes while the last one is stopping the render starts its own", async () => {
+    const s = shared();
+    const a = s.callFirst();
+    await s.hasStarted;
+    s.first.abort(new Error("first cancelled"));
+    await expect(a).rejects.toThrow("first cancelled");
+    // The first render is over (the caller waited for it), so the next one is new.
+    s.release();
+    const again = await s.callSecond();
+    expect(s.store.objects.get(again.render_key)?.toString()).toBe("mp4");
+    expect(s.invocations.count(again.spec_sha256)).toBe(2);
+  });
+});
+
+describe("how long a render is given", () => {
+  it("grows with the length of the video, from a fixed start", () => {
+    expect(renderDeadlineMs(0)).toBe(RENDER_DEADLINE_BASE_MS);
+    expect(renderDeadlineMs(60_000)).toBe(
+      RENDER_DEADLINE_BASE_MS + 60_000 * RENDER_DEADLINE_PER_VIDEO_MS,
+    );
+  });
+
+  it("gives the longest video the spec allows more than the 3x real time it was measured at", () => {
+    const longest = 15 * 60 * 1000;
+    expect(renderDeadlineMs(longest)).toBeGreaterThan(3 * longest);
+    expect(renderDeadlineMs(longest)).toBeGreaterThanOrEqual(2 * 3 * longest);
+  });
+
+  it("ends a render with the deadline, for good, even when the time ran out while downloading", async () => {
+    const store = storeWith();
+    const slow = Object.create(store) as MemoryStore;
+    slow.download = async (key, destination) => {
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      return store.download(key, destination);
+    };
+    const render = createRenderActivity({
+      store: slow,
+      fontPath,
+      invocations: new RenderInvocations(),
+      heartbeat: () => undefined,
+      tmpRoot: tmp,
+      deadlineMs: 30,
+      renderVideo: async () => {
+        throw new Error("must not get here");
+      },
+    });
+    await expect(render(input)).rejects.toMatchObject({
+      type: "RenderDeadline",
+      nonRetryable: true,
+    });
+    expect(store.uploads).toEqual([]);
   });
 });
 
@@ -379,13 +614,17 @@ describe("what stops a render", () => {
         seen = signal;
         started();
         await new Promise<never>((_resolve, reject) =>
-          signal?.addEventListener("abort", () => reject(new Error("cancelled")), { once: true }),
+          signal?.addEventListener(
+            "abort",
+            () => reject(new Error("cancelled")),
+            { once: true },
+          ),
         );
       },
     });
     const running = render(input);
     await hasStarted;
-    controller.abort();
+    controller.abort(new Error("cancelled"));
     await expect(running).rejects.toThrow("cancelled");
     expect(seen?.aborted).toBe(true);
     expect(fs.readdirSync(tmpRoot)).toEqual([]);
@@ -403,7 +642,11 @@ describe("what stops a render", () => {
       deadlineMs: 50,
       renderVideo: ({ signal }) =>
         new Promise<never>((_resolve, reject) =>
-          signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true }),
+          signal?.addEventListener(
+            "abort",
+            () => reject(new Error("aborted")),
+            { once: true },
+          ),
         ),
     });
     try {
@@ -411,7 +654,10 @@ describe("what stops a render", () => {
       throw new Error("expected the deadline to end the render");
     } catch (err) {
       const failure = err as { type?: string; nonRetryable?: boolean };
-      expect([failure.type, failure.nonRetryable]).toEqual(["RenderDeadline", true]);
+      expect([failure.type, failure.nonRetryable]).toEqual([
+        "RenderDeadline",
+        true,
+      ]);
     }
     expect(store.uploads).toEqual([]);
   });
@@ -474,7 +720,10 @@ describe("what else a render refuses, for good", () => {
     fs.writeFileSync(fontPath, Buffer.concat([FONT_BYTES, Buffer.from("!")]));
     const store = storeWith();
     const { render } = setup(store);
-    await expect(render(input)).rejects.toMatchObject({ type: "FontMismatch", nonRetryable: true });
+    await expect(render(input)).rejects.toMatchObject({
+      type: "FontMismatch",
+      nonRetryable: true,
+    });
     expect(store.downloads).toEqual([]);
   });
 });

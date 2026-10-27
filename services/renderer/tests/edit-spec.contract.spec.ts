@@ -72,6 +72,7 @@ describe("a spec the schema must refuse", () => {
     ["a frame taller than the limit", (s) => (s.height = 4097)],
     ["a frame rate above the limit", (s) => (s.fps = 121)],
     ["a video longer than the limit", (s) => (s.duration_ms = 15 * 60 * 1000 + 1)],
+    ["each side within its limit but too many pixels together", (s) => Object.assign(s, { width: 3840, height: 2160 })],
     ["more captions than the limit", (s) => (s.captions = Array(2001).fill(caption(s)))],
     ["a missing font hash", (s) => delete s.font_sha256],
     ["a font hash that is not a sha256", (s) => (s.font_sha256 = "abc")],
@@ -85,7 +86,13 @@ describe("a spec the schema must refuse", () => {
 
   it("accepts a video exactly at the limits", () => {
     const spec = good();
-    Object.assign(spec, { width: 4096, height: 4096, fps: 120, duration_ms: 15 * 60 * 1000 });
+    Object.assign(spec, { width: 1920, height: 1088, fps: 120, duration_ms: 15 * 60 * 1000 });
+    expect(() => validate(spec)).not.toThrow();
+  });
+
+  it("accepts a portrait video at the area limit", () => {
+    const spec = good();
+    Object.assign(spec, { width: 1088, height: 1920 });
     expect(() => validate(spec)).not.toThrow();
   });
 
