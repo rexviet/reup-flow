@@ -24,6 +24,7 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 from localization.agents.reviewer import (
     MAX_FRAME_CALLS,
     MAX_FRAMES_PER_CALL,
+    MAX_RESIDUAL_CALLS,
     Frame,
     Loudness,
     ResidualFinding,
@@ -200,14 +201,46 @@ async def test_text_found_inside_the_cover_is_the_caption_and_outside_it_is_resi
     d = deps(FakePorts(found={1000: (120, 1510, 700, 60), 2000: (20, 300, 400, 60)}))
     report = await residual_source_text(ctx(d), [1000, 2000, 3000])
     lines = {line.split(" ms")[0]: line for line in report.splitlines() if " ms:" in line}
-    assert "inside the cover" in lines["1000"]
-    assert "OUTSIDE the cover" in lines["2000"]
+    assert "inside the place of the Vietnamese caption" in lines["1000"]
+    assert "OUTSIDE the place of the Vietnamese caption" in lines["2000"]
     assert "no burned-in text found" in lines["3000"]
 
 
-async def test_without_a_cover_any_text_found_is_outside_it() -> None:
-    d = deps(FakePorts(found={1000: (120, 1510, 700, 60)}), cover=None)
-    assert "OUTSIDE the cover" in await residual_source_text(ctx(d), [1000])
+async def test_without_a_cover_the_caption_itself_is_not_reported_as_residue() -> None:
+    """A video with no burned-in subtitle has no cover, but its caption is drawn in the
+    safe zone: text found there is ours."""
+    d = deps(FakePorts(found={1000: (120, 1510, 700, 60), 2000: (20, 300, 400, 60)}), cover=None)
+    report = await residual_source_text(ctx(d), [1000, 2000])
+    rows = {line.split(" ms")[0]: line for line in report.splitlines() if " ms:" in line}
+    assert "(expected)" in rows["1000"]
+    assert "OUTSIDE" in rows["2000"]
+
+
+async def test_a_caption_box_taller_than_the_cover_is_still_the_caption() -> None:
+    """The caption box is grown to hold two lines, so it can reach beyond a thin cover."""
+    d = deps(FakePorts(found={1000: (110, 1460, 780, 150)}))
+    d.spec = d.spec.model_copy(update={"caption_box": BBox(x=100, y=1450, w=800, h=170)})
+    assert "(expected)" in await residual_source_text(ctx(d), [1000])
+
+
+async def test_a_frame_the_ocr_could_not_read_is_reported_as_not_checked() -> None:
+    ports = FakePorts()
+
+    async def find(times_ms):
+        return [ResidualFinding(t, None, unavailable=True) for t in times_ms]
+
+    ports.find_text = find  # type: ignore[method-assign]
+    report = await residual_source_text(ctx(deps(ports)), [1000])
+    assert "could not check this frame" in report and "no burned-in text" not in report
+
+
+async def test_a_fourth_call_to_look_for_residue_is_refused_and_costs_nothing() -> None:
+    d = deps()
+    for _ in range(MAX_RESIDUAL_CALLS):
+        await residual_source_text(ctx(d), [1000])
+    with pytest.raises(ModelRetry, match="calls of this tool"):
+        await residual_source_text(ctx(d), [1000])
+    assert d.residual_calls == MAX_RESIDUAL_CALLS
 
 
 async def test_the_alignment_report_names_lines_that_still_overrun_and_the_loudness() -> None:

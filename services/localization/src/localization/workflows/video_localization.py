@@ -214,6 +214,15 @@ def _missing_stage(error: ActivityError) -> str | None:
     return None
 
 
+def _describe(error: ActivityError | ApplicationError) -> str:
+    """`Type: message` of what actually failed, for a person to read."""
+    cause = error.cause if isinstance(error, ActivityError) else error
+    kind = (
+        cause.type if isinstance(cause, ApplicationError) and cause.type else type(cause).__name__
+    )
+    return f"{kind}: {cause}"[:400]
+
+
 @workflow.defn(name="VideoLocalizationWorkflow")
 class VideoLocalizationWorkflow:
     # Registers the agents' activities on the worker that hosts this workflow.
@@ -235,6 +244,19 @@ class VideoLocalizationWorkflow:
 
     @workflow.run
     async def run(self, spec: LocalizationInput) -> LocalizationResult:
+        """A stage that fails for good is written on the run before the workflow ends, so
+        the person who looks finds the reason where the run's outcome is kept."""
+        try:
+            return await self._pipeline(spec)
+        except (ActivityError, ApplicationError) as error:
+            # An activity that failed, or an agent that gave up (it raises in the workflow
+            # itself, as an ApplicationError). A run recorded before the steps that write
+            # the row existed has no marker, so it replays without the extra activity.
+            if workflow.patched(REVIEW_PATCH):
+                await self._record_failure(spec, error)
+            raise
+
+    async def _pipeline(self, spec: LocalizationInput) -> LocalizationResult:
         prep = await self._prepare(spec)
         if not workflow.patched(LOCALIZE_PATCH):
             return LocalizationResult(prep=prep, script=None)
@@ -498,27 +520,13 @@ class VideoLocalizationWorkflow:
     async def _review_and_publish(
         self, spec: LocalizationInput, prep: PrepResult, script: ScriptResult, dub: DubbedAudio
     ) -> tuple[ScriptResult, DubbedAudio, PublishResult]:
-        """A stage that fails for good is written on the run before the workflow ends,
-        so the person who looks finds the reason where the run's outcome is kept."""
         self._reviews = 0
-        try:
-            return await self._rounds(spec, prep, script, dub)
-        except (ActivityError, ApplicationError) as error:
-            # An activity that failed, or an agent that gave up (it raises in the workflow
-            # itself, as an ApplicationError).
-            await self._record_failure(spec, error)
-            raise
+        return await self._rounds(spec, prep, script, dub)
 
     async def _record_failure(
         self, spec: LocalizationInput, error: ActivityError | ApplicationError
     ) -> None:
-        cause = error.cause if isinstance(error, ActivityError) else error
-        kind = (
-            cause.type
-            if isinstance(cause, ApplicationError) and cause.type
-            else type(cause).__name__
-        )
-        reason = f"{kind}: {cause}"[:500]
+        reason = _describe(error)
         try:
             await workflow.execute_activity(
                 "publish",
@@ -547,7 +555,7 @@ class VideoLocalizationWorkflow:
         if self._refused:
             flags.append(
                 f"the Dubber's rewrite of segments {list(self._refused)} was refused "
-                "(a contact the source lacks, or a character the captions cannot show)"
+                "(it named a contact the source lacks)"
             )
         return flags
 
@@ -581,12 +589,19 @@ class VideoLocalizationWorkflow:
                 result_type=RenderResult,
                 **RENDER,
             )
-            verdict = await workflow.execute_activity(
-                "review_render",
-                args=[spec, render, final, dub, spec_ref, round_no],
-                result_type=ReviewVerdict,
-                **REVIEW,
-            )
+            try:
+                verdict = await workflow.execute_activity(
+                    "review_render",
+                    args=[spec, render, final, dub, spec_ref, round_no],
+                    result_type=ReviewVerdict,
+                    **REVIEW,
+                )
+            except ActivityError as error:
+                # The video was made and nobody could judge it (the model answered
+                # nothing usable, the provider was down, the OCR failed): it is kept for a
+                # person, never published unreviewed and never thrown away.
+                stopped = f"the review could not be made: {_describe(error)}"
+                break
             self._reviews = attempt + 1
             if verdict.passed or flags:
                 # A run that needs a person goes to one with the verdict in hand; sending
@@ -602,16 +617,16 @@ class VideoLocalizationWorkflow:
             round_no += 1
             script, dub = await self._rerun(spec, prep, script, dub, route, round_no)
             flags = self._flags(script)
-        # The first pass of the loop always renders and reviews: it is only the later ones
-        # that can stop before they do.
-        assert render is not None and verdict is not None
+        # The first pass of the loop always renders: it is only the later ones that can stop
+        # before they do. A review that could not be made leaves `verdict` empty.
+        assert render is not None
         reasons = list(flags)
         if verdict is not None and not verdict.passed:
             summary = "; ".join(f"{i.stage}: {i.reason}" for i in verdict.issues)[:400]
             reasons.append(f"the review did not pass after {self._reviews} round(s): {summary}")
         if stopped is not None:
             reasons.append(stopped)
-        ok = verdict.passed and not reasons
+        ok = verdict is not None and verdict.passed and not reasons
         published = await workflow.execute_activity(
             "publish",
             args=[

@@ -1,5 +1,8 @@
 """Characters a Vietnamese caption cannot show, told apart without the font file."""
 
+import string
+import unicodedata
+
 import pytest
 
 from localization.text.glyphs import foreign_chars
@@ -17,6 +20,10 @@ from localization.text.glyphs import foreign_chars
         "tên: Nguyễn (NFD) = Nguyễn",
         "",
         "\t\n  ",
+        "Hôm nay 30°C, độ ẩm 80%",
+        "a ^ b | c − d + e",
+        string.printable,
+        "Việt Nam, Đường Việt",
     ],
 )
 def test_text_a_vietnamese_caption_can_hold_is_not_flagged(text: str) -> None:
@@ -44,6 +51,17 @@ def test_text_the_font_cannot_draw_is_flagged_in_order_without_repeats(
     text: str, flagged: list[str]
 ) -> None:
     assert foreign_chars(text) == list(dict.fromkeys(flagged))
+
+
+def test_vietnamese_in_decomposed_form_is_not_flagged_either() -> None:
+    text = "Việt Nam, Đường Nguyễn Huệ, ở đâu?"
+    assert foreign_chars(unicodedata.normalize("NFD", text)) == []
+    assert foreign_chars(unicodedata.normalize("NFC", text)) == []
+
+
+def test_the_degree_sign_the_percent_sign_and_the_minus_sign_are_not_flagged() -> None:
+    for text in ("30°C", "80%", "−5", "a^2", "a|b"):
+        assert foreign_chars(text) == [], text
 
 
 def test_a_repeated_character_is_named_once() -> None:

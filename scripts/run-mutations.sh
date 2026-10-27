@@ -120,7 +120,7 @@ harness_dir() {
 # A shared render belongs to all its callers (the last one to leave stops it), the deadline
 # grows with the video, the frame is bounded by area: +10, +0 (registered, not yet run).
 # `localization:08` (review, rerun routing, publish, the characters a caption cannot show,
-# the Reviewer): 48 mutations, 2 controls (registered, not yet run).
+# the Reviewer): 55 mutations, 2 controls (registered, not yet run).
 # The phase 0 spike mutations (test/spike-cookie-swap/mutations, and the SKIP
 # LOCKED / compose pair inlined in ci.yml) are deliberately NOT here: they need
 # a built parser image or a compose file edit, and are gated separately in CI.
@@ -139,7 +139,7 @@ localization:03:11:2
 localization:04:47:2
 localization:05:57:2
 localization:06:61:3
-localization:08:48:2
+localization:08:55:2
 renderer:07:65:5
 "
 

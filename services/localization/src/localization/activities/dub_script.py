@@ -44,10 +44,12 @@ def apply_decisions(
     script: LocalizedScript, decisions: DubDecisions
 ) -> tuple[LocalizedScript, list[int]]:
     """The next version of `script` with the Dubber's rewrites in it, and the ids of
-    rewrites that were refused. A rewrite that names a contact (a link, a domain, a
-    phone number) its source line lacks, or that holds a character the caption font
-    cannot show, is refused and the line keeps its text: the Dubber reads untrusted
-    video text too."""
+    rewrites that were refused for a contact. A rewrite that names a contact (a link, a
+    domain, a phone number) its source line lacks is refused and the line keeps its
+    text: the Dubber reads untrusted video text too, and that is a sign of injection. A
+    rewrite that holds a character the caption font cannot show is also not used and the
+    line keeps its text, but that is not reported: nothing is wrong with the line that
+    stays, it may only still overrun its slot, which `overflow_unresolved` already says."""
     by_id = {s.id: s for s in script.segments}
     chosen = {d.id: d for d in decisions.items}
     if len(chosen) != len(decisions.items) or not chosen.keys() <= by_id.keys():
@@ -62,10 +64,12 @@ def apply_decisions(
         decision = chosen.get(seg.id)
         text = seg.text_vi
         if decision is not None and decision.text_vi.strip():
-            if contacts_missing_from_source(decision.text_vi, seg.src_zh) or foreign_chars(
-                decision.text_vi
-            ):
+            if contacts_missing_from_source(decision.text_vi, seg.src_zh):
                 refused.append(seg.id)
+            elif foreign_chars(decision.text_vi):
+                activity.logger.info(
+                    "rewrite of segment %s not used: unshowable characters", seg.id
+                )
             else:
                 text = decision.text_vi.strip()
         segments.append(seg.model_copy(update={"text_vi": text}))

@@ -30,6 +30,8 @@ from localization.contracts import (
     BBox,
     LocalizationInput,
     LocalizationResult,
+    PublishRequest,
+    PublishResult,
     SttWord,
     SubtitleTrack,
     TranscriptDocument,
@@ -122,6 +124,12 @@ async def test_a_second_loss_fails_the_workflow_instead_of_looping(
     assert fakes.calls["ingest"] == 2, "the stage must be re-run exactly once"
 
 
+@activity.defn(name="publish")
+async def record_outcome(spec: LocalizationInput, request: PublishRequest) -> PublishResult:
+    """A run that fails is written on the run by `publish`: a stand-in that takes the note."""
+    return PublishResult(outcome=request.outcome)
+
+
 async def test_a_missing_source_video_is_not_regenerated(temporal_client: Client) -> None:
     """The workflow cannot re-run the downloader, so a lost source fails the run
     without re-running `ingest`."""
@@ -138,7 +146,7 @@ async def test_a_missing_source_video_is_not_regenerated(temporal_client: Client
         ),
         build_worker(temporal_client, QueueSpec("media", activities=[acts["ingest"]])),
         build_worker(temporal_client, QueueSpec("stt", activities=[acts["transcribe"]])),
-        build_worker(temporal_client, QueueSpec("io", activities=[detect])),
+        build_worker(temporal_client, QueueSpec("io", activities=[detect, record_outcome])),
     ]
     async with running(workers):
         handle = await temporal_client.start_workflow(
@@ -674,7 +682,7 @@ async def test_a_failed_stage_cancels_the_sibling_instead_of_leaving_it_running(
         ),
         build_worker(temporal_client, QueueSpec("media", activities=[acts["ingest"]])),
         build_worker(temporal_client, QueueSpec("stt", activities=[slow_transcribe])),
-        build_worker(temporal_client, QueueSpec("io", activities=[broken_detect])),
+        build_worker(temporal_client, QueueSpec("io", activities=[broken_detect, record_outcome])),
     ]
     async with running(workers):
         handle = await temporal_client.start_workflow(

@@ -148,9 +148,11 @@ async def test_a_rewrite_that_adds_a_link_is_refused_and_the_line_keeps_its_text
     assert [s.text_vi for s in new.segments] == ["câu gốc", "câu hai gọn"]
 
 
-async def test_a_rewrite_with_a_character_the_caption_font_lacks_is_refused_and_reported(
+async def test_a_rewrite_with_a_character_the_caption_font_lacks_is_not_used_and_not_reported(
     store: ObjectStore, tts: FakeTts
 ) -> None:
+    """The line keeps its earlier, safe text. Nothing is flagged: a person is asked to look
+    at a run for a contact the source lacks, not for a symbol the font cannot draw."""
     acts, _ = make(store, tts)
     put_script(store, [segment(0, "câu gốc"), segment(1, "câu hai"), segment(2, "câu ba")])
     ref = await ActivityEnvironment().run(
@@ -161,8 +163,31 @@ async def test_a_rewrite_with_a_character_the_caption_font_lacks_is_refused_and_
     )
     new = read_script(store, ref.script_key)
     assert [s.text_vi for s in new.segments] == ["câu gốc", "câu hai gọn", "câu ba"]
-    # The caller is told which rewrites were thrown away: a run with one is not published.
-    assert ref.refused_ids == (0, 2)
+    assert ref.refused_ids == ()
+
+
+async def test_a_rewrite_with_a_contact_is_reported_even_next_to_one_with_a_glyph(
+    store: ObjectStore, tts: FakeTts
+) -> None:
+    acts, _ = make(store, tts)
+    put_script(store, [segment(0, "câu gốc"), segment(1, "câu hai")])
+    ref = await ActivityEnvironment().run(
+        acts.write_dubbed_script,
+        SPEC,
+        REF1,
+        decisions((0, "ghé shop-xyz.vn nhé", 1.1), (1, "hai ✓", 1.0)),
+    )
+    assert ref.refused_ids == (0,)
+
+
+async def test_a_rewrite_with_a_degree_sign_is_used(store: ObjectStore, tts: FakeTts) -> None:
+    acts, _ = make(store, tts)
+    put_script(store, [segment(0, "câu gốc")])
+    ref = await ActivityEnvironment().run(
+        acts.write_dubbed_script, SPEC, REF1, decisions((0, "trời 30°C", 1.0))
+    )
+    assert read_script(store, ref.script_key).segments[0].text_vi == "trời 30°C"
+    assert ref.refused_ids == ()
 
 
 async def test_a_script_with_no_refused_rewrite_says_so(store: ObjectStore, tts: FakeTts) -> None:

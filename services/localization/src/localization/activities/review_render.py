@@ -42,6 +42,7 @@ from localization.contracts import (
 )
 from localization.observability.tracing import tag_session
 from localization.providers.base import OcrProvider
+from localization.providers.errors import PermanentProviderError
 from localization.storage.object_store import ObjectStore
 
 # What a vision model needs to read a caption, and no more.
@@ -111,7 +112,13 @@ class LocalVideo:
         found = []
         for t in times_ms:
             jpeg = await run_blocking(self._jpeg_at, t, self._spec.width)
-            box = await self._ocr.detect_region(jpeg, self._spec.width, self._spec.height)
+            try:
+                box = await self._ocr.detect_region(jpeg, self._spec.width, self._spec.height)
+            except PermanentProviderError:
+                # One frame the OCR cannot read must not end a review that has the frames
+                # themselves to go on: the Reviewer is told this one was not checked.
+                found.append(ResidualFinding(t, None, unavailable=True))
+                continue
             found.append(ResidualFinding(t, None if box is None else (box.x, box.y, box.w, box.h)))
         return found
 

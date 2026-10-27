@@ -110,12 +110,12 @@ Workflow dừng ở bước 7. Publish tay bằng `mc cp`, có ghi trong runbook
 - **Từ chối ký tự không hiển thị được trước khi trả tiền TTS** (`text/glyphs.py`, hàm thuần không cần file font): chữ cái ngoài Latin (Hán, Nhật, Hàn, Kirin...), emoji và ký hiệu hình, mũi tên, dấu toán không đọc được, dấu câu toàn chiều rộng và CJK. Validator của Localizer trả `ModelRetry` nêu dòng và ký tự; câu viết lại của Dubber chứa ký tự đó bị từ chối như câu có liên lạc lạ (dòng giữ chữ cũ). Kiểm tra theo font ở layout (`UncoveredGlyphs`) **không đổi** và vẫn là chốt cuối cho ký tự hiếm mà bộ lọc này cho qua.
 - Agent bỏ cuộc (validator không thoả sau số lần thử, vượt giới hạn dùng) trong `run_localizer` và `run_dubber` trở thành `ApplicationError` không retry (`UnexpectedModelBehavior`, `UsageLimitExceeded`) để workflow bắt được và ghi lý do lên dòng `runs`; trước đó nó chỉ làm workflow fail mà không để lại dấu vết trên run.
 - Cấu hình: `REVIEWER_MODEL` thêm vào compose (`worker-agents`) và allowlist của `compose-constraints.spec.ts`; worker-agents từ chối khởi động nếu thiếu (model vision riêng, không rơi về model của Localizer vì model chữ có thể không đọc ảnh). `/tmp` của `worker-agents` tăng 512m lên 1g (Reviewer giữ bản sao video để cắt frame).
-- Mutation: **đã đăng ký, chưa chạy**: harness `localization:08` có 48 mutation và 2 control (`EXPECT`: `localization:08:48:2`), và `renderer:07` đã thêm 10 mutation cho phần sửa của phase 07 (`renderer:07:65:5`). Chưa chạy `scripts/run-mutations.sh`. Mẫu thay thế của harness 08 được kiểm là khớp đúng một lần trong file nguồn và mọi tên test được đòi đỏ đều tồn tại, bằng một script đọc (không chạy test nào); việc chúng thật sự đỏ chưa được chứng minh.
+- Mutation: **đã đăng ký, chưa chạy**: harness `localization:08` có 55 mutation và 2 control (`EXPECT`: `localization:08:55:2`), và `renderer:07` đã thêm 10 mutation cho phần sửa của phase 07 (`renderer:07:65:5`). Chưa chạy `scripts/run-mutations.sh`. Mẫu thay thế của harness 08 được kiểm là khớp đúng một lần trong file nguồn và mọi tên test được đòi đỏ đều tồn tại, bằng một script đọc (không chạy test nào); việc chúng thật sự đỏ chưa được chứng minh.
 - `uv run pytest -m "not live"`: 926 passed, 0 skipped (6 live loại); `uv run ruff check src tests` và `ruff format --check` sạch. `pnpm test` của renderer: 93 passed; `pnpm lint` và `tsc --noEmit` sạch. `compose-constraints.spec.ts`: 25 passed.
 
 **Quyết định cần người dùng xác nhận** (spec im lặng, đã chọn mặc định an toàn nhất)
-1. **Run bị Localizer cờ `needs_human`, hoặc có câu Dubber viết lại bị từ chối: dừng trước publish, giữ bản render ở `review/{aweme_id}-g{n}.mp4`, ghi `runs.status = 'needs_human'`, không bao giờ ghi `output/`.** Giữ nguyên chi phí lồng tiếng đã trả (Dubber chạy trước khi cờ được đọc ở phase 06) và vẫn dựng một lần để người xem có cái để xem; Reviewer chấm một lần để người xem có điểm và ghi chú trong tay, nhưng run không bị gửi vòng lại (một run bị cờ không tự sửa bằng cách chạy lại). Phương án khác: dừng ngay sau Localizer khi có cờ, đỡ tốn TTS và render nhưng người xem không có video. Lý do của dòng bị từ chối: Dubber đọc text không tin cậy, một câu viết lại bị từ chối là dấu hiệu injection hoặc ký tự không hiển thị được.
-2. **Lỗi vĩnh viễn của layout và renderer** (`UncoveredGlyphs`, `ImplausibleCover`, `VideoOutOfBounds`, `InvalidEditSpec`, `ScriptDubMismatch`, `FontMismatch`, `AudioHashMismatch`, `RenderDeadline`, và mọi lỗi activity khác sau lồng tiếng): **run fail, không retry vô hạn, lý do ghi lên dòng `runs` (`status = 'failed'`, `verdict.reasons = ["<Loại>: <thông điệp>"]`), không có gì ở `output/` hay `review/`.** Không tự định tuyến về Localizer (mỗi vòng tốn thêm LLM và TTS và có thể lặp); người vận hành đọc lý do rồi tăng `generation` để chạy lại. Phương án khác: `UncoveredGlyphs` → một vòng Localizer kèm danh sách ký tự; `ImplausibleCover` → `needs_human`. Giảm chi phí: ký tự không hiển thị được bị từ chối **trước** TTS (mục trên), nên `UncoveredGlyphs` chỉ còn xảy ra với ký tự hiếm mà bộ lọc cho qua.
+1. **Run bị Localizer cờ `needs_human`, hoặc có câu Dubber viết lại bị từ chối vì chứa liên lạc mà nguồn không có: dừng trước publish, giữ bản render ở `review/{aweme_id}-g{n}.mp4`, ghi `runs.status = 'needs_human'`, không bao giờ ghi `output/`.** Giữ nguyên chi phí lồng tiếng đã trả (Dubber chạy trước khi cờ được đọc ở phase 06) và vẫn dựng một lần để người xem có cái để xem; Reviewer chấm một lần để người xem có điểm và ghi chú trong tay, nhưng run không bị gửi vòng lại (một run bị cờ không tự sửa bằng cách chạy lại). Phương án khác: dừng ngay sau Localizer khi có cờ, đỡ tốn TTS và render nhưng người xem không có video. Lý do của dòng bị từ chối: Dubber đọc text không tin cậy, một câu viết lại mang liên lạc lạ là dấu hiệu injection. Câu viết lại chỉ bị từ chối vì ký tự không hiển thị được thì KHÔNG cờ run: dòng giữ chữ cũ an toàn, chỉ có thể còn tràn slot (đã có `overflow_unresolved`).
+2. **Lỗi vĩnh viễn của layout và renderer** (`UncoveredGlyphs`, `ImplausibleCover`, `VideoOutOfBounds`, `InvalidEditSpec`, `ScriptDubMismatch`, `FontMismatch`, `AudioHashMismatch`, `RenderDeadline`, và mọi lỗi activity hay agent bỏ cuộc ở bất cứ giai đoạn nào, kể cả trước layout): **run fail, không retry vô hạn, lý do ghi lên dòng `runs` (`status = 'failed'`, `verdict.reasons = ["<Loại>: <thông điệp>"]`), không có gì ở `output/` hay `review/`.** Không tự định tuyến về Localizer (mỗi vòng tốn thêm LLM và TTS và có thể lặp); người vận hành đọc lý do rồi tăng `generation` để chạy lại. Phương án khác: `UncoveredGlyphs` → một vòng Localizer kèm danh sách ký tự; `ImplausibleCover` → `needs_human`. Giảm chi phí: ký tự không hiển thị được bị từ chối **trước** TTS (mục trên), nên `UncoveredGlyphs` chỉ còn xảy ra với ký tự hiếm mà bộ lọc cho qua.
 3. **Hai review, một lần chạy lại.** "`review_rounds ≤ 2`" được hiểu là hai lần review. Review thứ hai fail hoặc vấn đề thuộc stage không sửa được bằng chạy lại ở đây (`render`, `transcribe`, `detect_subtitles`, một vấn đề `dub` không nêu segment) → `needs_human` ngay.
 4. **Layout chạy lại mà ra cùng spec thì không review lần hai** (`needs_human` với lý do "the rerun produced the same video"). Layout là hàm thuần của script và track, nên lỗi `captions` chạy lại 4b trên cùng đầu vào cho cùng video; review lại chỉ lặp lại kết quả. Hệ quả: đường `captions` gần như chỉ có tác dụng khi layout đổi giữa hai vòng.
 
@@ -130,9 +130,11 @@ Workflow dừng ở bước 7. Publish tay bằng `mc cp`, có ghi trong runbook
 1. **Không có video thật nào chạy hết pipeline.** Chưa có Reviewer với model vision thật (chưa biết nó có đưa ra issue có ích, có gọi tool đúng, có tốn bao nhiêu), chưa có OCR thật trên frame đã render, chưa có `publish` với policy MinIO của key `localization` (CopyObject từ `work/` sang `output/` và `review/`), chưa có dòng `runs` trên database `reup` (migration `261026-localization-core.sql` chưa áp lên `reup`; test dùng database tạm).
 2. AC3 (mỗi `spec_sha256` chỉ `renderMedia` một lần, đếm bằng counter phía renderer, qua vòng review) chưa đo với renderer thật: test dùng render giả đếm theo hash và renderer có test riêng cho single-flight và key theo hash.
 3. Chưa chạy `worker-agents`, `worker-media`, `worker-render` trong stack compose đầy đủ với workflow này.
-4. Mutation (48 + 2 + 10) chưa chạy.
+4. Mutation (55 + 2 + 10) chưa chạy.
 
 **Giới hạn đã biết**
+- (Sau review) Review fail vì model, HTTP hay OCR sau hai lần thử thì run thành `needs_human` với bản render ở `review/` và lý do "the review could not be made"; không bao giờ ra `output/`.
+- `residual_source_text` tối đa 3 lần gọi mỗi review; so vùng chữ tìm được với hộp chữ và hộp che; một frame OCR trả về thứ không dùng được thì Reviewer được báo là không kiểm được frame đó thay vì làm review fail.
 - Review dùng tối đa 24 tool call và 12 request mỗi lần; lỗi vượt giới hạn là `ReviewRunaway`, không retry.
 - Một artifact của vòng sau (`r1/` trở đi) bị mất (lifecycle 30 ngày, hiếm trong vài phút) thì run fail với `ArtifactMissingError`, không có cơ chế chạy lại stage sinh ra nó như vòng đầu (D10 chỉ áp cho vòng đầu).
 - `LocalizerDeps` và `DubberDeps` không mang ghi chú của reviewer (deps chỉ mang key và số): ghi chú đi trong prompt, nên nằm trong payload của request model (đúng như mọi hội thoại), không trong payload của tool.
@@ -154,11 +156,18 @@ cd /Users/vietphung/Data/reup-flow
 docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -Fc "$POSTGRES_DB"' \
   > backups/reup-$(date +%Y%m%d-%H%M%S).dump
 
-# 2. Migration, theo thứ tự (bỏ qua cái đã áp; mỗi file chạy một transaction, dừng khi lỗi).
+# 2a. Role `localization` do db-init tạo, và các migration bên dưới cần nó (`AUTHORIZATION
+#     localization`, `GRANT ... TO localization`): chạy db-init trước.
+docker compose up -d db-init && docker compose logs --tail 5 db-init
+
+# 2b. Migration, theo thứ tự (bỏ qua cái đã áp; mỗi file chạy một transaction, dừng khi lỗi).
 #    Trạng thái lúc viết: database `reup` chưa có `localization_outbox` và chưa có schema
 #    `localization`. Bảng outbox phải có TRƯỚC khi chạy downloader mới (`markDone` ghi vào nó).
-for f in services/downloader/migrations/261026-localization-outbox.sql \
-         services/localization/migrations/261026-localization-core.sql \
+#    (`261026-localization-outbox.sql` tự có BEGIN/COMMIT nên không dùng `-1` cho nó.)
+docker compose exec -T postgres sh -c \
+  'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1' \
+  < services/downloader/migrations/261026-localization-outbox.sql
+for f in services/localization/migrations/261026-localization-core.sql \
          services/localization/migrations/261026-outbox-starter-grants.sql; do
   docker compose exec -T postgres sh -c \
     'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -1' < "$f"
@@ -172,7 +181,7 @@ docker compose exec -T postgres sh -c \
    \"SELECT aweme_id, status, storage_path FROM videos WHERE aweme_id = '<AWEME_ID>'\""
 
 # 4. Dựng stack (dùng lại stack đang chạy; chỉ build và khởi động phần của localization).
-docker compose up -d --build db-init minio-init temporal temporal-namespace-init \
+docker compose up -d --build minio-init temporal temporal-namespace-init \
   worker-agents worker-media worker-render localization-starter
 docker compose ps                       # worker-*, localization-starter: running
 docker compose logs --tail 20 worker-agents worker-media worker-render
@@ -208,8 +217,22 @@ docker compose run --rm --no-deps --entrypoint sh minio-init -c \
 #    published     -> reup-media/output/<AWEME_ID>.mp4, runs.status = 'published'
 #    needs_human   -> reup-media/review/<AWEME_ID>-g<n>.mp4, lý do ở runs.verdict->'reasons'
 #    failed        -> không có file, lý do ở runs.verdict->'reasons'
-#    Lấy file ra xem:  mc cp l/reup-media/output/<AWEME_ID>.mp4 /tmp/   (trong cùng container
-#    run, hoặc qua console MinIO http://127.0.0.1:9001).
+#    Lấy file ra xem (ghi ra stdout của container, về máy):
+#      docker compose run --rm -T --no-deps --entrypoint sh minio-init -c \
+#        'mc alias set l http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null \
+#         && mc cat l/reup-media/output/<AWEME_ID>.mp4' > /tmp/<AWEME_ID>.mp4
+#    hoặc qua console MinIO http://127.0.0.1:9001.
 ```
 
 Dọn sau khi chạy: `docker compose stop worker-agents worker-media worker-render localization-starter` nếu không cần chạy tiếp (không để worker mồ côi).
+
+## Sau review
+
+Năm mục Medium đã sửa (xem commit sau commit của phase). Các Low còn lại ghi nhận, chưa sửa:
+- Verdict `pass=true` không được kiểm tính nhất quán (vẫn có issue, hoặc điểm gần 0): workflow publish nếu `verdict.passed`.
+- `publish` hỏng giữa chừng (đã copy S3, DB chết quá vài chục giây): `output/{id}.mp4` có mà dòng `runs` ghi `failed` với `output_key` rỗng; hồi phục bằng cách tăng generation.
+- `model_for("reviewer", settings)` dựng một client HTTP mới mỗi review và không đóng (rò chậm); nên cache một model mỗi worker.
+- `/tmp` 1g của `worker-agents` dùng chung cho mọi activity; `LLM_CONCURRENCY=8` reviewer mỗi cái giữ một bản render: chật khi backfill.
+- Khung vượt 1920x1088 px (ví dụ 1440x2560) bị layout từ chối vĩnh viễn sau khi đã trả tiền TTS; nên kiểm `check_renderable` ngay lúc ingest.
+- `tests/support/scratch_db.py` tạo role `localization` trong cluster dùng chung nếu thiếu (tác dụng phụ ở mức cluster, vô hại).
+- Đường `captions` trong thực tế gần như không dùng được: layout là hàm thuần của đầu vào không đổi nên chạy lại cho cùng `spec_sha256` và dừng ở `needs_human`; kịch bản "fail `caption` rồi pass" của bảng verification chỉ đạt được khi layout đổi giữa hai vòng (test dùng layout giả đổi).

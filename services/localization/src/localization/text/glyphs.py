@@ -14,7 +14,7 @@ import unicodedata
 
 # Symbols that belong in a spoken caption ("30%", "2 + 3", "5 × 4") and that the
 # caption font draws.
-_ALLOWED_SYMBOLS = frozenset("+-=<>%±×÷~°")
+_ALLOWED_SYMBOLS = frozenset("+-=<>%±×÷~°^|\u2212")
 # Blocks whose punctuation and symbols the caption font does not draw.
 _CJK_PUNCTUATION = range(0x3000, 0x3040)
 _HALF_AND_FULLWIDTH = range(0xFF00, 0xFFF0)
@@ -31,6 +31,10 @@ def foreign_chars(text: str) -> list[str]:
     for char in unicodedata.normalize("NFC", text):
         code = ord(char)
         category = unicodedata.category(char)
+        if code < 128 or char in _ALLOWED_SYMBOLS:
+            # ASCII and the allowlist win over the category rules below: `°`, `^`, `|`
+            # and a backtick are symbols by category and ordinary in a caption.
+            continue
         if code in _CJK_PUNCTUATION or code in _HALF_AND_FULLWIDTH:
             found[char] = None
         elif category.startswith("L"):

@@ -141,8 +141,8 @@ restore
 
 # --- what is published and what goes to a person ---------------------------------------------------------
 mp_mutation "a run that needs a person is published anyway"
-apply_mutation "$WORKFLOW" $'        ok = verdict.passed and not reasons' \
-  $'        ok = verdict.passed' \
+apply_mutation "$WORKFLOW" $'        ok = verdict is not None and verdict.passed and not reasons' \
+  $'        ok = verdict is not None and verdict.passed' \
   && expect_red "$T_LOOP" "test_a_flagged_translation_is_never_published_even_when_the_review_passes" "test_a_refused_dubber_rewrite_is_never_published"
 restore
 
@@ -161,7 +161,7 @@ restore
 mp_mutation "a refused rewrite is forgotten"
 apply_mutation "$DUBSCRIPT" $'            script_key=written.script_key, version=written.version, refused_ids=tuple(refused)' \
   $'            script_key=written.script_key, version=written.version, refused_ids=()' \
-  && expect_red "$T_DUBSCRIPT" "test_a_rewrite_with_a_character_the_caption_font_lacks_is_refused_and_reported"
+  && expect_red "$T_DUBSCRIPT" "test_a_rewrite_with_a_contact_is_reported_even_next_to_one_with_a_glyph"
 restore
 
 mp_mutation "the publish activity writes output/ for a render that did not pass"
@@ -265,9 +265,9 @@ apply_mutation "$LOCALIZER" $'    foreign = {i: chars for i, chars in sorted(for
 restore
 
 mp_mutation "a Dubber rewrite with such a character is accepted"
-apply_mutation "$DUBSCRIPT" $'            if contacts_missing_from_source(decision.text_vi, seg.src_zh) or foreign_chars(\n                decision.text_vi\n            ):' \
-  $'            if contacts_missing_from_source(decision.text_vi, seg.src_zh):' \
-  && expect_red "$T_DUBSCRIPT" "test_a_rewrite_with_a_character_the_caption_font_lacks_is_refused_and_reported"
+apply_mutation "$DUBSCRIPT" $'            elif foreign_chars(decision.text_vi):' \
+  $'            elif False:' \
+  && expect_red "$T_DUBSCRIPT" "test_a_rewrite_with_a_character_the_caption_font_lacks_is_not_used_and_not_reported"
 restore
 
 mp_mutation "letters of other scripts pass"
@@ -286,6 +286,48 @@ mp_mutation "emoji and pictographs pass"
 apply_mutation "$GLYPHS" $'        elif category in ("So", "Sk") or category in ("Cs", "Co", "Cn"):' \
   $'        elif False:' \
   && expect_red "$T_GLYPHS" "test_text_the_font_cannot_draw_is_flagged_in_order_without_repeats"
+restore
+
+mp_mutation "the allowlist loses to the category rules (a degree sign is refused)"
+apply_mutation "$GLYPHS" $'        if code < 128 or char in _ALLOWED_SYMBOLS:' \
+  $'        if code < 128:' \
+  && expect_red "$T_GLYPHS" "test_the_degree_sign_the_percent_sign_and_the_minus_sign_are_not_flagged"
+restore
+
+mp_mutation "a rewrite refused only for a glyph flags the run"
+apply_mutation "$DUBSCRIPT" $'            elif foreign_chars(decision.text_vi):' \
+  $'            elif foreign_chars(decision.text_vi) and refused.append(seg.id) is None:' \
+  && expect_red "$T_DUBSCRIPT" "test_a_rewrite_with_a_character_the_caption_font_lacks_is_not_used_and_not_reported"
+restore
+
+mp_mutation "the caption itself is reported as left-over subtitle"
+apply_mutation "$REVIEWER" $'    places = [deps.spec.caption_box]' \
+  $'    places = []' \
+  && expect_red "$T_REVIEWER" "test_without_a_cover_the_caption_itself_is_not_reported_as_residue" "test_a_caption_box_taller_than_the_cover_is_still_the_caption"
+restore
+
+mp_mutation "the residue check has no call cap"
+apply_mutation "$REVIEWER" $'    if deps.residual_calls >= MAX_RESIDUAL_CALLS:' \
+  $'    if False:' \
+  && expect_red "$T_REVIEWER" "test_a_fourth_call_to_look_for_residue_is_refused_and_costs_nothing"
+restore
+
+mp_mutation "an OCR that cannot read a frame ends the review"
+apply_mutation "$REVIEWACT" $'            except PermanentProviderError:' \
+  $'            except KeyError:' \
+  && expect_red "$T_REVIEWACT" "test_an_ocr_that_cannot_read_a_frame_does_not_end_the_review"
+restore
+
+mp_mutation "a review that cannot be made ends the run as failed"
+apply_mutation "$WORKFLOW" $'            except ActivityError as error:\n                # The video was made and nobody could judge it' \
+  $'            except KeyError as error:\n                # The video was made and nobody could judge it' \
+  && expect_red "$T_LOOP" "test_a_review_that_cannot_be_made_keeps_the_render_for_a_person"
+restore
+
+mp_mutation "a failure before the layout is not written on the run"
+apply_mutation "$WORKFLOW" $'            if workflow.patched(REVIEW_PATCH):\n                await self._record_failure(spec, error)' \
+  $'            if False:\n                await self._record_failure(spec, error)' \
+  && expect_red "$T_LOOP" "test_a_localizer_that_gives_up_on_the_first_pass_is_written_on_the_run" "test_a_permanent_speech_error_is_written_on_the_run"
 restore
 
 # --- the Reviewer and its activity -----------------------------------------------------------------------

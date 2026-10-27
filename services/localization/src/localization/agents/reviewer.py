@@ -32,6 +32,8 @@ PROMPT_VERSION = "reviewer-1"
 # Frames are the expensive part of a review (a vision model reads each one).
 MAX_FRAMES_PER_CALL = 8
 MAX_FRAME_CALLS = 3
+# Each call asks a vision model about every frame it is given.
+MAX_RESIDUAL_CALLS = 3
 MAX_ISSUES = 20
 
 INSTRUCTIONS = f"""\
@@ -49,8 +51,12 @@ Work like this:
 3. sample_frames shows you frames at the times you ask for (at most {MAX_FRAMES_PER_CALL} a
    call, {MAX_FRAME_CALLS} calls in all). Look for captions that are cut off, overflow the
    box, overlap each other or are hard to read.
-4. residual_source_text looks for Chinese subtitle text still visible outside the
-   covering box.
+4. residual_source_text looks for a band of burned-in text outside the place the
+   Vietnamese caption goes (at most {MAX_RESIDUAL_CALLS} calls). It cannot tell Chinese from
+   Vietnamese: text inside the caption's place is the caption itself; text elsewhere may
+   be left-over source subtitle, so look at that frame with sample_frames before
+   reporting it. If it says it could not check a frame, say so in your verdict and rely
+   on the frames you looked at.
 5. Return a verdict: pass true only if the video could be published as it is. Score
    fidelity (does the Vietnamese say what the Chinese says), timing (do voice and
    captions fit their slots) and visual (captions readable, source subtitle hidden) from
@@ -83,6 +89,8 @@ class ResidualFinding:
     at_ms: int
     # Where burned-in text was found, in pixels (x, y, w, h), or None when none was.
     box: tuple[int, int, int, int] | None
+    # The OCR could not look at this frame (it answered with something unusable).
+    unavailable: bool = False
 
 
 class ReviewPorts(Protocol):
@@ -103,6 +111,7 @@ class ReviewDeps:
     ports: ReviewPorts
     # How many times `sample_frames` has been called in this review.
     frame_calls: int = field(default=0)
+    residual_calls: int = field(default=0)
 
 
 def _check_times(deps: ReviewDeps, times_ms: Sequence[int]) -> list[int]:
@@ -173,20 +182,37 @@ async def sample_frames(ctx: RunContext[ReviewDeps], times_ms: list[int]) -> Too
 
 
 async def residual_source_text(ctx: RunContext[ReviewDeps], times_ms: list[int]) -> str:
-    """Whether burned-in Chinese text can still be seen at these times outside the
-    box that covers the original subtitle."""
+    """Whether a band of burned-in text can be seen at these times outside the place the
+    Vietnamese caption goes. It cannot tell Chinese from Vietnamese."""
     deps = ctx.deps
+    if deps.residual_calls >= MAX_RESIDUAL_CALLS:
+        raise ModelRetry(
+            f"you have used your {MAX_RESIDUAL_CALLS} calls of this tool; give your verdict "
+            "from what you have seen"
+        )
     wanted = _check_times(deps, times_ms)
-    cover = deps.spec.cover
+    deps.residual_calls += 1
+    # The caption is drawn in the caption box, which is the cover when there is one and
+    # can be taller than it: text found in either is expected.
+    places = [deps.spec.caption_box]
+    if deps.spec.cover is not None:
+        places.append(deps.spec.cover.region)
     findings = await deps.ports.find_text(wanted)
     rows = []
     for found in findings:
+        if found.unavailable:
+            rows.append(f"{found.at_ms} ms: the OCR could not check this frame")
+            continue
         if found.box is None:
             rows.append(f"{found.at_ms} ms: no burned-in text found")
             continue
         x, y, w, h = found.box
-        inside = cover is not None and _inside(found.box, cover.region)
-        where = "inside the cover (the Vietnamese caption)" if inside else "OUTSIDE the cover"
+        inside = any(_inside(found.box, place) for place in places)
+        where = (
+            "inside the place of the Vietnamese caption (expected)"
+            if inside
+            else "OUTSIDE the place of the Vietnamese caption"
+        )
         rows.append(f"{found.at_ms} ms: text band at x={x} y={y} w={w} h={h}, {where}")
     return wrap_untrusted("\n".join(rows))
 

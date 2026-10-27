@@ -473,3 +473,111 @@ async def test_an_agent_that_gives_up_during_a_rerun_is_written_on_the_run_too(
     (reason,) = row(run)["record"]["reasons"]
     assert reason.startswith("UnexpectedModelBehavior: ")
     assert not run.has(OUTPUT) and not run.has(REVIEW)
+
+
+# --- a review that cannot be made, and failures before the layout -----------------------
+
+
+async def test_a_review_that_cannot_be_made_keeps_the_render_for_a_person(
+    temporal_client: Client,
+) -> None:
+    """The video exists and nobody could judge it (model, provider or OCR failed): it goes
+    to `review/` with the reason, never to `output/` and never thrown away."""
+    run = Run()
+    run.reviewing = ReviewFakes(
+        fail_on={
+            ("review_render", 1): ApplicationError(
+                "the verdict never validated", type="UnexpectedModelBehavior", non_retryable=True
+            )
+        }
+    )
+    await run_workflow(temporal_client, run)
+    assert run.result.publish.outcome == "needs_human"
+    assert run.has(REVIEW) and not run.has(OUTPUT)
+    assert row(run)["status"] == "needs_human" and row(run)["needs_human"] is True
+    assert row(run)["record"]["verdict"] is None
+    (reason,) = row(run)["record"]["reasons"]
+    assert reason.startswith("the review could not be made: UnexpectedModelBehavior: ")
+    assert run.reviewing.store.get_bytes(REVIEW, produced_by="test").startswith(b"mp4:")
+
+
+async def test_a_review_that_fails_on_both_attempts_is_kept_for_a_person_too(
+    temporal_client: Client,
+) -> None:
+    run = Run()
+    run.reviewing = ReviewFakes(
+        fail_on={
+            ("review_render", 1): RuntimeError("429 from the provider"),
+            ("review_render", 2): RuntimeError("429 from the provider"),
+        }
+    )
+    await run_workflow(temporal_client, run)
+    assert run.reviewing.calls["review_render"] == 2
+    assert run.result.publish.outcome == "needs_human"
+    assert run.has(REVIEW) and not run.has(OUTPUT)
+
+
+async def test_a_review_that_cannot_be_made_in_the_second_round_keeps_the_second_render(
+    temporal_client: Client,
+) -> None:
+    run = Run()
+    run.reviewing = ReviewFakes(
+        verdicts=[verdict(issue("dub", "rushed", segment_id=1))],
+        fail_on={
+            ("review_render", 2): ApplicationError(
+                "no usable answer", type="UnexpectedModelBehavior", non_retryable=True
+            )
+        },
+    )
+    await run_workflow(temporal_client, run)
+    assert run.result.publish.outcome == "needs_human"
+    assert run.reviewing.store.get_bytes(REVIEW, produced_by="test") == b"mp4:" + (
+        run.reviewing.layouts[1]["sha"].encode()
+    )
+    reasons = " ".join(row(run)["record"]["reasons"])
+    assert "did not pass after 1 round(s)" in reasons and "could not be made" in reasons
+
+
+async def test_a_localizer_that_gives_up_on_the_first_pass_is_written_on_the_run(
+    temporal_client: Client,
+) -> None:
+    from tests.support.localizer_fakes import ScriptedModel, translate_all
+
+    run = Run()
+    run.localizing = LocalizerFakes(
+        model=ScriptedModel(answers=(lambda ids: translate_all(ids[:-1]),))
+    )
+    await run_workflow(temporal_client, run)
+    assert isinstance(run.outcome, BaseException)
+    assert row(run)["status"] == "failed" and row(run)["needs_human"] is False
+    (reason,) = row(run)["record"]["reasons"]
+    assert reason.startswith("UnexpectedModelBehavior: ")
+    assert run.reviewing.calls["layout_captions"] == 0
+    assert not run.has(OUTPUT) and not run.has(REVIEW)
+
+
+async def test_a_permanent_speech_error_is_written_on_the_run(temporal_client: Client) -> None:
+    run = Run()
+    run.dubbing = DubFakes(
+        fail_on={
+            ("synthesize_segments", 1): ApplicationError(
+                "the voice does not exist", type="PermanentProviderError", non_retryable=True
+            )
+        }
+    )
+    await run_workflow(temporal_client, run)
+    assert isinstance(run.outcome, BaseException)
+    assert row(run)["status"] == "failed"
+    (reason,) = row(run)["record"]["reasons"]
+    assert reason.startswith("PermanentProviderError: ")
+    assert run.reviewing.calls["layout_captions"] == 0
+
+
+async def test_a_failure_before_the_localizer_is_written_on_the_run_too(
+    temporal_client: Client,
+) -> None:
+    run = Run()
+    run.prep = PrepFakes(lose_vocals_on_ingest_runs={1, 2})
+    await run_workflow(temporal_client, run)
+    assert isinstance(run.outcome, BaseException)
+    assert row(run)["status"] == "failed"

@@ -81,10 +81,14 @@ def make_video(path: Path, *, width: int = WIDTH, height: int = HEIGHT) -> None:
 @dataclass
 class Ocr:
     box: BBox | None = None
+    # Raised instead of answering (an answer that is not a box).
+    fail: Exception | None = None
     asked: list[tuple[int, int, bytes]] = field(default_factory=list)
 
     async def detect_region(self, frame_png: bytes, width: int, height: int) -> BBox | None:
         self.asked.append((width, height, frame_png))
+        if self.fail is not None:
+            raise self.fail
         return self.box
 
 
@@ -294,7 +298,7 @@ async def test_the_ocr_is_asked_about_a_frame_at_the_videos_own_size(store: Obje
     assert [(w, h) for w, h, _ in ocr.asked] == [(WIDTH, HEIGHT)] * 2
     assert all(frame.startswith(b"\xff\xd8") for _, _, frame in ocr.asked)
     report = tool_text(scripted.seen[-1])
-    assert report.count("inside the cover") == 2
+    assert report.count("inside the place of the Vietnamese caption") == 2
 
 
 async def test_text_the_ocr_finds_outside_the_cover_is_reported_as_residue(
@@ -303,7 +307,19 @@ async def test_text_the_ocr_finds_outside_the_cover_is_reported_as_residue(
     ocr = Ocr(box=BBox(x=10, y=40, w=200, h=40))
     scripted = Scripted(calls=[("residual_source_text", {"times_ms": [500]})])
     await review(activity(store, scripted, ocr))
-    assert "OUTSIDE the cover" in tool_text(scripted.seen[-1])
+    assert "OUTSIDE the place of the Vietnamese caption" in tool_text(scripted.seen[-1])
+
+
+async def test_an_ocr_that_cannot_read_a_frame_does_not_end_the_review(
+    store: ObjectStore,
+) -> None:
+    from localization.providers.errors import PermanentProviderError
+
+    ocr = Ocr(fail=PermanentProviderError("ocr: unexpected response shape"))
+    scripted = Scripted(calls=[("residual_source_text", {"times_ms": [500, 1500]})])
+    verdict = await review(activity(store, scripted, ocr))
+    assert verdict.passed is True
+    assert tool_text(scripted.seen[-1]).count("could not check this frame") == 2
 
 
 # --- what it leaves behind and how it fails ---------------------------------------------
