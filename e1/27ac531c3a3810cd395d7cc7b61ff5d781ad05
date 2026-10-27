@@ -1,0 +1,23 @@
+services/localization/tests/providers/test_llm_timeout.py
+  s_0b729cf0d034d3::t_c7d17a9cab0fec 1-106,108
+  s_0b729cf0d034d3::t_6490c3d5c86eaa 107
+services/localization/src/localization/providers/llm.py
+  s_0b729cf0d034d3::t_6490c3d5c86eaa 18-21
+  s_0b729cf0d034d3::t_8c93d5e2be1c1b 4,13-17,22,24-27,31,37-41,55-59,63-64,66
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e127ac531c3a3810cd395d7cc7b61ff5d781ad05",
+  "prompts": {},
+  "sessions": {
+    "s_0b729cf0d034d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9aa1a711-c362-45ab-8e48-1a9b19f8df48",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
