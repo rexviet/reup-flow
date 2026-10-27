@@ -171,3 +171,32 @@ async def test_a_clean_script_does_not_ask_for_a_person(store: ObjectStore) -> N
     result = await assemble(store, lines((0, "Chào mọi người"), (1, "Tạm biệt")))
     assert result.needs_human is False
     assert result.flagged_segment_ids == ()
+
+
+async def test_the_stored_slot_extends_through_the_silence_that_follows(
+    store: ObjectStore,
+) -> None:
+    put_video(store, [seg(0, "甲", 0), seg(1, "乙", 2500), seg(2, "丙", 8000)])
+    result = await assemble(store, lines((0, "a"), (1, "b"), (2, "c")))
+    script = LocalizedScript.model_validate_json(
+        store.get_bytes(result.script.script_key, produced_by="x")
+    )
+    # Each segment is 1500 ms long. The first has 1000 ms of quiet before the next; the
+    # second's would be 4 s, capped at 1500 past its end; the last has only 500 ms of
+    # video left after its end.
+    assert [s.slot_ms for s in script.segments] == [2500, 3000, 2000]
+
+
+async def test_the_slot_the_model_is_shown_is_the_slot_the_script_stores(
+    store: ObjectStore,
+) -> None:
+    from localization.activities.glossary import GlossaryStore
+    from localization.activities.localizer_ports import StorePorts
+
+    put_video(store, [seg(0, "甲", 0), seg(1, "乙", 2500), seg(2, "丙", 8000)])
+    shown = [s.slot_ms for s in await StorePorts(store, GlossaryStore("")).segments(TRANSCRIPT_KEY)]
+    result = await assemble(store, lines((0, "a"), (1, "b"), (2, "c")))
+    script = LocalizedScript.model_validate_json(
+        store.get_bytes(result.script.script_key, produced_by="x")
+    )
+    assert shown == [s.slot_ms for s in script.segments] == [2500, 3000, 2000]

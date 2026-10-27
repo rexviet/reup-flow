@@ -16,7 +16,7 @@ from temporalio.client import Client, WorkflowFailureError
 from localization.activities.assemble_script import AssembleScriptActivity
 from localization.activities.glossary import GlossaryStore
 from localization.activities.localizer_ports import StorePorts
-from localization.agents.localizer import SaveResult, SegmentView
+from localization.agents.localizer import FITTING_REQUEST_BUDGET, SaveResult, SegmentView
 from localization.agents.temporal import MAX_SEGMENTS, USAGE_LIMITS
 from localization.contracts import (
     LocalizationResult,
@@ -28,7 +28,13 @@ from localization.contracts import (
 from localization.contracts.models import SttSegment
 from localization.storage.object_store import ArtifactMissingError, ObjectStore, work_key
 from tests.support.inputs import make_input
-from tests.support.localizer_fakes import FakePorts, LocalizerFakes, ScriptedModel, translate_all
+from tests.support.localizer_fakes import (
+    FakePorts,
+    LocalizerFakes,
+    ScriptedModel,
+    StubbornModel,
+    translate_all,
+)
 from tests.support.prep_fakes import PrepFakes
 from tests.support.prep_worker import prep_workers
 
@@ -377,8 +383,8 @@ async def test_the_script_joins_the_lines_to_the_transcripts_timing_and_text(
         (s.id, s.start_ms, s.end_ms, s.slot_ms, s.src_zh, s.text_vi, s.on_screen)
         for s in script.segments
     ] == [
-        (0, 0, 1800, 1800, "大家好", "bản dịch số 0", False),
-        (1, 2000, 3800, 1800, "今天我们来看看这个新手机", "bản dịch số 1", True),
+        (0, 0, 1800, 2000, "大家好", "bản dịch số 0", False),
+        (1, 2000, 3800, 2000, "今天我们来看看这个新手机", "bản dịch số 1", True),
     ]
 
 
@@ -442,3 +448,52 @@ async def test_a_contact_the_source_itself_carries_does_not_flag_the_run(
     _, result = await run_workflow(temporal_client, PrepFakes(), localizing)
     assert isinstance(result, LocalizationResult), result
     assert result.script is not None and result.script.needs_human is False
+
+
+# --- a transcript whose alignment collapsed ------------------------------------------
+
+COLLAPSED = [
+    (31, 1517, "请不吝点赞订阅"),
+    (3464, 3504, "转发"),
+    (10731, 10952, "打赏支持明镜与点点栏目"),
+]
+
+
+def _write_collapsed(store: ObjectStore) -> None:
+    segments = tuple(
+        SttSegment(id=i, start_ms=a, end_ms=b, text=t) for i, (a, b, t) in enumerate(COLLAPSED)
+    )
+    doc = TranscriptDocument(language="zh", duration_ms=11_200, segments=segments, words=())
+    store.put_bytes(TRANSCRIPT_KEY, doc.model_dump_json().encode())
+    subs = SubtitleDocument(width=1080, height=1920, region=None, cues=())
+    store.put_bytes(SUBTITLE_KEY, subs.model_dump_json().encode())
+
+
+async def test_a_transcript_with_impossible_slots_still_yields_a_script_for_every_segment(
+    temporal_client: Client, object_store: ObjectStore, glossary_db
+) -> None:
+    """Forced alignment collapsed on music: the second segment is 40 ms long. The model
+    checks lengths forever; the run must still end with every line in the script, each
+    in the slot the model was shown."""
+    info, _ = glossary_db
+    _write_collapsed(object_store)
+    stubborn = StubbornModel()
+    localizing = LocalizerFakes(
+        ports=StorePorts(object_store, GlossaryStore(info)),
+        model=stubborn,
+        assemble=AssembleScriptActivity(object_store).assemble_script,
+    )
+    started = time.monotonic()
+    _, result = await run_workflow(temporal_client, PrepFakes(segment_count=3), localizing)
+    assert isinstance(result, LocalizationResult), result
+    assert time.monotonic() - started < 20
+    script = LocalizedScript.model_validate_json(
+        object_store.get_bytes(SCRIPT_KEY, produced_by="x")
+    )
+    assert [(s.id, s.src_zh) for s in script.segments] == [
+        (i, t) for i, (_, _, t) in enumerate(COLLAPSED)
+    ]
+    # 31-1517 borrows to 3017 (cap), 3464-3504 gets 1500 past its end, the last has the
+    # floor because the video ends at 11.2 s.
+    assert [s.slot_ms for s in script.segments] == [2986, 1540, 1000]
+    assert stubborn.requests <= FITTING_REQUEST_BUDGET + 1

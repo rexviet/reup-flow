@@ -12,7 +12,11 @@ import asyncio
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from localization.activities.localizer_ports import read_subtitle_document, read_transcript_document
+from localization.activities.localizer_ports import (
+    read_subtitle_document,
+    read_transcript_document,
+    transcript_slots,
+)
 from localization.activities.persist import put_json
 from localization.agents.localizer import PROMPT_VERSION
 from localization.contracts import (
@@ -55,7 +59,7 @@ def build_script(
     spans = [(c.start_ms, c.end_ms) for c in cues]
     segments: list[LocalizedSegment] = []
     flagged: list[int] = []
-    for seg in transcript.segments:
+    for seg, slot in zip(transcript.segments, transcript_slots(transcript), strict=True):
         text = by_id[seg.id]
         if not text:
             raise ApplicationError(
@@ -68,7 +72,7 @@ def build_script(
                 id=seg.id,
                 start_ms=seg.start_ms,
                 end_ms=seg.end_ms,
-                slot_ms=seg.end_ms - seg.start_ms,
+                slot_ms=slot,
                 src_zh=seg.text,
                 text_vi=text,
                 on_screen=any(a < seg.end_ms and seg.start_ms < b for a, b in spans),

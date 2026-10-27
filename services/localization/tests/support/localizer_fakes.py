@@ -147,6 +147,31 @@ class ScriptedModel:
 
 
 @dataclass
+class StubbornModel:
+    """Checks the length of its lines again and again for as long as the tool is
+    offered, as a model does when a line cannot meet its slot, and answers only when
+    there is nothing left to call. Counts its requests and the length checks it made."""
+
+    requests: int = 0
+    checks: int = 0
+    seen_messages: list[list[ModelMessage]] = field(default_factory=list)
+
+    def model(self) -> FunctionModel:
+        async def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+            self.requests += 1
+            self.seen_messages.append(messages)
+            if any(t.name == "estimate_duration" for t in info.function_tools):
+                self.checks += 1
+                return ModelResponse(
+                    parts=[ToolCallPart("estimate_duration", {"texts": ["chữ ngắn nhất"]})]
+                )
+            payload = {"lines": translate_all(_ids_from_prompt(messages))}
+            return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, payload)])
+
+        return FunctionModel(respond, model_name="stubborn-localizer")
+
+
+@dataclass
 class LocalizerFakes:
     """`ports` is a `FakePorts` or the real `StorePorts`. `assemble` is the real
     activity when a test wants the script written to a (moto) object store; without

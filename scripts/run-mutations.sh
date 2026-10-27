@@ -99,7 +99,7 @@ harness_dir() {
 # usage limit, lost-input rerun once, worker wiring; then the conversation size
 # guard and segment cap, glossary provenance, wrapped stored term, voice rate bounds,
 # number edge cases, voice-rate scaling by speed and bound, retryable bad reading,
-# conversation margin): +57, +2.
+# conversation margin, length-check cap, answer-only budget, slot extension): +64, +2.
 # `localization:06` (dubbing: a TTS hash is sent at most once (the cache, the plan's
 # de-duplication, each part of the hash, the write after the answer), the Dubber's tts
 # tool pinned to the tts queue, its clamp / rewrite limit / output check / untrusted
@@ -137,7 +137,7 @@ downloader:11:5:0
 downloader:12:1:0
 localization:03:11:2
 localization:04:47:2
-localization:05:57:2
+localization:05:64:2
 localization:06:61:3
 localization:08:55:2
 renderer:07:65:5

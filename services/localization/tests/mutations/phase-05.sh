@@ -45,6 +45,7 @@ ASSEMBLE=src/localization/activities/assemble_script.py
 PORTS=src/localization/activities/localizer_ports.py
 WORKFLOW=src/localization/workflows/video_localization.py
 RUN=src/localization/workers/run.py
+SLOTS=src/localization/text/slots.py
 
 T_LOC=tests/agents/test_localizer.py
 T_WF=tests/agents/test_localizer_workflow.py
@@ -59,7 +60,7 @@ T_SAFETY=tests/text/test_safety.py
 T_WIRING=tests/workers/test_agent_wiring.py
 T_REPLAY=tests/replay/test_replay.py
 
-mp_init "$AGENT" "$TEMPORAL" "$GLOSSARY" "$SAFETY" "$SYLLABLES" "$VOICE_RATE" "$ASSEMBLE" "$PORTS" \
+mp_init "$SLOTS" "$AGENT" "$TEMPORAL" "$GLOSSARY" "$SAFETY" "$SYLLABLES" "$VOICE_RATE" "$ASSEMBLE" "$PORTS" \
   "$WORKFLOW" "$RUN"
 MP_TEST_CMD=(uv run pytest -q -p no:cacheprovider)
 MP_TIMEOUT_SECONDS=${MP_TIMEOUT_SECONDS:-240}
@@ -450,6 +451,43 @@ apply_mutation "$TEMPORAL" 'MAX_CONVERSATION_BYTES = MAX_PAYLOAD_BYTES * 3 // 4'
   && expect_red "$T_GUARD" \
     "test_a_conversation_over_the_guard_limit_but_under_the_payload_limit_is_refused" \
     "test_the_guard_leaves_a_margin_for_what_a_request_carries_besides_messages"
+restore
+
+# --- a run always ends: length checks are capped, and a slot is what the line really has -------------------
+mp_mutation "length checks are unlimited"
+apply_mutation "$AGENT" '    if earlier > MAX_ESTIMATE_CALLS:' '    if False:' \
+  && expect_red "$T_LOC" "test_the_first_length_checks_are_measured_and_later_ones_are_not"
+restore
+
+mp_mutation "the agent is never limited to its answer, so a model that keeps checking never finishes"
+apply_mutation "$AGENT" '        if ctx.usage.requests < FITTING_REQUEST_BUDGET:' '        if True:' \
+  && expect_red "$T_LOC -k keeps_checking_lengths" \
+    "test_a_model_that_keeps_checking_lengths_still_ends_with_a_complete_answer"
+restore
+
+mp_mutation "a segment is offered only its own span, not the silence after it"
+apply_mutation "$SLOTS" '        limit = end + MAX_EXTENSION_MS' '        limit = end' \
+  && expect_red "tests/text/test_slots.py" "test_a_segment_borrows_the_silence_up_to_the_next_one"
+restore
+
+mp_mutation "the silence a segment may borrow is not capped"
+apply_mutation "$SLOTS" $'            limit = min(limit, max(following, end))' $'            limit = max(following, end)' \
+  && expect_red "tests/text/test_slots.py" "test_the_extension_is_capped_so_one_long_silence_is_not_given_to_one_line"
+restore
+
+mp_mutation "a collapsed segment gets a slot of a few milliseconds"
+apply_mutation "$SLOTS" '        out.append(max(MIN_SLOT_MS, limit - start))' '        out.append(limit - start)' \
+  && expect_red "tests/text/test_slots.py" "test_a_segment_collapsed_to_a_few_milliseconds_still_gets_a_usable_slot"
+restore
+
+mp_mutation "the script stores the segment's own span as its slot"
+apply_mutation "$ASSEMBLE" '                slot_ms=slot,' '                slot_ms=seg.end_ms - seg.start_ms,' \
+  && expect_red "$T_ASSEMBLE" "test_the_stored_slot_extends_through_the_silence_that_follows"
+restore
+
+mp_mutation "the model is shown the segment's own span while the script stores the extended slot"
+apply_mutation "$PORTS" '            SegmentView(s.id, s.start_ms, s.end_ms, s.text, slot)' '            SegmentView(s.id, s.start_ms, s.end_ms, s.text)' \
+  && expect_red "$T_ASSEMBLE" "test_the_slot_the_model_is_shown_is_the_slot_the_script_stores"
 restore
 
 # --- controls: changes that must NOT matter ------------------------------------------------------------------------

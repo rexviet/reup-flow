@@ -11,6 +11,8 @@ from pydantic_ai.exceptions import UnexpectedModelBehavior
 
 from localization.agents.localizer import (
     ESTIMATE_BATCH,
+    FITTING_REQUEST_BUDGET,
+    MAX_ESTIMATE_CALLS,
     READ_PAGE,
     UNTRUSTED_CLOSE,
     UNTRUSTED_OPEN,
@@ -23,7 +25,12 @@ from localization.agents.localizer import (
     wrap_untrusted,
 )
 from localization.contracts import LocalizedLine, LocalizedLines
-from tests.support.localizer_fakes import FakePorts, ScriptedModel, translate_all
+from tests.support.localizer_fakes import (
+    FakePorts,
+    ScriptedModel,
+    StubbornModel,
+    translate_all,
+)
 
 
 def deps(count: int = 2, **overrides) -> LocalizerDeps:
@@ -292,3 +299,47 @@ async def test_estimate_duration_refuses_a_list_it_would_have_cut_short(ports: F
     await agent.run(prompt_for(2), deps=deps(2))
     feedback = json.dumps([str(m) for m in model.seen_messages[-1]], ensure_ascii=False)
     assert f"at most {ESTIMATE_BATCH} texts" in feedback
+
+
+async def test_a_model_that_keeps_checking_lengths_still_ends_with_a_complete_answer(
+    ports: FakePorts,
+) -> None:
+    stubborn = StubbornModel()
+    agent = build_localizer(stubborn.model())
+    result = await agent.run(prompt_for(2), deps=deps(2))
+    assert [line.id for line in result.output.lines] == [0, 1]
+    assert stubborn.requests <= FITTING_REQUEST_BUDGET + 1
+    # After the allowed checks the tool no longer measures: it says to finalise.
+    replies = json.dumps([str(m) for m in stubborn.seen_messages[-1]], ensure_ascii=False)
+    assert "No more length checks" in replies
+    assert replies.count("syllables,") <= MAX_ESTIMATE_CALLS
+
+
+async def test_the_first_length_checks_are_measured_and_later_ones_are_not(
+    ports: FakePorts,
+) -> None:
+    model = ScriptedModel(
+        tool_calls=(("estimate_duration", {"texts": ["a"]}),) * (MAX_ESTIMATE_CALLS + 2),
+        answers=(translate_all,),
+    )
+    agent = build_localizer(model.model())
+    await agent.run(prompt_for(2), deps=deps(2))
+    returns = [
+        str(part.content)
+        for message in model.seen_messages[-1]
+        for part in getattr(message, "parts", [])
+        if getattr(part, "part_kind", None) == "tool-return"
+        and part.tool_name == "estimate_duration"
+    ]
+    assert len(returns) == MAX_ESTIMATE_CALLS + 2
+    assert all("syllables" in r for r in returns[:MAX_ESTIMATE_CALLS])
+    assert all("No more length checks" in r for r in returns[MAX_ESTIMATE_CALLS:])
+
+
+async def test_the_slot_shown_to_the_model_is_the_one_the_port_reports(ports: FakePorts) -> None:
+    ports.segment_list = [
+        SegmentView(0, 0, 40, "转发", 1540),
+        SegmentView(1, 3000, 4000, "好", 1500),
+    ]
+    text = await _tool("read_transcript", {})
+    assert "[0] 0-40 ms, slot 1540 ms, up to 6 syllables" in text

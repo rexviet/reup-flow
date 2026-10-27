@@ -8,6 +8,7 @@ from localization.activities.glossary import GlossaryStore
 from localization.agents.localizer import SaveResult, SegmentView, TermView
 from localization.contracts import SubtitleDocument, TranscriptDocument
 from localization.storage.object_store import ObjectStore
+from localization.text.slots import slots_ms
 
 
 def read_transcript_document(store: ObjectStore, key: str) -> TranscriptDocument:
@@ -25,6 +26,12 @@ def read_transcript_document(store: ObjectStore, key: str) -> TranscriptDocument
     return doc.model_copy(update={"segments": segments})
 
 
+def transcript_slots(doc: TranscriptDocument) -> list[int]:
+    """The slot of each segment of `doc`, in order: what the model is shown and what
+    the script stores."""
+    return slots_ms([(s.start_ms, s.end_ms) for s in doc.segments], doc.duration_ms)
+
+
 def read_subtitle_document(store: ObjectStore, key: str) -> SubtitleDocument:
     return SubtitleDocument.model_validate_json(
         store.get_bytes(key, produced_by="detect_subtitles")
@@ -38,7 +45,11 @@ class StorePorts:
 
     async def segments(self, transcript_key: str) -> Sequence[SegmentView]:
         doc = await asyncio.to_thread(read_transcript_document, self._store, transcript_key)
-        return [SegmentView(s.id, s.start_ms, s.end_ms, s.text) for s in doc.segments]
+        slots = transcript_slots(doc)
+        return [
+            SegmentView(s.id, s.start_ms, s.end_ms, s.text, slot)
+            for s, slot in zip(doc.segments, slots, strict=True)
+        ]
 
     async def on_screen_spans(self, subtitle_key: str) -> Sequence[tuple[int, int]]:
         doc = await asyncio.to_thread(read_subtitle_document, self._store, subtitle_key)

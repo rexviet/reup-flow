@@ -179,3 +179,15 @@ Workflow dừng ở bước 2.
 - Trần 150 segment chỉ chặn sau khi ingest, demucs, STT, OCR và `voice_rate` đã chạy; chưa có cổng sớm theo thời lượng.
 - Các đường fail mới (trần segment, chặn kích thước) ném trong code workflow mà không có `workflow.patched`: một run đang chạy dở mà vượt trần sẽ lệch khi replay. Chưa có run thật nào nên chưa xảy ra; cần cổng khi có.
 - Số có chữ số 0 đứng đầu đọc từng chữ số ("05" trong ngày giờ thành "không năm"), dư một âm tiết so với lời nói; ước lượng nghiêng về phía dài, hướng an toàn.
+
+## Sau lần chạy thật đầu tiên
+
+Lỗi: transcript từ whisperx có slot không thể đạt (căn chỉnh ép sụp trên nhạc: segment 40 ms với 1 âm tiết). Agent gọi `estimate_duration` hơn 50 lần liên tiếp để rút ngắn dòng, không bao giờ trả kết quả, và hội thoại chạm chặn kích thước (PayloadTooLarge) sau 55 request.
+
+**Đã sửa**
+- `estimate_duration` tối đa `MAX_ESTIMATE_CALLS` = 6 lần mỗi run (đếm từ lịch sử tin nhắn nên xác định và an toàn khi replay); quá số đó tool không đo nữa mà bảo trả kết quả cuối ngay.
+- Sau `FITTING_REQUEST_BUDGET` = 20 model request, agent chỉ còn được đưa ra câu trả lời (không còn tool nào): một run luôn kết thúc bằng kết quả, không bằng lỗi. Giới hạn 60 request của run vẫn là lưới an toàn cuối.
+- INSTRUCTIONS nói số lần kiểm tra bị giới hạn, khuyên kiểm nhiều dòng một lần, và dòng nào không vừa sau một hai lần thử thì giữ bản ngắn nhất tự nhiên (sẽ bị đánh dấu vượt slot).
+- Đánh dấu vượt slot là việc của bước lồng tiếng (`overflow_unresolved` từ `final_stretch`, đúng quy tắc của plan: chấp nhận đến giới hạn kéo giãn rồi đánh dấu), nên Localizer không thêm cờ và workflow không đổi: không cần `workflow.patched` và không ghi lại histories.
+
+**Quyết định về slot (đã chọn quy tắc đơn giản nhất):** slot của một segment là từ đầu segment đến đầu segment kế tiếp (đoạn cuối: đến hết video, `duration_ms` của transcript), nhưng tối đa 1500 ms sau khi segment tự kết thúc, và không bao giờ dưới 1000 ms (vài âm tiết). Một hàm duy nhất (`text/slots.py`) dùng cho cả slot hiển thị cho model (`read_transcript`) lẫn `LocalizedSegment.slot_ms` trong script, nên hai nơi không lệch. Hệ quả: `slot_ms` lưu trong script giờ là slot mở rộng, không còn là độ dài segment; các bước sau (lồng tiếng, review) đọc đúng giá trị này. Sàn 1000 ms có thể làm slot của một segment cực ngắn chồng lên đầu segment kế; bước lồng tiếng xử lý bằng giới hạn kéo giãn và cờ vượt slot.
