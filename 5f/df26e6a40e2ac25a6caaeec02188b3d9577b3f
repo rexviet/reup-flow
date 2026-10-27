@@ -1,0 +1,44 @@
+services/renderer/tests/edit-spec.contract.spec.ts
+  s_0b729cf0d034d3::t_bcb95c43300bd0 75,89-95
+scripts/run-mutations.sh
+  s_0b729cf0d034d3::t_9f026b3671b2b5 140
+  s_0b729cf0d034d3::t_50cb1943583261 120-121
+services/renderer/tests/mutations/phase-07.sh
+  s_0b729cf0d034d3::t_3cae3c90701502 294,303-332,447-469
+  s_0b729cf0d034d3::t_9f026b3671b2b5 299
+services/localization/src/localization/contracts/models.py
+  s_0b729cf0d034d3::t_f12cdc2de4c506 290-292,316-320
+  s_0b729cf0d034d3::t_26d692367f37a6 321
+services/localization/tests/activities/test_layout_captions.py
+  s_0b729cf0d034d3::t_fe237612816f70 398-399,418,420-426,461-464
+plans/261026-0147-video-localization-workflow/phase-07-captions-and-renderer.md
+  s_0b729cf0d034d3::t_c488bb42e34c49 153,156,172-175
+services/renderer/src/edit-spec.ts
+  s_0b729cf0d034d3::t_bcb95c43300bd0 56-60,74-81
+services/localization/src/localization/activities/layout_captions.py
+  s_0b729cf0d034d3::t_f12cdc2de4c506 41-46,297-298
+services/localization/tests/test_edit_spec_schema_drift.py
+  s_0b729cf0d034d3::t_b8c6392f0c3689 33
+  s_0b729cf0d034d3::t_4f5eb5d49f83e7 25-32,34
+services/renderer/src/activities/render.ts
+  s_0b729cf0d034d3::t_75144b04d68c0a 42-50,84,125-148,153-159,163-164,168,170-175,180-184,189-191,203,205,228-229,234,237,268,272-280,286-302,304,306-316
+  s_0b729cf0d034d3::t_d9e2d9a24d35aa 19-24,54-55,100-103,149-152,160-162,177-178,185-188,207-210,247-248,255-258,281-285
+services/renderer/tests/render.spec.ts
+  s_0b729cf0d034d3::t_d9e2d9a24d35aa 8-15,119-127,143-146,211-213,225-227,284-286,294-305,356-364,397-592,617-621,627,645-649,657-660,723-726
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5fdf26e6a40e2ac25a6caaeec02188b3d9577b3f",
+  "prompts": {},
+  "sessions": {
+    "s_0b729cf0d034d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9aa1a711-c362-45ab-8e48-1a9b19f8df48",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
