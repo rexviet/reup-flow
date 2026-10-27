@@ -511,7 +511,7 @@ apply_mutation "$RUN" $'                "llm", settings.llm_concurrency, activit
 restore
 
 mp_mutation "a worker starts without a reviewer model"
-apply_mutation "$RUN" $'    model_for("reviewer", settings)\n' \
+apply_mutation "$RUN" $'    model_for("reviewer", settings, llm_http)\n' \
   $'' \
   && expect_red "$T_WIRING" "test_the_agents_worker_refuses_to_start_without_a_reviewer_model"
 restore
