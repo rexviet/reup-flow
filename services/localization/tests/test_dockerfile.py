@@ -44,3 +44,23 @@ def test_the_image_installs_ffmpeg_and_does_not_run_as_root() -> None:
     assert any(i.startswith("RUN apt-get") and "ffmpeg" in i for i in instructions)
     users = [i for i in instructions if i.startswith("USER ")]
     assert users and users[-1] != "USER root"
+
+
+def test_every_worker_that_measures_captions_has_the_font_where_its_setting_says() -> None:
+    """The compose file is what decides the path inside a container: a font found on a
+    developer's checkout says nothing about it. The agents worker once started without
+    the font and failed its first review after the render."""
+    import yaml
+
+    root = Path(__file__).resolve().parents[3]
+    compose = yaml.safe_load((root / "docker-compose.yml").read_text())
+    for name in ("worker-agents", "worker-media"):
+        service = compose["services"][name]
+        setting = service["environment"]["CAPTION_FONT_PATH"]
+        path = setting.removeprefix("${CAPTION_FONT_PATH:-").removesuffix("}")
+        mounts = [v.split(":")[:2] for v in service["volumes"]]
+        assert any(
+            path.startswith(target.rstrip("/") + "/") and (root / source).is_dir()
+            for source, target in mounts
+        ), f"{name} has no mount that holds {path}"
+        assert (root / "assets/fonts" / Path(path).name).is_file()

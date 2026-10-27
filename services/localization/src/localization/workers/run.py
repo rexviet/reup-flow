@@ -31,7 +31,7 @@ from localization.activities.dub_script import DubScriptActivities
 from localization.activities.dubber_ports import StoreDubberPorts
 from localization.activities.glossary import GlossaryStore
 from localization.activities.ingest import IngestActivity
-from localization.activities.layout_captions import LayoutCaptionsActivity
+from localization.activities.layout_captions import FontMeter, LayoutCaptionsActivity
 from localization.activities.localizer_ports import StorePorts
 from localization.activities.persist import PersistActivity
 from localization.activities.publish import PublishActivity, RunStore
@@ -215,6 +215,18 @@ def runnable(specs: Sequence[QueueSpec]) -> list[QueueSpec]:
     return [s for s in specs if s.workflows or s.activities or s.plugins]
 
 
+def check_caption_font(path: str) -> None:
+    """The Jev review measures captions with the font the renderer draws with. A worker
+    without it would render a whole video and only then fail the review."""
+    try:
+        FontMeter(path).width("Aa", 32)
+    except OSError:
+        raise ConfigError(
+            f"CAPTION_FONT_PATH {path!r} is not a readable font file; the agents worker "
+            "needs the caption font mounted (./assets/fonts at /assets/fonts)"
+        ) from None
+
+
 def bind_agent_runtime(
     settings: Settings,
     store: ObjectStore,
@@ -232,8 +244,10 @@ def bind_agent_runtime(
     if settings.reviewer_mode == "llm":
         # The Reviewer's model is built per review; check now that it can be.
         model_for("reviewer", settings, llm_http)
-    elif settings.openrouter_api_key is None:
-        raise ConfigError("OPENROUTER_API_KEY is not set")
+    else:
+        if settings.openrouter_api_key is None:
+            raise ConfigError("OPENROUTER_API_KEY is not set")
+        check_caption_font(settings.caption_font_path)
     dubber_model = model_for("dubber", settings, llm_http)
     bind_model_factory(lambda: dubber_model, DUBBER_MODEL_ALIAS)
     if tts is not None:

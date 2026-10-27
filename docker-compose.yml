@@ -518,6 +518,12 @@ services:
       TTS_CONCURRENCY: ${TTS_CONCURRENCY:-2}
       LLM_CONCURRENCY: ${LLM_CONCURRENCY:-8}
       IO_CONCURRENCY: ${IO_CONCURRENCY:-2}
+      LOUDNESS_LUFS: ${LOUDNESS_LUFS:--14}
+      TRUE_PEAK_DBTP: ${TRUE_PEAK_DBTP:--1.5}
+      # The Jev review measures captions with the font the renderer draws with.
+      CAPTION_FONT_PATH: ${CAPTION_FONT_PATH:-/assets/fonts/BeVietnamPro-SemiBold.ttf}
+    volumes:
+      - ./assets/fonts:/assets/fonts:ro
     depends_on:
       temporal-namespace-init:
         condition: service_completed_successfully

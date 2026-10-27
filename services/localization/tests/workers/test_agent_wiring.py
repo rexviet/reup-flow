@@ -209,6 +209,27 @@ def test_the_jev_reviewer_needs_no_reviewer_model_but_does_need_the_openrouter_k
         bind_agent_runtime(configured.model_copy(update={"openrouter_api_key": None}), STORE)
 
 
+def test_the_jev_worker_refuses_to_start_without_the_caption_font(tmp_path: Path) -> None:
+    """A worker that starts without it renders a whole video and then fails its review."""
+    base = {
+        "loc_database_url": "postgresql://x/y",
+        "localizer_model": "some/model",
+        "reviewer_mode": "jev",
+        "openrouter_api_key": "k",
+    }
+    for font in (tmp_path / "absent.ttf", tmp_path):
+        with pytest.raises(ConfigError, match="CAPTION_FONT_PATH"):
+            bind_agent_runtime(_settings(**base, caption_font_path=str(font)), STORE)
+    broken = tmp_path / "broken.ttf"
+    broken.write_bytes(b"not a font")
+    with pytest.raises(ConfigError, match="CAPTION_FONT_PATH"):
+        bind_agent_runtime(_settings(**base, caption_font_path=str(broken)), STORE)
+    bind_agent_runtime(_settings(**base), STORE)  # the real font of the repo
+    # The vision reviewer measures no captions, so it does not need the font.
+    llm = {**base, "reviewer_mode": "llm", "reviewer_model": "vision/model"}
+    bind_agent_runtime(_settings(**llm, caption_font_path=str(tmp_path / "absent.ttf")), STORE)
+
+
 def test_the_mode_decides_which_reviewer_the_worker_builds() -> None:
     from localization.activities.review_render import ReviewRenderActivity
 
