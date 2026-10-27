@@ -197,3 +197,12 @@ Khác với plan:
   - Chưa làm: heartbeat khi một lô OCR chạy lâu (lô 8 request có thể bằng đúng `heartbeat_timeout`); G5 phải đo ở đúng kích thước 1024 px và JPEG đang dùng; video có metadata xoay chưa được xử lý; `persist_json` dùng chung queue `io` với `detect_subtitles`; `run_blocking` có thể in "Task exception was never retrieved" sau khi huỷ.
 - Chưa làm (có chủ đích): gộp band phụ đề liền kề khi phát hiện bị tách đôi (cần dữ liệu thật, sau G5); quyết định video không có tiếng (hiện `no_audio_track` là lỗi vĩnh viễn, cần chốt với sản phẩm); khoá phụ thuộc Demucs bằng file hash và bỏ `curl` khỏi image runtime; reset `dispatch_attempts` khi tăng generation (chưa có thủ tục tăng generation trong code, thêm vào thủ tục đó); huỷ activity anh em khi một activity lỗi không phục hồi được; kết nối Postgres dùng lại giữa các vòng.
 - CI job `localization` cài thêm `ffmpeg`.
+
+## Chi phí OCR (đo trên 6 frame thật)
+
+Frame 576x1024 JPEG, model `deepseek/deepseek-v4.1-flash` qua OpenRouter, đúng prompt của `VisionOcr`:
+- mặc định: completion token [290, 732, 816, 255, 3280, 5472], trung bình $0.001235 mỗi lần gọi, 2 trong 6 câu trả lời nằm ngoài frame;
+- `"reasoning": {"enabled": false}`: 16 completion token mỗi lần, trung bình $0.000067 mỗi lần gọi (rẻ hơn khoảng 18 lần), cả 6 box nằm trong frame;
+- `"reasoning": {"effort": "low"}`: vẫn 224 đến 7271 token, trung bình $0.002231, tệ hơn nên không dùng.
+
+Model tiêu hàng nghìn token suy luận để trả về JSON khoảng 25 token. Một lần chạy thật gọi OCR 55 lần cho một clip 23 s (46 trong `detect_subtitles`, 9 trong `review_render`), khoảng $0.10. Vì vậy mọi request OCR gửi `"reasoning": {"enabled": false}` và `"max_tokens": 200` (chỉ là chốt chặn cho câu trả lời chạy lan man), ở một chỗ duy nhất trong `providers/vision_ocr.py`. Câu trả lời rỗng hoặc bị cắt là trường hợp "không đọc được" cũ (lỗi vĩnh viễn, không retry). `SAMPLE_FPS` giữ 2.

@@ -38,6 +38,7 @@ RUN=src/localization/workers/run.py
 PERSIST=src/localization/activities/persist.py
 INGEST=src/localization/activities/ingest.py
 DEMUCS=src/localization/providers/demucs.py
+VISION_OCR=src/localization/providers/vision_ocr.py
 TRANSCRIBE=src/localization/activities/transcribe.py
 DETECT=src/localization/activities/detect_subtitles.py
 FFMPEG=src/localization/activities/ffmpeg.py
@@ -57,13 +58,14 @@ T_TRACING=tests/test_tracing.py
 T_DOCKER=tests/test_dockerfile.py
 T_SAFE=tests/test_demucs_safe.py
 T_SUPERVISE=tests/workers/test_supervise.py
+T_OCR=tests/providers/test_ocr_demucs_llm.py
 T_DEMUCS=tests/providers/test_demucs_runtime.py
 
-mp_init "$STARTER" "$WORKFLOW" "$RUN" "$PERSIST" "$INGEST" "$DEMUCS" "$TRANSCRIBE" "$DETECT" "$FFMPEG" "$TRACING" \
+mp_init "$STARTER" "$WORKFLOW" "$RUN" "$PERSIST" "$INGEST" "$DEMUCS" "$VISION_OCR" "$TRANSCRIBE" "$DETECT" "$FFMPEG" "$TRACING" \
   "$VOICES" "$DEMUCS_SAFE" "$DOCKERFILE" "$GRANTS"
 MP_TEST_CMD=(uv run pytest -q -p no:cacheprovider)
 
-mp_baseline "$T_START $T_GRANTS $T_PREP $T_CONC $T_REPLAY $T_VOICES $T_TRACING $T_DOCKER $T_SAFE $T_SUPERVISE $T_DEMUCS"
+mp_baseline "$T_START $T_GRANTS $T_PREP $T_CONC $T_REPLAY $T_VOICES $T_TRACING $T_DOCKER $T_SAFE $T_SUPERVISE $T_DEMUCS $T_OCR"
 
 # --- 1. the workflow id is no longer the video and the generation ---------------
 mp_mutation "the workflow id carries a random suffix instead of being deterministic"
@@ -409,6 +411,24 @@ apply_mutation "$DETECT" \
   '    left, top = max(0, region.x - dx), max(0, region.y - dy)' \
   '    left, top = region.x - dx, region.y - dy' \
   && expect_red "$T_PREP" "test_a_padded_region_stays_inside_the_frame_at_every_edge"
+restore
+
+# --- vision requests: answer only, capped (registered, not yet run) --------------------------------
+mp_mutation "OCR requests let the model reason before answering"
+apply_mutation "$VISION_OCR" \
+  '_ANSWER_ONLY = {"reasoning": {"enabled": False}, "max_tokens": 200}' \
+  '_ANSWER_ONLY = {"max_tokens": 200}' \
+  && expect_red "$T_OCR" "test_every_ocr_request_asks_for_an_answer_without_reasoning_and_caps_it"
+restore
+
+mp_mutation "OCR requests have no useful token cap"
+apply_mutation "$VISION_OCR" '"max_tokens": 200}' '"max_tokens": 20000}' \
+  && expect_red "$T_OCR" "test_every_ocr_request_asks_for_an_answer_without_reasoning_and_caps_it"
+restore
+
+mp_mutation "a null reply content crashes instead of being the unparseable case"
+apply_mutation "$VISION_OCR" 'TypeError, AttributeError, ValueError' 'TypeError, ValueError' \
+  && expect_red "$T_OCR" "test_an_empty_or_cut_off_reply_is_the_unparseable_case_not_a_crash"
 restore
 
 # --- control A: a constant that is not an invariant ------------------------------------------------------

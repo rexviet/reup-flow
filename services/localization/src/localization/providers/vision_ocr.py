@@ -15,6 +15,12 @@ _PROMPT = (
     '{"bbox": [a, b, c, d]} for the tightest box around the band, or {"bbox": null} when '
     "the frame has no burned-in subtitles."
 )
+# What every OCR request carries. The answer is about 16 tokens of JSON, but a
+# reasoning model left to itself spends hundreds to thousands of tokens thinking
+# first (measured on this prompt: 255 to 5472 completion tokens per call, about 18
+# times the cost of answering directly), and sometimes answers in another
+# resolution's pixels. Reasoning is off, and the cap only guards a runaway reply.
+_ANSWER_ONLY = {"reasoning": {"enabled": False}, "max_tokens": 200}
 _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$")
 
 
@@ -63,6 +69,7 @@ class VisionOcr:
             "/chat/completions",
             json={
                 "model": self._model,
+                **_ANSWER_ONLY,
                 "messages": [
                     {
                         "role": "user",
@@ -82,7 +89,8 @@ class VisionOcr:
             content = body["choices"][0]["message"]["content"]
             parsed = json.loads(_FENCE_RE.sub("", content.strip()))
             raw = parsed["bbox"]
-        except (KeyError, IndexError, TypeError, ValueError):
+        # An empty or cut-off reply is content that is missing, empty or not JSON.
+        except (KeyError, IndexError, TypeError, AttributeError, ValueError):
             raise PermanentProviderError("ocr: unexpected response shape") from None
         if raw is None:
             return None

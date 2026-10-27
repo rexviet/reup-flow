@@ -103,6 +103,44 @@ async def test_vision_ocr_unparseable_reply_is_permanent(
         await ocr.detect_region(b"x", 100, 100)
 
 
+async def test_every_ocr_request_asks_for_an_answer_without_reasoning_and_caps_it(
+    stub: StubServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stub.scenario = Scenario(json_body=_chat('{"bbox": null}'))
+    ocr = VisionOcr.from_settings(_ocr_settings(stub, monkeypatch, "xyxy_px"))
+    await ocr.detect_region(b"\xff\xd8x", 100, 100)
+    await ocr.detect_region(b"\x89PNGx", 100, 100)
+    assert len(stub.requests) == 2
+    for request in stub.requests:
+        body = json.loads(request.body)
+        assert body["reasoning"] == {"enabled": False}
+        assert body["max_tokens"] == 200
+        assert body["model"] == "vision/model"  # and the rest of the body is untouched
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "",  # nothing came back
+        None,  # a null message content
+        '{"bbox": [100, 800, 9',  # cut off by the token cap
+        '```json\n{"bbox": [100,',
+    ],
+)
+async def test_an_empty_or_cut_off_reply_is_the_unparseable_case_not_a_crash(
+    stub: StubServer, monkeypatch: pytest.MonkeyPatch, content: str | None
+) -> None:
+    """Permanent, so the activity fails without being retried: the same frame would
+    be answered the same way."""
+    stub.scenario = Scenario(
+        json_body={"choices": [{"message": {"content": content}, "finish_reason": "length"}]}
+    )
+    ocr = VisionOcr.from_settings(_ocr_settings(stub, monkeypatch, "xyxy_px"))
+    with pytest.raises(PermanentProviderError, match="unexpected response shape"):
+        await ocr.detect_region(b"x", 100, 100)
+    assert len(stub.requests) == 1  # no retry inside the provider
+
+
 def test_vision_ocr_refuses_to_build_without_a_bbox_format(
     stub: StubServer, monkeypatch: pytest.MonkeyPatch
 ) -> None:
