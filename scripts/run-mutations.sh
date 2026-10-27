@@ -95,7 +95,9 @@ harness_dir() {
 # grants: +47, +2. Then four for the subtitle region padding and time-based gap
 # bridging (registered, not yet run): +51, +2. Then three for the vision request's
 # answer-only mode and token cap (registered, not yet run): +54, +2. Then four for tolerating one malformed OCR
-# answer per frame while failing when most are (registered, not yet run): +58, +2.
+# answer per frame while failing when most are (registered, not yet run): +58, +2. Then, for the cover fitted to the text's
+# pixels (registered, not yet run): the two padding mutations are replaced and
+# seven added, +63, +2; renderer:07 gains one for the minimum cover width: 66.
 # `localization:05` (Localizer: output covers every segment, video text is data,
 # glossary first-writer-wins / cap / contact and digit guards, contacts needing a
 # person, syllable counting, voice rate key and cache, queue pinning, replay marker,
@@ -139,11 +141,11 @@ downloader:infra:22:2
 downloader:11:5:0
 downloader:12:1:0
 localization:03:11:2
-localization:04:58:2
+localization:04:63:2
 localization:05:64:2
 localization:06:61:3
 localization:08:55:2
-renderer:07:65:5
+renderer:07:66:5
 "
 
 # Files any harness in the set is allowed to touch. Checksummed before and after

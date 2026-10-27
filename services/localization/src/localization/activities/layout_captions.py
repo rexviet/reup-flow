@@ -51,9 +51,14 @@ from localization.storage.object_store import ObjectStore, work_key
 # Largest first: a caption is drawn as large as it can be and still fit in two lines.
 FONT_SIZES = (48, 44, 40, 36, 32)
 MAX_LINES = 2
-# The cover grows by this fraction of its width and height on each side, so a
-# burned-in line that the detector measured a little tight is still hidden.
-COVER_GROW = 0.06
+# The cover is the text's own box (already including its outline) plus this margin on
+# each side, as a fraction of the frame's width: 5 px at 1080, on top of the text
+# box's own outline margin (about 11 px), so about 16 px from the glyphs. The text box
+# is measured from the pixels, so this is a safety, not a correction.
+COVER_MARGIN_FRACTION = 0.005
+# A cover is at least this wide, centred where the text is, so a caption that is longer
+# than the burned-in line it replaces (Vietnamese usually is) still fits inside it.
+MIN_COVER_WIDTH_FRACTION = 0.6
 # Text stays this far (fraction of the box width) from the box's left and right edge.
 BOX_PADDING = 0.04
 # Where captions go when the video has no burned-in subtitle: x, y, w, h as
@@ -206,9 +211,15 @@ def _spread(start: int, end: int, weights: list[int]) -> list[tuple[int, int]]:
 
 
 def grow_cover(region: BBox, frame_w: int, frame_h: int) -> BBox:
-    dx, dy = round(region.w * COVER_GROW), round(region.h * COVER_GROW)
-    left, top = max(0, region.x - dx), max(0, region.y - dy)
-    right, bottom = min(frame_w, region.x + region.w + dx), min(frame_h, region.y + region.h + dy)
+    margin = round(COVER_MARGIN_FRACTION * frame_w)
+    left, top = max(0, region.x - margin), max(0, region.y - margin)
+    right = min(frame_w, region.x + region.w + margin)
+    bottom = min(frame_h, region.y + region.h + margin)
+    minimum = round(MIN_COVER_WIDTH_FRACTION * frame_w)
+    if right - left < minimum:
+        # Widened only as far as needed, around the same centre, and kept in the frame.
+        left = max(0, min(round((left + right - minimum) / 2), frame_w - minimum))
+        right = left + minimum
     return BBox(x=left, y=top, w=max(1, right - left), h=max(1, bottom - top))
 
 

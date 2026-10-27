@@ -142,9 +142,28 @@ def test_a_single_word_wider_than_the_box_is_kept_whole_at_the_smallest_size() -
 # --- the cover -------------------------------------------------------------------
 
 
-def test_the_cover_is_the_burned_in_region_grown_by_six_percent_on_each_side() -> None:
+def test_the_cover_is_the_text_box_plus_a_thin_margin_on_each_side() -> None:
     grown = grow_cover(BBox(x=100, y=1500, w=800, h=100), 1080, 1920)
-    assert (grown.x, grown.y, grown.w, grown.h) == (52, 1494, 896, 112)
+    assert (grown.x, grown.y, grown.w, grown.h) == (95, 1495, 810, 110)  # 5 px, not a percentage
+
+
+def test_a_narrow_burned_in_line_gets_a_cover_wide_enough_for_a_longer_caption() -> None:
+    # 200 px of text, centred at x=540: widened to 60% of the frame around the same centre.
+    grown = grow_cover(BBox(x=440, y=1500, w=200, h=60), 1080, 1920)
+    assert (grown.x, grown.w) == (216, 648)
+    assert grown.x + grown.w / 2 == 540
+    assert (grown.y, grown.h) == (1495, 70)  # the height is not touched
+
+
+def test_widening_a_narrow_cover_near_an_edge_keeps_it_inside_the_frame() -> None:
+    grown = grow_cover(BBox(x=20, y=1500, w=150, h=60), 1080, 1920)
+    assert (grown.x, grown.w) == (0, 648)
+    grown = grow_cover(BBox(x=900, y=1500, w=150, h=60), 1080, 1920)
+    assert grown.x + grown.w == 1080 and grown.w == 648
+
+
+def test_a_line_wider_than_the_minimum_is_not_widened() -> None:
+    assert grow_cover(BBox(x=100, y=1500, w=700, h=60), 1080, 1920).w == 710
 
 
 def test_the_cover_never_leaves_the_frame() -> None:

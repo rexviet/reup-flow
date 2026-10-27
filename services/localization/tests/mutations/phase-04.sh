@@ -39,6 +39,7 @@ PERSIST=src/localization/activities/persist.py
 INGEST=src/localization/activities/ingest.py
 DEMUCS=src/localization/providers/demucs.py
 VISION_OCR=src/localization/providers/vision_ocr.py
+PIXELS=src/localization/activities/subtitle_pixels.py
 REVIEW_RENDER=src/localization/activities/review_render.py
 TRANSCRIBE=src/localization/activities/transcribe.py
 DETECT=src/localization/activities/detect_subtitles.py
@@ -60,14 +61,15 @@ T_DOCKER=tests/test_dockerfile.py
 T_SAFE=tests/test_demucs_safe.py
 T_SUPERVISE=tests/workers/test_supervise.py
 T_OCR=tests/providers/test_ocr_demucs_llm.py
+T_PIXELS=tests/activities/test_subtitle_pixels.py
 T_REVIEW=tests/activities/test_review_render.py
 T_DEMUCS=tests/providers/test_demucs_runtime.py
 
-mp_init "$STARTER" "$WORKFLOW" "$RUN" "$PERSIST" "$INGEST" "$DEMUCS" "$VISION_OCR" "$REVIEW_RENDER" "$TRANSCRIBE" "$DETECT" "$FFMPEG" "$TRACING" \
+mp_init "$STARTER" "$WORKFLOW" "$RUN" "$PERSIST" "$INGEST" "$DEMUCS" "$VISION_OCR" "$REVIEW_RENDER" "$PIXELS" "$TRANSCRIBE" "$DETECT" "$FFMPEG" "$TRACING" \
   "$VOICES" "$DEMUCS_SAFE" "$DOCKERFILE" "$GRANTS"
 MP_TEST_CMD=(uv run pytest -q -p no:cacheprovider)
 
-mp_baseline "$T_START $T_GRANTS $T_PREP $T_CONC $T_REPLAY $T_VOICES $T_TRACING $T_DOCKER $T_SAFE $T_SUPERVISE $T_DEMUCS $T_OCR $T_REVIEW"
+mp_baseline "$T_START $T_GRANTS $T_PREP $T_CONC $T_REPLAY $T_VOICES $T_TRACING $T_DOCKER $T_SAFE $T_SUPERVISE $T_DEMUCS $T_OCR $T_REVIEW $T_PIXELS"
 
 # --- 1. the workflow id is no longer the video and the generation ---------------
 mp_mutation "the workflow id carries a random suffix instead of being deterministic"
@@ -392,7 +394,7 @@ restore
 mp_mutation "a gap in time is never bridged"
 apply_mutation "$DETECT" 'MAX_GAP_MS = 2000' 'MAX_GAP_MS = 0' \
   && expect_red "$T_PREP" \
-    "test_the_real_clip_is_one_cue_and_its_region_covers_the_whole_text" \
+    "test_the_real_clip_is_one_cue_over_the_text_box" \
     "test_a_gap_is_bridged_by_its_length_in_time_not_by_a_number_of_frames"
 restore
 
@@ -401,18 +403,6 @@ apply_mutation "$DETECT" \
   '        if (index - last - 1) * FRAME_INTERVAL_MS > MAX_GAP_MS:' \
   '        if (index - last - 1) * FRAME_INTERVAL_MS > MAX_GAP_MS * 1000:' \
   && expect_red "$T_PREP" "test_a_gap_is_bridged_by_its_length_in_time_not_by_a_number_of_frames"
-restore
-
-mp_mutation "the detected region is not padded vertically"
-apply_mutation "$DETECT" 'REGION_PAD_V = 0.30' 'REGION_PAD_V = 0.0' \
-  && expect_red "$T_PREP" "test_the_real_clip_is_one_cue_and_its_region_covers_the_whole_text"
-restore
-
-mp_mutation "the padded region is not clamped to the frame"
-apply_mutation "$DETECT" \
-  '    left, top = max(0, region.x - dx), max(0, region.y - dy)' \
-  '    left, top = region.x - dx, region.y - dy' \
-  && expect_red "$T_PREP" "test_a_padded_region_stays_inside_the_frame_at_every_edge"
 restore
 
 # --- vision requests: answer only, capped (registered, not yet run) --------------------------------
@@ -454,6 +444,47 @@ restore
 mp_mutation "the reviewer's text check swallows every OCR failure, not only a malformed answer"
 apply_mutation "$REVIEW_RENDER" '            except UnusableAnswer:' '            except Exception:' \
   && expect_red "$T_REVIEW" "test_an_ocr_that_is_broken_still_fails_the_review"
+restore
+
+# --- the cover fits the text, not the model's box (registered, not yet run) -----------------------
+mp_mutation "any pixel counts as text, so the box is the whole searched area"
+apply_mutation "$PIXELS" 'LIGHT_MIN = 215' 'LIGHT_MIN = 0' \
+  && expect_red "$T_PIXELS" "test_every_sloppy_box_is_fitted_to_the_same_tight_text_box"
+restore
+
+mp_mutation "the fallback pads the model's box by half its height"
+apply_mutation "$PIXELS" 'FALLBACK_PAD = 0.10' 'FALLBACK_PAD = 0.5' \
+  && expect_red "$T_PIXELS" "test_without_light_pixels_the_model_box_is_kept_with_a_ten_percent_pad"
+restore
+
+mp_mutation "the fitted box has no margin for the dark outline"
+apply_mutation "$PIXELS" \
+  '    margin = max(OUTLINE_MIN_PIXELS, math.ceil(OUTLINE_FRACTION * text_h))' '    margin = 0' \
+  && expect_red "$T_PIXELS" "test_every_sloppy_box_is_fitted_to_the_same_tight_text_box"
+restore
+
+mp_mutation "the text rows run from the first bright row to the last, specks included"
+apply_mutation "$PIXELS" \
+  '    first, last = max(runs, key=lambda run: sum(rows[run[0] : run[1] + 1]))' \
+  '    first, last = runs[0][0], runs[-1][1]' \
+  && expect_red "$T_PIXELS" "test_a_bright_bar_above_the_text_does_not_stretch_the_box"
+restore
+
+mp_mutation "marks apart from the line (dots under vowels) are not part of it"
+apply_mutation "$PIXELS" 'TAIL_GAP_FRACTION = 0.25' 'TAIL_GAP_FRACTION = 0.0' \
+  && expect_red "$T_PIXELS" "test_the_cover_for_the_real_clip_fits_the_text_not_the_models_box"
+restore
+
+mp_mutation "the detector uses the model's box without fitting it to the pixels"
+apply_mutation "$DETECT" \
+  '        return await asyncio.to_thread(refine, image, box), False' '        return box, False' \
+  && expect_red "$T_PIXELS" "test_the_cover_for_the_real_clip_fits_the_text_not_the_models_box"
+restore
+
+mp_mutation "the region is the narrowest line, not the union over lines"
+apply_mutation "$DETECT" \
+  '    x2 = max(b.x + b.w for b in members if b)' '    x2 = min(b.x + b.w for b in members if b)' \
+  && expect_red "$T_PIXELS" "test_the_union_over_lines_of_different_widths_spans_the_widest"
 restore
 
 # --- control A: a constant that is not an invariant ------------------------------------------------------

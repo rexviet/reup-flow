@@ -208,12 +208,17 @@ restore
 
 # --- the layout ---------------------------------------------------------------------------------------------
 mp_mutation "the cover is not grown"
-apply_mutation "$LAYOUT" 'dx, dy = round(region.w * COVER_GROW), round(region.h * COVER_GROW)' 'dx, dy = 0, 0' \
-  && expect_red "$P_LAYOUT" "test_the_cover_is_the_burned_in_region_grown_by_six_percent_on_each_side"
+apply_mutation "$LAYOUT" '    margin = round(COVER_MARGIN_FRACTION * frame_w)' '    margin = 0' \
+  && expect_red "$P_LAYOUT" "test_the_cover_is_the_text_box_plus_a_thin_margin_on_each_side"
+restore
+
+mp_mutation "a narrow burned-in line gets a cover as narrow as the line"
+apply_mutation "$LAYOUT" '    if right - left < minimum:' '    if False:' \
+  && expect_red "$P_LAYOUT" "test_a_narrow_burned_in_line_gets_a_cover_wide_enough_for_a_longer_caption"
 restore
 
 mp_mutation "the grown cover may leave the frame"
-apply_mutation "$LAYOUT" 'left, top = max(0, region.x - dx), max(0, region.y - dy)' 'left, top = region.x - dx, region.y - dy' \
+apply_mutation "$LAYOUT" 'left, top = max(0, region.x - margin), max(0, region.y - margin)' 'left, top = region.x - margin, region.y - margin' \
   && expect_red "$P_LAYOUT" "test_the_cover_never_leaves_the_frame"
 restore
 

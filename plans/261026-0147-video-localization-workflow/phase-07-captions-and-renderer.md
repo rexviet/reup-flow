@@ -173,3 +173,7 @@ Sáu mục Medium đầu và M7 đã sửa. Các guard mới có mutation đã �
 - `r0/source.mp4` luôn được sao chép lại nhưng spec không mang hash của nguồn: nguồn tải lại với hình khác mà cùng kích thước, fps, độ dài và cùng audio sẽ cho cùng spec và renderer trả mp4 cũ. Sửa đúng là đưa ETag hoặc sha256 của nguồn vào spec cùng `spec_version`.
 - Lỗi vĩnh viễn của layout và renderer (`UncoveredGlyphs`, `ImplausibleCover`, `VideoOutOfBounds`, `InvalidEditSpec`, `FontMismatch`, `RenderDeadline`) được định tuyến ở phase 08 (xem quyết định ở đó).
 - ffprobe: `avg_frame_rate` là `0/0` thì rơi về `r_frame_rate`, có thể là timebase kiểu `90000/1` và file hợp lệ bị từ chối là quá 120 fps; `nan`/`inf` trong `format.duration` ném lỗi retryable không bao giờ qua (lý thuyết, ffprobe in `N/A`). Có từ trước.
+
+## Cover khớp chữ
+
+`grow_cover` không còn tăng 6% mỗi phía: hộp phụ đề giờ đã được khớp với pixel chữ ở `detect_subtitles` (xem phase 04), nên cover chỉ cộng lề cố định 0.5% chiều rộng frame (5 px ở 1080) và rộng tối thiểu 60% chiều rộng frame, căn giữa quanh chữ (nới chỉ khi cần cho phụ đề Việt dài hơn dòng gốc). `check_cover_plausible` giữ nguyên (35% chiều cao, 40% diện tích). Mutation `renderer:07` thêm một mục cho chiều rộng tối thiểu, đã đăng ký, chưa chạy.

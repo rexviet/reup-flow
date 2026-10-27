@@ -206,3 +206,16 @@ Frame 576x1024 JPEG, model `deepseek/deepseek-v4.1-flash` qua OpenRouter, đúng
 - `"reasoning": {"effort": "low"}`: vẫn 224 đến 7271 token, trung bình $0.002231, tệ hơn nên không dùng.
 
 Model tiêu hàng nghìn token suy luận để trả về JSON khoảng 25 token. Một lần chạy thật gọi OCR 55 lần cho một clip 23 s (46 trong `detect_subtitles`, 9 trong `review_render`), khoảng $0.10. Vì vậy mọi request OCR gửi `"reasoning": {"enabled": false}` và `"max_tokens": 200` (chỉ là chốt chặn cho câu trả lời chạy lan man), ở một chỗ duy nhất trong `providers/vision_ocr.py`. Câu trả lời rỗng hoặc bị cắt là trường hợp "không đọc được" cũ (lỗi vĩnh viễn, không retry). `SAMPLE_FPS` giữ 2.
+
+## Hộp che phụ đề khớp với chữ (thay thế padding 30% / 3%)
+
+Padding 30% chiều cao và 3% chiều rộng (thêm sau lần chạy đầu) **bị thay thế**. Lý do: các con số đó chỉnh theo một clip, không đo trên chữ. Trên clip thật 1080x1920 (chữ khoảng 660 x 85 px, x 200-860, y 1296-1380) chúng chồng với `locate()` lấy hợp của box thô mọi frame và với `grow_cover` +6%, ra cover 219 px cao chạy tới mép phải, tức khoảng 2.6 lần chiều cao chữ.
+
+Quyết định:
+- `activities/subtitle_pixels.py` (`refine`) khớp box của model với chữ ngay trong `detect_subtitles`, trên chính ảnh JPEG đã gửi OCR, trước khi lấy hợp. Tìm trong box model nới 30% chiều cao và 5% chiều rộng, lấy các pixel sáng (kênh tối nhất >= 215), chọn cụm hàng có nhiều pixel nhất (gộp thêm dấu, chấm dưới nguyên âm trong khoảng 25% chiều cao dòng; thanh sáng xa hơn bị bỏ), rồi cột trong các hàng đó (bỏ đốm nhỏ), cộng lề viền đen `max(3 px, 12% chiều cao chữ)`.
+- Không đủ pixel sáng (phụ đề có màu, nền sáng): giữ box của model, nới 10% chiều cao mỗi phía, không bao giờ nhiều hơn.
+- Hợp qua các frame vẫn giữ (hộp ổn định tốt hơn hộp nhảy theo cue), nhưng là hợp của các box đã khớp chữ nên chỉ rộng bằng dòng thật rộng nhất.
+- `locate()` không còn padding. `layout_captions.grow_cover` thay 6% bằng lề cố định 0.5% chiều rộng frame (5 px ở 1080) quanh hộp chữ; cộng lề viền (khoảng 11 px) là khoảng 16 px tính từ nét chữ. Cover rộng tối thiểu 60% chiều rộng frame, căn giữa quanh đúng vị trí chữ, chỉ nới khi dòng gốc hẹp hơn (phụ đề Việt thường dài hơn); không nới khi dòng đã rộng hơn.
+- Trên frame tổng hợp (chữ 675 x 78 px tại 1080x1920, box của model cao quá, cụt đáy, chạy tới mép phải) cover ra 704 x 104 px, so với 219 px trước đây. `check_cover_plausible` giữ nguyên và chạy trên vùng đã khớp chữ.
+- Test dùng pixel thật (font `BeVietnamPro-SemiBold.ttf`, chữ trắng viền đen, nền gradient có nhiễu) ở 576x1024 và 1080x1920 với box lệch xuống, quá cao, quá rộng, cụt đáy. Mutation đã đăng ký, chưa chạy.
+- Giới hạn: ngưỡng sáng giả định chữ sáng viền tối. Chữ có màu hoặc trên nền sáng rơi về nhánh dự phòng (box model + 10%), có thể lệch như trước.
