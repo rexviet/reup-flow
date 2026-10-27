@@ -1,0 +1,34 @@
+services/localization/tests/activities/test_publish.py
+  s_0b729cf0d034d3::t_28893a263f1350 24-26,34
+services/localization/migrations/261028-llm-call-provider.down.sql
+  s_0b729cf0d034d3::t_ebc27e2f58e0a1 1-8
+services/localization/migrations/261028-llm-call-provider.sql
+  s_0b729cf0d034d3::t_ebc27e2f58e0a1 1-12
+services/localization/src/localization/observability/llm_calls.py
+  s_0b729cf0d034d3::t_ebc27e2f58e0a1 18-20,51
+services/localization/src/localization/observability/llm_usage.py
+  s_0b729cf0d034d3::t_ebc27e2f58e0a1 49-50,92
+services/localization/src/localization/providers/jev.py
+  s_0b729cf0d034d3::t_ebc27e2f58e0a1 101,121,131
+services/localization/tests/observability/test_llm_cost.py
+  s_0b729cf0d034d3::t_28893a263f1350 42,72
+  s_0b729cf0d034d3::t_1067e5022760b8 266-279
+services/localization/tests/providers/test_jev.py
+  s_0b729cf0d034d3::t_5e783b2bee6780 78
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4e7d9146e1215ac5242fcac8bbae2301caf35604",
+  "prompts": {},
+  "sessions": {
+    "s_0b729cf0d034d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9aa1a711-c362-45ab-8e48-1a9b19f8df48",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
