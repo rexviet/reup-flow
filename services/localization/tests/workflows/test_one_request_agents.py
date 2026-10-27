@@ -279,3 +279,60 @@ async def test_dubber_tools_mode_runs_the_tool_loop_as_before(temporal_client: C
     assert counts["agent__dubber__model_request"] == 2
     assert "agent__dubber_single__model_request" not in counts
     assert dubbing.ports.calls["speak"] == 2
+
+
+# --- what the requests ask the model for -----------------------------------------------
+
+ANSWER_ONLY = {"reasoning": {"enabled": False}}
+
+
+def declared(settings: list) -> list[tuple[int | None, object]]:
+    return [((s or {}).get("max_tokens"), (s or {}).get("extra_body")) for s in settings]
+
+
+async def test_the_one_request_localizer_asks_for_the_answer_only_within_a_cap_for_its_lines(
+    temporal_client: Client,
+) -> None:
+    from localization.agents.answer_only import answer_cap
+
+    model = OneRequestModel(answers=(fits,))
+    handle, result = await run(temporal_client, LocalizerFakes(mode="single", model=model))
+    assert isinstance(result, LocalizationResult), result
+    # The fake script has two segments.
+    assert declared(model.settings) == [(answer_cap(2), ANSWER_ONLY)]
+
+
+async def test_the_repair_request_is_held_to_the_same_declaration(
+    temporal_client: Client,
+) -> None:
+    from localization.agents.answer_only import answer_cap
+
+    model = OneRequestModel(
+        answers=(lambda prompt: [{"id": 0, "text_vi": SHORT}], fits),
+    )
+    handle, result = await run(temporal_client, LocalizerFakes(mode="single", model=model))
+    assert isinstance(result, LocalizationResult), result
+    assert declared(model.settings) == [(answer_cap(2), ANSWER_ONLY)] * 2
+
+
+async def test_the_one_request_dubber_asks_for_the_answer_only_within_a_cap_for_its_lines(
+    temporal_client: Client,
+) -> None:
+    from localization.agents.answer_only import answer_cap
+
+    model = OneRequestModel(answers=(shorter,))
+    dubbing = DubFakes(unfit_ids=(0, 1), mode="single")
+    dubbing.dubber = model  # type: ignore[assignment]
+    handle, result = await run(temporal_client, LocalizerFakes(), dubbing)
+    assert isinstance(result, LocalizationResult), result
+    assert declared(model.settings) == [(answer_cap(2), ANSWER_ONLY)]
+
+
+async def test_the_tool_calling_agents_send_the_plain_request(temporal_client: Client) -> None:
+    model = ScriptedModel()
+    dubbing = DubFakes(unfit_ids=(0, 1), mode="tools")
+    handle, result = await run(temporal_client, LocalizerFakes(mode="tools", model=model), dubbing)
+    assert isinstance(result, LocalizationResult), result
+    assert model.settings and dubbing.dubber.settings
+    for settings in (*model.settings, *dubbing.dubber.settings):
+        assert "max_tokens" not in (settings or {}) and "extra_body" not in (settings or {})

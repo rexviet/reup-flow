@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from pydantic_ai import Agent
+from pydantic_ai.agent import AgentModelSettings
 from pydantic_ai.models import Model
 
 from localization.agents.localizer import (
@@ -286,6 +287,7 @@ def build_single_agent(
     name: str,
     instructions: str,
     capabilities: Sequence[Any] = (),
+    model_settings: AgentModelSettings[LocalizerDeps] | None = None,
 ) -> Agent[LocalizerDeps, LocalizedLines]:
     """A Localizer agent with no tools. Its answer is checked by `assess`, not by an
     output validator, so a model asked once is never silently asked again: only an
@@ -298,4 +300,5 @@ def build_single_agent(
         instructions=instructions,
         retries={"output": 1},
         capabilities=list(capabilities),
+        model_settings=model_settings,
     )

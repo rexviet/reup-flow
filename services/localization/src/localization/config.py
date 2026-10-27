@@ -22,6 +22,10 @@ AgentMode = Literal["single", "tools"]
 # How the Reviewer judges a render. `jev`: checks in code plus one call to Jev, a typed
 # decision model, for what needs understanding. `llm`: the tool-calling vision agent.
 ReviewerMode = Literal["jev", "llm"]
+# Whether the one-request Localizer and Dubber ask the model for the answer only, within a
+# token cap sized to the script (`off`), or send the plain request and let it reason
+# (`default`).
+ReasoningMode = Literal["off", "default"]
 
 
 def default_caption_font(module_path: Path) -> Path:
@@ -77,6 +81,8 @@ class Settings(BaseSettings):
     dubber_model: str | None = None
     localizer_mode: AgentMode = "single"
     dubber_mode: AgentMode = "single"
+    localizer_reasoning: ReasoningMode = "off"
+    dubber_reasoning: ReasoningMode = "off"
     reviewer_model: str | None = None
     reviewer_mode: ReviewerMode = "jev"
     # Jev is reached through OpenRouter's `/systemone`; the key and base URL are the

@@ -92,10 +92,13 @@ class ScriptedDubber:
     rewrites_per_segment: int = 1
     stretch: float = 1.1
     requests: int = 0
+    # The settings each request arrived with.
+    settings: list = field(default_factory=list)
 
     def model(self) -> FunctionModel:
         async def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
             self.requests += 1
+            self.settings.append(info.model_settings)
             ids = _pending(messages)
             answered = sum(
                 isinstance(p, ToolCallPart) and p.tool_name == "synthesize"

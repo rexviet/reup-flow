@@ -40,6 +40,7 @@ from localization.activities.synthesize import SynthesizeActivities, Synthesizer
 from localization.activities.transcribe import TranscribeActivity
 from localization.activities.voice_rate import VoiceRateActivity, VoiceRateStore
 from localization.agents import dubber as dubber_module
+from localization.agents.answer_only import AnswerOnlyModel
 from localization.agents.localizer import bind_ports
 from localization.agents.temporal import (
     DUBBER_MODEL_ALIAS,
@@ -238,7 +239,10 @@ def bind_agent_runtime(
     missing setting is found at startup and not on the first video."""
     if settings.loc_database_url is None:
         raise ConfigError("LOC_DATABASE_URL is not set")
-    model = model_for("localizer", settings, llm_http)
+    model = AnswerOnlyModel(
+        model_for("localizer", settings, llm_http),
+        reasoning_off=settings.localizer_reasoning == "off",
+    )
     bind_model_factory(lambda: model)
     bind_ports(StorePorts(store, GlossaryStore(_database_url(settings))))
     if settings.reviewer_mode == "llm":
@@ -248,7 +252,10 @@ def bind_agent_runtime(
         if settings.openrouter_api_key is None:
             raise ConfigError("OPENROUTER_API_KEY is not set")
         check_caption_font(settings.caption_font_path)
-    dubber_model = model_for("dubber", settings, llm_http)
+    dubber_model = AnswerOnlyModel(
+        model_for("dubber", settings, llm_http),
+        reasoning_off=settings.dubber_reasoning == "off",
+    )
     bind_model_factory(lambda: dubber_model, DUBBER_MODEL_ALIAS)
     if tts is not None:
         synthesizer = Synthesizer(store, tts, model=settings.tts_model)

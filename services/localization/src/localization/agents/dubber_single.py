@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from pydantic_ai import Agent
+from pydantic_ai.agent import AgentModelSettings
 from pydantic_ai.models import Model
 
 from localization.agents.dubber import DubberDeps, DubberPorts, _fit_note
@@ -217,6 +218,7 @@ def build_single_agent(
     name: str,
     instructions: str,
     capabilities: Sequence[Any] = (),
+    model_settings: AgentModelSettings[DubberDeps] | None = None,
 ) -> Agent[DubberDeps, LocalizedLines]:
     """A Dubber agent with no tools; see `localizer_single.build_single_agent`."""
     return Agent(
@@ -227,4 +229,5 @@ def build_single_agent(
         instructions=instructions,
         retries={"output": 1},
         capabilities=list(capabilities),
+        model_settings=model_settings,
     )

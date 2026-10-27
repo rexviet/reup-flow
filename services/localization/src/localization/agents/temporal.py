@@ -35,6 +35,7 @@ from temporalio.workflow import ActivityConfig
 
 from localization.agents import dubber as dubber_module
 from localization.agents import dubber_single, localizer_single
+from localization.agents.answer_only import answer_only_settings
 from localization.agents.dubber import DubberDeps, build_dubber
 from localization.agents.dubber_single import DubberContext
 from localization.agents.localizer import (
@@ -231,6 +232,14 @@ def _durable(alias: str) -> list[AbstractCapability[Any]]:
     ]
 
 
+def _localizer_settings(ctx: RunContext[LocalizerDeps]) -> ModelSettings:
+    return answer_only_settings(len(ctx.deps.expected_ids()))
+
+
+def _dubber_settings(ctx: RunContext[DubberDeps]) -> ModelSettings:
+    return answer_only_settings(len(ctx.deps.pending_ids))
+
+
 # The agents of the one-request mode. Each has its own name, so each model request it
 # makes is recorded under its own stage (`agent__<name>__model_request`): the answer and
 # its repair, for the Localizer and for the Dubber, can be told apart.
@@ -239,12 +248,14 @@ localizer_single_agent = localizer_single.build_single_agent(
     name=localizer_single.SINGLE_NAME,
     instructions=localizer_single.INSTRUCTIONS,
     capabilities=[ConversationSizeGuard(), *_durable(MODEL_ALIAS)],
+    model_settings=_localizer_settings,
 )
 localizer_repair_agent = localizer_single.build_single_agent(
     MODEL_ALIAS,
     name=localizer_single.REPAIR_NAME,
     instructions=localizer_single.REPAIR_INSTRUCTIONS,
     capabilities=_durable(MODEL_ALIAS),
+    model_settings=_localizer_settings,
 )
 
 
@@ -386,12 +397,14 @@ dubber_single_agent = dubber_single.build_single_agent(
     name=dubber_single.SINGLE_NAME,
     instructions=dubber_single.INSTRUCTIONS,
     capabilities=_durable(DUBBER_MODEL_ALIAS),
+    model_settings=_dubber_settings,
 )
 dubber_repair_agent = dubber_single.build_single_agent(
     DUBBER_MODEL_ALIAS,
     name=dubber_single.REPAIR_NAME,
     instructions=dubber_single.REPAIR_INSTRUCTIONS,
     capabilities=_durable(DUBBER_MODEL_ALIAS),
+    model_settings=_dubber_settings,
 )
 
 

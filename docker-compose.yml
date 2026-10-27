@@ -502,6 +502,8 @@ services:
       DUBBER_MODEL: ${DUBBER_MODEL:-}
       LOCALIZER_MODE: ${LOCALIZER_MODE:-single}
       DUBBER_MODE: ${DUBBER_MODE:-single}
+      LOCALIZER_REASONING: ${LOCALIZER_REASONING:-off}
+      DUBBER_REASONING: ${DUBBER_REASONING:-off}
       # jev: checks in code plus one call to Jev through OpenRouter; llm: the vision agent.
       REVIEWER_MODE: ${REVIEWER_MODE:-jev}
       REVIEWER_JEV_MODEL: ${REVIEWER_JEV_MODEL:-typesafe/jev-1.13}

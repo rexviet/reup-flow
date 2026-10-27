@@ -124,9 +124,11 @@ class ScriptedModel:
     requests: int = 0
     answer_attempts: int = 0
     seen_messages: list[list[ModelMessage]] = field(default_factory=list)
+    settings: list = field(default_factory=list)
 
     def _respond(self, messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         self.requests += 1
+        self.settings.append(info.model_settings)
         self.seen_messages.append(messages)
         called = sum(
             isinstance(part, ToolCallPart) and part.tool_name != info.output_tools[0].name
@@ -179,6 +181,8 @@ class OneRequestModel:
     )
     prompts: list[str] = field(default_factory=list)
     tools_offered: list[str] = field(default_factory=list)
+    # The settings each request arrived with.
+    settings: list = field(default_factory=list)
 
     @property
     def requests(self) -> int:
@@ -187,6 +191,7 @@ class OneRequestModel:
     def model(self) -> FunctionModel:
         async def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
             prompt = prompt_text(messages)
+            self.settings.append(info.model_settings)
             self.tools_offered += [t.name for t in info.function_tools]
             answer = self.answers[min(len(self.prompts), len(self.answers) - 1)]
             self.prompts.append(prompt)
