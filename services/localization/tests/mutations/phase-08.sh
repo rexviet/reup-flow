@@ -48,6 +48,7 @@ TEMPORAL=src/localization/agents/temporal.py
 T_LOOP=tests/workflows/test_review_loop.py
 T_ONE=tests/workflows/test_one_translation.py
 T_ROUTE=tests/workflows/test_review_routing.py
+T_UNFIX=tests/workflows/test_unfixable_review.py
 T_PAYLOAD=tests/workflows/test_review_payloads.py
 T_PUBLISH=tests/activities/test_publish.py
 T_REVIEWER=tests/agents/test_reviewer.py
@@ -64,7 +65,7 @@ mp_init "$WORKFLOW" "$ROUTING" "$PUBLISH" "$REVIEWER" "$REVIEWACT" "$GLYPHS" "$L
 MP_TEST_CMD=(uv run pytest -q -p no:cacheprovider)
 MP_TIMEOUT_SECONDS=${MP_TIMEOUT_SECONDS:-400}
 
-mp_baseline "$T_LOOP $T_ONE $T_ROUTE $T_PAYLOAD $T_PUBLISH $T_REVIEWER $T_REVIEWACT $T_GLYPHS $T_LOCALIZER $T_DUBSCRIPT $T_ASSEMBLESCRIPT $T_WIRING $T_REPLAY $T_DUBSTAGE"
+mp_baseline "$T_LOOP $T_ONE $T_ROUTE $T_UNFIX $T_PAYLOAD $T_PUBLISH $T_REVIEWER $T_REVIEWACT $T_GLYPHS $T_LOCALIZER $T_DUBSCRIPT $T_ASSEMBLESCRIPT $T_WIRING $T_REPLAY $T_DUBSTAGE"
 
 # --- which stage a failed review sends the run back to ---------------------------------------------------
 mp_mutation "a failed review of one line runs the Localizer and everything after it again"
@@ -383,6 +384,61 @@ mp_mutation "a reviewer that never settles is not stopped"
 apply_mutation "$REVIEWACT" $'                    usage_limits=USAGE,\n' \
   $'' \
   && expect_red "$T_REVIEWACT" "test_a_reviewer_that_never_settles_fails_for_good"
+restore
+
+# --- a rerun that cannot fix the review's problems is not started ---------------------------------------
+mp_mutation "no line is ever too close to the end of the video for a rerun"
+apply_mutation "$ROUTING" $'UNFIXABLE_ROOM_MS = 1500' \
+  $'UNFIXABLE_ROOM_MS = 0' \
+  && expect_red "$T_UNFIX $T_ROUTE" "test_problems_only_on_a_line_with_no_time_end_after_one_round" "test_the_limit_is_on_the_time_to_the_end_of_the_video"
+restore
+
+mp_mutation "the time left to the end of the video is not looked at"
+apply_mutation "$ROUTING" $'    if room.to_end_ms < UNFIXABLE_ROOM_MS:' \
+  $'    if False:' \
+  && expect_red "$T_ROUTE" "test_the_limit_is_on_the_time_to_the_end_of_the_video"
+restore
+
+mp_mutation "the slot is not looked at"
+apply_mutation "$ROUTING" $'    if room.slot_ms < UNFIXABLE_ROOM_MS:' \
+  $'    if False:' \
+  && expect_red "$T_ROUTE" "test_the_limit_is_on_the_slot_too"
+restore
+
+mp_mutation "the same problem on the same line after a rerun is run again"
+apply_mutation "$ROUTING" $'        if why is None and issue_key(item) in asked_before:' \
+  $'        if False:' \
+  && expect_red "$T_ROUTE" "test_the_same_problem_on_the_same_line_after_a_rerun_is_not_run_again"
+restore
+
+mp_mutation "a hopeless issue still decides which stage runs again"
+apply_mutation "$ROUTING" $'    return route_issues(tuple(fixable))' \
+  $'    return route_issues(issues)' \
+  && expect_red "$T_UNFIX $T_ROUTE" "test_one_line_with_time_left_keeps_the_rerun_and_leaves_the_hopeless_line_out" "test_a_mix_of_a_hopeless_line_and_a_fixable_one_runs_only_what_can_help"
+restore
+
+mp_mutation "the workflow forgets what a rerun was asked to fix"
+apply_mutation "$WORKFLOW" $'            self._asked |= {issue_key(i) for i in verdict.issues}' \
+  $'            pass' \
+  && expect_red "$T_UNFIX" "test_the_same_problem_on_the_same_line_after_a_rerun_stops_the_rounds"
+restore
+
+mp_mutation "a run recorded before the rerun question is asked it"
+apply_mutation "$WORKFLOW" $'        if not workflow.patched(UNFIXABLE_PATCH):' \
+  $'        if False:' \
+  && expect_red "$T_REPLAY" "test_every_recorded_history_still_replays"
+restore
+
+mp_mutation "the time to the end of the video is measured from the line's end, not its start"
+apply_mutation "$DUBSCRIPT" $'                    to_end_ms=max(0, video_duration_ms - seg.start_ms),' \
+  $'                    to_end_ms=max(0, video_duration_ms - seg.end_ms),' \
+  && expect_red "$T_DUBSCRIPT" "test_each_line_is_given_its_time_to_the_end_of_the_video_and_its_slot"
+restore
+
+mp_mutation "the activity that measures the time left is not served"
+apply_mutation "$RUN" $'                    dub.segment_room,\n' \
+  $'' \
+  && expect_red "$T_WIRING" "test_the_review_and_the_publish_are_served_on_the_queues_the_workflow_sends_them_to"
 restore
 
 # --- the worker ------------------------------------------------------------------------------------------

@@ -11,12 +11,28 @@ The rule is "run again the earliest stage that has a problem, and nothing before
 
 Anything else (a broken picture, a stage before the Localizer, a line that is not
 named) is not something a rerun here can fix: the run goes to a person.
+
+A rerun also cannot fix a line that has no time: one that starts so close to the end of
+the video that it cannot be spoken or read there however it is written, or one that
+already came back after a rerun was asked to fix it. `plan_rerun` drops those and sends
+the run to a person when nothing else is left.
 """
 
-from localization.contracts import ReviewIssue
+from collections.abc import Iterable
+
+from localization.contracts import ReviewIssue, SegmentRoom
 from localization.contracts.base import Contract
 
 NOTE_MAX = 500
+
+# A line with less than this to the end of the video, or a slot shorter than this, is not
+# something a rerun can make fit. The slot is never below 1000 ms, so near the end of the
+# video it promises time the video does not have (the recorded run that set this limit
+# had a line with 400 ms left and a slot of 1000 ms).
+UNFIXABLE_ROOM_MS = 1500
+
+# What a rerun was asked to fix: the stage and the line (None: no line named).
+IssueKey = tuple[str, int | None]
 
 
 class Route(Contract):
@@ -57,3 +73,49 @@ def route_issues(issues: tuple[ReviewIssue, ...]) -> Route | NoRoute:
         + ", ".join(sorted(stages) or ["no stage"])
         + ", which a rerun here cannot fix"
     )
+
+
+def issue_key(issue: ReviewIssue) -> IssueKey:
+    return (issue.stage, issue.segment_id)
+
+
+def _why_no_room(issue: ReviewIssue, room: SegmentRoom) -> str | None:
+    if room.to_end_ms < UNFIXABLE_ROOM_MS:
+        return (
+            f"the line of segment {room.id} starts {room.to_end_ms} ms before the video ends; "
+            "a rerun cannot make it fit"
+        )
+    if room.slot_ms < UNFIXABLE_ROOM_MS:
+        return (
+            f"the line of segment {room.id} has a slot of {room.slot_ms} ms; "
+            "a rerun cannot make it fit"
+        )
+    return None
+
+
+def plan_rerun(
+    issues: tuple[ReviewIssue, ...],
+    rooms: Iterable[SegmentRoom],
+    asked_before: frozenset[IssueKey],
+) -> Route | NoRoute:
+    """`route_issues` over the issues a rerun can fix. An issue that names a line with
+    no time left, or one a rerun was already asked to fix, is left out; when every issue
+    is left out the answer says why, so the run goes to a person without another round."""
+    by_id = {r.id: r for r in rooms}
+    fixable: list[ReviewIssue] = []
+    hopeless: list[str] = []
+    for item in issues:
+        room = by_id.get(item.segment_id) if item.segment_id is not None else None
+        why = _why_no_room(item, room) if room is not None else None
+        if why is None and issue_key(item) in asked_before:
+            where = f" of segment {item.segment_id}" if item.segment_id is not None else ""
+            why = (
+                f"the {item.stage} problem{where} came back after a rerun; another would not fix it"
+            )
+        if why is None:
+            fixable.append(item)
+        else:
+            hopeless.append(why)
+    if not fixable and hopeless:
+        return NoRoute(reason="; ".join(dict.fromkeys(hopeless)))
+    return route_issues(tuple(fixable))

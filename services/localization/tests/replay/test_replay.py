@@ -22,6 +22,7 @@ from localization.workflows.video_localization import VideoLocalizationWorkflow
 from tests.support.reordered_flow import ReorderedWorkflow
 from tests.support.ungated_dub_flow import UngatedDubWorkflow
 from tests.support.ungated_review_flow import UngatedReviewWorkflow
+from tests.support.ungated_route_flow import UngatedRouteWorkflow
 
 HISTORIES = sorted((Path(__file__).parent / "histories").glob("*/*.json"))
 
@@ -182,3 +183,42 @@ async def test_control_the_review_steps_without_their_marker_break_the_older_his
     nothing."""
     with pytest.raises(NondeterminismError):
         await _replayer(UngatedReviewWorkflow).replay_workflow(_history(path))
+
+
+def test_the_histories_recorded_with_the_rerun_question_have_it() -> None:
+    names = {p.stem for p in _of("unfixable-review")}
+    assert {"last-line-has-no-time", "middle-line-runs-again"} <= names
+    for path in _of("unfixable-review"):
+        assert "stop-unfixable-review" in _patches(path), path.name
+        assert "segment_room" in path.read_text(), path.name
+    by = {p.stem: p.read_text() for p in _of("unfixable-review")}
+    # The run whose last line has no time ends after one review; the other runs again.
+    assert by["last-line-has-no-time"].count("review_render") == 1
+    assert by["middle-line-runs-again"].count("review_render") == 2
+
+
+def test_the_histories_recorded_before_the_rerun_question_are_really_without_it() -> None:
+    for path in _of("phase-08"):
+        assert "segment_room" not in path.read_text(), path.name
+        assert "stop-unfixable-review" not in _patches(path), path.name
+
+
+RERAN = (
+    "dubber-runs-again-for-one-line",
+    "localizer-runs-again-with-the-notes",
+    "layout-runs-again",
+    "needs-a-person-after-two-reviews",
+)
+
+
+@pytest.mark.parametrize(
+    "path", [p for p in _of("phase-08") if p.stem in RERAN], ids=lambda p: p.stem
+)
+async def test_control_the_rerun_question_without_its_marker_breaks_the_older_histories(
+    path: Path,
+) -> None:
+    """The marker is what lets a run recorded before the question replay: the same
+    question asked without it must be rejected, or the real workflow's marker proves
+    nothing."""
+    with pytest.raises(NondeterminismError):
+        await _replayer(UngatedRouteWorkflow).replay_workflow(_history(path))

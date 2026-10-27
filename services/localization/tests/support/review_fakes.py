@@ -31,6 +31,8 @@ from localization.contracts import (
     ReviewIssue,
     ReviewScores,
     ReviewVerdict,
+    SegmentRoom,
+    SegmentRooms,
     SubtitleTrack,
 )
 from localization.storage.object_store import ObjectStore, work_key
@@ -69,6 +71,9 @@ class ReviewFakes:
     # Rounds whose layout differs from what the same inputs gave before (the layout is
     # deterministic, so by default a rerun of it changes nothing).
     changed_layout_in_rounds: set[int] = field(default_factory=set)
+    # Segment id -> (ms to the end of the video, slot in ms) for the lines that are tight;
+    # every other line of the script has all the time it could want.
+    tight: dict[int, tuple[int, int]] = field(default_factory=dict)
     # (activity, nth call) -> an error that call raises instead of answering.
     fail_on: dict[tuple[str, int], Exception] = field(default_factory=dict)
     root: Path = field(default_factory=lambda: Path(tempfile.mkdtemp(prefix="review-fakes-")))
@@ -145,6 +150,19 @@ class ReviewFakes:
                 audio_sha256=dub.audio_sha256,
             )
 
+        @activity.defn(name="segment_room")
+        async def segment_room(
+            spec: LocalizationInput, script: LocalizedScriptRef, video_duration_ms: int
+        ) -> SegmentRooms:
+            fakes._enter("segment_room")
+            return SegmentRooms(
+                items=tuple(
+                    SegmentRoom(id=i, to_end_ms=to_end, slot_ms=slot)
+                    for i in range(10)
+                    for to_end, slot in [fakes.tight.get(i, (20_000, 3000))]
+                )
+            )
+
         @activity.defn(name="render")
         async def render(request: RenderInput) -> RenderResult:
             fakes._enter("render")
@@ -176,4 +194,4 @@ class ReviewFakes:
             index = min(len(fakes.reviews) - 1, len(fakes.verdicts) - 1)
             return fakes.verdicts[index]
 
-        return [layout_captions, render, review_render, publisher.publish]
+        return [layout_captions, render, review_render, segment_room, publisher.publish]

@@ -18,6 +18,7 @@ from temporalio.exceptions import ApplicationError
 
 from localization.contracts import LocalizationResult
 from localization.storage.object_store import output_key, review_key
+from localization.workflows.video_localization import VideoLocalizationWorkflow
 from tests.support.dub_fakes import DubFakes
 from tests.support.inputs import make_input
 from tests.support.localizer_fakes import LocalizerFakes
@@ -57,9 +58,16 @@ class Run:
         ]
 
 
-async def run_workflow(client: Client, run: Run, *, timeout: float = 60) -> Run:
+async def run_workflow(
+    client: Client, run: Run, *, timeout: float = 60, workflow: type = VideoLocalizationWorkflow
+) -> Run:
     async with prep_workers(
-        client, run.prep, run.localizing, dubbing=run.dubbing, reviewing=run.reviewing
+        client,
+        run.prep,
+        run.localizing,
+        dubbing=run.dubbing,
+        reviewing=run.reviewing,
+        workflow=workflow,
     ):
         run.handle = await client.start_workflow(
             "VideoLocalizationWorkflow",

@@ -165,6 +165,7 @@ def queue_specs(
                     synthesis.voice_profile,
                     synthesis.plan_synthesis,
                     dub.measure_fit,
+                    dub.segment_room,
                     dub.write_dubbed_script,
                     dub.commit_dub,
                     publish.publish,

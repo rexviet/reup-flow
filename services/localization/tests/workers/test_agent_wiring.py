@@ -62,6 +62,7 @@ def test_the_review_and_the_publish_are_served_on_the_queues_the_workflow_sends_
     served = _registered(Settings())
     assert "review_render" in served["llm"]
     assert "publish" in served["io"]
+    assert "segment_room" in served["io"]
     assert "publish" not in served["llm"] and "review_render" not in served["io"]
 
 

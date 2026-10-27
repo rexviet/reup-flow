@@ -39,12 +39,20 @@ from localization.contracts import (
     RenderResult,
     ReviewVerdict,
     ScriptResult,
+    SegmentRooms,
     SubtitleTrack,
     SynthesisPlan,
     Transcript,
     VoiceProfile,
 )
-from localization.workflows.review_routing import NoRoute, Route, route_issues
+from localization.workflows.review_routing import (
+    IssueKey,
+    NoRoute,
+    Route,
+    issue_key,
+    plan_rerun,
+    route_issues,
+)
 
 # Task queues. `workflows` carries only this workflow; every activity runs elsewhere.
 MEDIA_QUEUE = "media"
@@ -62,6 +70,9 @@ DUB_PATCH = "dub-audio"
 # Marks a run that has the layout, render, review and publish steps. A run recorded
 # before them ended after the dubbing and replays to that end.
 REVIEW_PATCH = "review-publish"
+# Marks a run that asks, before another round, whether a rerun could fix what the review
+# found. A run recorded before that went straight to the rerun.
+UNFIXABLE_PATCH = "stop-unfixable-review"
 
 # Reviews of one run: the first looks at the first render, the second at the render made
 # after the one rerun a failed review sends the run back for.
@@ -225,6 +236,9 @@ def _describe(error: ActivityError | ApplicationError) -> str:
 
 @workflow.defn(name="VideoLocalizationWorkflow")
 class VideoLocalizationWorkflow:
+    # Reviews one run may make; the one rerun in between is what a failed review buys.
+    _review_rounds = REVIEW_ROUNDS
+
     # Registers the agents' activities on the worker that hosts this workflow.
     __pydantic_ai_agents__ = [localizer, dubber]
 
@@ -241,6 +255,9 @@ class VideoLocalizationWorkflow:
         self._refused: tuple[int, ...] = ()
         # Reviews made so far in this run.
         self._reviews = 0
+        # What an earlier rerun was asked to fix: the same problem again is not one more
+        # rerun would fix.
+        self._asked: set[IssueKey] = set()
 
     @workflow.run
     async def run(self, spec: LocalizationInput) -> LocalizationResult:
@@ -568,7 +585,7 @@ class VideoLocalizationWorkflow:
         render: RenderResult | None = None
         stopped: str | None = None
         earlier_spec: str | None = None
-        for attempt in range(REVIEW_ROUNDS):
+        for attempt in range(self._review_rounds):
             # The track and the captions are made from one script: the one the track was
             # built from, which is the Dubber's, not the Localizer's.
             final = LocalizedScriptRef(script_key=dub.script_key, version=dub.script_version)
@@ -607,9 +624,9 @@ class VideoLocalizationWorkflow:
                 # A run that needs a person goes to one with the verdict in hand; sending
                 # it round again would only spend more before they look.
                 break
-            if attempt == REVIEW_ROUNDS - 1:
+            if attempt == self._review_rounds - 1:
                 break
-            route = route_issues(verdict.issues)
+            route = await self._route(spec, prep, dub, verdict)
             if isinstance(route, NoRoute):
                 stopped = route.reason
                 break
@@ -643,6 +660,28 @@ class VideoLocalizationWorkflow:
             **PUBLISH,
         )
         return script, dub, published
+
+    async def _route(
+        self, spec: LocalizationInput, prep: PrepResult, dub: DubbedAudio, verdict: ReviewVerdict
+    ) -> Route | NoRoute:
+        """Where a failed review sends the run: back to a stage that can fix what it found,
+        or to a person when nothing it found can be fixed by running a stage again."""
+        if not workflow.patched(UNFIXABLE_PATCH):
+            return route_issues(verdict.issues)
+        rooms = await workflow.execute_activity(
+            "segment_room",
+            args=[
+                spec,
+                LocalizedScriptRef(script_key=dub.script_key, version=dub.script_version),
+                prep.ingest.duration_ms,
+            ],
+            result_type=SegmentRooms,
+            **DUB_IO,
+        )
+        route = plan_rerun(verdict.issues, rooms.items, frozenset(self._asked))
+        if isinstance(route, Route):
+            self._asked |= {issue_key(i) for i in verdict.issues}
+        return route
 
     async def _rerun(
         self,

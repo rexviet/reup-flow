@@ -39,6 +39,7 @@ async def prep_workers(
     dubbing: DubFakes | None = None,
     tts_limit: int | None = None,
     reviewing: ReviewFakes | None = None,
+    workflow: type = VideoLocalizationWorkflow,
 ) -> AsyncIterator[None]:
     """The real workflow on the `workflows` queue, fake activities on the others.
     The Localizer stage runs for real (agent, validator, durable activities) on a
@@ -47,7 +48,8 @@ async def prep_workers(
     fakes by default, or any object with the same `activities()` and `bound()`; its
     Dubber runs for real on a scripted model. `tts_limit` is the `tts` queue's
     concurrency. `reviewing` is the layout, render, review and publish steps: fakes that
-    pass the first review unless the test says otherwise."""
+    pass the first review unless the test says otherwise. `workflow` is the workflow class to
+    run: the real one, or a subclass that changes one of its limits."""
     acts = fake_activities(fakes)
     review = by_name((reviewing or ReviewFakes()).activities())
     localizing = localizing or LocalizerFakes()
@@ -58,7 +60,7 @@ async def prep_workers(
     with bound_localizer(localizing), dubbing.bound():
         async with running(
             [
-                build_worker(client, QueueSpec("workflows", workflows=[VideoLocalizationWorkflow])),
+                build_worker(client, QueueSpec("workflows", workflows=[workflow])),
                 build_worker(
                     client,
                     QueueSpec(
@@ -79,6 +81,7 @@ async def prep_workers(
                             acts["detect_subtitles"],  # type: ignore[list-item]
                             stage["assemble_script"],  # type: ignore[list-item]
                             review["publish"],  # type: ignore[list-item]
+                            review["segment_room"],  # type: ignore[list-item]
                             *(
                                 dub[n]
                                 for n in (

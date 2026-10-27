@@ -59,6 +59,38 @@ def decisions(*items: tuple[int, str, float]) -> DubDecisions:
 REF1 = LocalizedScriptRef(script_key=script_key("7001", 1), version=1)
 
 
+# --- how much time each line has ------------------------------------------------
+
+
+async def test_each_line_is_given_its_time_to_the_end_of_the_video_and_its_slot(
+    store: ObjectStore, tts: FakeTts
+) -> None:
+    acts, _ = make(store, tts)
+    key = put_script(
+        store,
+        [
+            segment(0, "a", slot_ms=3000, start_ms=1000),
+            segment(1, "b", slot_ms=1000, start_ms=10_731),
+        ],
+    )
+    ref = LocalizedScriptRef(script_key=key, version=1)
+    rooms = await ActivityEnvironment().run(acts.segment_room, SPEC, ref, 11_133)
+    assert [(r.id, r.to_end_ms, r.slot_ms) for r in rooms.items] == [
+        (0, 10_133, 3000),
+        (1, 402, 1000),
+    ]
+
+
+async def test_a_line_that_starts_after_the_video_ends_has_no_time_rather_than_a_negative_one(
+    store: ObjectStore, tts: FakeTts
+) -> None:
+    acts, _ = make(store, tts)
+    key = put_script(store, [segment(0, "a", slot_ms=1000, start_ms=5000)])
+    ref = LocalizedScriptRef(script_key=key, version=1)
+    rooms = await ActivityEnvironment().run(acts.segment_room, SPEC, ref, 4000)
+    assert rooms.items[0].to_end_ms == 0
+
+
 # --- which lines do not fit ----------------------------------------------------
 
 

@@ -24,6 +24,8 @@ from localization.contracts import (
     LocalizedScript,
     LocalizedScriptRef,
     LocalizedSegment,
+    SegmentRoom,
+    SegmentRooms,
 )
 from localization.contracts.voice import VoiceRef
 from localization.observability.tracing import tag_session
@@ -102,6 +104,25 @@ class DubScriptActivities:
             if stretch_for(duration, seg.slot_ms) is None:
                 unfit.append(seg.id)
         return FitReport(unfit_ids=tuple(unfit))
+
+    @activity.defn(name="segment_room")
+    async def segment_room(
+        self, spec: LocalizationInput, script: LocalizedScriptRef, video_duration_ms: int
+    ) -> SegmentRooms:
+        """How much time each line has before the video ends, next to its slot: what a
+        review that failed needs to tell a line a rerun can fix from one it cannot."""
+        tag_session(spec.aweme_id)
+        read = await asyncio.to_thread(read_script, self._store, script.script_key)
+        return SegmentRooms(
+            items=tuple(
+                SegmentRoom(
+                    id=seg.id,
+                    to_end_ms=max(0, video_duration_ms - seg.start_ms),
+                    slot_ms=seg.slot_ms,
+                )
+                for seg in read.segments
+            )
+        )
 
     @activity.defn(name="write_dubbed_script")
     async def write_dubbed_script(

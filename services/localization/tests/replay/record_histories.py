@@ -178,6 +178,35 @@ SCENARIOS: dict[str, dict[str, Scenario]] = {
             ),
         ),
     },
+    # Runs recorded with the question "could a rerun fix this?" asked before another
+    # round. `phase-08` holds runs from before it, and is what proves one already in
+    # flight still resumes.
+    "unfixable-review": {
+        "last-line-has-no-time": (
+            PrepFakes(),
+            LocalizerFakes(),
+            DubFakes(),
+            ReviewFakes(
+                verdicts=[
+                    verdict(
+                        issue("localize", "the meaning was lost", segment_id=1),
+                        issue("dub", "overruns a 1000 ms slot", segment_id=1),
+                        issue("captions", "visible for 0.3 s", segment_id=1),
+                    )
+                ],
+                tight={1: (402, 1000)},
+            ),
+        ),
+        "middle-line-runs-again": (
+            PrepFakes(),
+            LocalizerFakes(),
+            DubFakes(),
+            ReviewFakes(
+                verdicts=[verdict(issue("dub", "rushed", segment_id=0)), verdict()],
+                tight={1: (402, 1000)},
+            ),
+        ),
+    },
 }
 
 

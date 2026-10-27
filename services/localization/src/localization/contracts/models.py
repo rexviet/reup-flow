@@ -359,6 +359,20 @@ class ReviewIssue(Contract):
     reason: Annotated[str, Field(min_length=1, max_length=500)]
 
 
+class SegmentRoom(Contract):
+    """The time one line really has: until the end of the video, and its slot (which
+    is never below the slot floor, so near the end of the video it can promise more
+    than the video has)."""
+
+    id: NonNegativeInt
+    to_end_ms: NonNegativeInt
+    slot_ms: NonNegativeInt
+
+
+class SegmentRooms(Contract):
+    items: tuple[SegmentRoom, ...]
+
+
 class ReviewVerdict(Contract):
     model_config = ConfigDict(frozen=True, extra="forbid", populate_by_name=True)
 
