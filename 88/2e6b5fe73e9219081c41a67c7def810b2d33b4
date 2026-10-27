@@ -1,0 +1,27 @@
+services/renderer/src/activities/render.ts
+  s_0b729cf0d034d3::t_f531490fb14b6c 17,27,90-94,181,201,203,207-226,243,250-252,254-256,258,270-273,302
+services/renderer/src/phase-timer.ts
+  s_0b729cf0d034d3::t_1de794075185b5 1-109
+services/renderer/src/remotion-render.ts
+  s_0b729cf0d034d3::t_d15d7b6c6a311c 11,26-28,46,48-55,60-61,73-82,85-90
+services/renderer/tests/render-timing.spec.ts
+  s_0b729cf0d034d3::t_5bc92a10aad191 1-219
+plans/261026-0147-video-localization-workflow/phase-07-captions-and-renderer.md
+  s_0b729cf0d034d3::t_f11eeee967b14b 194-200
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "882e6b5fe73e9219081c41a67c7def810b2d33b4",
+  "prompts": {},
+  "sessions": {
+    "s_0b729cf0d034d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9aa1a711-c362-45ab-8e48-1a9b19f8df48",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
