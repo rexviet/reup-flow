@@ -20,7 +20,7 @@ from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.messages import ModelResponse, ToolCallPart
 from pydantic_ai.models import Model
 
-from localization.agents.localizer import ESTIMATE_BATCH, wrap_untrusted
+from localization.agents.localizer import ESTIMATE_BATCH, syllable_budget, wrap_untrusted
 from localization.contracts.base import Contract
 from localization.contracts.ids import AwemeId, StorageKey
 from localization.contracts.models import STRETCH_MAX, STRETCH_MIN, DubDecisions
@@ -108,6 +108,11 @@ def _bound() -> DubberPorts:
     return _ports
 
 
+def bound_ports() -> DubberPorts:
+    """The ports this worker serves the Dubber with, for code outside the tools."""
+    return _bound()
+
+
 def _require_pending(deps: DubberDeps, segment_id: int) -> None:
     if segment_id not in deps.pending_ids:
         raise ModelRetry(
@@ -138,7 +143,7 @@ async def get_segment(ctx: RunContext[DubberDeps], id: int) -> str:
     long it takes to speak now."""
     _require_pending(ctx.deps, id)
     seg = await _bound().segment(ctx.deps, id)
-    budget = max(1, round(seg.slot_ms / 1000 * ctx.deps.syllables_per_sec))
+    budget = syllable_budget(seg.slot_ms, ctx.deps.syllables_per_sec)
     return (
         wrap_untrusted(f"[{seg.id}] source: {seg.src_zh}\nvietnamese: {seg.text_vi}")
         + f"\nslot {seg.slot_ms} ms, about {budget} syllables; "

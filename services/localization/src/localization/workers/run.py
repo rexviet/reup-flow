@@ -22,6 +22,7 @@ from pydantic_ai.durable_exec.temporal import AgentPlugin
 from temporalio.client import Client
 from temporalio.worker import Worker
 
+from localization.activities.agent_context import AgentContextActivities
 from localization.activities.assemble_audio import AssembleAudioActivity
 from localization.activities.assemble_script import AssembleScriptActivity
 from localization.activities.detect_subtitles import DetectSubtitlesActivity
@@ -43,7 +44,11 @@ from localization.agents.temporal import (
     DUBBER_MODEL_ALIAS,
     bind_model_factory,
     dubber,
+    dubber_repair_agent,
+    dubber_single_agent,
     localizer,
+    localizer_repair_agent,
+    localizer_single_agent,
 )
 from localization.config import ConfigError, Settings, load_settings
 from localization.observability.llm_calls import LlmCallRecorder
@@ -147,7 +152,20 @@ def queue_specs(
         # The agents' model requests (`llm`) and tools (`io`, and the Dubber's
         # `synthesize` on `tts`) are activities of the agents; their plugins register
         # them on each queue's worker.
-        agents = [AgentPlugin(localizer), AgentPlugin(dubber)]
+        # The one-request mode has its own agents (the answer and its repair, for each of
+        # the two), so each model request is recorded under its own stage.
+        agents = [
+            AgentPlugin(a)
+            for a in (
+                localizer,
+                dubber,
+                localizer_single_agent,
+                localizer_repair_agent,
+                dubber_single_agent,
+                dubber_repair_agent,
+            )
+        ]
+        agent_context = AgentContextActivities(settings.localizer_mode, settings.dubber_mode)
         return [
             QueueSpec("workflows", workflows=[VideoLocalizationWorkflow]),
             # The Reviewer's model requests are made inside `review_render`, which is why
@@ -162,6 +180,8 @@ def queue_specs(
                     detect.detect_subtitles,
                     PersistActivity(store).persist_json,
                     assemble.assemble_script,
+                    agent_context.localizer_context,
+                    agent_context.dubber_context,
                     synthesis.voice_profile,
                     synthesis.plan_synthesis,
                     dub.measure_fit,

@@ -179,6 +179,16 @@ def wrap_untrusted(text: str) -> str:
     return f"{UNTRUSTED_OPEN}\n{safe}\n{UNTRUSTED_CLOSE}"
 
 
+def bound_ports() -> LocalizerPorts:
+    """The ports this worker serves the Localizer with, for code outside the tools."""
+    return _bound()
+
+
+def syllable_budget(slot_ms: int, syllables_per_sec: float) -> int:
+    """Syllables a line may have to be spoken within `slot_ms`."""
+    return max(1, round(slot_ms / 1000 * syllables_per_sec))
+
+
 def _overlaps(span: tuple[int, int], start_ms: int, end_ms: int) -> bool:
     return span[0] < end_ms and start_ms < span[1]
 
@@ -200,7 +210,7 @@ async def read_transcript(
     lines = []
     for s in page:
         slot = s.slot_ms if s.slot_ms is not None else s.end_ms - s.start_ms
-        budget = max(1, round(slot / 1000 * deps.syllables_per_sec))
+        budget = syllable_budget(slot, deps.syllables_per_sec)
         lines.append(
             f"[{s.id}] {s.start_ms}-{s.end_ms} ms, slot {slot} ms, up to {budget} syllables: "
             f"{s.text}"

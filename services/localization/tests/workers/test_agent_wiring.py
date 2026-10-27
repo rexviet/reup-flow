@@ -22,7 +22,14 @@ def _registered(settings: Settings) -> dict[str, set[str]]:
     """Activity names each queue's worker serves, counting the agent's plugin."""
     agent_names = {
         fn.__temporal_activity_definition.name  # type: ignore[attr-defined]
-        for agent in (temporal_module.localizer, temporal_module.dubber)
+        for agent in (
+            temporal_module.localizer,
+            temporal_module.dubber,
+            temporal_module.localizer_single_agent,
+            temporal_module.localizer_repair_agent,
+            temporal_module.dubber_single_agent,
+            temporal_module.dubber_repair_agent,
+        )
         for fn in TemporalDurability.from_agent(agent).temporal_activities  # type: ignore[union-attr]
     }
     specs = runnable(queue_specs("agents", settings, ObjectStore(object(), "b"), PROVIDERS))  # type: ignore[arg-type]
@@ -302,3 +309,34 @@ def test_no_stand_in_is_registered_by_a_production_worker() -> None:
         for fn in spec.activities:
             module = getattr(getattr(fn, "__self__", None), "__module__", fn.__module__)
             assert module.startswith("localization."), (spec.name, fn, module)
+
+
+def test_each_model_request_of_the_one_request_agents_has_its_own_stage_name() -> None:
+    """The stage of a `llm_calls` row is the name of the activity that made the request, so
+    the answer and the repair, of the Localizer and of the Dubber, are told apart there and
+    from the tool loop's own requests."""
+    served = _registered(Settings())
+    stages = {
+        "agent__localizer_single__model_request",
+        "agent__localizer_repair__model_request",
+        "agent__dubber_single__model_request",
+        "agent__dubber_repair__model_request",
+        "agent__localizer__model_request",
+        "agent__dubber__model_request",
+    }
+    assert stages <= served["llm"]
+    assert len(stages) == 6
+    assert {"localizer_context", "dubber_context"} <= served["io"]
+    assert not {"localizer_context", "dubber_context"} & served["llm"]
+
+
+def test_the_agents_answer_in_one_request_unless_the_setting_says_otherwise(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert (Settings().localizer_mode, Settings().dubber_mode) == ("single", "single")
+    monkeypatch.setenv("LOCALIZER_MODE", "tools")
+    monkeypatch.setenv("DUBBER_MODE", "tools")
+    assert (Settings().localizer_mode, Settings().dubber_mode) == ("tools", "tools")
+    monkeypatch.setenv("DUBBER_MODE", "both")
+    with pytest.raises(ValueError):
+        Settings()

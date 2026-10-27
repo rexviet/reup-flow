@@ -17,7 +17,11 @@ from localization.agents.temporal import (
     DubberDeps,
     LocalizerDeps,
     dubber,
+    dubber_repair_agent,
+    dubber_single_agent,
     localizer,
+    localizer_repair_agent,
+    localizer_single_agent,
     run_dubber,
     run_localizer,
 )
@@ -244,7 +248,14 @@ class VideoLocalizationWorkflow:
     _review_rounds = REVIEW_ROUNDS
 
     # Registers the agents' activities on the worker that hosts this workflow.
-    __pydantic_ai_agents__ = [localizer, dubber]
+    __pydantic_ai_agents__ = [
+        localizer,
+        dubber,
+        localizer_single_agent,
+        localizer_repair_agent,
+        dubber_single_agent,
+        dubber_repair_agent,
+    ]
 
     def __init__(self) -> None:
         self._regenerated: set[str] = set()

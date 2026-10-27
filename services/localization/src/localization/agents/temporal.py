@@ -28,12 +28,15 @@ from pydantic_ai.models import (
 )
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.tools import RunContext
+from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 from temporalio.workflow import ActivityConfig
 
 from localization.agents import dubber as dubber_module
+from localization.agents import dubber_single, localizer_single
 from localization.agents.dubber import DubberDeps, build_dubber
+from localization.agents.dubber_single import DubberContext
 from localization.agents.localizer import (
     IO_TOOLS,
     PURE_TOOLS,
@@ -41,8 +44,9 @@ from localization.agents.localizer import (
     build_localizer,
     wrap_untrusted,
 )
+from localization.agents.localizer_single import LocalizerContext
 from localization.contracts.limits import MAX_PAYLOAD_BYTES, payload_size
-from localization.contracts.models import DubDecisions, LocalizedLines
+from localization.contracts.models import DubDecisions, LocalizedLine, LocalizedLines
 
 LLM_QUEUE = "llm"
 IO_QUEUE = "io"
@@ -52,6 +56,13 @@ TTS_QUEUE = "tts"
 # request turns it into the configured model.
 MODEL_ALIAS = "localizer-model"
 DUBBER_MODEL_ALIAS = "dubber-model"
+
+# Markers for runs that answer in one request instead of looping over tools. A run
+# recorded before them replays the loop; a new run records the marker and then asks the
+# `localizer_context` / `dubber_context` activity, whose result says which of the two the
+# worker is configured for.
+LOCALIZER_SINGLE_PATCH = "localizer-single-request"
+DUBBER_SINGLE_PATCH = "dubber-single-request"
 
 _PERMANENT = ["PermanentProviderError", "PayloadTooLarge", "ArtifactMissingError"]
 
@@ -73,6 +84,18 @@ TOOL_ACTIVITY = ActivityConfig(
     # The agent's activities heartbeat in the background, so a tool call whose worker
     # died is noticed in seconds and retried, not after the full timeout.
     heartbeat_timeout=timedelta(seconds=15),
+    retry_policy=RetryPolicy(
+        maximum_attempts=5,
+        initial_interval=timedelta(seconds=2),
+        backoff_coefficient=2.0,
+        maximum_interval=timedelta(seconds=30),
+        non_retryable_error_types=_PERMANENT,
+    ),
+)
+# Reading what an agent's prompt carries: plain I/O, no model, so it needs no heartbeat.
+CONTEXT_ACTIVITY = ActivityConfig(
+    task_queue=IO_QUEUE,
+    start_to_close_timeout=timedelta(minutes=2),
     retry_policy=RetryPolicy(
         maximum_attempts=5,
         initial_interval=timedelta(seconds=2),
@@ -198,6 +221,33 @@ def build_durable_localizer() -> Agent[LocalizerDeps, LocalizedLines]:
 localizer = build_durable_localizer()
 
 
+def _durable(alias: str) -> list[AbstractCapability[Any]]:
+    return [
+        TemporalDurability(
+            models={alias: DeferredModel(alias)},
+            model_activity_config=MODEL_ACTIVITY,
+            activity_config=TOOL_ACTIVITY,
+        )
+    ]
+
+
+# The agents of the one-request mode. Each has its own name, so each model request it
+# makes is recorded under its own stage (`agent__<name>__model_request`): the answer and
+# its repair, for the Localizer and for the Dubber, can be told apart.
+localizer_single_agent = localizer_single.build_single_agent(
+    MODEL_ALIAS,
+    name=localizer_single.SINGLE_NAME,
+    instructions=localizer_single.INSTRUCTIONS,
+    capabilities=[ConversationSizeGuard(), *_durable(MODEL_ALIAS)],
+)
+localizer_repair_agent = localizer_single.build_single_agent(
+    MODEL_ALIAS,
+    name=localizer_single.REPAIR_NAME,
+    instructions=localizer_single.REPAIR_INSTRUCTIONS,
+    capabilities=_durable(MODEL_ALIAS),
+)
+
+
 # A runaway agent (a validator it can never satisfy, a tool it keeps calling) must
 # end the run rather than spend without bound.
 USAGE_LIMITS = UsageLimits(request_limit=60, tool_calls_limit=200)
@@ -213,11 +263,15 @@ def _gave_up(agent: str, exc: Exception) -> ApplicationError:
 
 
 async def run_localizer(deps: LocalizerDeps, feedback: Sequence[str] = ()) -> LocalizedLines:
-    """Runs the Localizer to completion and returns its lines. The prompt names only
-    the ids to cover; the transcript itself is read through the tools. `feedback` is what
+    """Runs the Localizer to completion and returns its lines. `feedback` is what
     a reviewer found wrong with an earlier translation: notes written by a model that
     watched the video, so they reach the Localizer as data, in the prompt and not in
-    `deps` (which carry keys and numbers only)."""
+    `deps` (which carry keys and numbers only).
+
+    Answers in one request when the worker is set to (`localizer_context` returns the
+    transcript, subtitles and glossary for the prompt), and otherwise runs the tool loop,
+    where the prompt names only the ids to cover and the transcript is read through tools.
+    A run recorded before the one-request mode replays the loop."""
     if deps.segment_count > MAX_SEGMENTS:
         raise ApplicationError(
             f"the transcript has {deps.segment_count} segments, over the {MAX_SEGMENTS} the "
@@ -225,6 +279,15 @@ async def run_localizer(deps: LocalizerDeps, feedback: Sequence[str] = ()) -> Lo
             type="PayloadTooLarge",
             non_retryable=True,
         )
+    if workflow.patched(LOCALIZER_SINGLE_PATCH):
+        context = await workflow.execute_activity(
+            "localizer_context",
+            deps,
+            result_type=LocalizerContext | None,
+            **CONTEXT_ACTIVITY,
+        )
+        if context is not None:
+            return await _localize_in_one_request(deps, context, feedback)
     last = deps.segment_count - 1
     prompt = f"Localize this video's transcript into Vietnamese. The segment ids are 0 to {last}."
     if feedback:
@@ -238,6 +301,44 @@ async def run_localizer(deps: LocalizerDeps, feedback: Sequence[str] = ()) -> Lo
     except (UnexpectedModelBehavior, UsageLimitExceeded) as exc:
         raise _gave_up("Localizer", exc) from None
     return result.output
+
+
+# One model request, and one more if the first answer breaks a check. A request whose
+# answer does not parse is retried once by the agent, hence the room.
+SINGLE_USAGE_LIMITS = UsageLimits(request_limit=2)
+
+
+async def _localize_in_one_request(
+    deps: LocalizerDeps, context: LocalizerContext, feedback: Sequence[str]
+) -> LocalizedLines:
+    try:
+        first = await localizer_single_agent.run(
+            localizer_single.render_prompt(deps, context, feedback),
+            deps=deps,
+            usage_limits=SINGLE_USAGE_LIMITS,
+        )
+        lines = first.output
+        assessment = localizer_single.assess(deps, context, lines)
+        if assessment.problems:
+            asked = set(assessment.problems)
+            repaired = await localizer_repair_agent.run(
+                localizer_single.render_repair_prompt(deps, context, assessment),
+                deps=deps,
+                usage_limits=SINGLE_USAGE_LIMITS,
+            )
+            lines = localizer_single.merge(lines, repaired.output, asked)
+            assessment = localizer_single.assess(deps, context, lines)
+    except (UnexpectedModelBehavior, UsageLimitExceeded) as exc:
+        raise _gave_up("Localizer", exc) from None
+    unusable = assessment.unusable()
+    if unusable:
+        # A line that is missing, empty or unshowable cannot be dubbed. A line that only
+        # runs long is kept: the dubbing stage shortens or speeds up what does not fit.
+        notes = "; ".join(f"line {i}: {p.note}" for i, p in sorted(unusable.items())[:10])
+        raise _gave_up("Localizer", UnexpectedModelBehavior(notes))
+    return LocalizedLines(
+        lines=tuple(LocalizedLine(id=i, text_vi=t) for i, t in sorted(assessment.texts.items()))
+    )
 
 
 # --- the Dubber -------------------------------------------------------------------
@@ -280,6 +381,19 @@ def build_durable_dubber() -> Agent[DubberDeps, DubDecisions]:
 
 dubber = build_durable_dubber()
 
+dubber_single_agent = dubber_single.build_single_agent(
+    DUBBER_MODEL_ALIAS,
+    name=dubber_single.SINGLE_NAME,
+    instructions=dubber_single.INSTRUCTIONS,
+    capabilities=_durable(DUBBER_MODEL_ALIAS),
+)
+dubber_repair_agent = dubber_single.build_single_agent(
+    DUBBER_MODEL_ALIAS,
+    name=dubber_single.REPAIR_NAME,
+    instructions=dubber_single.REPAIR_INSTRUCTIONS,
+    capabilities=_durable(DUBBER_MODEL_ALIAS),
+)
+
 
 def dubber_usage_limits(lines: int) -> UsageLimits:
     """A line takes at most a read, three rewrites and an accept (five tools) over a
@@ -289,9 +403,19 @@ def dubber_usage_limits(lines: int) -> UsageLimits:
 
 
 async def run_dubber(deps: DubberDeps, feedback: Sequence[str] = ()) -> DubDecisions:
-    """Runs the Dubber to completion. The prompt names only the ids; the lines
-    themselves are read through the tools. `feedback` is what a reviewer found wrong with
-    them (data, in the prompt, as for the Localizer)."""
+    """Runs the Dubber to completion. `feedback` is what a reviewer found wrong with
+    the lines (data, in the prompt, as for the Localizer). Like the Localizer, it answers
+    in one request when the worker is set to, with the lines in the prompt, and otherwise
+    runs the tool loop, where the prompt names only the ids."""
+    if workflow.patched(DUBBER_SINGLE_PATCH):
+        context = await workflow.execute_activity(
+            "dubber_context",
+            deps,
+            result_type=DubberContext | None,
+            **CONTEXT_ACTIVITY,
+        )
+        if context is not None:
+            return await _dub_in_one_request(deps, context, feedback)
     prompt = f"Shorten these lines so they fit their slots: segment ids {list(deps.pending_ids)}."
     if feedback:
         prompt += (
@@ -306,3 +430,27 @@ async def run_dubber(deps: DubberDeps, feedback: Sequence[str] = ()) -> DubDecis
     except (UnexpectedModelBehavior, UsageLimitExceeded) as exc:
         raise _gave_up("Dubber", exc) from None
     return result.output
+
+
+async def _dub_in_one_request(
+    deps: DubberDeps, context: DubberContext, feedback: Sequence[str]
+) -> DubDecisions:
+    try:
+        first = await dubber_single_agent.run(
+            dubber_single.render_prompt(deps, context, feedback),
+            deps=deps,
+            usage_limits=SINGLE_USAGE_LIMITS,
+        )
+        rewritten = first.output
+        assessment = dubber_single.assess(deps, context, rewritten)
+        if assessment.problems:
+            repaired = await dubber_repair_agent.run(
+                dubber_single.render_repair_prompt(deps, context, assessment),
+                deps=deps,
+                usage_limits=SINGLE_USAGE_LIMITS,
+            )
+            rewritten = localizer_single.merge(rewritten, repaired.output, set(assessment.problems))
+            assessment = dubber_single.assess(deps, context, rewritten)
+    except (UnexpectedModelBehavior, UsageLimitExceeded) as exc:
+        raise _gave_up("Dubber", exc) from None
+    return dubber_single.decisions(deps, context, assessment)

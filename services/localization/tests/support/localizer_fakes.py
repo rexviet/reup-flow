@@ -149,6 +149,53 @@ class ScriptedModel:
         return FunctionModel(respond, model_name="scripted-localizer")
 
 
+def prompt_text(messages: list[ModelMessage]) -> str:
+    """The user prompt of the latest request in `messages`."""
+    for message in reversed(messages):
+        if isinstance(message, ModelRequest):
+            for part in message.parts:
+                if isinstance(part, UserPromptPart) and isinstance(part.content, str):
+                    return part.content
+    raise AssertionError("the request has no user prompt")
+
+
+def segment_ids_in(prompt: str) -> list[int]:
+    """The ids of the segments a one-request prompt (or its repair) shows."""
+    return [int(i) for i in re.findall(r"^\[(\d+)\] ", prompt, flags=re.MULTILINE)]
+
+
+OneRequestAnswer = Callable[[str], list[dict[str, Any]]]
+
+
+@dataclass
+class OneRequestModel:
+    """A model that answers each prompt it is sent with `answers[n]` (the last repeats),
+    called with the prompt text and returning the `lines` of the answer. Records every
+    prompt, so a test can say how many requests were made and what each carried. It has
+    no tools to call: a request that offers any is a failure."""
+
+    answers: Sequence[OneRequestAnswer] = (
+        lambda prompt: [{"id": i, "text_vi": "bản dịch ngắn"} for i in segment_ids_in(prompt)],
+    )
+    prompts: list[str] = field(default_factory=list)
+    tools_offered: list[str] = field(default_factory=list)
+
+    @property
+    def requests(self) -> int:
+        return len(self.prompts)
+
+    def model(self) -> FunctionModel:
+        async def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+            prompt = prompt_text(messages)
+            self.tools_offered += [t.name for t in info.function_tools]
+            answer = self.answers[min(len(self.prompts), len(self.answers) - 1)]
+            self.prompts.append(prompt)
+            payload = {"lines": answer(prompt)}
+            return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, payload)])
+
+        return FunctionModel(respond, model_name="one-request")
+
+
 @dataclass
 class StubbornModel:
     """Checks the length of its lines again and again for as long as the tool is
@@ -183,10 +230,14 @@ class LocalizerFakes:
     ports: Any = field(default_factory=FakePorts)
     model: ScriptedModel = field(default_factory=ScriptedModel)
     rate: float = 4.0
+    # `tools`: the tool loop on `model`. `single`: one request on `single_model`.
+    mode: str = "tools"
     assemble: Callable | None = None
     calls: Counter = field(default_factory=Counter)
     # (round, version) of each `assemble_script` call.
     assembled: list[tuple[int, int]] = field(default_factory=list)
+    # The lines each `assemble_script` call was given.
+    lines_seen: list[LocalizedLines] = field(default_factory=list)
     # Segments the first translation is flagged for (a contact its source lacks).
     flagged_ids: tuple[int, ...] = ()
     # `voice_rate` only answers once the other sides of this rendezvous are in flight too.
@@ -226,6 +277,7 @@ class LocalizerFakes:
         ) -> ScriptResult:
             fakes.calls["assemble_script"] += 1
             fakes.assembled.append((round, version))
+            fakes.lines_seen.append(lines)
             flagged = fakes.flagged_ids if round == 0 else ()
             return ScriptResult(
                 script=LocalizedScriptRef(

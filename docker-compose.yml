@@ -500,6 +500,8 @@ services:
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       LOCALIZER_MODEL: ${LOCALIZER_MODEL:-}
       DUBBER_MODEL: ${DUBBER_MODEL:-}
+      LOCALIZER_MODE: ${LOCALIZER_MODE:-single}
+      DUBBER_MODE: ${DUBBER_MODE:-single}
       # Looks at frames, so it needs a model that reads images.
       REVIEWER_MODEL: ${REVIEWER_MODEL:-}
       OCR_MODEL: ${OCR_MODEL:-}

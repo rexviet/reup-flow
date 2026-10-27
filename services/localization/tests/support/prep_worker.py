@@ -6,7 +6,15 @@ from pydantic_ai.durable_exec.temporal import AgentPlugin
 from temporalio.client import Client
 from temporalio.worker import Worker
 
-from localization.agents.temporal import dubber, localizer
+from localization.activities.agent_context import AgentContextActivities
+from localization.agents.temporal import (
+    dubber,
+    dubber_repair_agent,
+    dubber_single_agent,
+    localizer,
+    localizer_repair_agent,
+    localizer_single_agent,
+)
 from localization.workers.run import QueueSpec, build_worker
 from localization.workflows.video_localization import VideoLocalizationWorkflow
 from tests.support.dub_fakes import DubFakes, by_name
@@ -56,7 +64,18 @@ async def prep_workers(
     stage = {a.__temporal_activity_definition.name: a for a in localizing.activities()}  # type: ignore[attr-defined]
     dubbing = dubbing or DubFakes()
     dub = by_name(dubbing.activities())
-    agents = [AgentPlugin(localizer), AgentPlugin(dubber)]
+    agents = [
+        AgentPlugin(a)
+        for a in (
+            localizer,
+            dubber,
+            localizer_single_agent,
+            localizer_repair_agent,
+            dubber_single_agent,
+            dubber_repair_agent,
+        )
+    ]
+    context = AgentContextActivities(localizing.mode, dubbing.mode)
     with bound_localizer(localizing), dubbing.bound():
         async with running(
             [
@@ -80,6 +99,8 @@ async def prep_workers(
                         activities=[
                             acts["detect_subtitles"],  # type: ignore[list-item]
                             stage["assemble_script"],  # type: ignore[list-item]
+                            context.localizer_context,
+                            context.dubber_context,
                             review["publish"],  # type: ignore[list-item]
                             review["segment_room"],  # type: ignore[list-item]
                             *(

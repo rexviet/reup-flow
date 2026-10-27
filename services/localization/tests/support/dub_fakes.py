@@ -132,6 +132,8 @@ class ScriptedDubber:
 class DubFakes:
     unfit_ids: tuple[int, ...] = ()
     engine: str | None = "engine-a"
+    # `tools`: the tool loop on `dubber`. `single`: one request on the bound model.
+    mode: str = "tools"
     hashes: int = 3
     ports: FakeDubberPorts = field(default_factory=FakeDubberPorts)
     dubber: ScriptedDubber = field(default_factory=ScriptedDubber)

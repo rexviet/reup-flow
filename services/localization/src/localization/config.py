@@ -15,6 +15,10 @@ from localization.contracts.voice import SETTINGS_BY_PROVIDER, Provider, VoiceRe
 
 BBoxFormat = Literal["xyxy_px", "xyxy_norm1", "xyxy_norm1000", "yxyx_norm1000"]
 Concurrency = Annotated[int, Field(ge=1, le=64)]
+# How an agent answers: `single` preloads everything it would look up into one prompt
+# (one model request, at most one more to repair lines that break their checks);
+# `tools` lets it call tools in a loop, one model request per call.
+AgentMode = Literal["single", "tools"]
 
 
 def default_caption_font(module_path: Path) -> Path:
@@ -68,6 +72,8 @@ class Settings(BaseSettings):
     openrouter_api_key: SecretStr | None = None
     localizer_model: str | None = None
     dubber_model: str | None = None
+    localizer_mode: AgentMode = "single"
+    dubber_mode: AgentMode = "single"
     reviewer_model: str | None = None
     judge_model: str | None = None
     ocr_model: str | None = None

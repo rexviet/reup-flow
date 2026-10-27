@@ -18,6 +18,9 @@ class RealDubbing:
     stand-in: building it needs a music stem and a video length these tests do not
     model (the activity has its own tests)."""
 
+    # How the Dubber answers: the tool loop, on its scripted model.
+    mode = "tools"
+
     def __init__(
         self,
         store: ObjectStore,
