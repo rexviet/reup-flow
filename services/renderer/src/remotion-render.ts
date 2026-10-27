@@ -8,6 +8,7 @@ import {
 } from "@remotion/renderer";
 import { COMPOSITION_ID } from "./remotion/Root";
 import type { LocalizedVideoProps } from "./remotion/LocalizedVideo";
+import type { PhaseTimer } from "./phase-timer";
 
 // The composition's source, whether this file runs from src/ or from the compiled dist/.
 const ENTRY_POINT = path.resolve(__dirname, "../src/remotion/index.ts");
@@ -22,6 +23,9 @@ export interface RenderVideoArgs extends LocalizedVideoProps {
   onProgress: (progress: number) => void;
   /** Aborting stops the render: Chromium and the compositor are shut down and the call rejects. */
   signal?: AbortSignal;
+  /** Where the time goes: `select` (opening the browser and the composition), `frames`
+   * (until the last frame is drawn) and `encode` (what is left of the encoder after it). */
+  timer?: PhaseTimer;
 }
 
 export type RenderVideo = (args: RenderVideoArgs) => Promise<void>;
@@ -39,18 +43,22 @@ export const VIDEO_CACHE_BYTES = 512 * 1024 * 1024;
 const browserExecutable = process.env.CHROME_EXECUTABLE || null;
 
 export function remotionRenderer(serveUrl: string): RenderVideo {
-  return async ({ spec, urls, outputLocation, onProgress, signal }) => {
+  return async ({ spec, urls, outputLocation, onProgress, signal, timer }) => {
     const inputProps = { spec, urls };
-    const composition = await selectComposition({
-      serveUrl,
-      id: COMPOSITION_ID,
-      inputProps,
-      browserExecutable,
-    });
+    const select = () =>
+      selectComposition({
+        serveUrl,
+        id: COMPOSITION_ID,
+        inputProps,
+        browserExecutable,
+      });
+    const composition = timer ? await timer.time("select", select) : await select();
     const { cancelSignal, cancel } = makeCancelSignal();
     const onAbort = () => cancel();
     if (signal?.aborted) cancel();
     signal?.addEventListener("abort", onAbort, { once: true });
+    const renderStart = timer?.now() ?? 0;
+    let lastFrameAt: number | undefined;
     try {
       await renderMedia({
         composition,
@@ -62,9 +70,24 @@ export function remotionRenderer(serveUrl: string): RenderVideo {
         concurrency: RENDER_TABS,
         offthreadVideoCacheSizeInBytes: VIDEO_CACHE_BYTES,
         cancelSignal,
-        onProgress: ({ progress }) => onProgress(progress),
+        onProgress: ({ progress, renderedFrames }) => {
+          if (timer) {
+            if (renderedFrames > 0) timer.mark("first_frame");
+            if (renderedFrames >= composition.durationInFrames && lastFrameAt === undefined) {
+              lastFrameAt = timer.now();
+              timer.mark("last_frame");
+            }
+          }
+          onProgress(progress);
+        },
       });
     } finally {
+      if (timer) {
+        const end = timer.now();
+        const drawn = lastFrameAt ?? end;
+        timer.record("frames", renderStart, drawn);
+        timer.record("encode", drawn, end);
+      }
       signal?.removeEventListener("abort", onAbort);
     }
   };

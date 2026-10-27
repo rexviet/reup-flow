@@ -14,7 +14,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { ApplicationFailure, Context } from "@temporalio/activity";
-import { trace } from "@opentelemetry/api";
+import { trace, type Tracer } from "@opentelemetry/api";
 import { startAssetServer } from "../asset-server";
 import {
   createSpecValidator,
@@ -24,6 +24,7 @@ import {
 } from "../edit-spec";
 import { checkFont } from "../font";
 import type { ObjectStore } from "../object-store";
+import { PhaseTimer, type Clock } from "../phase-timer";
 import type { RenderVideo } from "../remotion-render";
 
 export interface RenderInput {
@@ -86,6 +87,11 @@ export interface RenderDeps {
   /** The signal that is aborted when the activity is cancelled. */
   cancellation?: () => AbortSignal | undefined;
   tmpRoot?: string;
+  /** Where the time of a render goes: the clock, the tracer and the sink of the one log line
+   * per render. Defaults are the monotonic clock, the global tracer and the console. */
+  clock?: Clock;
+  tracer?: Tracer;
+  log?: (line: string) => void;
 }
 
 function refuse(message: string, type: string): never {
@@ -172,6 +178,7 @@ export function createRenderActivity(deps: RenderDeps) {
     sha: string,
     outputKey: string,
     shared: SharedRender,
+    timer: PhaseTimer,
   ): Promise<RenderResult> {
     const span = trace.getActiveSpan();
     const timeout = AbortSignal.timeout(
@@ -191,28 +198,32 @@ export function createRenderActivity(deps: RenderDeps) {
     };
     let dir: string | undefined;
     let server: Awaited<ReturnType<typeof startAssetServer>> | undefined;
+    let failure: unknown;
     try {
-      if (await deps.store.exists(outputKey)) {
+      if (await timer.time("exists", () => deps.store.exists(outputKey))) {
         span?.setAttribute("render.reused", true);
         return { render_key: outputKey, spec_sha256: sha };
       }
-      dir = fs.mkdtempSync(path.join(deps.tmpRoot ?? os.tmpdir(), "render-"));
-      const source = path.join(dir, "source.mp4");
-      const audio = path.join(dir, "audio.wav");
-      await deps.store.download(spec.source_key, source);
-      check();
-      await deps.store.download(spec.audio_key, audio);
-      check();
-      if (sha256File(audio) !== spec.audio_sha256) {
-        refuse(
-          "the audio is not the track this spec was made for",
-          "AudioHashMismatch",
-        );
-      }
-      fs.copyFileSync(deps.fontPath, path.join(dir, "font.ttf"));
-      const output = path.join(dir, "render.mp4");
-
-      server = await startAssetServer(dir);
+      const work = fs.mkdtempSync(path.join(deps.tmpRoot ?? os.tmpdir(), "render-"));
+      dir = work;
+      const source = path.join(work, "source.mp4");
+      const audio = path.join(work, "audio.wav");
+      const output = path.join(work, "render.mp4");
+      // Everything the render reads is brought here and served to the browser from here.
+      server = await timer.time("fetch", async () => {
+        await deps.store.download(spec.source_key, source);
+        check();
+        await deps.store.download(spec.audio_key, audio);
+        check();
+        if (sha256File(audio) !== spec.audio_sha256) {
+          refuse(
+            "the audio is not the track this spec was made for",
+            "AudioHashMismatch",
+          );
+        }
+        fs.copyFileSync(deps.fontPath, path.join(work, "font.ttf"));
+        return startAssetServer(work);
+      });
       const calls = deps.invocations.record(sha);
       span?.setAttribute("render.media_invocations", calls);
       try {
@@ -229,15 +240,22 @@ export function createRenderActivity(deps: RenderDeps) {
             for (const listener of shared.listeners) listener(p);
           },
           signal,
+          timer,
         });
       } catch (err) {
         check();
         throw err;
       }
       check();
-      await deps.store.uploadFile(outputKey, output, "video/mp4");
+      await timer.time("upload", () =>
+        deps.store.uploadFile(outputKey, output, "video/mp4"),
+      );
       return { render_key: outputKey, spec_sha256: sha };
+    } catch (err) {
+      failure = err;
+      throw err;
     } finally {
+      (deps.log ?? console.log)(JSON.stringify(timer.summary(sha, failure)));
       await server?.close();
       if (dir) fs.rmSync(dir, { recursive: true, force: true });
     }
@@ -249,7 +267,10 @@ export function createRenderActivity(deps: RenderDeps) {
     if (!underVideo(input.spec_key, input.aweme_id)) {
       refuse("spec_key is not under this video's work/ folder", "InvalidInput");
     }
-    const spec = parseSpec(await deps.store.getBytes(input.spec_key), validate);
+    const timer = new PhaseTimer(deps.clock, deps.tracer);
+    const spec = await timer.time("spec", async () =>
+      parseSpec(await deps.store.getBytes(input.spec_key), validate),
+    );
     for (const key of [spec.source_key, spec.audio_key]) {
       if (!underVideo(key, input.aweme_id)) {
         refuse(
@@ -278,7 +299,7 @@ export function createRenderActivity(deps: RenderDeps) {
         listeners: new Set(),
         progress: 0,
       };
-      started.promise = renderOnce(spec, sha, outputKey, started).finally(
+      started.promise = renderOnce(spec, sha, outputKey, started, timer).finally(
         () => {
           if (inFlight.get(sha) === started) inFlight.delete(sha);
         },
