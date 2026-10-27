@@ -1,0 +1,23 @@
+services/localization/eval/jev_probe.py
+  s_0b729cf0d034d3::t_63c28047f3a427 1-28
+services/localization/eval/jev_fidelity_spike.py
+  s_0b729cf0d034d3::t_2badbf9d568790 1-33,44-107,115-145,147-150,152-156
+  s_0b729cf0d034d3::t_cb3f48e1673963 108-114
+  s_0b729cf0d034d3::t_9bd8593828ea05 34-43,146,151
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "124f38cd5e7ac692e0106e7d3404501fea43e0dc",
+  "prompts": {},
+  "sessions": {
+    "s_0b729cf0d034d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9aa1a711-c362-45ab-8e48-1a9b19f8df48",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
