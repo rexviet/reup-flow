@@ -1,0 +1,99 @@
+services/localization/tests/test_object_store.py
+  s_0b729cf0d034d3::t_47b96d642904e9 6,130-163
+services/renderer/tests/support/memory-store.ts
+  s_0b729cf0d034d3::t_b15c6a35c46836 50,76
+services/renderer/src/font.ts
+  s_0b729cf0d034d3::t_f0cac882e86bde 1-29
+services/renderer/src/object-store.ts
+  s_0b729cf0d034d3::t_f0cac882e86bde 87-90
+services/renderer/tests/edit-spec.contract.spec.ts
+  s_0b729cf0d034d3::t_1f87259be9607b 71-77,86-89
+  s_0b729cf0d034d3::t_98f299b8586f57 90-91
+services/renderer/tests/object-store.spec.ts
+  s_0b729cf0d034d3::t_1f87259be9607b 1-40
+services/localization/src/localization/contracts/ids.py
+  s_0b729cf0d034d3::t_81479edb63d0da 75-76
+services/localization/tests/integration/test_font_parity.py
+  s_0b729cf0d034d3::t_a40b29957c5636 13,150,199,216,223-243
+services/renderer/src/edit-spec.ts
+  s_0b729cf0d034d3::t_f0cac882e86bde 47
+services/downloader/test/compose-constraints.spec.ts
+  s_0b729cf0d034d3::t_d3804fe30c42a7 391-407
+services/renderer/src/asset-server.ts
+  s_0b729cf0d034d3::t_f0cac882e86bde 12,96-97
+services/renderer/src/remotion/Root.tsx
+  s_0b729cf0d034d3::t_f0cac882e86bde 24
+services/localization/src/localization/contracts/fixtures.py
+  s_0b729cf0d034d3::t_6925500673b840 34
+docker-compose.yml
+  s_0b729cf0d034d3::t_d3804fe30c42a7 560-567,570
+services/renderer/tests/render.integration-spec.ts
+  s_0b729cf0d034d3::t_6925500673b840 12,68
+services/renderer/src/activities/render.ts
+  s_0b729cf0d034d3::t_cf5127a3370eb2 7-11,20,37-41,71-74,90-108,120-121,125-134,138-141,145,147,157-178,182,184-211,213-217
+  s_0b729cf0d034d3::t_b15c6a35c46836 123,212
+  s_0b729cf0d034d3::t_da260fea5c988d 137
+plans/261026-0147-video-localization-workflow/plan.md
+  s_0b729cf0d034d3::t_9a492b651e5573 266
+  s_0b729cf0d034d3::t_0f413c144380e0 265
+services/renderer/tests/render.spec.ts
+  s_0b729cf0d034d3::t_b15c6a35c46836 14
+  s_0b729cf0d034d3::t_1f87259be9607b 287-480
+services/renderer/src/remotion-render.ts
+  s_0b729cf0d034d3::t_eaedb1197f733b 29-32,56-57
+  s_0b729cf0d034d3::t_f0cac882e86bde 4,50-51,58-63
+  s_0b729cf0d034d3::t_9875e92b5b4809 5-8,23-24,33-36,42,52-55,64-69
+services/localization/pyproject.toml
+  s_0b729cf0d034d3::t_fb937a9bb1df7f 18
+services/localization/src/localization/storage/object_store.py
+  s_0b729cf0d034d3::t_47b96d642904e9 73-83,169,180
+plans/261026-0147-video-localization-workflow/phase-07-captions-and-renderer.md
+  s_0b729cf0d034d3::t_0f413c144380e0 45-47,147-149,151-156,158-171
+  s_0b729cf0d034d3::t_d910087b45c387 136-137
+  s_0b729cf0d034d3::t_7f63e70fbfb328 108
+  s_0b729cf0d034d3::t_e2e503b6ad9409 120-121,150
+  s_0b729cf0d034d3::t_d35e794f20d8fe 157
+services/localization/src/localization/contracts/models.py
+  s_0b729cf0d034d3::t_cfd8790be4a0b7 286-294,300-303,307,309-311
+scripts/run-mutations.sh
+  s_0b729cf0d034d3::t_d3804fe30c42a7 131
+  s_0b729cf0d034d3::t_548faec2f97ced 138
+services/localization/tests/activities/test_layout_captions.py
+  s_0b729cf0d034d3::t_6c76a47e9f4fc0 6-8,13,17,21,34,248-253,388-547
+services/renderer/tests/asset-server.spec.ts
+  s_0b729cf0d034d3::t_1f87259be9607b 3,145-170
+  s_0b729cf0d034d3::t_ab33313b17fde0 171
+services/downloader/test/mutations/phase-infra.sh
+  s_0b729cf0d034d3::t_d3804fe30c42a7 38,242-247
+  s_0b729cf0d034d3::t_455f9a507e0ea8 248
+services/renderer/src/cli.ts
+  s_0b729cf0d034d3::t_f0cac882e86bde 10,22
+contracts/edit-spec.schema.json
+  s_0b729cf0d034d3::t_81479edb63d0da 113,151
+  s_0b729cf0d034d3::t_baf2cb93cb637e 124,140,150,152-154,157,163,180,197-198
+services/localization/src/localization/activities/layout_captions.py
+  s_0b729cf0d034d3::t_baf2cb93cb637e 12-13,15,20-22,41,58-69,89-90,99-123,210-218,221-234,269-305,342,348-352,354,368,405-408,441,443-444,446-465
+  s_0b729cf0d034d3::t_6c76a47e9f4fc0 219-220
+services/renderer/tests/mutations/phase-07.sh
+  s_0b729cf0d034d3::t_548faec2f97ced 42-43,48,51,62,69,72,75,102,113,291-373,375-387,406-409
+  s_0b729cf0d034d3::t_41708ca4e7d9ea 374
+  s_0b729cf0d034d3::t_658065389836fd 410
+services/localization/uv.lock
+  s_0b729cf0d034d3::t_6b1d221697b06d 193-209,379,404
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "03e5b190ef159032168c549aee8d797274f36079",
+  "prompts": {},
+  "sessions": {
+    "s_0b729cf0d034d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9aa1a711-c362-45ab-8e48-1a9b19f8df48",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
