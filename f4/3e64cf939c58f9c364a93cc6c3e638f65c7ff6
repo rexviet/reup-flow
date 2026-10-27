@@ -1,0 +1,22 @@
+services/downloader/test/storage/migrate-local-to-s3.integration.spec.ts
+  s_0b729cf0d034d3::t_2e19d2c30b9bf1 75
+  s_0b729cf0d034d3::t_aea75291b3bf20 285-333
+scripts/migrate-local-storage-to-s3.ts
+  s_0b729cf0d034d3::t_226dfe76168b4b 12-14,75-76,92-97,116-118,185-192,282-283,312
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f43e64cf939c58f9c364a93cc6c3e638f65c7ff6",
+  "prompts": {},
+  "sessions": {
+    "s_0b729cf0d034d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9aa1a711-c362-45ab-8e48-1a9b19f8df48",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
