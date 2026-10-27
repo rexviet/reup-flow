@@ -177,3 +177,18 @@ Sáu mục Medium đầu và M7 đã sửa. Các guard mới có mutation đã �
 ## Cover khớp chữ
 
 Vùng phụ đề giờ là đồng thuận của các box model ở `detect_subtitles` (xem phase 04), đã nới 13% chiều cao và 2% chiều rộng. `grow_cover` chỉ cộng lề cố định 0.5% chiều rộng frame (5 px ở 1080) và đảm bảo rộng tối thiểu 60% chiều rộng frame, căn giữa quanh chữ (chỉ nới khi cần cho phụ đề Việt dài hơn dòng gốc). Cover được vẽ là chính hộp phụ đề (`caption_box_for`, tối thiểu 120 px cho hai dòng), nên chữ không lòi ra ngoài nền đen. `check_cover_plausible` giữ nguyên (35% chiều cao, 40% diện tích). Mutation `renderer:07` có thêm mục cho chiều rộng tối thiểu và cho cover vẽ bằng hộp phụ đề, đã đăng ký, chưa chạy.
+
+## Số tab render: đo 2 và 4 tab (chờ quyết định của người dùng)
+
+Người dùng muốn 4 tab. Đo bằng image `reup-flow-worker-render:latest` (arm64 native, host 10 CPU, Docker VM 8,3 GB), `docker run --memory=6g --memory-swap=6g --shm-size=512m --tmpfs /tmp:size=1g`, mã `remotion-render.js` của chính image (chỉ đổi hằng `RENDER_TABS` bằng `sed` trong container), cache video 512 MiB, nguồn và audio là file cục bộ (không mạng, không secret). Spec dựng tay theo hình dạng spec của workflow (1080x1920, 30 fps, cover + caption mỗi 3 s). Đỉnh bộ nhớ là `memory.current` của cgroup lấy mẫu 250 ms (gồm cả page cache), nên là cận trên của RSS. Mỗi cấu hình chạy một lần (chưa lặp), cùng lúc stack compose vẫn chạy nhàn rỗi.
+
+| Clip | Tab | Thời gian render | Đỉnh bộ nhớ (cgroup) |
+|---|---|---|---|
+| 11 s, clip thật `7575765838708520689.mp4` (h264) | 2 | 17,8 s | 3960 MiB |
+| 11 s | 4 | 12,5 s | 4388 MiB |
+| 60 s, clip thật lặp lại, HEVC | 2 | 97,7 s | 4723 MiB |
+| 60 s | 4 | 89,1 s | 5122 MiB |
+
+(Bundle Remotion khoảng 4 s ở mọi lần chạy, không tính ở trên.) Hai tab trên clip 60 s cho 4,7 GiB, cao hơn số 4,1 GiB đo trước đó (cách đo khác: mẫu cgroup gồm page cache; clip loại nội dung khác).
+
+**4 tab không vừa ngân sách mà `compose-constraints.spec.ts` đòi** (`mem_limit >= đỉnh + tmpfs + shm`): 5122 + 1024 + 512 = 6658 MiB > 6144 MiB (6g). Thời gian chỉ nhanh hơn 9% ở clip 60 s (và 30% ở clip 11 s). Thêm `mem_limit` lên 7g trên Docker VM 8,3 GB đang chạy cả langfuse, clickhouse, postgres, temporal thì không an toàn, và không hạ số tab một cách âm thầm. **Không đổi `RENDER_TABS` (vẫn 2), không đổi compose hay test; người dùng quyết**: (a) giữ 2 tab; (b) 4 tab và nâng `mem_limit` (cần nâng bộ nhớ Docker VM trước), hoặc (c) 4 tab với `/tmp` và shm nhỏ hơn (đã đo dùng thật khoảng 52 MB và 40 MB) để công thức vừa 6g: 5122 + 512 + 256 = 5890 MiB; cần người dùng chấp nhận rủi ro đỉnh sát giới hạn.
