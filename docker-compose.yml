@@ -502,7 +502,10 @@ services:
       DUBBER_MODEL: ${DUBBER_MODEL:-}
       LOCALIZER_MODE: ${LOCALIZER_MODE:-single}
       DUBBER_MODE: ${DUBBER_MODE:-single}
-      # Looks at frames, so it needs a model that reads images.
+      # jev: checks in code plus one call to Jev through OpenRouter; llm: the vision agent.
+      REVIEWER_MODE: ${REVIEWER_MODE:-jev}
+      REVIEWER_JEV_MODEL: ${REVIEWER_JEV_MODEL:-typesafe/jev-1.13}
+      # Used when REVIEWER_MODE=llm: it looks at frames, so it needs a model that reads images.
       REVIEWER_MODEL: ${REVIEWER_MODEL:-}
       OCR_MODEL: ${OCR_MODEL:-}
       OCR_BBOX_FORMAT: ${OCR_BBOX_FORMAT:-}

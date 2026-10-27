@@ -182,16 +182,51 @@ def test_the_agents_worker_refuses_to_start_without_a_provider_key() -> None:
 
 
 def test_the_agents_worker_refuses_to_start_without_a_reviewer_model() -> None:
-    """The Reviewer looks at frames, so it has a model of its own: the Localizer's may
-    not read images, and a run that reached the review without one would be paid for
+    """The vision Reviewer looks at frames, so it has a model of its own: the Localizer's
+    may not read images, and a run that reached the review without one would be paid for
     twice."""
     settings = _settings(
         loc_database_url="postgresql://x/y",  # type: ignore[arg-type]
         localizer_model="some/model",  # type: ignore[arg-type]
+        reviewer_mode="llm",
         openrouter_api_key="k",  # type: ignore[arg-type]
     )
     with pytest.raises(ConfigError, match="REVIEWER_MODEL"):
         bind_agent_runtime(settings, STORE)
+
+
+def test_the_jev_reviewer_needs_no_reviewer_model_but_does_need_the_openrouter_key() -> None:
+    """The Jev review reads text only, so a worker without REVIEWER_MODEL starts; the key
+    it calls with is OpenRouter's, and it is checked at startup like the models' is."""
+    configured = _settings(
+        loc_database_url="postgresql://x/y",  # type: ignore[arg-type]
+        localizer_model="some/model",  # type: ignore[arg-type]
+        reviewer_mode="jev",
+        openrouter_api_key="k",  # type: ignore[arg-type]
+    )
+    bind_agent_runtime(configured, STORE)
+    with pytest.raises(ConfigError, match="OPENROUTER_API_KEY"):
+        bind_agent_runtime(configured.model_copy(update={"openrouter_api_key": None}), STORE)
+
+
+def test_the_mode_decides_which_reviewer_the_worker_builds() -> None:
+    from localization.activities.review_render import ReviewRenderActivity
+
+    def built(mode: str) -> ReviewRenderActivity:
+        settings = _settings(reviewer_mode=mode, openrouter_api_key="k")  # type: ignore[arg-type]
+        queues = runnable(queue_specs("agents", settings, STORE, PROVIDERS))  # type: ignore[arg-type]
+        (llm,) = (q for q in queues if q.name == "llm")
+        return llm.activities[0].__self__  # type: ignore[attr-defined,no-any-return]
+
+    assert built("jev")._mode == "jev"  # noqa: SLF001
+    assert built("llm")._mode == "llm"  # noqa: SLF001
+
+
+def test_jev_is_reached_through_the_openrouter_base_url_without_its_version_segment() -> None:
+    """The SDK adds `/v1/systemone` itself: `/api/v1` twice is a 404."""
+    assert Settings().jev_base_url == "https://openrouter.ai/api"
+    other = Settings(openrouter_base_url="https://proxy.example/openrouter/api/v1/")
+    assert other.jev_base_url == "https://proxy.example/openrouter/api"
 
 
 def test_a_worker_without_a_dubber_model_uses_the_localizers() -> None:

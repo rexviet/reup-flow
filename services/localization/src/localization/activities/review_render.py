@@ -1,13 +1,21 @@
 """Step 8: the Reviewer scores the rendered mp4.
 
-The whole review happens inside this one activity. The frames the Reviewer looks at
-are cut from a local copy of the video, held in memory for the length of the review
-and never put in a Temporal payload, a span or a presigned link: the activity returns
-the verdict and nothing else. A retry runs the whole review again, which is fine for
-a review this short.
+The whole review happens inside this one activity, in one of two modes (REVIEWER_MODE):
+
+  jev  checks in code for what can be measured (timing, loudness, caption fit, source
+       text left next to the caption, empty or foreign lines) and one call to Jev, a typed
+       decision model, for whether each line says what its source says. The only thing
+       that leaves the worker is the text of the lines.
+  llm  the tool-calling vision agent: frames and OCR are tools it calls in a loop.
+
+Either way the video is a local copy, held for the length of the review and never put in
+a Temporal payload, a span or a presigned link: the activity returns the verdict and
+nothing else. A retry runs the whole review again, which is fine for a review this short.
 """
 
 import asyncio
+import dataclasses
+import logging
 import shutil
 import tempfile
 from collections.abc import Callable, Sequence
@@ -21,7 +29,9 @@ from temporalio.exceptions import ApplicationError
 
 from localization.activities.assemble_audio import measure_loudness
 from localization.activities.ffmpeg import run_blocking, run_ffmpeg
+from localization.activities.layout_captions import FontMeter
 from localization.activities.script_document import read_script
+from localization.agents import review_checks, review_jev
 from localization.agents.reviewer import (
     PROMPT_VERSION,
     Frame,
@@ -30,25 +40,37 @@ from localization.agents.reviewer import (
     ReviewDeps,
     build_reviewer,
 )
+from localization.config import DEFAULT_CAPTION_FONT, ReviewerMode
 from localization.contracts import (
     DubbedAudio,
     DubSegmentsDocument,
     EditSpec,
     EditSpecRef,
     LocalizationInput,
+    LocalizedScript,
     LocalizedScriptRef,
     RenderResult,
+    ReviewScores,
     ReviewVerdict,
 )
+from localization.observability.llm_usage import LlmUsage, Recorder, current_run
 from localization.observability.tracing import tag_session
 from localization.providers.base import OcrProvider
 from localization.providers.errors import UnusableAnswer
+from localization.providers.jev import Jev
 from localization.storage.object_store import ObjectStore
+
+log = logging.getLogger(__name__)
 
 # What a vision model needs to read a caption, and no more.
 FRAME_WIDTH = 768
 USAGE = UsageLimits(request_limit=12, tool_calls_limit=24)
 HEARTBEAT_SECONDS = 10.0
+MAX_ISSUES = 20
+# The stage the Jev call is recorded under in `llm_calls`.
+JEV_STAGE = "review_jev"
+# Each issue takes this much off the score of the dimension it counts against.
+SCORE_STEP = 0.25
 
 
 class LocalVideo:
@@ -129,6 +151,11 @@ async def _heartbeat_while(task: asyncio.Future) -> None:
         activity.heartbeat()
 
 
+def _score(findings: Sequence[review_checks.Finding], dimension: str) -> float:
+    count = sum(f.dimension == dimension for f in findings)
+    return max(0.0, 1.0 - SCORE_STEP * count)
+
+
 class ReviewRenderActivity:
     def __init__(
         self,
@@ -138,12 +165,22 @@ class ReviewRenderActivity:
         *,
         loudness_lufs: float,
         true_peak_dbtp: float,
+        mode: ReviewerMode = "llm",
+        jev: Callable[[], Jev] | None = None,
+        recorder: Recorder | None = None,
+        font_path: str = str(DEFAULT_CAPTION_FONT),
     ) -> None:
+        if mode == "jev" and jev is None:
+            raise ValueError("the jev review needs a Jev client")
         self._store = store
         self._ocr = ocr
         self._model = model
         self._target = loudness_lufs
         self._peak = true_peak_dbtp
+        self._mode = mode
+        self._jev = jev
+        self._recorder = recorder
+        self._meter = FontMeter(font_path)
 
     @activity.defn(name="review_render")
     async def review_render(
@@ -180,6 +217,8 @@ class ReviewRenderActivity:
                 loudness_target=self._target,
                 true_peak=self._peak,
             )
+            if self._mode == "jev":
+                return await self._review_with_jev(script_doc, segments, edit_spec, ports)
             deps = ReviewDeps(script=script_doc, segments=segments, spec=edit_spec, ports=ports)
             agent = build_reviewer(self._model())
             run = asyncio.ensure_future(
@@ -205,3 +244,74 @@ class ReviewRenderActivity:
             return result.output
         finally:
             shutil.rmtree(root, ignore_errors=True)
+
+    async def _record(self, usage: LlmUsage) -> None:
+        run = current_run()
+        if self._recorder is not None and run is not None:
+            await self._recorder(usage, dataclasses.replace(run, stage=JEV_STAGE))
+
+    async def _review_with_jev(
+        self,
+        script: LocalizedScript,
+        segments: DubSegmentsDocument,
+        spec: EditSpec,
+        ports: LocalVideo,
+    ) -> ReviewVerdict:
+        assert self._jev is not None
+        work = asyncio.ensure_future(self._judge(script, segments, spec, ports, self._jev()))
+        beat = asyncio.ensure_future(_heartbeat_while(work))
+        try:
+            return await work
+        finally:
+            work.cancel()
+            beat.cancel()
+            await asyncio.gather(work, beat, return_exceptions=True)
+
+    async def _judge(
+        self,
+        script: LocalizedScript,
+        segments: DubSegmentsDocument,
+        spec: EditSpec,
+        ports: LocalVideo,
+        jev: Jev,
+    ) -> ReviewVerdict:
+        found = review_checks.line_findings(script.segments)
+        found += review_checks.timing_findings(
+            script.segments,
+            segments,
+            spec.duration_ms,
+            await ports.loudness(),
+            target_lufs=self._target,
+            true_peak_dbtp=self._peak,
+        )
+        found += await asyncio.to_thread(review_checks.caption_findings, spec, self._meter)
+        times = review_checks.residual_times(spec)
+        if times:
+            found += review_checks.residual_findings(spec, await ports.find_text(times))
+        # Lines that failed the cheap checks are already issues: Jev is asked about the rest.
+        broken = {f.issue.segment_id for f in found if f.dimension == "fidelity"}
+        asked = [s for s in script.segments if s.id not in broken]
+        for part in review_jev.chunks(asked):
+            result = await jev.ask(
+                review_jev.build_state(part), review_jev.build_questions(part), self._record
+            )
+            verdicts = review_jev.fidelity_issues(part, result.answers)
+            found += [review_checks.Finding("fidelity", i) for i in verdicts.issues]
+            log.info(
+                "jev review: %d line(s), worst %.2f, %d ms, %d+%d tokens",
+                len(part),
+                verdicts.worst,
+                result.latency_ms,
+                result.input_tokens,
+                result.output_tokens,
+            )
+        issues = tuple(f.issue for f in found)[:MAX_ISSUES]
+        return ReviewVerdict(
+            passed=not issues,
+            scores=ReviewScores(
+                fidelity=_score(found, "fidelity"),
+                timing=_score(found, "timing"),
+                visual=_score(found, "visual"),
+            ),
+            issues=issues,
+        )

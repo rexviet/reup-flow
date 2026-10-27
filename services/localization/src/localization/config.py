@@ -19,6 +19,9 @@ Concurrency = Annotated[int, Field(ge=1, le=64)]
 # (one model request, at most one more to repair lines that break their checks);
 # `tools` lets it call tools in a loop, one model request per call.
 AgentMode = Literal["single", "tools"]
+# How the Reviewer judges a render. `jev`: checks in code plus one call to Jev, a typed
+# decision model, for what needs understanding. `llm`: the tool-calling vision agent.
+ReviewerMode = Literal["jev", "llm"]
 
 
 def default_caption_font(module_path: Path) -> Path:
@@ -75,6 +78,11 @@ class Settings(BaseSettings):
     localizer_mode: AgentMode = "single"
     dubber_mode: AgentMode = "single"
     reviewer_model: str | None = None
+    reviewer_mode: ReviewerMode = "jev"
+    # Jev is reached through OpenRouter's `/systemone`; the key and base URL are the
+    # OpenRouter ones. Pinned, so a model that moves under an alias cannot change what
+    # a review means.
+    reviewer_jev_model: str = "typesafe/jev-1.13"
     judge_model: str | None = None
     ocr_model: str | None = None
     ocr_bbox_format: BBoxFormat | None = None
@@ -132,6 +140,12 @@ class Settings(BaseSettings):
     def _cidrs_parse(cls, value: str) -> str:
         _parse_cidrs(value)
         return value
+
+    @property
+    def jev_base_url(self) -> str:
+        """The SDK adds `/v1/systemone` itself, so it is given the OpenRouter base
+        without its `/v1`."""
+        return self.openrouter_base_url.rstrip("/").removesuffix("/v1")
 
     def model_post_init(self, __context: object) -> None:
         cidrs = self.voicestudio_allow_private_http_cidrs

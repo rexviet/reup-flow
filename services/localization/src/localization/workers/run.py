@@ -9,6 +9,7 @@ cannot stop a workflow task from being delivered.
 """
 
 import asyncio
+import functools
 import logging
 import signal
 import sys
@@ -52,8 +53,10 @@ from localization.agents.temporal import (
 )
 from localization.config import ConfigError, Settings, load_settings
 from localization.observability.llm_calls import LlmCallRecorder
+from localization.observability.llm_usage import Recorder
 from localization.observability.tracing import init_tracing
 from localization.providers.base import TtsProvider
+from localization.providers.jev import jev_for
 from localization.providers.llm import model_for, openrouter_client
 from localization.providers.registry import Providers, build_media_providers, build_providers
 from localization.storage.object_store import ObjectStore
@@ -103,6 +106,7 @@ def queue_specs(
     providers: Providers,
     engine: Callable[[], str | None] = lambda: None,
     llm_http: httpx.AsyncClient | None = None,
+    recorder: Recorder | None = None,
 ) -> list[QueueSpec]:
     """A queue with nothing to run gets no worker. `engine` names the speech engine
     VoiceStudio reports as active; it is part of a measured voice's identity."""
@@ -147,6 +151,10 @@ def queue_specs(
             lambda: model_for("reviewer", settings, llm_http),
             loudness_lufs=settings.loudness_lufs,
             true_peak_dbtp=settings.true_peak_dbtp,
+            mode=settings.reviewer_mode,
+            jev=functools.cache(lambda: jev_for(settings)),
+            recorder=recorder,
+            font_path=settings.caption_font_path,
         )
         publish = PublishActivity(store, RunStore(database_url))
         # The agents' model requests (`llm`) and tools (`io`, and the Dubber's
@@ -221,8 +229,11 @@ def bind_agent_runtime(
     model = model_for("localizer", settings, llm_http)
     bind_model_factory(lambda: model)
     bind_ports(StorePorts(store, GlossaryStore(_database_url(settings))))
-    # The Reviewer's model is built per review; check now that it can be.
-    model_for("reviewer", settings, llm_http)
+    if settings.reviewer_mode == "llm":
+        # The Reviewer's model is built per review; check now that it can be.
+        model_for("reviewer", settings, llm_http)
+    elif settings.openrouter_api_key is None:
+        raise ConfigError("OPENROUTER_API_KEY is not set")
     dubber_model = model_for("dubber", settings, llm_http)
     bind_model_factory(lambda: dubber_model, DUBBER_MODEL_ALIAS)
     if tts is not None:
@@ -238,13 +249,12 @@ async def serve(role: str) -> int:
         raise ConfigError(f"unknown worker role {role!r}; expected 'agents' or 'media'")
     # One HTTP client for every OpenRouter request of this process: its response hook
     # records what each request cost, on the span and in `localization.llm_calls`.
-    llm_http = (
-        openrouter_client(
-            LlmCallRecorder(_database_url(settings)) if settings.loc_database_url else None
-        )
-        if role == "agents"
+    recorder = (
+        LlmCallRecorder(_database_url(settings))
+        if role == "agents" and settings.loc_database_url
         else None
     )
+    llm_http = openrouter_client(recorder) if role == "agents" else None
     providers = (
         build_providers(settings, llm_http=llm_http)
         if role == "agents"
@@ -262,6 +272,7 @@ async def serve(role: str) -> int:
             providers,
             engine=(lambda: health.state.engine) if health is not None else (lambda: None),
             llm_http=llm_http,
+            recorder=recorder,
         )
     )
     workers = [build_worker(client, spec) for spec in specs]
