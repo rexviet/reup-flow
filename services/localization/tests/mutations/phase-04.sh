@@ -39,6 +39,7 @@ PERSIST=src/localization/activities/persist.py
 INGEST=src/localization/activities/ingest.py
 DEMUCS=src/localization/providers/demucs.py
 VISION_OCR=src/localization/providers/vision_ocr.py
+REVIEW_RENDER=src/localization/activities/review_render.py
 TRANSCRIBE=src/localization/activities/transcribe.py
 DETECT=src/localization/activities/detect_subtitles.py
 FFMPEG=src/localization/activities/ffmpeg.py
@@ -59,13 +60,14 @@ T_DOCKER=tests/test_dockerfile.py
 T_SAFE=tests/test_demucs_safe.py
 T_SUPERVISE=tests/workers/test_supervise.py
 T_OCR=tests/providers/test_ocr_demucs_llm.py
+T_REVIEW=tests/activities/test_review_render.py
 T_DEMUCS=tests/providers/test_demucs_runtime.py
 
-mp_init "$STARTER" "$WORKFLOW" "$RUN" "$PERSIST" "$INGEST" "$DEMUCS" "$VISION_OCR" "$TRANSCRIBE" "$DETECT" "$FFMPEG" "$TRACING" \
+mp_init "$STARTER" "$WORKFLOW" "$RUN" "$PERSIST" "$INGEST" "$DEMUCS" "$VISION_OCR" "$REVIEW_RENDER" "$TRANSCRIBE" "$DETECT" "$FFMPEG" "$TRACING" \
   "$VOICES" "$DEMUCS_SAFE" "$DOCKERFILE" "$GRANTS"
 MP_TEST_CMD=(uv run pytest -q -p no:cacheprovider)
 
-mp_baseline "$T_START $T_GRANTS $T_PREP $T_CONC $T_REPLAY $T_VOICES $T_TRACING $T_DOCKER $T_SAFE $T_SUPERVISE $T_DEMUCS $T_OCR"
+mp_baseline "$T_START $T_GRANTS $T_PREP $T_CONC $T_REPLAY $T_VOICES $T_TRACING $T_DOCKER $T_SAFE $T_SUPERVISE $T_DEMUCS $T_OCR $T_REVIEW"
 
 # --- 1. the workflow id is no longer the video and the generation ---------------
 mp_mutation "the workflow id carries a random suffix instead of being deterministic"
@@ -429,6 +431,29 @@ restore
 mp_mutation "a null reply content crashes instead of being the unparseable case"
 apply_mutation "$VISION_OCR" 'TypeError, AttributeError, ValueError' 'TypeError, ValueError' \
   && expect_red "$T_OCR" "test_an_empty_or_cut_off_reply_is_the_unparseable_case_not_a_crash"
+restore
+
+# --- one malformed answer is not a failed provider (registered, not yet run) ---------------------
+mp_mutation "a prose reply from the vision model is a failed provider, not an unusable answer"
+apply_mutation "$VISION_OCR" \
+  '            raise UnusableAnswer("ocr: the reply is not the requested JSON") from None' \
+  '            raise PermanentProviderError("ocr: the reply is not the requested JSON") from None' \
+  && expect_red "$T_OCR" "test_vision_ocr_prose_reply_is_an_unusable_answer_not_a_failed_provider"
+restore
+
+mp_mutation "the detector does not count the frames whose answer was unusable"
+apply_mutation "$DETECT" $'            return None, True\n' $'            return None, False\n' \
+  && expect_red "$T_PREP" "test_most_frames_unusable_fails_permanently_and_names_the_counts"
+restore
+
+mp_mutation "the detector tolerates any number of unusable answers"
+apply_mutation "$DETECT" 'unusable * 2 > len(boxes)' 'unusable * 2 > len(boxes) * 100' \
+  && expect_red "$T_PREP" "test_most_frames_unusable_fails_permanently_and_names_the_counts"
+restore
+
+mp_mutation "the reviewer's text check swallows every OCR failure, not only a malformed answer"
+apply_mutation "$REVIEW_RENDER" '            except UnusableAnswer:' '            except Exception:' \
+  && expect_red "$T_REVIEW" "test_an_ocr_that_is_broken_still_fails_the_review"
 restore
 
 # --- control A: a constant that is not an invariant ------------------------------------------------------

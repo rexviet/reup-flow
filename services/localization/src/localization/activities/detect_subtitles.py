@@ -22,6 +22,7 @@ from localization.contracts import (
 )
 from localization.observability.tracing import tag_session
 from localization.providers.base import OcrProvider
+from localization.providers.errors import PermanentProviderError, UnusableAnswer
 from localization.storage.object_store import ObjectStore, work_key
 
 SAMPLE_FPS = 2
@@ -36,6 +37,11 @@ MIN_BAND_FRAMES = 2
 # missed one, or one whose box was unusable) is far more likely. Measured in time, so
 # it does not change with the sampling rate.
 MAX_GAP_MS = 2000
+# One frame the model answers unusably says nothing about the others; but when more
+# than half of the sampled frames (once at least this many were sampled) are
+# unusable, the model, its format or its key is wrong, and "no subtitles" would be a
+# lie.
+MIN_FRAMES_TO_JUDGE = 4
 # The model's boxes are tight, and a little short of the glyphs and their outline. The
 # region is padded before it becomes the cover: this fraction of the band's height
 # above and below, and this fraction of the frame's width on each side.
@@ -133,10 +139,18 @@ class DetectSubtitlesActivity:
         self._chunk_frames = chunk_frames
         self._tmp_root = tmp_root
 
+    async def _read(self, image: bytes, scaled: tuple[int, int]) -> tuple[BBox | None, bool]:
+        """The detection for one frame, and whether the answer was unusable."""
+        try:
+            return await self._ocr.detect_region(image, *scaled), False
+        except UnusableAnswer:
+            return None, True
+
     @activity.defn(name="detect_subtitles")
     async def detect_subtitles(self, spec: LocalizationInput) -> SubtitleTrack:
         tag_session(spec.aweme_id)
         boxes: list[BBox | None] = []
+        unusable = 0
         with (
             provider_errors(),
             tempfile.TemporaryDirectory(prefix="subs-", dir=self._tmp_root) as tmp,
@@ -171,15 +185,19 @@ class DetectSubtitlesActivity:
                 for start in range(0, len(frames), BATCH_SIZE):
                     batch = frames[start : start + BATCH_SIZE]
                     images = [await asyncio.to_thread(p.read_bytes) for p in batch]
-                    found = await asyncio.gather(
-                        *(self._ocr.detect_region(img, *scaled) for img in images)
-                    )
-                    boxes.extend(to_source(box, scaled, source) for box in found)
+                    found = await asyncio.gather(*(self._read(img, scaled) for img in images))
+                    unusable += sum(1 for _, bad in found if bad)
+                    boxes.extend(to_source(box, scaled, source) for box, _ in found)
                     for path in batch:
                         path.unlink()
                     activity.heartbeat(len(boxes))
                 if len(frames) < self._chunk_frames:
                     break
+            if len(boxes) >= MIN_FRAMES_TO_JUDGE and unusable * 2 > len(boxes):
+                raise PermanentProviderError(
+                    f"ocr: {unusable} of {len(boxes)} sampled frames had an unusable answer; "
+                    "check OCR_MODEL, OCR_BBOX_FORMAT and the provider key"
+                )
         region, cues = locate(boxes, info.width, info.height, info.duration_ms)
         document = SubtitleDocument(width=info.width, height=info.height, region=region, cues=cues)
         key = work_key(spec.aweme_id, 0, "subtitles.json")

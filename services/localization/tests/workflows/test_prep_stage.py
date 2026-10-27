@@ -36,7 +36,7 @@ from localization.contracts import (
     SubtitleTrack,
     TranscriptDocument,
 )
-from localization.providers.errors import PermanentProviderError
+from localization.providers.errors import PermanentProviderError, UnusableAnswer
 from localization.storage.object_store import ArtifactMissingError, ObjectStore, work_key
 from localization.workers.run import QueueSpec, build_worker, queue_specs
 from localization.workflows.video_localization import VideoLocalizationWorkflow
@@ -495,8 +495,16 @@ def test_a_normal_subtitle_line_is_still_a_plausible_cover_after_padding() -> No
 
 
 class FakeOcr:
-    def __init__(self, answers: dict[int, BBox], expect_size: tuple[int, int] = (320, 240)) -> None:
+    def __init__(
+        self,
+        answers: dict[int, BBox],
+        expect_size: tuple[int, int] = (320, 240),
+        unusable: frozenset[int] = frozenset(),
+        fail: Exception | None = None,
+    ) -> None:
         self.answers = answers
+        self.unusable = unusable
+        self.fail = fail
         self.expect_size = expect_size
         self.calls = 0
         self.running = 0
@@ -511,6 +519,10 @@ class FakeOcr:
         self.running -= 1
         assert frame_png[:2] == b"\xff\xd8"  # a JPEG, not a PNG
         assert (width, height) == self.expect_size
+        if self.fail is not None:
+            raise self.fail
+        if index in self.unusable:
+            raise UnusableAnswer("ocr: the reply is not the requested JSON")
         return self.answers.get(index)
 
 
@@ -746,3 +758,75 @@ async def test_a_failed_stage_cancels_the_sibling_instead_of_leaving_it_running(
         history = await handle.fetch_history()
     types = [e.event_type for e in history.events]
     assert EventType.EVENT_TYPE_ACTIVITY_TASK_CANCEL_REQUESTED in types
+
+
+# --- a malformed answer for one frame --------------------------------------------------------
+
+
+@pytest.fixture
+def ten_frames(tmp_path: Path) -> Path:
+    path = tmp_path / "ten.mp4"
+    _ffmpeg(
+        "-f", "lavfi", "-i", "testsrc=size=320x240:rate=10:duration=5",
+        "-pix_fmt", "yuv420p", str(path),
+    )  # fmt: skip
+    return path
+
+
+async def _detect(store: ObjectStore, video: Path, ocr: FakeOcr):  # noqa: ANN202
+    spec = make_input()
+    store.put_file(spec.video_key, video)
+    return await ActivityEnvironment().run(
+        DetectSubtitlesActivity(store, ocr).detect_subtitles, spec
+    )
+
+
+async def test_one_unusable_answer_is_no_detection_for_that_frame_and_the_rest_still_count(
+    store: ObjectStore, ten_frames: Path
+) -> None:
+    box = BBox(x=10, y=200, w=300, h=30)
+    # Frame 4 is answered with prose; the frames around it show the subtitle.
+    ocr = FakeOcr({i: box for i in (1, 2, 3, 5, 6)}, unusable=frozenset({4}))
+    result = await _detect(store, ten_frames, ocr)
+    assert result.region is not None
+    stored = json.loads(store.get_bytes(result.subtitle_key, produced_by="detect_subtitles"))
+    # The unusable frame is inside the gap that is bridged: one cue, not two.
+    assert stored["cues"] == [{"start_ms": 500, "end_ms": 3500}]
+
+
+async def test_most_frames_unusable_fails_permanently_and_names_the_counts(
+    store: ObjectStore, ten_frames: Path
+) -> None:
+    ocr = FakeOcr({}, unusable=frozenset(range(7)))
+    with pytest.raises(ApplicationError) as caught:
+        await _detect(store, ten_frames, ocr)
+    assert caught.value.non_retryable is True
+    assert "7 of 10 sampled frames had an unusable answer" in str(caught.value)
+
+
+async def test_a_few_unusable_answers_do_not_fail_the_activity(
+    store: ObjectStore, ten_frames: Path
+) -> None:
+    box = BBox(x=10, y=200, w=300, h=30)
+    ocr = FakeOcr({i: box for i in range(2, 9)}, unusable=frozenset({0, 9}))
+    result = await _detect(store, ten_frames, ocr)
+    assert result.region is not None
+
+
+async def test_half_of_the_frames_unusable_is_not_more_than_half(
+    store: ObjectStore, ten_frames: Path
+) -> None:
+    ocr = FakeOcr({}, unusable=frozenset(range(5)))
+    assert (await _detect(store, ten_frames, ocr)).region is None
+
+
+async def test_a_transport_failure_still_fails_the_activity_as_before(
+    store: ObjectStore, ten_frames: Path
+) -> None:
+    from localization.providers.errors import TransientProviderError
+
+    ocr = FakeOcr({}, fail=TransientProviderError("ocr: HTTP 503"))
+    with pytest.raises(ApplicationError) as caught:
+        await _detect(store, ten_frames, ocr)
+    assert caught.value.non_retryable is False
+    assert "503" in str(caught.value)

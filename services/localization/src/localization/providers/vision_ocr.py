@@ -8,7 +8,7 @@ from localization.config import BBoxFormat, Settings
 from localization.contracts.geometry import BBox
 from localization.providers.base import OpenAICompatClient
 from localization.providers.bbox import normalize_bbox
-from localization.providers.errors import PermanentProviderError
+from localization.providers.errors import PermanentProviderError, UnusableAnswer
 
 _PROMPT = (
     "Find the band of burned-in subtitle text in this video frame. Reply with JSON only: "
@@ -87,17 +87,19 @@ class VisionOcr:
         body = self._client.json(response)
         try:
             content = body["choices"][0]["message"]["content"]
-            parsed = json.loads(_FENCE_RE.sub("", content.strip()))
-            raw = parsed["bbox"]
-        # An empty or cut-off reply is content that is missing, empty or not JSON.
-        except (KeyError, IndexError, TypeError, AttributeError, ValueError):
+        except (KeyError, IndexError, TypeError):
+            # Not a chat completion at all: a wrong endpoint or a broken provider.
             raise PermanentProviderError("ocr: unexpected response shape") from None
+        try:
+            raw = json.loads(_FENCE_RE.sub("", content.strip()))["bbox"]
+        except (KeyError, TypeError, AttributeError, ValueError):
+            # Empty, null, cut off, or prose ("there is no burned-in subtitle here").
+            raise UnusableAnswer("ocr: the reply is not the requested JSON") from None
         if raw is None:
             return None
         try:
             return normalize_bbox(raw, self._format, width, height)
         except PermanentProviderError:
-            # One frame's box that is malformed or lies outside the frame (a model
-            # answering in another resolution's pixels) says nothing about the other
-            # frames of the video, so it counts as no subtitle seen in this frame.
-            return None
+            # A malformed box, or one that lies outside the frame (a model answering in
+            # another resolution's pixels), is this frame's answer being unusable.
+            raise UnusableAnswer("ocr: the box is unusable") from None

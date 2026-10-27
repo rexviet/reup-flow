@@ -9,7 +9,11 @@ from tests.support.stub_server import Scenario, StubServer
 from localization.config import ConfigError, Settings
 from localization.providers.bbox import normalize_bbox
 from localization.providers.demucs import DemucsSeparator
-from localization.providers.errors import PermanentProviderError, TransientProviderError
+from localization.providers.errors import (
+    PermanentProviderError,
+    TransientProviderError,
+    UnusableAnswer,
+)
 from localization.providers.llm import model_for
 from localization.providers.vision_ocr import VisionOcr
 
@@ -77,30 +81,50 @@ async def test_vision_ocr_null_bbox_means_no_burned_in_subtitles(
     assert await ocr.detect_region(b"x", 100, 100) is None
 
 
-async def test_vision_ocr_box_outside_the_frame_is_no_detection_for_that_frame(
+async def test_vision_ocr_box_outside_the_frame_is_an_unusable_answer(
     stub: StubServer, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Real model answer for a 576x1024 frame: pixels of a larger image.
     stub.scenario = Scenario(json_body=_chat('{"bbox": [324, 1408, 756, 1458]}'))
     ocr = VisionOcr.from_settings(_ocr_settings(stub, monkeypatch, "xyxy_px"))
-    assert await ocr.detect_region(b"x", 576, 1024) is None
+    with pytest.raises(UnusableAnswer):
+        await ocr.detect_region(b"x", 576, 1024)
 
 
-async def test_vision_ocr_box_with_wrong_arity_is_no_detection_for_that_frame(
+async def test_vision_ocr_box_with_wrong_arity_is_an_unusable_answer(
     stub: StubServer, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     stub.scenario = Scenario(json_body=_chat('{"bbox": [1, 2, 3]}'))
     ocr = VisionOcr.from_settings(_ocr_settings(stub, monkeypatch, "xyxy_px"))
-    assert await ocr.detect_region(b"x", 576, 1024) is None
+    with pytest.raises(UnusableAnswer):
+        await ocr.detect_region(b"x", 576, 1024)
 
 
-async def test_vision_ocr_unparseable_reply_is_permanent(
+# A real reply (reasoning off): prose instead of JSON, for a frame with no subtitle.
+PROSE_REPLY = (
+    "Looking at the frame, there is no burned-in subtitle text present; the visible text "
+    '(such as "1920\'s AMOY" and "T4航站楼") appears to be part of the background signage.'
+)
+
+
+async def test_vision_ocr_prose_reply_is_an_unusable_answer_not_a_failed_provider(
     stub: StubServer, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    stub.scenario = Scenario(json_body=_chat("the subtitles are at the bottom"))
+    stub.scenario = Scenario(json_body=_chat(PROSE_REPLY))
     ocr = VisionOcr.from_settings(_ocr_settings(stub, monkeypatch, "xyxy_px"))
-    with pytest.raises(PermanentProviderError):
+    with pytest.raises(UnusableAnswer) as caught:
         await ocr.detect_region(b"x", 100, 100)
+    assert isinstance(caught.value, PermanentProviderError)  # callers that tolerate it opt in
+
+
+async def test_a_reply_that_is_not_a_chat_completion_is_a_failed_provider(
+    stub: StubServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stub.scenario = Scenario(json_body={"error": "wrong endpoint"})
+    ocr = VisionOcr.from_settings(_ocr_settings(stub, monkeypatch, "xyxy_px"))
+    with pytest.raises(PermanentProviderError) as caught:
+        await ocr.detect_region(b"x", 100, 100)
+    assert not isinstance(caught.value, UnusableAnswer)
 
 
 async def test_every_ocr_request_asks_for_an_answer_without_reasoning_and_caps_it(
@@ -127,7 +151,7 @@ async def test_every_ocr_request_asks_for_an_answer_without_reasoning_and_caps_i
         '```json\n{"bbox": [100,',
     ],
 )
-async def test_an_empty_or_cut_off_reply_is_the_unparseable_case_not_a_crash(
+async def test_an_empty_or_cut_off_reply_is_an_unusable_answer_not_a_crash(
     stub: StubServer, monkeypatch: pytest.MonkeyPatch, content: str | None
 ) -> None:
     """Permanent, so the activity fails without being retried: the same frame would
@@ -136,7 +160,7 @@ async def test_an_empty_or_cut_off_reply_is_the_unparseable_case_not_a_crash(
         json_body={"choices": [{"message": {"content": content}, "finish_reason": "length"}]}
     )
     ocr = VisionOcr.from_settings(_ocr_settings(stub, monkeypatch, "xyxy_px"))
-    with pytest.raises(PermanentProviderError, match="unexpected response shape"):
+    with pytest.raises(UnusableAnswer):
         await ocr.detect_region(b"x", 100, 100)
     assert len(stub.requests) == 1  # no retry inside the provider
 

@@ -313,13 +313,24 @@ async def test_text_the_ocr_finds_outside_the_cover_is_reported_as_residue(
 async def test_an_ocr_that_cannot_read_a_frame_does_not_end_the_review(
     store: ObjectStore,
 ) -> None:
-    from localization.providers.errors import PermanentProviderError
+    from localization.providers.errors import UnusableAnswer
 
-    ocr = Ocr(fail=PermanentProviderError("ocr: unexpected response shape"))
+    ocr = Ocr(fail=UnusableAnswer("ocr: the reply is not the requested JSON"))
     scripted = Scripted(calls=[("residual_source_text", {"times_ms": [500, 1500]})])
     verdict = await review(activity(store, scripted, ocr))
     assert verdict.passed is True
     assert tool_text(scripted.seen[-1]).count("could not check this frame") == 2
+
+
+async def test_an_ocr_that_is_broken_still_fails_the_review(store: ObjectStore) -> None:
+    """Only a malformed answer is tolerated per frame; a rejected key or a down provider
+    is not "could not check this frame"."""
+    from localization.providers.errors import PermanentProviderError
+
+    ocr = Ocr(fail=PermanentProviderError("ocr: HTTP 401"))
+    scripted = Scripted(calls=[("residual_source_text", {"times_ms": [500]})])
+    with pytest.raises(Exception, match="401"):
+        await review(activity(store, scripted, ocr))
 
 
 # --- what it leaves behind and how it fails ---------------------------------------------
