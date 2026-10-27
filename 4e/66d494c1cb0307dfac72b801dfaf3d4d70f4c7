@@ -1,0 +1,70 @@
+services/localization/tests/workflows/test_review_loop.py
+  s_0b729cf0d034d3::t_ba36d5e9734f74 21,61-63,65-70
+services/localization/src/localization/contracts/models.py
+  s_0b729cf0d034d3::t_0c5c1381b5e57b 362-375
+services/localization/tests/workflows/test_review_routing.py
+  s_0b729cf0d034d3::t_e6e3810afabee5 3-4,47-124
+services/localization/tests/support/three_review_flow.py
+  s_0b729cf0d034d3::t_4c6fd9b9d96b9a 1-16
+services/localization/tests/workers/test_agent_wiring.py
+  s_0b729cf0d034d3::t_edafc69b9b81cf 65
+services/localization/tests/replay/record_histories.py
+  s_0b729cf0d034d3::t_13c05e09c990aa 181-209
+services/localization/tests/mutations/phase-08.sh
+  s_0b729cf0d034d3::t_4b7f392abf94d1 51,68,389-392,394-416,418-442
+  s_0b729cf0d034d3::t_7aa8f000ccdc7f 393,417
+  s_0b729cf0d034d3::t_f132541b8449dd 443
+services/localization/tests/replay/histories/unfixable-review/middle-line-runs-again.json
+  s_0b729cf0d034d3::t_13c05e09c990aa 1-4986
+services/localization/tests/activities/test_dub_script.py
+  s_0b729cf0d034d3::t_edafc69b9b81cf 62-93
+services/localization/tests/workflows/test_unfixable_review.py
+  s_0b729cf0d034d3::t_4c6fd9b9d96b9a 10,99,119
+  s_0b729cf0d034d3::t_e6e3810afabee5 1-9,11-98,100-118,120-125
+services/localization/tests/support/ungated_route_flow.py
+  s_0b729cf0d034d3::t_a7ee8e027f1ee8 1-39
+services/localization/src/localization/workflows/video_localization.py
+  s_0b729cf0d034d3::t_b7c4bf6357c08b 42,48-55,73-75,239-241,258-260,588,627,629,664-684
+  s_0b729cf0d034d3::t_eaf62ee52f6e52 685
+services/localization/src/localization/contracts/__init__.py
+  s_0b729cf0d034d3::t_0c5c1381b5e57b 31-32,77-78
+services/localization/tests/support/review_fakes.py
+  s_0b729cf0d034d3::t_979e98cc42ba63 34-35,74-76,153-165,197
+services/localization/src/localization/workflows/review_routing.py
+  s_0b729cf0d034d3::t_1277dff17e5ea4 14-18,21-23,32-36,76-83,88,93-110,115-119,121
+  s_0b729cf0d034d3::t_e6e3810afabee5 112-114
+  s_0b729cf0d034d3::t_c51ba813b4aa61 28-31,84-87,89-92,111,120
+scripts/run-mutations.sh
+  s_0b729cf0d034d3::t_4b7f392abf94d1 133-136,155
+services/localization/tests/replay/test_replay.py
+  s_0b729cf0d034d3::t_be0917e4fb6e8b 25,186-224
+services/localization/tests/support/prep_worker.py
+  s_0b729cf0d034d3::t_979e98cc42ba63 84
+  s_0b729cf0d034d3::t_ba36d5e9734f74 42,51-52,63
+plans/261026-0147-video-localization-workflow/phase-08-reviewer-and-publish.md
+  s_0b729cf0d034d3::t_2fbd78f9c0df8d 106
+  s_0b729cf0d034d3::t_f7b0d2f5863479 114
+services/localization/src/localization/activities/dub_script.py
+  s_0b729cf0d034d3::t_fbf451ffab093d 27-28,108-125
+  s_0b729cf0d034d3::t_b961907c08362c 126
+services/localization/src/localization/workers/run.py
+  s_0b729cf0d034d3::t_fbf451ffab093d 168
+services/localization/tests/replay/histories/unfixable-review/last-line-has-no-time.json
+  s_0b729cf0d034d3::t_13c05e09c990aa 1-3371
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4e66d494c1cb0307dfac72b801dfaf3d4d70f4c7",
+  "prompts": {},
+  "sessions": {
+    "s_0b729cf0d034d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9aa1a711-c362-45ab-8e48-1a9b19f8df48",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
