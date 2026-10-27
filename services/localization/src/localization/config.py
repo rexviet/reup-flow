@@ -17,11 +17,20 @@ BBoxFormat = Literal["xyxy_px", "xyxy_norm1", "xyxy_norm1000", "yxyx_norm1000"]
 Concurrency = Annotated[int, Field(ge=1, le=64)]
 
 
-# <repo>/services/localization/src/localization/config.py. In a container the font is
-# mounted and CAPTION_FONT_PATH says where; this default is for a source checkout.
-DEFAULT_CAPTION_FONT = (
-    Path(__file__).resolve().parents[4] / "assets" / "fonts" / "BeVietnamPro-SemiBold.ttf"
-)
+def default_caption_font(module_path: Path) -> Path:
+    """The font next to a source checkout: <repo>/assets/fonts/..., four levels above this file.
+
+    In a container the module sits at /app/src/localization/config.py, which has no fourth
+    parent; the font is mounted at /assets and CAPTION_FONT_PATH says where, so the fallback
+    is the filesystem root.
+    """
+    parents = module_path.resolve().parents
+    root = parents[4] if len(parents) > 4 else Path(parents[-1])
+    return root / "assets" / "fonts" / "BeVietnamPro-SemiBold.ttf"
+
+
+# <repo>/services/localization/src/localization/config.py.
+DEFAULT_CAPTION_FONT = default_caption_font(Path(__file__))
 _COLOR_RE = re.compile(r"#[0-9a-fA-F]{6}")
 
 
