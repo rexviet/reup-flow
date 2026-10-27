@@ -1,0 +1,72 @@
+services/localization/tests/agents/test_review_jev.py
+  s_0b729cf0d034d3::t_f103f95d93f8ab 1-15,17,19-76
+  s_0b729cf0d034d3::t_588cdc2f958730 16,18
+services/localization/src/localization/activities/review_render.py
+  s_0b729cf0d034d3::t_384d7a37e145ab 43,50,53,154-158,168,170-171,173-174,180-183,220-221,247-260,262-317
+  s_0b729cf0d034d3::t_71ef3f773d01a8 169,261
+  s_0b729cf0d034d3::t_80285a24db2b48 3-13,17-18,32,34,56,60,63-64,69-73
+services/localization/tests/workers/test_agent_wiring.py
+  s_0b729cf0d034d3::t_2761b245d12fbc 185-186,191,198-229
+  s_0b729cf0d034d3::t_8f5b5184f657b9 230-231
+services/localization/src/localization/providers/jev.py
+  s_0b729cf0d034d3::t_e4d944c2d866fd 94-101,112-132,238-240,243
+  s_0b729cf0d034d3::t_5c16d483378ea4 17-18,58,77-93,102-111,134-139,148-152,223-224
+  s_0b729cf0d034d3::t_0045dd0216f1e5 46,264-272
+  s_0b729cf0d034d3::t_384d7a37e145ab 256-258
+  s_0b729cf0d034d3::t_8a2ad4dc10963e 1-16,19-45,47-57,59-76,133,140-147,153-222,225-237,241-242,244-255,259-263
+.env.example
+  s_0b729cf0d034d3::t_0045dd0216f1e5 117-124
+services/localization/tests/agents/test_review_checks.py
+  s_0b729cf0d034d3::t_b6f2e0219f115a 1-26,34-109,119-191,193-211,218-226
+  s_0b729cf0d034d3::t_e4d3575f23953e 212-217
+  s_0b729cf0d034d3::t_abc60c9aa405a5 192
+  s_0b729cf0d034d3::t_bd51958a91eb40 27-33,110-118
+services/localization/src/localization/agents/review_checks.py
+  s_0b729cf0d034d3::t_384d7a37e145ab 79-81,96,129-131,186-188,212-215
+  s_0b729cf0d034d3::t_0fe0cd53132aa0 1-78,82-95,97-128,132-140,144-185,189-211,216-229,231-244
+  s_0b729cf0d034d3::t_e4d3575f23953e 230,245-258
+  s_0b729cf0d034d3::t_e65b9bcce1442a 141-143
+services/localization/tests/providers/test_live_jev.py
+  s_0b729cf0d034d3::t_eedf01b3af28e6 2,10-11,13,30-34
+  s_0b729cf0d034d3::t_f103f95d93f8ab 1,3-9,12,14-29,35-47
+services/localization/src/localization/agents/review_jev.py
+  s_0b729cf0d034d3::t_9570add4c8929a 1-71,73-92,96-104,106-126
+  s_0b729cf0d034d3::t_384d7a37e145ab 72,93-95,105
+services/localization/pyproject.toml
+  s_0b729cf0d034d3::t_304c555be1af03 19
+services/localization/tests/activities/test_review_render_jev.py
+  s_0b729cf0d034d3::t_ee7cc34313f22d 20,33,127,135-137,145,151-156,164,178,189,201,211,259,270,279,293,303,320-322,340-345,348-353,381-383,398-400,421
+  s_0b729cf0d034d3::t_7a48d16019b225 43,45-47,74,82,124,133,146,165,179,190,202,212,260,271,280,294,304,324,337,361
+  s_0b729cf0d034d3::t_033319757ca23e 1-19,21-32,34-42,44,48-73,75-81,83-123,125-126,128-132,134,138-144,147-150,157-163,166-177,180-188,191-200,203-210,213-258,261-269,272-278,281-292,295-302,305-319,323,325-336,338-339,346-347,354-360,362-380,384-397,401-407
+  s_0b729cf0d034d3::t_8e8dff39b7a659 408-420
+docker-compose.yml
+  s_0b729cf0d034d3::t_0045dd0216f1e5 505-508
+services/localization/tests/providers/test_jev.py
+  s_0b729cf0d034d3::t_e43de5f983cefc 1-143,148-234
+  s_0b729cf0d034d3::t_e4d944c2d866fd 144-147
+services/localization/src/localization/workers/run.py
+  s_0b729cf0d034d3::t_0045dd0216f1e5 56,59
+  s_0b729cf0d034d3::t_25a56bfa128976 109,154,156-157,232-234,252-254,257,275
+  s_0b729cf0d034d3::t_71ef3f773d01a8 12,155,235-236
+services/localization/src/localization/config.py
+  s_0b729cf0d034d3::t_9d62deabdb7af0 22-24,81-85,144-148
+  s_0b729cf0d034d3::t_1eaf9938b6619c 149
+services/localization/uv.lock
+  s_0b729cf0d034d3::t_00b43855081fb3 390,416,1061-1069,1107-1125
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ae3c2e910d7f0b829309e657ebe9c10e12c6237f",
+  "prompts": {},
+  "sessions": {
+    "s_0b729cf0d034d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9aa1a711-c362-45ab-8e48-1a9b19f8df48",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
