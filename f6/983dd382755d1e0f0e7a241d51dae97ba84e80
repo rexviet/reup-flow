@@ -1,0 +1,50 @@
+services/localization/src/localization/observability/llm_calls.py
+  s_0b729cf0d034d3::t_8b7895fea360d6 1-51
+services/localization/tests/mutations/phase-09.sh
+  s_0b729cf0d034d3::t_448194e9707e7c 1-100
+scripts/run-mutations.sh
+  s_0b729cf0d034d3::t_448194e9707e7c 104-105,153
+services/localization/src/localization/observability/llm_usage.py
+  s_0b729cf0d034d3::t_8b7895fea360d6 1-170
+services/localization/migrations/261027-llm-cost.down.sql
+  s_0b729cf0d034d3::t_8b7895fea360d6 1-9
+plans/261026-0147-video-localization-workflow/phase-09-observability-and-eval.md
+  s_0b729cf0d034d3::t_57d1e64a7ae6a8 110-123
+  s_0b729cf0d034d3::t_d29b4d1d98b71d 28
+  s_0b729cf0d034d3::t_69b9eb4c9f62c8 51-67
+  s_0b729cf0d034d3::t_59e30e9ca7314e 83-102
+services/localization/migrations/261027-llm-cost.sql
+  s_0b729cf0d034d3::t_8b7895fea360d6 1-27
+services/localization/src/localization/workers/run.py
+  s_0b729cf0d034d3::t_8b7895fea360d6 20,49,52,100,142,190-193,200,204-205,218-231,235,243
+services/localization/src/localization/providers/llm.py
+  s_0b729cf0d034d3::t_8b7895fea360d6 3,8,13-24,40
+services/localization/tests/observability/test_llm_cost.py
+  s_0b729cf0d034d3::t_f2b595faa740af 112,139,212,233
+  s_0b729cf0d034d3::t_448194e9707e7c 347
+  s_0b729cf0d034d3::t_fb9e2f9513079e 1-111,113-138,140-211,213-232,234-242,246-251,253-271,273-344
+  s_0b729cf0d034d3::t_643c4b3edc2a5a 243-245,252,272,345-346,348-388
+services/localization/tests/activities/test_publish.py
+  s_0b729cf0d034d3::t_1a7fe71dfc1612 31
+  s_0b729cf0d034d3::t_fb9e2f9513079e 23
+services/localization/src/localization/activities/publish.py
+  s_0b729cf0d034d3::t_8b7895fea360d6 26-29,38,73-74
+services/localization/src/localization/providers/registry.py
+  s_0b729cf0d034d3::t_8b7895fea360d6 24-28,34
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f6983dd382755d1e0f0e7a241d51dae97ba84e80",
+  "prompts": {},
+  "sessions": {
+    "s_0b729cf0d034d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9aa1a711-c362-45ab-8e48-1a9b19f8df48",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
