@@ -9,6 +9,9 @@
  *   ... migrate-local-storage-to-s3.ts --lanes-stopped --backup-file ./reup.dump
  *   ... migrate-local-storage-to-s3.ts --revert --lanes-stopped --backup-file ./reup.dump
  *
+ * Add `--aweme-id <id>` to any of the three to act on that one video only
+ * (revert: only that video's map entry).
+ *
  * (`--project tsconfig.json` matters: without it ts-node finds no config from
  * scripts/ and refuses the module settings.)
  *
@@ -69,6 +72,8 @@ export interface MigrationOptions {
   storage?: Storage;
   mode: MigrationMode;
   dataDir: string;
+  /** Limit the run to one video; without it every matching video is handled. */
+  awemeId?: string;
   log?: (line: string) => void;
 }
 
@@ -83,6 +88,12 @@ export const LOCAL_DONE_VIDEOS_SQL = `
      AND storage_path IS NOT NULL
      AND storage_path NOT LIKE 's3://%'
    ORDER BY aweme_id`;
+
+/** The same list narrowed to one video (`$1`), for a run that must touch only that row. */
+export const LOCAL_DONE_VIDEO_SQL = LOCAL_DONE_VIDEOS_SQL.replace(
+  'ORDER BY aweme_id',
+  'AND aweme_id = $1\n   ORDER BY aweme_id',
+);
 
 export async function runMigration(opts: MigrationOptions): Promise<MigrationReport> {
   const log = opts.log ?? (() => undefined);
@@ -102,7 +113,9 @@ async function refuseIfLanesAreWriting(db: MigrationDb): Promise<void> {
 }
 
 async function migrate(opts: MigrationOptions, log: (line: string) => void): Promise<MigrationReport> {
-  const { rows } = await opts.db.query(LOCAL_DONE_VIDEOS_SQL);
+  const { rows } = opts.awemeId
+    ? await opts.db.query(LOCAL_DONE_VIDEO_SQL, [opts.awemeId])
+    : await opts.db.query(LOCAL_DONE_VIDEOS_SQL);
   const report: MigrationReport = { mode: opts.mode, candidates: rows.length, changed: 0, failures: [] };
   log(`${rows.length} finished video(s) on local disk`);
   if (opts.mode === 'dry-run') return report;
@@ -169,9 +182,14 @@ async function migrateOne(opts: MigrationOptions, awemeId: string, oldPath: stri
 }
 
 async function revert(opts: MigrationOptions, log: (line: string) => void): Promise<MigrationReport> {
-  const { rows } = await opts.db.query(
-    `SELECT aweme_id, old_path, new_path FROM storage_migration_map ORDER BY aweme_id`,
-  );
+  const { rows } = opts.awemeId
+    ? await opts.db.query(
+        `SELECT aweme_id, old_path, new_path FROM storage_migration_map WHERE aweme_id = $1`,
+        [opts.awemeId],
+      )
+    : await opts.db.query(
+        `SELECT aweme_id, old_path, new_path FROM storage_migration_map ORDER BY aweme_id`,
+      );
   const report: MigrationReport = { mode: 'revert', candidates: rows.length, changed: 0, failures: [] };
   log(`${rows.length} migrated video(s) in the map`);
 
@@ -261,6 +279,8 @@ async function main(argv: string[]): Promise<number> {
   const isRevert = flag(argv, '--revert');
   if (dryRun && isRevert) throw new Error('--dry-run and --revert are exclusive');
   const mode: MigrationMode = dryRun ? 'dry-run' : isRevert ? 'revert' : 'migrate';
+  const awemeId = option(argv, '--aweme-id');
+  if (flag(argv, '--aweme-id') && !awemeId) throw new Error('--aweme-id needs a value');
 
   if (mode !== 'dry-run') {
     if (!flag(argv, '--lanes-stopped')) {
@@ -289,6 +309,7 @@ async function main(argv: string[]): Promise<number> {
       storage,
       mode,
       dataDir: process.env.DATA_DIR ?? '/data',
+      awemeId,
       log: (line) => console.log(line),
     });
     console.log(

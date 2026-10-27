@@ -72,7 +72,7 @@ describe('migrate-local-storage-to-s3', () => {
   });
 
   beforeEach(async () => {
-    await pool.query('TRUNCATE videos, storage_migration_map');
+    await pool.query('TRUNCATE videos, storage_migration_map CASCADE');
     dataDir = await mkdtemp(join(tmpdir(), 'reup-migrate-s3-'));
     prefix = uniqueTestPrefix('migrate');
     storage = new S3Storage(client, { bucket: env.bucket, keyPrefix: prefix, staleUploadMs: 86_400_000 });
@@ -279,6 +279,55 @@ describe('migrate-local-storage-to-s3', () => {
 
       expect(await storagePaths()).toEqual(before);
       expect(await listObjectKeys(client, env.bucket, prefix)).toEqual([]);
+    });
+  });
+
+  describe('--aweme-id', () => {
+    it('migrates only that video: the others keep their local path and nothing else lands in the bucket', async () => {
+      const { originals, bodies } = await seedMixedLibrary();
+
+      const report = await runMigration({ db: pool, storage, mode: 'migrate', dataDir, awemeId: '1002' });
+
+      expect(report).toMatchObject({ mode: 'migrate', candidates: 1, changed: 1, failures: [] });
+      const after = await storagePaths();
+      const key = keyFor(dataDir, originals['1002'] as string);
+      expect(after['1002']).toBe(`s3://${env.bucket}/${prefix}${key}`);
+      expect((await getObjectBytes(client, env.bucket, `${prefix}${key}`)).equals(bodies['1002'])).toBe(true);
+      for (const id of ['1001', '1003', '2001'] as const) expect(after[id]).toBe(originals[id]);
+      expect(await listObjectKeys(client, env.bucket, prefix)).toEqual([`${prefix}${key}`]);
+      expect((await pool.query('SELECT aweme_id FROM storage_migration_map')).rows).toEqual([{ aweme_id: '1002' }]);
+    });
+
+    it('counts one candidate in a dry run and none for an id that is not a local finished video', async () => {
+      await seedMixedLibrary();
+      await expect(runMigration({ db: pool, mode: 'dry-run', dataDir, awemeId: '1001' })).resolves.toMatchObject({
+        candidates: 1,
+        changed: 0,
+      });
+      await expect(runMigration({ db: pool, mode: 'dry-run', dataDir, awemeId: '2002' })).resolves.toMatchObject({
+        candidates: 0,
+      });
+      await expect(runMigration({ db: pool, mode: 'dry-run', dataDir, awemeId: 'no-such-id' })).resolves.toMatchObject({
+        candidates: 0,
+      });
+    });
+
+    it('reverts only that video, leaving the other migrated rows on S3', async () => {
+      const { originals } = await seedMixedLibrary();
+      await run('migrate');
+      const migrated = await storagePaths();
+
+      const report = await runMigration({ db: pool, mode: 'revert', dataDir, awemeId: '1001' });
+
+      expect(report).toMatchObject({ mode: 'revert', candidates: 1, changed: 1, failures: [] });
+      const after = await storagePaths();
+      expect(after['1001']).toBe(originals['1001']);
+      expect(after['1002']).toBe(migrated['1002']);
+      expect(after['1003']).toBe(migrated['1003']);
+      expect((await pool.query('SELECT aweme_id FROM storage_migration_map ORDER BY aweme_id')).rows).toEqual([
+        { aweme_id: '1002' },
+        { aweme_id: '1003' },
+      ]);
     });
   });
 
