@@ -1,0 +1,34 @@
+services/localization/tests/replay/histories/single-request/translation-repaired-once.json
+  s_0b729cf0d034d3::t_71e5e0fd283620 1-3205
+services/localization/tests/support/ungated_single_flow.py
+  s_0b729cf0d034d3::t_c4fb09a75ce1c2 1-33
+services/localization/tests/replay/histories/single-request/one-request-translation.json
+  s_0b729cf0d034d3::t_71e5e0fd283620 1-3055
+services/localization/tests/replay/test_replay.py
+  s_0b729cf0d034d3::t_c4fb09a75ce1c2 27,278,288-329,336-345
+  s_0b729cf0d034d3::t_a5751bb7635fb4 268,330-335
+  s_0b729cf0d034d3::t_ce3997a59a910a 230
+services/localization/tests/replay/histories/single-request/tool-loop-by-setting.json
+  s_0b729cf0d034d3::t_71e5e0fd283620 1-4479
+services/localization/tests/replay/histories/single-request/dubber-in-one-request.json
+  s_0b729cf0d034d3::t_71e5e0fd283620 1-3373
+services/localization/tests/replay/record_histories.py
+  s_0b729cf0d034d3::t_71e5e0fd283620 26-32,248-290
+  s_0b729cf0d034d3::t_ae0d33c29d52dc 291-293
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "28084706bf7c5f1085fd61cf55eb4294afa3d1b6",
+  "prompts": {},
+  "sessions": {
+    "s_0b729cf0d034d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9aa1a711-c362-45ab-8e48-1a9b19f8df48",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
