@@ -358,16 +358,14 @@ def lay_out(
     cover = None
     if subtitles.region is not None:
         check_cover_plausible(subtitles.region, ingest.width, ingest.height)
-        cover = Cover(
-            region=grow_cover(subtitles.region, ingest.width, ingest.height),
-            color=cover_color,
-            opacity_pct=round(cover_opacity * 100),
+        box = caption_box_for(
+            grow_cover(subtitles.region, ingest.width, ingest.height), ingest.height
         )
-    box = (
-        caption_box_for(cover.region, ingest.height)
-        if cover
-        else safe_zone(ingest.width, ingest.height)
-    )
+        # The black box that is drawn is the box the captions are laid out in: a cover
+        # shorter than two lines of caption would leave a caption's text outside it.
+        cover = Cover(region=box, color=cover_color, opacity_pct=round(cover_opacity * 100))
+    else:
+        box = safe_zone(ingest.width, ingest.height)
     spans = caption_spans(script, doc, ingest.duration_ms)
     check_glyph_coverage(spans, meter)
     return EditSpec(

@@ -19,7 +19,9 @@ from temporalio.testing import ActivityEnvironment
 from localization.activities.detect_subtitles import (
     BATCH_SIZE,
     DetectSubtitlesActivity,
+    _consensus,
     locate,
+    to_source,
 )
 from localization.activities.ffmpeg import parse_probe
 from localization.activities.ingest import IngestActivity
@@ -425,12 +427,13 @@ def _box(y: int, h: int = 60, x: int = 100, w: int = 800) -> BBox:
     return BBox(x=x, y=y, w=w, h=h)
 
 
-def test_locate_picks_the_most_common_band_and_builds_cues() -> None:
+def test_locate_picks_the_most_common_line_and_builds_cues() -> None:
     low, high = _box(1700), _box(100)
     #        0     1    2    3     4     5     6     7     8     9    10
     boxes = [None, low, low, high, None, None, None, None, None, low, low]
     region, cues = locate(boxes, 1080, 1920, 5500)
-    assert region == BBox(x=100, y=1700, w=800, h=60)
+    assert region is not None
+    assert region.y <= 1700 and region.y + region.h >= 1760  # the low line, not the top one
     assert [(c.start_ms, c.end_ms) for c in cues] == [(500, 1500), (4500, 5500)]
 
 
@@ -442,48 +445,106 @@ def test_a_gap_is_bridged_by_its_length_in_time_not_by_a_number_of_frames() -> N
     assert len(locate(five_missed, 1080, 1920, 0)[1]) == 2
 
 
-def test_locate_unions_the_boxes_of_the_band() -> None:
-    region, _ = locate([_box(1700, x=100, w=300), _box(1710, x=500, w=400)], 1080, 1920, 0)
-    assert region == BBox(x=100, y=1700, w=800, h=70)  # nothing is added to the union
-
-
 def test_a_single_detection_is_not_a_subtitle_and_none_means_no_region() -> None:
     assert locate([None, _box(1700), None], 1080, 1920, 0) == (None, ())
     assert locate([None, None], 1080, 1920, 0) == (None, ())
 
 
-# A real 1080x1920 clip: the burned-in text spans x 200-860, y 1296-1380 with its outline.
-# Fitted to the pixels, the box of each frame is that text plus its outline margin.
-FITTED = BBox(x=190, y=1286, w=680, h=104)
+# --- the real clip, as plain data ---------------------------------------------------------------
+# The model's boxes for the 12 frames of a real 1080x1920 clip that show a subtitle, in
+# the 576x1024 frame it saw (decoded as xyxy_norm1000): (top, bottom, left, right). The
+# true text is y 691-732 there (x 200-860, y 1296-1380 in source pixels). Most boxes are
+# right to within about 10 px; f1 and f4 are other text, and f11 is far above the line.
+REAL_CLIP = [
+    (860, 924, 120, 493),  # f1: another text, an outlier
+    (691, 740, 109, 449),
+    (707, 762, 91, 476),
+    (770, 852, 166, 409),  # f4: an outlier
+    (680, 735, 102, 472),
+    (690, 732, 114, 455),
+    (688, 731, 144, 432),
+    (666, 725, 101, 473),
+    (676, 728, 170, 405),
+    (690, 731, 156, 422),
+    (645, 706, 160, 415),  # f11: 45 px above the text
+    (688, 727, 166, 410),
+]
+SCALED, SOURCE = (576, 1024), (1080, 1920)
 
 
-def _real_clip_detections() -> list[BBox | None]:
-    # 2 fps: detected at 0.5-3.0 s, unusable answers at 3.5 s and 4.0 s, detected at
-    # 4.5-6.0 s, nothing after.
-    boxes: list[BBox | None] = [None] * 23
-    for second in (0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.5, 5.0, 5.5, 6.0):
-        boxes[int(second * 2)] = FITTED
-    return boxes
+def _real_clip() -> list[BBox | None]:
+    boxes: list[BBox | None] = [
+        to_source(BBox(x=left, y=top, w=right - left, h=bottom - top), SCALED, SOURCE)
+        for top, bottom, left, right in REAL_CLIP
+    ]
+    return [*boxes, *([None] * 10)]  # frames 13-22 (after 6 s) were answered null
 
 
-def test_the_real_clip_is_one_cue_over_the_text_box() -> None:
-    region, cues = locate(_real_clip_detections(), 1080, 1920, 11_100)
-    assert [(c.start_ms, c.end_ms) for c in cues] == [(500, 6500)]
-    assert region == FITTED
+def test_the_real_clip_gives_one_cue_and_a_region_on_the_text_without_the_outliers() -> None:
+    boxes = _real_clip()
+    assert _consensus(boxes) == [1, 2, 4, 5, 6, 7, 8, 9, 11]  # not f1, f4 and f11
+    region, cues = locate(boxes, 1080, 1920, 11_100)
+    assert [(c.start_ms, c.end_ms) for c in cues] == [(500, 6000)]
+    assert region is not None
+    # Before the 13% padding (12 px) the vertical extent is the medians of the inliers.
+    assert 1290 - 20 <= region.y + 12 <= 1290 + 20
+    assert 1375 - 20 <= region.y + region.h - 12 <= 1375 + 20
+    # Horizontally the widest inlier line (f3: 91-476 of 576, so 171-893 in source), padded.
+    assert region.x <= 171 and region.x + region.w >= 893
+    assert region.x + region.w <= 893 + 40
 
 
-def test_a_normal_subtitle_line_is_a_plausible_cover_and_stays_a_tight_one() -> None:
-    from localization.activities.layout_captions import check_cover_plausible, grow_cover
+def test_the_real_clips_final_cover_hugs_the_text() -> None:
+    from localization.activities.layout_captions import (
+        caption_box_for,
+        check_cover_plausible,
+        grow_cover,
+    )
 
-    region, _ = locate(_real_clip_detections(), 1080, 1920, 11_100)
+    region, _ = locate(_real_clip(), 1080, 1920, 11_100)
     assert region is not None
     check_cover_plausible(region, 1080, 1920)  # raises ImplausibleCover when too large
-    cover = grow_cover(region, 1080, 1920)
-    check_cover_plausible(cover, 1080, 1920)
+    cover = caption_box_for(grow_cover(region, 1080, 1920), 1920)
     text = BBox(x=200, y=1296, w=660, h=84)
     assert cover.x <= text.x and cover.y <= text.y
     assert cover.x + cover.w >= text.x + text.w and cover.y + cover.h >= text.y + text.h
     assert cover.h <= 130  # the render that prompted this had a 219 px cover
+    assert cover.w <= 0.8 * 1080
+
+
+def test_the_region_is_padded_by_thirteen_percent_of_its_height_and_two_of_the_width() -> None:
+    box = _box(1700, h=100, x=100, w=800)
+    region, _ = locate([box, box], 1080, 1920, 0)
+    assert region == BBox(x=78, y=1687, w=844, h=126)  # 13 px above and below, 22 px each side
+
+
+def test_boxes_that_agree_on_no_row_give_no_region_and_no_crash() -> None:
+    boxes = [_box(100), _box(500), _box(900), _box(1300), _box(1700)]
+    assert locate(boxes, 1080, 1920, 0) == (None, ())
+
+
+def test_two_equally_common_lines_give_the_lower_one() -> None:
+    upper, lower = _box(1296, h=70), _box(1390, h=70)  # the two lines of a subtitle
+    region, cues = locate([upper, lower, upper, lower, upper, lower], 1080, 1920, 0)
+    assert region is not None
+    assert region.y > 1296 + 70  # the lower line: ties go to the one lower on the screen
+    # Only that line's frames make cues: every second frame, bridged across one miss.
+    assert [(c.start_ms, c.end_ms) for c in cues] == [(500, 3000)]
+
+
+def test_the_larger_of_two_lines_wins_whatever_its_position() -> None:
+    upper, lower = _box(1296, h=70), _box(1390, h=70)
+    region, _ = locate([upper, upper, upper, lower, lower], 1080, 1920, 0)
+    assert region is not None and region.y + region.h <= 1296 + 70 + 20
+
+
+def test_boxes_at_the_frame_edges_give_a_region_inside_the_frame() -> None:
+    top, bottom = _box(0, h=40, x=0, w=1080), _box(1880, h=40, x=0, w=1080)
+    for box in (top, bottom):
+        region, _ = locate([box, box], 1080, 1920, 0)
+        assert region is not None
+        assert region.x >= 0 and region.y >= 0
+        assert region.x + region.w <= 1080 and region.y + region.h <= 1920
 
 
 class FakeOcr:

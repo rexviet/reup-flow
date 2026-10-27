@@ -21,6 +21,7 @@ from localization.activities.layout_captions import (
     MIN_BOX_HEIGHT,
     FontMeter,
     LayoutCaptionsActivity,
+    caption_box_for,
     fit,
     grow_cover,
     safe_zone,
@@ -258,18 +259,18 @@ async def test_the_returned_hash_is_the_hash_of_the_stored_spec(store: ObjectSto
     assert out.spec_sha256 == spec_sha256(spec)
 
 
-async def test_the_cover_is_grown_and_the_captions_sit_in_it(store: ObjectStore) -> None:
+async def test_the_drawn_cover_is_the_box_the_captions_are_laid_out_in(
+    store: ObjectStore,
+) -> None:
     ref, subs, dub = await stage(store, ["Xin chào"])
     _, spec = await run(store, ref, subs, dub)
     assert spec.cover is not None
-    assert spec.cover.region == grow_cover(subs.region, 1080, 1920)
     assert (spec.cover.color, spec.cover.opacity_pct) == ("#101010", 92)
-    # The cover is only 112 px tall: the caption box is made tall enough for two lines.
-    box = spec.caption_box
-    assert box.h >= MIN_BOX_HEIGHT
-    assert box.x == spec.cover.region.x and box.w == spec.cover.region.w
-    centre = lambda b: b.y + b.h / 2  # noqa: E731
-    assert abs(centre(box) - centre(spec.cover.region)) <= 1
+    # The detected region plus the cover margin, made tall enough for two lines.
+    expected = caption_box_for(grow_cover(subs.region, 1080, 1920), 1920)
+    assert spec.caption_box == expected
+    assert spec.cover.region == spec.caption_box
+    assert spec.caption_box.h >= MIN_BOX_HEIGHT
 
 
 async def test_without_a_burned_in_subtitle_there_is_no_cover(store: ObjectStore) -> None:
@@ -557,6 +558,8 @@ async def test_a_thin_cover_still_gets_a_caption_box_of_two_lines(store: ObjectS
     _, spec = await run(store, ref, subs, dub)
     assert spec.caption_box.h >= MIN_BOX_HEIGHT
     assert spec.caption_box.y + spec.caption_box.h <= 1920
+    # The black box grows to the caption box, so two lines cannot spill out of it.
+    assert spec.cover is not None and spec.cover.region == spec.caption_box
 
 
 # --- the source copy and the startup check ---------------------------------------------------

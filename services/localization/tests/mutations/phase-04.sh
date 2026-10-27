@@ -39,7 +39,6 @@ PERSIST=src/localization/activities/persist.py
 INGEST=src/localization/activities/ingest.py
 DEMUCS=src/localization/providers/demucs.py
 VISION_OCR=src/localization/providers/vision_ocr.py
-PIXELS=src/localization/activities/subtitle_pixels.py
 REVIEW_RENDER=src/localization/activities/review_render.py
 TRANSCRIBE=src/localization/activities/transcribe.py
 DETECT=src/localization/activities/detect_subtitles.py
@@ -61,15 +60,14 @@ T_DOCKER=tests/test_dockerfile.py
 T_SAFE=tests/test_demucs_safe.py
 T_SUPERVISE=tests/workers/test_supervise.py
 T_OCR=tests/providers/test_ocr_demucs_llm.py
-T_PIXELS=tests/activities/test_subtitle_pixels.py
 T_REVIEW=tests/activities/test_review_render.py
 T_DEMUCS=tests/providers/test_demucs_runtime.py
 
-mp_init "$STARTER" "$WORKFLOW" "$RUN" "$PERSIST" "$INGEST" "$DEMUCS" "$VISION_OCR" "$REVIEW_RENDER" "$PIXELS" "$TRANSCRIBE" "$DETECT" "$FFMPEG" "$TRACING" \
+mp_init "$STARTER" "$WORKFLOW" "$RUN" "$PERSIST" "$INGEST" "$DEMUCS" "$VISION_OCR" "$REVIEW_RENDER" "$TRANSCRIBE" "$DETECT" "$FFMPEG" "$TRACING" \
   "$VOICES" "$DEMUCS_SAFE" "$DOCKERFILE" "$GRANTS"
 MP_TEST_CMD=(uv run pytest -q -p no:cacheprovider)
 
-mp_baseline "$T_START $T_GRANTS $T_PREP $T_CONC $T_REPLAY $T_VOICES $T_TRACING $T_DOCKER $T_SAFE $T_SUPERVISE $T_DEMUCS $T_OCR $T_REVIEW $T_PIXELS"
+mp_baseline "$T_START $T_GRANTS $T_PREP $T_CONC $T_REPLAY $T_VOICES $T_TRACING $T_DOCKER $T_SAFE $T_SUPERVISE $T_DEMUCS $T_OCR $T_REVIEW"
 
 # --- 1. the workflow id is no longer the video and the generation ---------------
 mp_mutation "the workflow id carries a random suffix instead of being deterministic"
@@ -394,7 +392,7 @@ restore
 mp_mutation "a gap in time is never bridged"
 apply_mutation "$DETECT" 'MAX_GAP_MS = 2000' 'MAX_GAP_MS = 0' \
   && expect_red "$T_PREP" \
-    "test_the_real_clip_is_one_cue_over_the_text_box" \
+    "test_the_real_clip_gives_one_cue_and_a_region_on_the_text_without_the_outliers" \
     "test_a_gap_is_bridged_by_its_length_in_time_not_by_a_number_of_frames"
 restore
 
@@ -446,45 +444,41 @@ apply_mutation "$REVIEW_RENDER" '            except UnusableAnswer:' '          
   && expect_red "$T_REVIEW" "test_an_ocr_that_is_broken_still_fails_the_review"
 restore
 
-# --- the cover fits the text, not the model's box (registered, not yet run) -----------------------
-mp_mutation "any pixel counts as text, so the box is the whole searched area"
-apply_mutation "$PIXELS" 'LIGHT_MIN = 215' 'LIGHT_MIN = 0' \
-  && expect_red "$T_PIXELS" "test_every_sloppy_box_is_fitted_to_the_same_tight_text_box"
+# --- the region is a consensus of the model's boxes (registered, not yet run) --------------------
+mp_mutation "every box counts as the same line, outliers included"
+apply_mutation "$DETECT" 'SAME_LINE_OVERLAP = 0.5' 'SAME_LINE_OVERLAP = 0.0' \
+  && expect_red "$T_PREP" "test_the_real_clip_gives_one_cue_and_a_region_on_the_text_without_the_outliers"
 restore
 
-mp_mutation "the fallback pads the model's box by half its height"
-apply_mutation "$PIXELS" 'FALLBACK_PAD = 0.10' 'FALLBACK_PAD = 0.5' \
-  && expect_red "$T_PIXELS" "test_without_light_pixels_the_model_box_is_kept_with_a_ten_percent_pad"
-restore
-
-mp_mutation "the fitted box has no margin for the dark outline"
-apply_mutation "$PIXELS" \
-  '    margin = max(OUTLINE_MIN_PIXELS, math.ceil(OUTLINE_FRACTION * text_h))' '    margin = 0' \
-  && expect_red "$T_PIXELS" "test_every_sloppy_box_is_fitted_to_the_same_tight_text_box"
-restore
-
-mp_mutation "the text rows run from the first bright row to the last, specks included"
-apply_mutation "$PIXELS" \
-  '    first, last = max(runs, key=lambda run: sum(rows[run[0] : run[1] + 1]))' \
-  '    first, last = runs[0][0], runs[-1][1]' \
-  && expect_red "$T_PIXELS" "test_a_bright_bar_above_the_text_does_not_stretch_the_box"
-restore
-
-mp_mutation "marks apart from the line (dots under vowels) are not part of it"
-apply_mutation "$PIXELS" 'TAIL_GAP_FRACTION = 0.25' 'TAIL_GAP_FRACTION = 0.0' \
-  && expect_red "$T_PIXELS" "test_the_cover_for_the_real_clip_fits_the_text_not_the_models_box"
-restore
-
-mp_mutation "the detector uses the model's box without fitting it to the pixels"
+mp_mutation "the region's rows are the union of the boxes, not their medians"
 apply_mutation "$DETECT" \
-  '        return await asyncio.to_thread(refine, image, box), False' '        return box, False' \
-  && expect_red "$T_PIXELS" "test_the_cover_for_the_real_clip_fits_the_text_not_the_models_box"
+  '    top, bottom = _median_rows(members)  # type: ignore[arg-type]' \
+  $'    top = min(b.y for b in members if b)\n    bottom = max(b.y + b.h for b in members if b)' \
+  && expect_red "$T_PREP" "test_the_real_clip_gives_one_cue_and_a_region_on_the_text_without_the_outliers"
 restore
 
-mp_mutation "the region is the narrowest line, not the union over lines"
+mp_mutation "boxes far from the group's median row are kept as inliers"
 apply_mutation "$DETECT" \
-  '    x2 = max(b.x + b.w for b in members if b)' '    x2 = min(b.x + b.w for b in members if b)' \
-  && expect_red "$T_PIXELS" "test_the_union_over_lines_of_different_widths_spans_the_widest"
+  '        inliers = [i for i, rows in seen if _overlap(rows, median) >= SAME_LINE_OVERLAP]' \
+  '        inliers = list(group)' \
+  && expect_red "$T_PREP" "test_the_real_clip_gives_one_cue_and_a_region_on_the_text_without_the_outliers"
+restore
+
+mp_mutation "a tie between two lines goes to the upper one"
+apply_mutation "$DETECT" \
+  '        key = (len(inliers), (median[0] + median[1]) / 2)' \
+  '        key = (len(inliers), -(median[0] + median[1]) / 2)' \
+  && expect_red "$T_PREP" "test_two_equally_common_lines_give_the_lower_one"
+restore
+
+mp_mutation "the region is not padded vertically"
+apply_mutation "$DETECT" 'REGION_PAD_V = 0.13' 'REGION_PAD_V = 0.0' \
+  && expect_red "$T_PREP" "test_the_region_is_padded_by_thirteen_percent_of_its_height_and_two_of_the_width"
+restore
+
+mp_mutation "the region is not padded horizontally"
+apply_mutation "$DETECT" 'REGION_PAD_H = 0.02' 'REGION_PAD_H = 0.0' \
+  && expect_red "$T_PREP" "test_the_region_is_padded_by_thirteen_percent_of_its_height_and_two_of_the_width"
 restore
 
 # --- control A: a constant that is not an invariant ------------------------------------------------------

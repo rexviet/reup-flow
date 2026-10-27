@@ -176,4 +176,4 @@ Sáu mục Medium đầu và M7 đã sửa. Các guard mới có mutation đã �
 
 ## Cover khớp chữ
 
-`grow_cover` không còn tăng 6% mỗi phía: hộp phụ đề giờ đã được khớp với pixel chữ ở `detect_subtitles` (xem phase 04), nên cover chỉ cộng lề cố định 0.5% chiều rộng frame (5 px ở 1080) và rộng tối thiểu 60% chiều rộng frame, căn giữa quanh chữ (nới chỉ khi cần cho phụ đề Việt dài hơn dòng gốc). `check_cover_plausible` giữ nguyên (35% chiều cao, 40% diện tích). Mutation `renderer:07` thêm một mục cho chiều rộng tối thiểu, đã đăng ký, chưa chạy.
+Vùng phụ đề giờ là đồng thuận của các box model ở `detect_subtitles` (xem phase 04), đã nới 13% chiều cao và 2% chiều rộng. `grow_cover` chỉ cộng lề cố định 0.5% chiều rộng frame (5 px ở 1080) và đảm bảo rộng tối thiểu 60% chiều rộng frame, căn giữa quanh chữ (chỉ nới khi cần cho phụ đề Việt dài hơn dòng gốc). Cover được vẽ là chính hộp phụ đề (`caption_box_for`, tối thiểu 120 px cho hai dòng), nên chữ không lòi ra ngoài nền đen. `check_cover_plausible` giữ nguyên (35% chiều cao, 40% diện tích). Mutation `renderer:07` có thêm mục cho chiều rộng tối thiểu và cho cover vẽ bằng hộp phụ đề, đã đăng ký, chưa chạy.

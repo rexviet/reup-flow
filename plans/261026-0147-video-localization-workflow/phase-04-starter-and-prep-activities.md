@@ -207,15 +207,18 @@ Frame 576x1024 JPEG, model `deepseek/deepseek-v4.1-flash` qua OpenRouter, đúng
 
 Model tiêu hàng nghìn token suy luận để trả về JSON khoảng 25 token. Một lần chạy thật gọi OCR 55 lần cho một clip 23 s (46 trong `detect_subtitles`, 9 trong `review_render`), khoảng $0.10. Vì vậy mọi request OCR gửi `"reasoning": {"enabled": false}` và `"max_tokens": 200` (chỉ là chốt chặn cho câu trả lời chạy lan man), ở một chỗ duy nhất trong `providers/vision_ocr.py`. Câu trả lời rỗng hoặc bị cắt là trường hợp "không đọc được" cũ (lỗi vĩnh viễn, không retry). `SAMPLE_FPS` giữ 2.
 
-## Hộp che phụ đề khớp với chữ (thay thế padding 30% / 3%)
+## Vùng phụ đề: đồng thuận giữa các box của model (thay thế padding 30%/3% và tinh chỉnh pixel)
 
-Padding 30% chiều cao và 3% chiều rộng (thêm sau lần chạy đầu) **bị thay thế**. Lý do: các con số đó chỉnh theo một clip, không đo trên chữ. Trên clip thật 1080x1920 (chữ khoảng 660 x 85 px, x 200-860, y 1296-1380) chúng chồng với `locate()` lấy hợp của box thô mọi frame và với `grow_cover` +6%, ra cover 219 px cao chạy tới mép phải, tức khoảng 2.6 lần chiều cao chữ.
+**Phát hiện về định dạng.** `OCR_BBOX_FORMAT` trong `.env` từng sai. Model `deepseek/deepseek-v4.1-flash` trả về `xyxy_norm1000` (kiểm trên frame thật 1080x1920: chữ thật nằm ở x 200-860, y 1296-1372, tức 185-796 / 675-715 theo thang 0-1000; model trả `[186, 677, 817, 721]`). Mọi con số chỉnh trước đó (padding 30% chiều cao và 3% chiều rộng; tinh chỉnh theo pixel) được chỉnh trên frame tổng hợp và trên box giải mã sai định dạng, nên không dùng được làm căn cứ.
 
-Quyết định:
-- `activities/subtitle_pixels.py` (`refine`) khớp box của model với chữ ngay trong `detect_subtitles`, trên chính ảnh JPEG đã gửi OCR, trước khi lấy hợp. Tìm trong box model nới 30% chiều cao và 5% chiều rộng, lấy các pixel sáng (kênh tối nhất >= 215), chọn cụm hàng có nhiều pixel nhất (gộp thêm dấu, chấm dưới nguyên âm trong khoảng 25% chiều cao dòng; thanh sáng xa hơn bị bỏ), rồi cột trong các hàng đó (bỏ đốm nhỏ), cộng lề viền đen `max(3 px, 12% chiều cao chữ)`.
-- Không đủ pixel sáng (phụ đề có màu, nền sáng): giữ box của model, nới 10% chiều cao mỗi phía, không bao giờ nhiều hơn.
-- Hợp qua các frame vẫn giữ (hộp ổn định tốt hơn hộp nhảy theo cue), nhưng là hợp của các box đã khớp chữ nên chỉ rộng bằng dòng thật rộng nhất.
-- `locate()` không còn padding. `layout_captions.grow_cover` thay 6% bằng lề cố định 0.5% chiều rộng frame (5 px ở 1080) quanh hộp chữ; cộng lề viền (khoảng 11 px) là khoảng 16 px tính từ nét chữ. Cover rộng tối thiểu 60% chiều rộng frame, căn giữa quanh đúng vị trí chữ, chỉ nới khi dòng gốc hẹp hơn (phụ đề Việt thường dài hơn); không nới khi dòng đã rộng hơn.
-- Trên frame tổng hợp (chữ 675 x 78 px tại 1080x1920, box của model cao quá, cụt đáy, chạy tới mép phải) cover ra 704 x 104 px, so với 219 px trước đây. `check_cover_plausible` giữ nguyên và chạy trên vùng đã khớp chữ.
-- Test dùng pixel thật (font `BeVietnamPro-SemiBold.ttf`, chữ trắng viền đen, nền gradient có nhiễu) ở 576x1024 và 1080x1920 với box lệch xuống, quá cao, quá rộng, cụt đáy. Mutation đã đăng ký, chưa chạy.
-- Giới hạn: ngưỡng sáng giả định chữ sáng viền tối. Chữ có màu hoặc trên nền sáng rơi về nhánh dự phòng (box model + 10%), có thể lệch như trước.
+**Tinh chỉnh theo pixel đã bị gỡ** (`subtitle_pixels.refine` cùng test và mutation). Đo trên 12 frame thật có phụ đề (576x1024, box giải mã đúng): box của chính model đúng ở phần lớn frame (cao 39-61 px, lệch dọc khoảng ±10 px quanh chữ thật y 691-732), còn `refine` làm 7 trên 12 frame tệ hơn (cao 78-118 px) vì pixel sáng của cảnh (vạch qua đường, đèn) vượt ngưỡng sáng. Nó chưa được kiểm chứng ở clip nào khác nên bỏ cho đơn giản.
+
+**Cách làm hiện tại** (`locate()` trong `detect_subtitles.py`):
+- Gom các box theo chồng lấn dọc (không dùng ô theo phần mười chiều cao, vì một dòng chữ có thể bị tách đôi ở ranh giới ô): hai box là cùng dòng khi chồng lấn dọc ít nhất 50% chiều cao của box thấp hơn. Lấy nhóm đông nhất; nhóm bằng nhau thì lấy nhóm thấp hơn trên màn hình (phụ đề hai dòng được đại diện bởi dòng dưới).
+- Hàng trung vị của nhóm quyết định ai là inlier (chồng lấn với hàng trung vị ít nhất 50%); loại các box còn lại.
+- Cạnh trên và dưới là trung vị của các inlier; chiều ngang là hợp x của các inlier (dòng rộng nhất). Rồi nới nhẹ 13% chiều cao mỗi phía (trên và dưới) và 2% chiều rộng frame mỗi bên, trong khung hình.
+- Cue lấy từ chính tập inlier đó, nối qua khoảng trống tới 2000 ms. Dưới `MIN_BAND_FRAMES` (2) inlier thì không có vùng.
+- Với 12 box thật: inlier là f2, f3, f5-f10, f12 (loại f1, f4 và f11, f11 cao hơn chữ 45 px); một cue 500-6000 ms; vùng x 149, y 1279, rộng 766, cao 103 (nguồn 1080x1920); cover cuối (lề 5 px, rộng tối thiểu 60% frame, cao tối thiểu 120 px) là x 144, y 1271, rộng 776, cao 120, chứa chữ 200-860 x 1296-1380, bằng 72% chiều rộng frame (trước đây 219 px cao chạy tới mép phải).
+- `layout_captions`: cover vẽ chính là hộp mà phụ đề được dàn (`caption_box_for`, tối thiểu 120 px, cho hai dòng), nên một cover thấp hơn không để chữ lòi ra ngoài; phụ đề một dòng nằm giữa hộp nhìn thấy.
+- Test dùng chính các số thật làm dữ liệu thuần (không ảnh, không video). Mutation đã đăng ký, chưa chạy.
+- Giới hạn: một clip, 12 frame. Ngưỡng chồng lấn 50% và các mức nới 13% / 2% chưa được kiểm trên nhiều video.

@@ -1,6 +1,8 @@
 """Step 2b: find the burned-in subtitle band with a vision model."""
 
 import asyncio
+import math
+import statistics
 import tempfile
 from collections.abc import Sequence
 from functools import partial
@@ -12,7 +14,6 @@ from localization.activities.errors import provider_errors
 from localization.activities.ffmpeg import extract_frames, probe_video, run_blocking
 from localization.activities.ingest import download_source
 from localization.activities.persist import put_json
-from localization.activities.subtitle_pixels import refine
 from localization.contracts import (
     BBox,
     LocalizationInput,
@@ -28,8 +29,9 @@ from localization.storage.object_store import ObjectStore, work_key
 SAMPLE_FPS = 2
 BATCH_SIZE = 8
 FRAME_INTERVAL_MS = 1000 // SAMPLE_FPS
-# Bands are compared by the height of their centre, in tenths of the frame.
-BAND_TENTHS = 10
+# Two boxes are the same line of text when they overlap vertically by at least this
+# fraction of the shorter one's height.
+SAME_LINE_OVERLAP = 0.5
 # A band seen on fewer frames than this is a stray detection, not a subtitle.
 MIN_BAND_FRAMES = 2
 # The same band on both sides of a gap shorter than this is one subtitle, not two. A
@@ -42,10 +44,51 @@ MAX_GAP_MS = 2000
 # unusable, the model, its format or its key is wrong, and "no subtitles" would be a
 # lie.
 MIN_FRAMES_TO_JUDGE = 4
+# The consensus region is padded a little: this fraction of its height above and below,
+# and this fraction of the frame's width on each side. The model's boxes are right to
+# within a few pixels on most frames, so this is a margin, not a correction.
+REGION_PAD_V = 0.13
+REGION_PAD_H = 0.02
 # Longest side of a frame sent to the vision model.
 OCR_MAX_SIDE = 1024
 # Frames extracted to disk at once: four OCR batches.
 CHUNK_FRAMES = 4 * BATCH_SIZE
+
+
+def _overlap(a: tuple[float, float], b: tuple[float, float]) -> float:
+    """How much of the shorter of two vertical extents `(top, bottom)` the other covers."""
+    inter = max(0.0, min(a[1], b[1]) - max(a[0], b[0]))
+    return inter / max(1e-9, min(a[1] - a[0], b[1] - b[0]))
+
+
+def _rows(box: BBox) -> tuple[float, float]:
+    return (box.y, box.y + box.h)
+
+
+def _consensus(boxes: Sequence[BBox | None]) -> list[int]:
+    """The frames that agree on one line of text: the largest group of boxes that
+    share a row, with the boxes that do not share the group's median row removed.
+
+    Ties between equally large groups go to the lower one on the screen (a two-line
+    subtitle is represented by its bottom line)."""
+    seen = [(i, _rows(b)) for i, b in enumerate(boxes) if b is not None]
+    best: list[int] = []
+    best_key: tuple[int, float] | None = None
+    for _, seed in seen:
+        group = [i for i, rows in seen if _overlap(rows, seed) >= SAME_LINE_OVERLAP]
+        median = _median_rows([boxes[i] for i in group])  # type: ignore[misc]
+        inliers = [i for i, rows in seen if _overlap(rows, median) >= SAME_LINE_OVERLAP]
+        key = (len(inliers), (median[0] + median[1]) / 2)
+        if best_key is None or key > best_key:
+            best, best_key = inliers, key
+    return best
+
+
+def _median_rows(members: Sequence[BBox]) -> tuple[float, float]:
+    return (
+        statistics.median(b.y for b in members),
+        statistics.median(b.y + b.h for b in members),
+    )
 
 
 def locate(
@@ -53,28 +96,24 @@ def locate(
 ) -> tuple[BBox | None, tuple[SubtitleCue, ...]]:
     """`boxes[i]` is the detection on the frame sampled at `i * FRAME_INTERVAL_MS`.
 
-    The region is the union of the boxes in the band that appears on the most
-    frames, so a cover painted over it hides the text on every frame. The boxes are
-    already fitted to the text (see `subtitle_pixels.refine`), so the union spans the
-    widest real line, not the model's spread. The cues are the runs of frames showing
-    that band, joined across gaps of up to `MAX_GAP_MS`."""
-    by_band: dict[int, list[int]] = {}
-    for index, box in enumerate(boxes):
-        if box is not None:
-            centre = box.y + box.h / 2
-            band = min(BAND_TENTHS - 1, int(centre * BAND_TENTHS / height))
-            by_band.setdefault(band, []).append(index)
-    if not by_band:
-        return None, ()
-    frames = max(by_band.values(), key=len)
+    The model's box is accurate on most frames and badly off on a few (another text
+    elsewhere, a box above the line), so the region comes from a consensus: the
+    frames whose boxes share one row (see `_consensus`). Its top and bottom are the
+    medians of those boxes, so one off frame cannot stretch it; its width is their
+    union, the widest real line. It is padded a little, inside the frame. The cues
+    are the runs of those same frames, joined across gaps of up to `MAX_GAP_MS`."""
+    frames = _consensus(boxes)
     if len(frames) < MIN_BAND_FRAMES:
         return None, ()
     members = [boxes[i] for i in frames]
+    top, bottom = _median_rows(members)  # type: ignore[arg-type]
     x1 = min(b.x for b in members if b)
-    y1 = min(b.y for b in members if b)
     x2 = max(b.x + b.w for b in members if b)
-    y2 = max(b.y + b.h for b in members if b)
-    region = BBox(x=x1, y=y1, w=x2 - x1, h=y2 - y1)
+    pad_y = math.ceil(REGION_PAD_V * (bottom - top))
+    pad_x = math.ceil(REGION_PAD_H * width)
+    left, right = max(0, x1 - pad_x), min(width, x2 + pad_x)
+    upper, lower = max(0, round(top) - pad_y), min(height, round(bottom) + pad_y)
+    region = BBox(x=left, y=upper, w=max(1, right - left), h=max(1, lower - upper))
     cues: list[SubtitleCue] = []
     start = last = frames[0]
     for index in frames[1:]:
@@ -132,9 +171,7 @@ class DetectSubtitlesActivity:
             box = await self._ocr.detect_region(image, *scaled)
         except UnusableAnswer:
             return None, True
-        if box is None:
-            return None, False
-        return await asyncio.to_thread(refine, image, box), False
+        return box, False
 
     @activity.defn(name="detect_subtitles")
     async def detect_subtitles(self, spec: LocalizationInput) -> SubtitleTrack:

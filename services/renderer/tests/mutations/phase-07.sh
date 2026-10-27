@@ -217,6 +217,15 @@ apply_mutation "$LAYOUT" '    if right - left < minimum:' '    if False:' \
   && expect_red "$P_LAYOUT" "test_a_narrow_burned_in_line_gets_a_cover_wide_enough_for_a_longer_caption"
 restore
 
+mp_mutation "the drawn cover is shorter than the box the captions are laid out in"
+apply_mutation "$LAYOUT" \
+  '        cover = Cover(region=box, color=cover_color, opacity_pct=round(cover_opacity * 100))' \
+  '        cover = Cover(region=subtitles.region, color=cover_color, opacity_pct=round(cover_opacity * 100))' \
+  && expect_red "$P_LAYOUT" \
+    "test_the_drawn_cover_is_the_box_the_captions_are_laid_out_in" \
+    "test_a_thin_cover_still_gets_a_caption_box_of_two_lines"
+restore
+
 mp_mutation "the grown cover may leave the frame"
 apply_mutation "$LAYOUT" 'left, top = max(0, region.x - margin), max(0, region.y - margin)' 'left, top = region.x - margin, region.y - margin' \
   && expect_red "$P_LAYOUT" "test_the_cover_never_leaves_the_frame"
