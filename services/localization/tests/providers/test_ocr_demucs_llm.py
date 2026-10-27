@@ -77,6 +77,23 @@ async def test_vision_ocr_null_bbox_means_no_burned_in_subtitles(
     assert await ocr.detect_region(b"x", 100, 100) is None
 
 
+async def test_vision_ocr_box_outside_the_frame_is_no_detection_for_that_frame(
+    stub: StubServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Real model answer for a 576x1024 frame: pixels of a larger image.
+    stub.scenario = Scenario(json_body=_chat('{"bbox": [324, 1408, 756, 1458]}'))
+    ocr = VisionOcr.from_settings(_ocr_settings(stub, monkeypatch, "xyxy_px"))
+    assert await ocr.detect_region(b"x", 576, 1024) is None
+
+
+async def test_vision_ocr_box_with_wrong_arity_is_no_detection_for_that_frame(
+    stub: StubServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stub.scenario = Scenario(json_body=_chat('{"bbox": [1, 2, 3]}'))
+    ocr = VisionOcr.from_settings(_ocr_settings(stub, monkeypatch, "xyxy_px"))
+    assert await ocr.detect_region(b"x", 576, 1024) is None
+
+
 async def test_vision_ocr_unparseable_reply_is_permanent(
     stub: StubServer, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -86,4 +86,10 @@ class VisionOcr:
             raise PermanentProviderError("ocr: unexpected response shape") from None
         if raw is None:
             return None
-        return normalize_bbox(raw, self._format, width, height)
+        try:
+            return normalize_bbox(raw, self._format, width, height)
+        except PermanentProviderError:
+            # One frame's box that is malformed or lies outside the frame (a model
+            # answering in another resolution's pixels) says nothing about the other
+            # frames of the video, so it counts as no subtitle seen in this frame.
+            return None
