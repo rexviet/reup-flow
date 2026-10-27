@@ -100,3 +100,31 @@ async def test_cancelling_the_activity_kills_the_demucs_process(tmp_path: Path) 
                 os.kill(leftover, 9)
             except ProcessLookupError:
                 pass
+
+
+def test_the_child_can_import_the_package_the_wrapper_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The image's `demucs-safe` is `python -m localization...`, found through PYTHONPATH;
+    a child started without it exits 1 before demucs runs."""
+    monkeypatch.setenv("PYTHONPATH", "/app/src")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "canary-should-not-leak")
+    script = tmp_path / "fake-demucs"
+    script.write_text(
+        "#!/usr/bin/env bash\n"
+        f'echo "$PYTHONPATH" > "{tmp_path}/pythonpath"\n'
+        f'echo "$OPENROUTER_API_KEY" > "{tmp_path}/key"\n'
+        'out="$3"\nmkdir -p "$out/htdemucs/in"\n'
+        'echo v > "$out/htdemucs/in/vocals.wav"\necho b > "$out/htdemucs/in/no_vocals.wav"\n'
+    )
+    script.chmod(script.stat().st_mode | stat.S_IEXEC)
+    audio = tmp_path / "in.wav"
+    audio.write_bytes(b"RIFF")
+
+    work_dir, _vocals, _background = DemucsSeparator(str(script)).separate(audio, 1000)
+
+    assert (tmp_path / "pythonpath").read_text().strip() == "/app/src"
+    assert (tmp_path / "key").read_text().strip() == ""
+    import shutil
+
+    shutil.rmtree(work_dir, ignore_errors=True)

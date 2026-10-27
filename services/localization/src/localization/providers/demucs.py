@@ -9,8 +9,18 @@ from pathlib import Path
 from localization.providers.errors import PermanentProviderError, TransientProviderError
 
 # What demucs needs to run and find its cached weights; nothing else is passed on,
-# so a credential in the worker's environment never reaches the subprocess.
-_ENV_PASSTHROUGH = ("PATH", "HOME", "LANG", "LC_ALL", "TORCH_HOME", "XDG_CACHE_HOME")
+# so a credential in the worker's environment never reaches the subprocess. PYTHONPATH
+# is in the list because the `demucs-safe` wrapper in the image runs
+# `python -m localization.providers.demucs_safe`, which fails to import without it.
+_ENV_PASSTHROUGH = (
+    "PATH",
+    "HOME",
+    "LANG",
+    "LC_ALL",
+    "TORCH_HOME",
+    "XDG_CACHE_HOME",
+    "PYTHONPATH",
+)
 
 
 def _child_env(work_dir: Path) -> dict[str, str]:
