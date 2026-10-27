@@ -35,6 +35,7 @@ def build_script(
     transcript,
     cues,
     lines: LocalizedLines,
+    version: int = SCRIPT_VERSION,
 ) -> tuple[LocalizedScript, list[int]]:
     """The script and the ids of the lines that need a person. Raises a
     non-retryable error when the lines do not cover the transcript exactly: the
@@ -75,7 +76,7 @@ def build_script(
         )
     script = LocalizedScript(
         aweme_id=spec.aweme_id,
-        version=SCRIPT_VERSION,
+        version=version,
         prompt_version=PROMPT_VERSION,
         segments=tuple(segments),
     )
@@ -88,16 +89,25 @@ class AssembleScriptActivity:
 
     @activity.defn(name="assemble_script")
     async def assemble_script(
-        self, spec: LocalizationInput, transcript_key: str, subtitle_key: str, lines: LocalizedLines
+        self,
+        spec: LocalizationInput,
+        transcript_key: str,
+        subtitle_key: str,
+        lines: LocalizedLines,
+        round: int = 0,
+        version: int = SCRIPT_VERSION,
     ) -> ScriptResult:
+        """`round` and `version` are those of a translation made again after a review:
+        it is written into that round's folder as the next version, and the earlier
+        scripts stay as they were."""
         tag_session(spec.aweme_id)
         transcript = await asyncio.to_thread(read_transcript_document, self._store, transcript_key)
         subtitles = await asyncio.to_thread(read_subtitle_document, self._store, subtitle_key)
-        script, flagged = build_script(spec, transcript, subtitles.cues, lines)
-        key = work_key(spec.aweme_id, 0, f"script.v{SCRIPT_VERSION}.json")
+        script, flagged = build_script(spec, transcript, subtitles.cues, lines, version)
+        key = work_key(spec.aweme_id, round, f"script.v{version}.json")
         await asyncio.to_thread(put_json, self._store, key, script)
         return ScriptResult(
-            script=LocalizedScriptRef(script_key=key, version=SCRIPT_VERSION),
+            script=LocalizedScriptRef(script_key=key, version=version),
             needs_human=bool(flagged),
             flagged_segment_ids=tuple(flagged),
         )

@@ -73,6 +73,19 @@ def test_an_incomplete_answer_is_sent_back_with_what_is_wrong(given, complaint: 
         check_output(deps(2), lines(*given))
 
 
+def test_a_line_with_a_character_the_caption_font_lacks_is_sent_back_naming_it() -> None:
+    """Refused here, before anything is spoken, instead of by the layout stage after the
+    whole video has been dubbed."""
+    with pytest.raises(ModelRetry, match="line 1 has characters the caption font cannot show"):
+        check_output(deps(2), lines((0, "một"), (1, "hai 你好")))
+
+
+@pytest.mark.parametrize("text", ["ok →", "xong ✓", "vâng，rồi", "😀"])
+def test_symbols_and_full_width_punctuation_are_sent_back_too(text: str) -> None:
+    with pytest.raises(ModelRetry, match="caption font"):
+        check_output(deps(2), lines((0, "một"), (1, text)))
+
+
 def test_a_complete_answer_is_accepted_as_it_is() -> None:
     answer = lines((1, "hai"), (0, "một"))
     assert check_output(deps(2), answer) is answer

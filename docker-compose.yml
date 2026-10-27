@@ -488,10 +488,11 @@ services:
     # Longer than the worker's graceful shutdown, so a stop lets running activities
     # finish instead of killing them.
     stop_grace_period: 90s
-    # Frames are extracted a chunk at a time (a few MB); a cap makes a runaway fill
-    # this volume and fail one activity, not the host's disk.
+    # Frames are extracted a chunk at a time (a few MB), and the Reviewer works from a
+    # local copy of the rendered video; a cap makes a runaway fill this volume and fail
+    # one activity, not the host's disk.
     tmpfs:
-      - /tmp:size=512m,mode=1777
+      - /tmp:size=1g,mode=1777
     environment:
       <<: [*localization-env, *localization-s3-env]
       LOC_DATABASE_URL: ${LOC_DATABASE_URL}
@@ -499,6 +500,8 @@ services:
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       LOCALIZER_MODEL: ${LOCALIZER_MODEL:-}
       DUBBER_MODEL: ${DUBBER_MODEL:-}
+      # Looks at frames, so it needs a model that reads images.
+      REVIEWER_MODEL: ${REVIEWER_MODEL:-}
       OCR_MODEL: ${OCR_MODEL:-}
       OCR_BBOX_FORMAT: ${OCR_BBOX_FORMAT:-}
       VOICESTUDIO_URL: ${VOICESTUDIO_URL:-}

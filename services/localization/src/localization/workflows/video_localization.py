@@ -23,31 +23,49 @@ from localization.agents.temporal import (
 )
 from localization.contracts import (
     DubbedAudio,
+    DubbedScriptRef,
+    DubDecision,
     DubDecisions,
+    EditSpecRef,
     FitReport,
     IngestResult,
     LocalizationInput,
     LocalizationResult,
     LocalizedScriptRef,
     PrepResult,
+    PublishRequest,
+    PublishResult,
+    RenderInput,
+    RenderResult,
+    ReviewVerdict,
     ScriptResult,
     SubtitleTrack,
     SynthesisPlan,
     Transcript,
     VoiceProfile,
 )
+from localization.workflows.review_routing import NoRoute, Route, route_issues
 
 # Task queues. `workflows` carries only this workflow; every activity runs elsewhere.
 MEDIA_QUEUE = "media"
 STT_QUEUE = "stt"
 IO_QUEUE = "io"
 TTS_QUEUE = "tts"
+LLM_QUEUE = "llm"
+RENDER_QUEUE = "render"
 
 # Marks a run that has the Localizer stage. A run recorded before the stage existed
 # replays without this marker and finishes where it used to; a new run records it.
 LOCALIZE_PATCH = "localize-script"
 # Marks a run that has the dubbing stage (synthesis, the Dubber, the dubbed track).
 DUB_PATCH = "dub-audio"
+# Marks a run that has the layout, render, review and publish steps. A run recorded
+# before them ended after the dubbing and replays to that end.
+REVIEW_PATCH = "review-publish"
+
+# Reviews of one run: the first looks at the first render, the second at the render made
+# after the one rerun a failed review sends the run back for.
+REVIEW_ROUNDS = 2
 
 # Hashes sent to the provider in one activity. Small enough that a killed worker
 # loses little, large enough that the activity overhead is not the cost.
@@ -133,7 +151,50 @@ ASSEMBLE_AUDIO = dict(
     retry_policy=_retry(3, 10, 120),
 )
 
-# The round every dubbing artifact of a run's first pass belongs to.
+LAYOUT = dict(
+    task_queue=MEDIA_QUEUE,
+    start_to_close_timeout=timedelta(minutes=10),
+    retry_policy=_retry(3, 5, 60),
+)
+# The longest render the renderer allows itself is 95 minutes (see its deadline); it
+# heartbeats every few seconds, so a worker that died is noticed in a minute.
+RENDER = dict(
+    task_queue=RENDER_QUEUE,
+    start_to_close_timeout=timedelta(hours=2),
+    heartbeat_timeout=timedelta(seconds=60),
+    retry_policy=RetryPolicy(
+        maximum_attempts=3,
+        initial_interval=timedelta(seconds=10),
+        backoff_coefficient=2.0,
+        maximum_interval=timedelta(minutes=2),
+        # The renderer marks its own permanent refusals; a lost artifact is permanent too.
+        non_retryable_error_types=_PERMANENT,
+    ),
+)
+REVIEW = dict(
+    task_queue=LLM_QUEUE,
+    start_to_close_timeout=timedelta(minutes=10),
+    heartbeat_timeout=timedelta(seconds=60),
+    retry_policy=RetryPolicy(
+        maximum_attempts=2,
+        initial_interval=timedelta(seconds=10),
+        non_retryable_error_types=[*_PERMANENT, "ReviewRunaway"],
+    ),
+)
+PUBLISH = dict(
+    task_queue=IO_QUEUE,
+    start_to_close_timeout=timedelta(minutes=5),
+    retry_policy=RetryPolicy(
+        maximum_attempts=5,
+        initial_interval=timedelta(seconds=2),
+        backoff_coefficient=2.0,
+        maximum_interval=timedelta(seconds=30),
+        non_retryable_error_types=[*_PERMANENT, "PublishRefused"],
+    ),
+)
+
+# The round every dubbing artifact of a run's first pass belongs to. A rerun after a
+# review writes into the next round's folder.
 DUB_ROUND = 0
 
 
@@ -163,6 +224,14 @@ class VideoLocalizationWorkflow:
         # What the dubbing stage needs from the Localizer stage, kept so a script
         # that is lost and made again replaces the one the stage works from.
         self._rate: float = 0.0
+        # The speech engine the voice reported, and what the Dubber decided about each
+        # line it was given: a rerun of the dubbing for some lines keeps the others'.
+        self._engine: str | None = None
+        self._decisions: dict[int, DubDecision] = {}
+        # Lines whose Dubber rewrite was refused, in the script the track was built from.
+        self._refused: tuple[int, ...] = ()
+        # Reviews made so far in this run.
+        self._reviews = 0
 
     @workflow.run
     async def run(self, spec: LocalizationInput) -> LocalizationResult:
@@ -175,7 +244,10 @@ class VideoLocalizationWorkflow:
         # The stage may have made the script (and the preparation) again: the result
         # reports the ones the track was built from, with their review flag.
         prep, script, dub = await self._dub_with_regeneration(spec, prep, script)
-        return LocalizationResult(prep=prep, script=script, dub=dub)
+        if not workflow.patched(REVIEW_PATCH):
+            return LocalizationResult(prep=prep, script=script, dub=dub)
+        script, dub, published = await self._review_and_publish(spec, prep, script, dub)
+        return LocalizationResult(prep=prep, script=script, dub=dub, publish=published)
 
     async def _localize(
         self, spec: LocalizationInput, prep: PrepResult
@@ -237,7 +309,7 @@ class VideoLocalizationWorkflow:
         )
         return await workflow.execute_activity(
             "assemble_script",
-            args=[spec, transcript_key, subtitle_key, lines],
+            args=[spec, transcript_key, subtitle_key, lines, 0, 1],
             result_type=ScriptResult,
             **ASSEMBLE_SCRIPT,
         )
@@ -327,12 +399,13 @@ class VideoLocalizationWorkflow:
                     prep, script = await self._localize(spec, prep)
 
     async def _dub(
-        self, spec: LocalizationInput, prep: PrepResult, script: ScriptResult
+        self, spec: LocalizationInput, prep: PrepResult, script: ScriptResult, round_no: int = 0
     ) -> DubbedAudio:
         profile = await workflow.execute_activity(
             "voice_profile", spec.voice, result_type=VoiceProfile, **VOICE_PROFILE
         )
         engine = profile.engine
+        self._engine = engine
         first = script.script
         await self._synthesize(spec, engine, first.script_key)
         fit = await workflow.execute_activity(
@@ -356,22 +429,28 @@ class VideoLocalizationWorkflow:
         # The script after the Dubber is the one every later stage reads. Lines the
         # Dubber rewrote have no clip yet; the second synthesis pass makes exactly
         # those (the rest are cache hits).
-        final = await workflow.execute_activity(
+        # Always the full list: with fewer arguments than the activity has parameters the
+        # SDK does not convert any of them to their types.
+        in_round = [round_no]
+        written = await workflow.execute_activity(
             "write_dubbed_script",
-            args=[spec, first, decisions],
-            result_type=LocalizedScriptRef,
+            args=[spec, first, decisions, *in_round],
+            result_type=DubbedScriptRef,
             **DUB_IO,
         )
+        self._refused = written.refused_ids
+        self._decisions = {d.id: d for d in decisions.items}
+        final = LocalizedScriptRef(script_key=written.script_key, version=written.version)
         await self._synthesize(spec, engine, final.script_key)
         segments_key = await workflow.execute_activity(
             "commit_dub",
-            args=[spec, final, engine, decisions],
+            args=[spec, final, engine, decisions, *in_round],
             result_type=str,
             **DUB_IO,
         )
         return await workflow.execute_activity(
             "assemble_audio",
-            args=[spec, final, segments_key, prep.ingest, DUB_ROUND],
+            args=[spec, final, segments_key, prep.ingest, DUB_ROUND + round_no],
             result_type=DubbedAudio,
             **ASSEMBLE_AUDIO,
         )
@@ -413,3 +492,229 @@ class VideoLocalizationWorkflow:
                 if not handle.done():
                     handle.cancel()
             raise
+
+    # --- layout, render, review and publish ----------------------------------------------
+
+    async def _review_and_publish(
+        self, spec: LocalizationInput, prep: PrepResult, script: ScriptResult, dub: DubbedAudio
+    ) -> tuple[ScriptResult, DubbedAudio, PublishResult]:
+        """A stage that fails for good is written on the run before the workflow ends,
+        so the person who looks finds the reason where the run's outcome is kept."""
+        self._reviews = 0
+        try:
+            return await self._rounds(spec, prep, script, dub)
+        except (ActivityError, ApplicationError) as error:
+            # An activity that failed, or an agent that gave up (it raises in the workflow
+            # itself, as an ApplicationError).
+            await self._record_failure(spec, error)
+            raise
+
+    async def _record_failure(
+        self, spec: LocalizationInput, error: ActivityError | ApplicationError
+    ) -> None:
+        cause = error.cause if isinstance(error, ActivityError) else error
+        kind = (
+            cause.type
+            if isinstance(cause, ApplicationError) and cause.type
+            else type(cause).__name__
+        )
+        reason = f"{kind}: {cause}"[:500]
+        try:
+            await workflow.execute_activity(
+                "publish",
+                args=[
+                    spec,
+                    PublishRequest(
+                        outcome="failed", reasons=(reason,), review_rounds=self._reviews
+                    ),
+                ],
+                result_type=PublishResult,
+                **PUBLISH,
+            )
+        except ActivityError:
+            # The run is failing for the reason above; not being able to say so must not
+            # replace it.
+            pass
+
+    def _flags(self, script: ScriptResult) -> list[str]:
+        """What stops a run from being published without a person looking."""
+        flags = []
+        if script.needs_human:
+            ids = list(script.flagged_segment_ids)
+            flags.append(
+                f"the Localizer flagged segments {ids}: a line has a contact its source lacks"
+            )
+        if self._refused:
+            flags.append(
+                f"the Dubber's rewrite of segments {list(self._refused)} was refused "
+                "(a contact the source lacks, or a character the captions cannot show)"
+            )
+        return flags
+
+    async def _rounds(
+        self, spec: LocalizationInput, prep: PrepResult, script: ScriptResult, dub: DubbedAudio
+    ) -> tuple[ScriptResult, DubbedAudio, PublishResult]:
+        round_no = 0
+        flags = self._flags(script)
+        verdict: ReviewVerdict | None = None
+        render: RenderResult | None = None
+        stopped: str | None = None
+        earlier_spec: str | None = None
+        for attempt in range(REVIEW_ROUNDS):
+            # The track and the captions are made from one script: the one the track was
+            # built from, which is the Dubber's, not the Localizer's.
+            final = LocalizedScriptRef(script_key=dub.script_key, version=dub.script_version)
+            spec_ref = await workflow.execute_activity(
+                "layout_captions",
+                args=[spec, final, prep.subtitles, prep.ingest, dub, round_no],
+                result_type=EditSpecRef,
+                **LAYOUT,
+            )
+            if attempt and spec_ref.spec_sha256 == earlier_spec:
+                # Whatever the rerun did, the viewer would get the same video: another
+                # review would only repeat the last verdict.
+                stopped = "the rerun produced the same video, so the reviewer's problems remain"
+                break
+            render = await workflow.execute_activity(
+                "render",
+                RenderInput(aweme_id=spec.aweme_id, spec_key=spec_ref.spec_key),
+                result_type=RenderResult,
+                **RENDER,
+            )
+            verdict = await workflow.execute_activity(
+                "review_render",
+                args=[spec, render, final, dub, spec_ref, round_no],
+                result_type=ReviewVerdict,
+                **REVIEW,
+            )
+            self._reviews = attempt + 1
+            if verdict.passed or flags:
+                # A run that needs a person goes to one with the verdict in hand; sending
+                # it round again would only spend more before they look.
+                break
+            if attempt == REVIEW_ROUNDS - 1:
+                break
+            route = route_issues(verdict.issues)
+            if isinstance(route, NoRoute):
+                stopped = route.reason
+                break
+            earlier_spec = spec_ref.spec_sha256
+            round_no += 1
+            script, dub = await self._rerun(spec, prep, script, dub, route, round_no)
+            flags = self._flags(script)
+        # The first pass of the loop always renders and reviews: it is only the later ones
+        # that can stop before they do.
+        assert render is not None and verdict is not None
+        reasons = list(flags)
+        if verdict is not None and not verdict.passed:
+            summary = "; ".join(f"{i.stage}: {i.reason}" for i in verdict.issues)[:400]
+            reasons.append(f"the review did not pass after {self._reviews} round(s): {summary}")
+        if stopped is not None:
+            reasons.append(stopped)
+        ok = verdict.passed and not reasons
+        published = await workflow.execute_activity(
+            "publish",
+            args=[
+                spec,
+                PublishRequest(
+                    outcome="published" if ok else "needs_human",
+                    render_key=render.render_key,
+                    reasons=tuple(r[:500] for r in reasons[:20]),
+                    review_rounds=self._reviews,
+                    verdict=verdict,
+                ),
+            ],
+            result_type=PublishResult,
+            **PUBLISH,
+        )
+        return script, dub, published
+
+    async def _rerun(
+        self,
+        spec: LocalizationInput,
+        prep: PrepResult,
+        script: ScriptResult,
+        dub: DubbedAudio,
+        route: Route,
+        round_no: int,
+    ) -> tuple[ScriptResult, DubbedAudio]:
+        """Runs again the stage the review named and what depends on it, into the
+        folder of `round_no`. Transcript, subtitles, ingest and the clips already
+        spoken are not touched."""
+        if route.rerun == "localize":
+            lines = await run_localizer(
+                LocalizerDeps(
+                    aweme_id=spec.aweme_id,
+                    workflow_id=workflow.info().workflow_id,
+                    channel_id=spec.channel_id,
+                    transcript_key=prep.transcript.transcript_key,
+                    subtitle_key=prep.subtitles.subtitle_key,
+                    syllables_per_sec=self._rate,
+                    segment_count=prep.transcript.segment_count,
+                ),
+                route.notes,
+            )
+            fresh = await workflow.execute_activity(
+                "assemble_script",
+                args=[
+                    spec,
+                    prep.transcript.transcript_key,
+                    prep.subtitles.subtitle_key,
+                    lines,
+                    round_no,
+                    dub.script_version + 1,
+                ],
+                result_type=ScriptResult,
+                **ASSEMBLE_SCRIPT,
+            )
+            return fresh, await self._dub(spec, prep, fresh, round_no)
+        if route.rerun == "dub":
+            return script, await self._redub(spec, prep, dub, route, round_no)
+        return script, dub
+
+    async def _redub(
+        self,
+        spec: LocalizationInput,
+        prep: PrepResult,
+        dub: DubbedAudio,
+        route: Route,
+        round_no: int,
+    ) -> DubbedAudio:
+        """The Dubber again on the lines the review named; the other lines keep their
+        text, their clips and what the Dubber decided about them."""
+        current = LocalizedScriptRef(script_key=dub.script_key, version=dub.script_version)
+        decisions = await run_dubber(
+            DubberDeps(
+                aweme_id=spec.aweme_id,
+                script_key=current.script_key,
+                voice=spec.voice,
+                engine=self._engine,
+                syllables_per_sec=self._rate,
+                pending_ids=route.segment_ids,
+            ),
+            route.notes,
+        )
+        written = await workflow.execute_activity(
+            "write_dubbed_script",
+            args=[spec, current, decisions, round_no],
+            result_type=DubbedScriptRef,
+            **DUB_IO,
+        )
+        self._refused = written.refused_ids
+        # What was decided before still holds for the lines the review did not name.
+        self._decisions = {**self._decisions, **{d.id: d for d in decisions.items}}
+        merged = DubDecisions(items=tuple(self._decisions[i] for i in sorted(self._decisions)))
+        final = LocalizedScriptRef(script_key=written.script_key, version=written.version)
+        await self._synthesize(spec, self._engine, final.script_key)
+        segments_key = await workflow.execute_activity(
+            "commit_dub",
+            args=[spec, final, self._engine, merged, round_no],
+            result_type=str,
+            **DUB_IO,
+        )
+        return await workflow.execute_activity(
+            "assemble_audio",
+            args=[spec, final, segments_key, prep.ingest, DUB_ROUND + round_no],
+            result_type=DubbedAudio,
+            **ASSEMBLE_AUDIO,
+        )

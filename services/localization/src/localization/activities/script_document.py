@@ -23,8 +23,10 @@ def producing_stage(key: str) -> str:
     return "localize" if script_version(key) == LOCALIZER_VERSION else "dub_script"
 
 
-def script_key(aweme_id: str, version: int) -> str:
-    return work_key(aweme_id, 0, f"script.v{version}.json")
+def script_key(aweme_id: str, version: int, round: int = 0) -> str:
+    """Versions grow through a run, whatever the round; the round only says which
+    folder of the video's work a version was written into."""
+    return work_key(aweme_id, round, f"script.v{version}.json")
 
 
 def read_script(store: ObjectStore, key: str) -> LocalizedScript:
@@ -33,7 +35,7 @@ def read_script(store: ObjectStore, key: str) -> LocalizedScript:
     )
 
 
-def write_script(store: ObjectStore, script: LocalizedScript) -> LocalizedScriptRef:
-    key = script_key(script.aweme_id, script.version)
+def write_script(store: ObjectStore, script: LocalizedScript, round: int = 0) -> LocalizedScriptRef:
+    key = script_key(script.aweme_id, script.version, round)
     store.put_bytes(key, script.model_dump_json().encode(), content_type="application/json")
     return LocalizedScriptRef(script_key=key, version=script.version)

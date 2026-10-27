@@ -21,6 +21,7 @@ from localization.temporal.client import guarded_data_converter
 from localization.workflows.video_localization import VideoLocalizationWorkflow
 from tests.support.reordered_flow import ReorderedWorkflow
 from tests.support.ungated_dub_flow import UngatedDubWorkflow
+from tests.support.ungated_review_flow import UngatedReviewWorkflow
 
 HISTORIES = sorted((Path(__file__).parent / "histories").glob("*/*.json"))
 
@@ -62,6 +63,15 @@ def test_there_are_histories_to_replay() -> None:
             p.stem for p in _of(phase)
         }
     assert {
+        "published-at-the-first-review",
+        "dubber-runs-again-for-one-line",
+        "localizer-runs-again-with-the-notes",
+        "layout-runs-again",
+        "needs-a-person-after-two-reviews",
+        "flagged-translation-needs-a-person",
+        "layout-fails-for-good",
+    } <= {p.stem for p in _of("phase-08")}
+    assert {
         "dubber-shortens-lines",
         "music-stem-lost-ingest-rerun",
         "script-lost-localizer-rerun",
@@ -83,6 +93,44 @@ def test_the_histories_recorded_before_the_dubbing_stage_are_really_without_it()
         text = path.read_text()
         assert "voice_profile" not in text and "synthesize_segments" not in text, path.name
         assert "dub-audio" not in _patches(path), path.name
+
+
+def test_the_histories_recorded_before_the_review_steps_are_really_without_them() -> None:
+    """The proof that a run already in flight when the review shipped still replays."""
+    for path in _of("phase-04") + _of("phase-05") + _of("phase-06"):
+        text = path.read_text()
+        for step in ("layout_captions", "review_render", '"publish"'):
+            assert step not in text, (path.name, step)
+        assert "review-publish" not in _patches(path), path.name
+
+
+def test_the_histories_recorded_with_the_review_steps_have_them() -> None:
+    for path in _of("phase-08"):
+        text = path.read_text()
+        assert {"localize-script", "dub-audio", "review-publish"} <= _patches(path), path.name
+        # A run that fails in the layout never gets as far as the render.
+        steps = ("layout_captions", "publish")
+        if path.stem != "layout-fails-for-good":
+            steps = (*steps, '"render"', "review_render")
+        for step in steps:
+            assert step in text, (path.name, step)
+
+
+def test_the_histories_of_a_rerun_show_the_stage_that_ran_again() -> None:
+    """A set of histories that never re-ran anything would prove the loop replays
+    without ever having been in it. A review is one scheduled activity, which names
+    itself once."""
+    by = {p.stem: p.read_text() for p in _of("phase-08")}
+    assert by["published-at-the-first-review"].count("review_render") == 1
+    for name in (
+        "dubber-runs-again-for-one-line",
+        "localizer-runs-again-with-the-notes",
+        "layout-runs-again",
+        "needs-a-person-after-two-reviews",
+    ):
+        assert by[name].count("review_render") == 2, name
+    assert by["layout-fails-for-good"].count("review_render") == 0
+    assert "EVENT_TYPE_WORKFLOW_EXECUTION_FAILED" in by["layout-fails-for-good"]
 
 
 def test_the_histories_recorded_with_the_dubbing_stage_have_it() -> None:
@@ -123,3 +171,14 @@ async def test_control_the_dubbing_stage_without_its_marker_breaks_the_older_his
     (Histories from before the Localizer stage end at its own marker, earlier.)"""
     with pytest.raises(NondeterminismError):
         await _replayer(UngatedDubWorkflow).replay_workflow(_history(path))
+
+
+@pytest.mark.parametrize("path", _of("phase-06"), ids=lambda p: f"{p.parent.name}/{p.stem}")
+async def test_control_the_review_steps_without_their_marker_break_the_older_histories(
+    path: Path,
+) -> None:
+    """The marker is what lets a run recorded before the review steps replay: the same
+    steps added without it must be rejected, or the real workflow's marker proves
+    nothing."""
+    with pytest.raises(NondeterminismError):
+        await _replayer(UngatedReviewWorkflow).replay_workflow(_history(path))

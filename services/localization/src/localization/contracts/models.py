@@ -149,6 +149,15 @@ class LocalizedScriptRef(Contract):
     version: NonNegativeInt
 
 
+class DubbedScriptRef(LocalizedScriptRef):
+    """The script the Dubber's decisions produced. `refused_ids` are the lines whose
+    rewrite was thrown away (it carried a contact or a character the caption font
+    cannot show) and which kept their earlier text; a run with any of them is not
+    published without a person looking."""
+
+    refused_ids: tuple[NonNegativeInt, ...] = ()
+
+
 class LocalizedLine(Contract):
     """One translated line as the Localizer returns it: the text only. Timing,
     slot and source text come from the transcript, never from the model."""
@@ -248,6 +257,8 @@ class LocalizationResult(Contract):
     script: ScriptResult | None
     # None for a run that began before the dubbing stage existed.
     dub: DubbedAudio | None = None
+    # None for a run that began before the review and publish steps existed.
+    publish: "PublishResult | None" = None
 
 
 # --- Render -----------------------------------------------------------------
@@ -354,3 +365,42 @@ class ReviewVerdict(Contract):
     passed: Annotated[bool, Field(alias="pass")]
     scores: ReviewScores
     issues: tuple[ReviewIssue, ...]
+
+
+class RenderInput(Contract):
+    """What the render worker (queue `render`, TypeScript) is asked."""
+
+    aweme_id: AwemeId
+    spec_key: Key
+
+
+class RenderResult(Contract):
+    """What it answers: the mp4 for this spec, named by the spec's hash."""
+
+    render_key: Key
+    spec_sha256: Sha256
+
+
+PublishOutcome = Literal["published", "needs_human", "failed"]
+
+
+class PublishRequest(Contract):
+    """How a run ended. `needs_human` and `failed` runs are never written to
+    `output/`: the first keeps its render under `review/`, the second has none.
+    `reasons` are for the person who reads the run (what was flagged, what failed)."""
+
+    outcome: PublishOutcome
+    render_key: Key | None = None
+    reasons: Annotated[tuple[Annotated[str, Field(max_length=500)], ...], Field(max_length=20)] = ()
+    review_rounds: NonNegativeInt = 0
+    verdict: ReviewVerdict | None = None
+
+
+class PublishResult(Contract):
+    outcome: PublishOutcome
+    output_key: Key | None = None
+    review_key: Key | None = None
+
+
+# `LocalizationResult` names `PublishResult`, which is defined after it.
+LocalizationResult.model_rebuild()

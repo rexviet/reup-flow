@@ -15,6 +15,7 @@ from localization.activities.persist import put_json
 from localization.activities.script_document import read_script, write_script
 from localization.activities.synthesize import Synthesizer, final_stretch, stretch_for
 from localization.contracts import (
+    DubbedScriptRef,
     DubDecisions,
     DubSegment,
     DubSegmentsDocument,
@@ -27,6 +28,7 @@ from localization.contracts import (
 from localization.contracts.voice import VoiceRef
 from localization.observability.tracing import tag_session
 from localization.storage.object_store import ObjectStore, work_key
+from localization.text.glyphs import foreign_chars
 from localization.text.safety import contacts_missing_from_source
 
 
@@ -43,8 +45,9 @@ def apply_decisions(
 ) -> tuple[LocalizedScript, list[int]]:
     """The next version of `script` with the Dubber's rewrites in it, and the ids of
     rewrites that were refused. A rewrite that names a contact (a link, a domain, a
-    phone number) its source line lacks is refused and the line keeps its text: the
-    Dubber reads untrusted video text too."""
+    phone number) its source line lacks, or that holds a character the caption font
+    cannot show, is refused and the line keeps its text: the Dubber reads untrusted
+    video text too."""
     by_id = {s.id: s for s in script.segments}
     chosen = {d.id: d for d in decisions.items}
     if len(chosen) != len(decisions.items) or not chosen.keys() <= by_id.keys():
@@ -59,7 +62,9 @@ def apply_decisions(
         decision = chosen.get(seg.id)
         text = seg.text_vi
         if decision is not None and decision.text_vi.strip():
-            if contacts_missing_from_source(decision.text_vi, seg.src_zh):
+            if contacts_missing_from_source(decision.text_vi, seg.src_zh) or foreign_chars(
+                decision.text_vi
+            ):
                 refused.append(seg.id)
             else:
                 text = decision.text_vi.strip()
@@ -96,15 +101,22 @@ class DubScriptActivities:
 
     @activity.defn(name="write_dubbed_script")
     async def write_dubbed_script(
-        self, spec: LocalizationInput, script: LocalizedScriptRef, decisions: DubDecisions
-    ) -> LocalizedScriptRef:
+        self,
+        spec: LocalizationInput,
+        script: LocalizedScriptRef,
+        decisions: DubDecisions,
+        round: int = 0,
+    ) -> DubbedScriptRef:
         tag_session(spec.aweme_id)
         before = await asyncio.to_thread(read_script, self._store, script.script_key)
         after, refused = apply_decisions(before, decisions)
         if refused:
             # A rewrite that tried to add a contact is a sign of an injection: say so.
             activity.logger.warning("rewrites refused for segments %s", refused)
-        return await asyncio.to_thread(write_script, self._store, after)
+        written = await asyncio.to_thread(write_script, self._store, after, round)
+        return DubbedScriptRef(
+            script_key=written.script_key, version=written.version, refused_ids=tuple(refused)
+        )
 
     @activity.defn(name="commit_dub")
     async def commit_dub(
@@ -113,9 +125,10 @@ class DubScriptActivities:
         script: LocalizedScriptRef,
         engine: str | None,
         decisions: DubDecisions,
+        round: int = 0,
     ) -> str:
-        """Writes `dub-segments.json`: for every segment, its clip, its length and
-        the stretch it is played at. Returns the key."""
+        """Writes `dub-segments.json` (into the folder of `round`): for every segment,
+        its clip, its length and the stretch it is played at. Returns the key."""
         tag_session(spec.aweme_id)
         doc = await asyncio.to_thread(read_script, self._store, script.script_key)
         chosen = {d.id: d.stretch_ratio for d in decisions.items}
@@ -138,6 +151,6 @@ class DubScriptActivities:
         document = DubSegmentsDocument(
             aweme_id=spec.aweme_id, script_version=doc.version, segments=tuple(segments)
         )
-        key = work_key(spec.aweme_id, 0, "dub-segments.json")
+        key = work_key(spec.aweme_id, round, "dub-segments.json")
         await asyncio.to_thread(put_json, self._store, key, document)
         return key

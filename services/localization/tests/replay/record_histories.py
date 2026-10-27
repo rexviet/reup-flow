@@ -15,6 +15,8 @@ import sys
 import uuid
 from pathlib import Path
 
+from temporalio.client import WorkflowFailureError
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 
 from localization.contracts import LocalizationResult
@@ -24,6 +26,7 @@ from tests.support.inputs import make_input
 from tests.support.localizer_fakes import LocalizerFakes, ScriptedModel, translate_all
 from tests.support.prep_fakes import PrepFakes
 from tests.support.prep_worker import prep_workers
+from tests.support.review_fakes import ReviewFakes, issue, verdict
 
 HISTORIES = Path(__file__).parent / "histories"
 
@@ -31,7 +34,11 @@ HISTORIES = Path(__file__).parent / "histories"
 # runs recorded before the dubbing stage existed. They are kept as they are: they are
 # what proves a run already in flight still resumes, so those sets are never
 # re-recorded.
-SCENARIOS: dict[str, dict[str, tuple[PrepFakes, LocalizerFakes, DubFakes | None]]] = {
+Scenario = (
+    tuple[PrepFakes, LocalizerFakes, DubFakes | None]
+    | tuple[PrepFakes, LocalizerFakes, DubFakes | None, ReviewFakes]
+)
+SCENARIOS: dict[str, dict[str, Scenario]] = {
     "phase-05": {
         "plain-run": (PrepFakes(), LocalizerFakes(), None),
         "no-burned-in-subtitles": (PrepFakes(region=None), LocalizerFakes(), None),
@@ -107,6 +114,70 @@ SCENARIOS: dict[str, dict[str, tuple[PrepFakes, LocalizerFakes, DubFakes | None]
             DubFakes(missing_on={("measure_fit", 1): "localize"}),
         ),
     },
+    # Runs recorded with the layout, render, review and publish steps. `phase-06` holds
+    # runs from before them, and is what proves one already in flight still resumes.
+    "phase-08": {
+        "published-at-the-first-review": (
+            PrepFakes(),
+            LocalizerFakes(),
+            DubFakes(),
+            ReviewFakes(),
+        ),
+        "dubber-runs-again-for-one-line": (
+            PrepFakes(),
+            LocalizerFakes(),
+            DubFakes(),
+            ReviewFakes(verdicts=[verdict(issue("dub", "rushed", segment_id=1)), verdict()]),
+        ),
+        "localizer-runs-again-with-the-notes": (
+            PrepFakes(),
+            LocalizerFakes(),
+            DubFakes(),
+            ReviewFakes(
+                verdicts=[verdict(issue("localize", "too formal", segment_id=0)), verdict()]
+            ),
+        ),
+        "layout-runs-again": (
+            PrepFakes(),
+            LocalizerFakes(),
+            DubFakes(),
+            ReviewFakes(
+                verdicts=[verdict(issue("captions", "cut off")), verdict()],
+                changed_layout_in_rounds={1},
+            ),
+        ),
+        "needs-a-person-after-two-reviews": (
+            PrepFakes(),
+            LocalizerFakes(),
+            DubFakes(unfit_ids=(0, 1), dubber=ScriptedDubber(rewrites_per_segment=2)),
+            ReviewFakes(
+                verdicts=[
+                    verdict(issue("dub", "rushed", segment_id=1)),
+                    verdict(issue("dub", "still rushed", segment_id=1)),
+                ]
+            ),
+        ),
+        "flagged-translation-needs-a-person": (
+            PrepFakes(region=None),
+            LocalizerFakes(flagged_ids=(0,)),
+            DubFakes(),
+            ReviewFakes(),
+        ),
+        "layout-fails-for-good": (
+            PrepFakes(),
+            LocalizerFakes(),
+            DubFakes(),
+            ReviewFakes(
+                fail_on={
+                    ("layout_captions", 1): ApplicationError(
+                        "the caption font has no glyph for segment 0: 你",
+                        type="UncoveredGlyphs",
+                        non_retryable=True,
+                    )
+                }
+            ),
+        ),
+    },
 }
 
 
@@ -118,8 +189,10 @@ async def record(phase: str) -> None:
     env = await WorkflowEnvironment.start_local()
     try:
         client = await connect(env.client.service_client.config.target_host)
-        for name, (fakes, localizing, dubbing) in SCENARIOS[phase].items():
-            async with prep_workers(client, fakes, localizing, dubbing=dubbing):
+        for name, (fakes, localizing, dubbing, *rest) in SCENARIOS[phase].items():
+            async with prep_workers(
+                client, fakes, localizing, dubbing=dubbing, reviewing=rest[0] if rest else None
+            ):
                 aweme_id = str(7000 + len(list(out.glob("*.json"))))
                 handle = await client.start_workflow(
                     "VideoLocalizationWorkflow",
@@ -128,7 +201,11 @@ async def record(phase: str) -> None:
                     task_queue="workflows",
                     result_type=LocalizationResult,
                 )
-                await asyncio.wait_for(handle.result(), timeout=60)
+                try:
+                    await asyncio.wait_for(handle.result(), timeout=60)
+                except WorkflowFailureError:
+                    # A run that ends in failure is a history worth replaying too.
+                    pass
                 history = await handle.fetch_history()
             (out / f"{name}.json").write_text(history.to_json() + "\n")
             print(f"recorded {name}: {len(history.events)} events")
@@ -137,4 +214,4 @@ async def record(phase: str) -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(record(sys.argv[1] if len(sys.argv) > 1 else "phase-06"))
+    asyncio.run(record(sys.argv[1] if len(sys.argv) > 1 else "phase-08"))

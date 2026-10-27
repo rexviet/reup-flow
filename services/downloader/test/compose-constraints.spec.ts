@@ -224,6 +224,7 @@ describe("docker-compose.yml localization infra", () => {
       "OPENROUTER_API_KEY",
       "LOCALIZER_MODEL",
       "DUBBER_MODEL",
+      "REVIEWER_MODEL",
       "OCR_MODEL",
       "OCR_BBOX_FORMAT",
       "VOICESTUDIO_URL",

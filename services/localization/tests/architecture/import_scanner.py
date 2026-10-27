@@ -20,6 +20,8 @@ ALLOWED = (
     "localization.contracts",
     "localization.text",
     "localization.agents.temporal",
+    # Pure: which stage a failed review sends a run back to.
+    "localization.workflows.review_routing",
     "datetime.timedelta",
 )
 

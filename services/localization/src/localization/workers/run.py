@@ -31,6 +31,8 @@ from localization.activities.ingest import IngestActivity
 from localization.activities.layout_captions import LayoutCaptionsActivity
 from localization.activities.localizer_ports import StorePorts
 from localization.activities.persist import PersistActivity
+from localization.activities.publish import PublishActivity, RunStore
+from localization.activities.review_render import ReviewRenderActivity
 from localization.activities.synthesize import SynthesizeActivities, Synthesizer
 from localization.activities.transcribe import TranscribeActivity
 from localization.activities.voice_rate import VoiceRateActivity, VoiceRateStore
@@ -131,13 +133,25 @@ def queue_specs(
             store, providers.tts, model=settings.tts_model, engine=engine
         )
         dub = DubScriptActivities(store, synthesis.synthesizer)
+        review = ReviewRenderActivity(
+            store,
+            providers.ocr,
+            lambda: model_for("reviewer", settings),
+            loudness_lufs=settings.loudness_lufs,
+            true_peak_dbtp=settings.true_peak_dbtp,
+        )
+        publish = PublishActivity(store, RunStore(database_url))
         # The agents' model requests (`llm`) and tools (`io`, and the Dubber's
         # `synthesize` on `tts`) are activities of the agents; their plugins register
         # them on each queue's worker.
         agents = [AgentPlugin(localizer), AgentPlugin(dubber)]
         return [
             QueueSpec("workflows", workflows=[VideoLocalizationWorkflow]),
-            QueueSpec("llm", settings.llm_concurrency, plugins=agents),
+            # The Reviewer's model requests are made inside `review_render`, which is why
+            # that activity lives here and not on a queue of its own.
+            QueueSpec(
+                "llm", settings.llm_concurrency, activities=[review.review_render], plugins=agents
+            ),
             QueueSpec(
                 "io",
                 settings.io_concurrency,
@@ -150,6 +164,7 @@ def queue_specs(
                     dub.measure_fit,
                     dub.write_dubbed_script,
                     dub.commit_dub,
+                    publish.publish,
                 ],
                 plugins=agents,
             ),
@@ -179,6 +194,8 @@ def bind_agent_runtime(
     model = model_for("localizer", settings)
     bind_model_factory(lambda: model)
     bind_ports(StorePorts(store, GlossaryStore(_database_url(settings))))
+    # The Reviewer's model is built per review; check now that it can be.
+    model_for("reviewer", settings)
     dubber_model = model_for("dubber", settings)
     bind_model_factory(lambda: dubber_model, DUBBER_MODEL_ALIAS)
     if tts is not None:

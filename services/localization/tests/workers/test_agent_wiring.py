@@ -1,6 +1,8 @@
 """What a production worker registers for the Localizer stage, and that it refuses
 to start without what the stage needs."""
 
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -54,6 +56,21 @@ def test_the_dubbing_stage_is_served_on_the_queues_the_workflow_sends_it_to() ->
         for s in runnable(queue_specs("media", Settings(), STORE, PROVIDERS))  # type: ignore[arg-type]
     }
     assert "assemble_audio" in media["media"]
+
+
+def test_the_review_and_the_publish_are_served_on_the_queues_the_workflow_sends_them_to() -> None:
+    served = _registered(Settings())
+    assert "review_render" in served["llm"]
+    assert "publish" in served["io"]
+    assert "publish" not in served["llm"] and "review_render" not in served["io"]
+
+
+def test_the_rendering_activity_is_not_served_by_python() -> None:
+    """`render` is the TypeScript worker's: a Python worker that also answered on the
+    `render` queue would take renders it cannot do."""
+    specs = runnable(queue_specs("agents", Settings(), ObjectStore(object(), "b"), PROVIDERS))  # type: ignore[arg-type]
+    media = runnable(queue_specs("media", Settings(), STORE, PROVIDERS))  # type: ignore[arg-type]
+    assert "render" not in {s.name for s in [*specs, *media]}
 
 
 def test_the_media_worker_normalises_to_the_configured_loudness() -> None:
@@ -156,11 +173,25 @@ def test_the_agents_worker_refuses_to_start_without_a_provider_key() -> None:
         bind_agent_runtime(settings, STORE)
 
 
+def test_the_agents_worker_refuses_to_start_without_a_reviewer_model() -> None:
+    """The Reviewer looks at frames, so it has a model of its own: the Localizer's may
+    not read images, and a run that reached the review without one would be paid for
+    twice."""
+    settings = _settings(
+        loc_database_url="postgresql://x/y",  # type: ignore[arg-type]
+        localizer_model="some/model",  # type: ignore[arg-type]
+        openrouter_api_key="k",  # type: ignore[arg-type]
+    )
+    with pytest.raises(ConfigError, match="REVIEWER_MODEL"):
+        bind_agent_runtime(settings, STORE)
+
+
 def test_a_worker_without_a_dubber_model_uses_the_localizers() -> None:
     """An env file from before the Dubber existed must still start the worker."""
     settings = _settings(
         loc_database_url="postgresql://x/y",  # type: ignore[arg-type]
         localizer_model="openai:some/model",  # type: ignore[arg-type]
+        reviewer_model="vision/model",  # type: ignore[arg-type]
         openrouter_api_key="k",  # type: ignore[arg-type]
     )
     bind_agent_runtime(settings, STORE)
@@ -173,6 +204,7 @@ def test_an_empty_dubber_model_is_the_same_as_none() -> None:
         loc_database_url="postgresql://x/y",  # type: ignore[arg-type]
         localizer_model="some/model",  # type: ignore[arg-type]
         dubber_model="",  # type: ignore[arg-type]
+        reviewer_model="vision/model",  # type: ignore[arg-type]
         openrouter_api_key="k",  # type: ignore[arg-type]
     )
     bind_agent_runtime(settings, STORE)
@@ -185,6 +217,7 @@ def test_a_configured_worker_has_its_ports_and_models_bound() -> None:
         loc_database_url="postgresql://x/y",  # type: ignore[arg-type]
         localizer_model="openai:some/model",  # type: ignore[arg-type]
         dubber_model="openai:other/model",  # type: ignore[arg-type]
+        reviewer_model="vision/model",  # type: ignore[arg-type]
         openrouter_api_key="k",  # type: ignore[arg-type]
     )
     bind_agent_runtime(settings, STORE, tts=object())  # type: ignore[arg-type]
@@ -193,3 +226,78 @@ def test_a_configured_worker_has_its_ports_and_models_bound() -> None:
     factories = temporal_module._model_factories  # noqa: SLF001
     assert factories[temporal_module.MODEL_ALIAS]().model_name == "some/model"
     assert factories[temporal_module.DUBBER_MODEL_ALIAS]().model_name == "other/model"
+
+
+# --- everything the workflow asks for is served by the production wiring -----------------
+
+
+def _asked_for(history: Path) -> set[tuple[str, str]]:
+    """(activity, queue) of every activity the real workflow scheduled in a recording."""
+    events = json.loads(history.read_text())["events"]
+    return {
+        (a["activityType"]["name"], a["taskQueue"]["name"])
+        for e in events
+        if (a := e.get("activityTaskScheduledEventAttributes"))
+    }
+
+
+def _served_by_production() -> set[tuple[str, str]]:
+    """(activity, queue) the production workers register, with the agents' own activities
+    (their model requests and tools) counted on the queues their plugin serves."""
+    agent_names = {
+        fn.__temporal_activity_definition.name  # type: ignore[attr-defined]
+        for agent in (temporal_module.localizer, temporal_module.dubber)
+        for fn in TemporalDurability.from_agent(agent).temporal_activities  # type: ignore[union-attr]
+    }
+    specs = [
+        *queue_specs("agents", Settings(), ObjectStore(object(), "b"), PROVIDERS),  # type: ignore[arg-type]
+        *queue_specs("media", Settings(), STORE, PROVIDERS),  # type: ignore[arg-type]
+    ]
+    served = set()
+    for spec in specs:
+        for fn in spec.activities:
+            served.add((fn.__temporal_activity_definition.name, spec.name))  # type: ignore[attr-defined]
+        if spec.plugins:
+            served |= {(name, spec.name) for name in agent_names}
+    return served
+
+
+RECORDINGS = sorted(
+    (Path(__file__).parents[1] / "replay" / "histories" / "phase-08").glob("*.json")
+)
+
+
+@pytest.mark.parametrize("history", RECORDINGS, ids=lambda p: p.stem)
+def test_every_activity_the_workflow_schedules_is_served_on_its_queue_by_a_real_worker(
+    history: Path,
+) -> None:
+    """A recording is made with stand-ins for the activities, so it says nothing about
+    them; what it does say is every (activity, queue) the workflow asks for. Each must be
+    registered, on that queue, by the worker a deployment runs: a step served only by a
+    stand-in would pass every test above and leave a real run waiting for ever."""
+    asked = _asked_for(history)
+    assert asked, "the recording schedules nothing: this would prove nothing"
+    served = _served_by_production()
+    # `render` is the TypeScript worker's: see the next test.
+    missing = {pair for pair in asked - served if pair != ("render", "render")}
+    assert missing == set()
+
+
+def test_the_activity_the_python_workers_do_not_serve_is_the_one_the_renderer_does() -> None:
+    """The one step Python does not serve is `render`, on the queue `render`, which
+    `services/renderer` serves: the same name on the same queue."""
+    assert {pair for h in RECORDINGS for pair in _asked_for(h)} >= {("render", "render")}
+    worker = (Path(__file__).parents[3] / "renderer" / "src" / "worker.ts").read_text()
+    assert 'RENDER_QUEUE = "render"' in worker
+    assert "createProductionWorker(connection, settings, { render })" in worker
+
+
+def test_no_stand_in_is_registered_by_a_production_worker() -> None:
+    """The fakes live under tests/: nothing a worker registers comes from there."""
+    for spec in [
+        *queue_specs("agents", Settings(), ObjectStore(object(), "b"), PROVIDERS),  # type: ignore[arg-type]
+        *queue_specs("media", Settings(), STORE, PROVIDERS),  # type: ignore[arg-type]
+    ]:
+        for fn in spec.activities:
+            module = getattr(getattr(fn, "__self__", None), "__module__", fn.__module__)
+            assert module.startswith("localization."), (spec.name, fn, module)

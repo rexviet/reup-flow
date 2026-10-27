@@ -59,6 +59,17 @@ class FileS3:
         meta = json.loads(side.read_text()) if side.exists() else {}
         return {"Metadata": meta}
 
+    def copy_object(self, *, Bucket: str, Key: str, CopySource: dict) -> dict:
+        source = self._path(CopySource["Key"])
+        if not source.is_file():
+            raise _missing("CopyObject")
+        self._write(
+            Key,
+            source.read_bytes(),
+            self.head_object(Bucket=Bucket, Key=CopySource["Key"])["Metadata"],
+        )
+        return {}
+
     def upload_file(self, filename: str, bucket: str, key: str, ExtraArgs: dict | None = None):
         self._write(key, Path(filename).read_bytes(), (ExtraArgs or {}).get("Metadata"))
 

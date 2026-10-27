@@ -23,6 +23,7 @@ from pydantic_ai.models import Model
 from localization.contracts.base import Contract
 from localization.contracts.ids import AwemeId, ChannelId, StorageKey
 from localization.contracts.models import LocalizedLines
+from localization.text.glyphs import foreign_chars, foreign_chars_note
 from localization.text.safety import normalise
 from localization.text.vi_syllables import count_syllables, estimate_ms
 
@@ -290,6 +291,8 @@ def check_output(deps: LocalizerDeps, output: LocalizedLines) -> LocalizedLines:
     missing = sorted(expected - seen)
     unknown = sorted(seen - expected)
     empty = sorted(line.id for line in output.lines if not line.text_vi.strip())
+    foreign = {line.id: foreign_chars(line.text_vi) for line in output.lines}
+    foreign = {i: chars for i, chars in sorted(foreign.items()) if chars}
     problems = []
     if missing:
         problems.append(f"missing ids: {_ids(missing)}")
@@ -299,6 +302,11 @@ def check_output(deps: LocalizerDeps, output: LocalizedLines) -> LocalizedLines:
         problems.append(f"ids returned more than once: {_ids(sorted(duplicated))}")
     if empty:
         problems.append(f"empty text for ids: {_ids(empty)}")
+    for line_id, chars in list(foreign.items())[:10]:
+        problems.append(
+            f"line {line_id} has characters the caption font cannot show "
+            f"({foreign_chars_note(chars)}): write them out in Vietnamese or leave them out"
+        )
     if problems:
         raise ModelRetry(
             "The lines are not acceptable: " + "; ".join(problems) + ". "

@@ -73,7 +73,8 @@ async def test_the_stage_runs_its_steps_in_order_each_on_its_own_queue(
     assert isinstance(result, LocalizationResult), result
     events = await scheduled(handle)
     after_script = names(events)[names(events).index("assemble_script") + 1 :]
-    assert after_script == [
+    # What follows the track (layout, render, review, publish) is the review loop's.
+    assert after_script[: after_script.index("assemble_audio") + 1] == [
         "voice_profile",
         "plan_synthesis",
         "synthesize_segments",
@@ -290,7 +291,12 @@ async def test_a_script_made_again_with_a_flag_is_the_script_the_result_reports(
 
     @activity.defn(name="assemble_script")
     async def assemble_script(
-        spec: LocalizationInput, transcript_key: str, subtitle_key: str, lines: LocalizedLines
+        spec: LocalizationInput,
+        transcript_key: str,
+        subtitle_key: str,
+        lines: LocalizedLines,
+        round: int = 0,
+        version: int = 1,
     ) -> ScriptResult:
         runs.append(1)
         flagged = len(runs) >= 2

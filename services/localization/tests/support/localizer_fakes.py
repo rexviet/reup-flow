@@ -157,6 +157,10 @@ class LocalizerFakes:
     rate: float = 4.0
     assemble: Callable | None = None
     calls: Counter = field(default_factory=Counter)
+    # (round, version) of each `assemble_script` call.
+    assembled: list[tuple[int, int]] = field(default_factory=list)
+    # Segments the first translation is flagged for (a contact its source lacks).
+    flagged_ids: tuple[int, ...] = ()
 
     def activities(self) -> list[Callable]:
         fakes = self
@@ -168,15 +172,23 @@ class LocalizerFakes:
 
         @activity.defn(name="assemble_script")
         async def assemble_script(
-            spec: LocalizationInput, transcript_key: str, subtitle_key: str, lines: LocalizedLines
+            spec: LocalizationInput,
+            transcript_key: str,
+            subtitle_key: str,
+            lines: LocalizedLines,
+            round: int = 0,
+            version: int = 1,
         ) -> ScriptResult:
             fakes.calls["assemble_script"] += 1
+            fakes.assembled.append((round, version))
+            flagged = fakes.flagged_ids if round == 0 else ()
             return ScriptResult(
                 script=LocalizedScriptRef(
-                    script_key=work_key(spec.aweme_id, 0, "script.v1.json"), version=1
+                    script_key=work_key(spec.aweme_id, round, f"script.v{version}.json"),
+                    version=version,
                 ),
-                needs_human=False,
-                flagged_segment_ids=(),
+                needs_human=bool(flagged),
+                flagged_segment_ids=tuple(flagged),
             )
 
         return [voice_rate, self.assemble or assemble_script]

@@ -22,6 +22,7 @@ from localization.agents.dubber import DubberDeps, SegmentFit, SpokenLine
 from localization.agents.temporal import DUBBER_MODEL_ALIAS, bind_model_factory
 from localization.contracts import (
     DubbedAudio,
+    DubbedScriptRef,
     DubDecisions,
     FitReport,
     IngestResult,
@@ -148,6 +149,12 @@ class DubFakes:
     batch_seconds: float = 0.0
     # What `write_dubbed_script` was given, one entry per call.
     decisions_seen: list[DubDecisions] = field(default_factory=list)
+    # The round each `write_dubbed_script` call was given, and what each `commit_dub`
+    # call was given (round, decisions).
+    rounds_seen: list[int] = field(default_factory=list)
+    committed: list[tuple[int, DubDecisions]] = field(default_factory=list)
+    # Lines whose rewrite `write_dubbed_script` says it refused.
+    refused_ids: tuple[int, ...] = ()
 
     def _enter(self, name: str, key: str = "work/7001/r0/x") -> None:
         self.calls[name] += 1
@@ -196,13 +203,18 @@ class DubFakes:
 
         @activity.defn(name="write_dubbed_script")
         async def write_dubbed_script(
-            spec: LocalizationInput, script: LocalizedScriptRef, decisions: DubDecisions
-        ) -> LocalizedScriptRef:
+            spec: LocalizationInput,
+            script: LocalizedScriptRef,
+            decisions: DubDecisions,
+            round: int = 0,
+        ) -> DubbedScriptRef:
             fakes._enter("write_dubbed_script")
             fakes.decisions_seen.append(decisions)
-            return LocalizedScriptRef(
-                script_key=work_key(spec.aweme_id, 0, f"script.v{script.version + 1}.json"),
+            fakes.rounds_seen.append(round)
+            return DubbedScriptRef(
+                script_key=work_key(spec.aweme_id, round, f"script.v{script.version + 1}.json"),
                 version=script.version + 1,
+                refused_ids=fakes.refused_ids,
             )
 
         @activity.defn(name="commit_dub")
@@ -211,9 +223,11 @@ class DubFakes:
             script: LocalizedScriptRef,
             engine: str | None,
             decisions: DubDecisions,
+            round: int = 0,
         ) -> str:
             fakes._enter("commit_dub")
-            return work_key(spec.aweme_id, 0, "dub-segments.json")
+            fakes.committed.append((round, decisions))
+            return work_key(spec.aweme_id, round, "dub-segments.json")
 
         @activity.defn(name="assemble_audio")
         async def assemble_audio(

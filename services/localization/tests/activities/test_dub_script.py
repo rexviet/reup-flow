@@ -148,6 +148,57 @@ async def test_a_rewrite_that_adds_a_link_is_refused_and_the_line_keeps_its_text
     assert [s.text_vi for s in new.segments] == ["câu gốc", "câu hai gọn"]
 
 
+async def test_a_rewrite_with_a_character_the_caption_font_lacks_is_refused_and_reported(
+    store: ObjectStore, tts: FakeTts
+) -> None:
+    acts, _ = make(store, tts)
+    put_script(store, [segment(0, "câu gốc"), segment(1, "câu hai"), segment(2, "câu ba")])
+    ref = await ActivityEnvironment().run(
+        acts.write_dubbed_script,
+        SPEC,
+        REF1,
+        decisions((0, "câu gọn 你好", 1.1), (1, "câu hai gọn", 1.0), (2, "ba ✓", 1.0)),
+    )
+    new = read_script(store, ref.script_key)
+    assert [s.text_vi for s in new.segments] == ["câu gốc", "câu hai gọn", "câu ba"]
+    # The caller is told which rewrites were thrown away: a run with one is not published.
+    assert ref.refused_ids == (0, 2)
+
+
+async def test_a_script_with_no_refused_rewrite_says_so(store: ObjectStore, tts: FakeTts) -> None:
+    acts, _ = make(store, tts)
+    put_script(store, [segment(0, "câu gốc")])
+    ref = await ActivityEnvironment().run(
+        acts.write_dubbed_script, SPEC, REF1, decisions((0, "câu gọn", 1.0))
+    )
+    assert ref.refused_ids == ()
+
+
+async def test_a_dubbed_script_made_after_a_review_goes_into_that_rounds_folder(
+    store: ObjectStore, tts: FakeTts
+) -> None:
+    acts, _ = make(store, tts)
+    put_script(store, [segment(0, "câu gốc")])
+    ref = await ActivityEnvironment().run(
+        acts.write_dubbed_script, SPEC, REF1, decisions((0, "câu gọn", 1.0)), 1
+    )
+    assert ref.script_key == work_key("7001", 1, "script.v2.json")
+    assert read_script(store, ref.script_key).version == 2
+    # The first pass's folder holds nothing new.
+    assert not store.exists(script_key("7001", 2))
+
+
+async def test_the_dub_document_of_a_later_round_is_written_into_its_folder(
+    store: ObjectStore, tts: FakeTts
+) -> None:
+    acts, synth = make(store, tts)
+    key = put_script(store, [segment(0, "một"), segment(1, "hai")])
+    await speak_all(synth, store, key)
+    out = await ActivityEnvironment().run(acts.commit_dub, SPEC, REF1, ENGINE, decisions(), 2)
+    assert out == work_key("7001", 2, "dub-segments.json")
+    assert not store.exists(work_key("7001", 0, "dub-segments.json"))
+
+
 async def test_a_rewrite_may_keep_a_contact_the_source_line_has(
     store: ObjectStore, tts: FakeTts
 ) -> None:

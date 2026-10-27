@@ -95,6 +95,30 @@ async def test_the_script_is_written_under_work_with_the_documented_name(
     assert script.prompt_version
 
 
+async def test_a_translation_made_again_after_a_review_is_the_next_version_in_its_round(
+    store: ObjectStore,
+) -> None:
+    put_video(store, [seg(0), seg(1)])
+    await assemble(store, lines((0, "một"), (1, "hai")))
+    act = AssembleScriptActivity(store)
+    result = await ActivityEnvironment().run(
+        act.assemble_script,
+        make_input(),
+        TRANSCRIPT_KEY,
+        SUBTITLE_KEY,
+        lines((0, "một khác"), (1, "hai khác")),
+        1,
+        3,
+    )
+    key = work_key("7001", 1, "script.v3.json")
+    assert (result.script.script_key, result.script.version) == (key, 3)
+    again = LocalizedScript.model_validate_json(store.get_bytes(key, produced_by="x"))
+    assert again.version == 3 and [s.text_vi for s in again.segments] == ["một khác", "hai khác"]
+    # The first translation is exactly as it was.
+    first = LocalizedScript.model_validate_json(store.get_bytes(SCRIPT_KEY, produced_by="x"))
+    assert first.version == 1 and [s.text_vi for s in first.segments] == ["một", "hai"]
+
+
 async def test_a_segment_is_on_screen_only_when_a_burned_in_subtitle_overlaps_it(
     store: ObjectStore,
 ) -> None:
