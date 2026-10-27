@@ -1,0 +1,38 @@
+services/renderer/tests/mutations/phase-07.sh
+  s_0b729cf0d034d3::t_07de95a8f4e1cb 220-228
+services/localization/src/localization/activities/layout_captions.py
+  s_0b729cf0d034d3::t_1fb04bed96d2c2 361-362,364-368
+services/localization/src/localization/activities/detect_subtitles.py
+  s_0b729cf0d034d3::t_2115398ea4a408 4-5,32-34,47-51,58-93,99-105,109,112-116,174
+services/localization/tests/activities/test_layout_captions.py
+  s_0b729cf0d034d3::t_443aba5bb11cba 24,262-264,269-273,561-562
+scripts/run-mutations.sh
+  s_0b729cf0d034d3::t_07de95a8f4e1cb 101-103,147,151
+services/localization/tests/mutations/phase-04.sh
+  s_0b729cf0d034d3::t_07de95a8f4e1cb 66,70,395,447-450,453-457,460-464,467-471,474-476,479-481
+services/localization/tests/workflows/test_prep_stage.py
+  s_0b729cf0d034d3::t_164bed6197620c 22,24,430,435-436,453-480,483-502,504,507,512-514,521-547
+  s_0b729cf0d034d3::t_07de95a8f4e1cb 515-520
+.env.example
+  s_0b729cf0d034d3::t_140049b62405e3 113-116
+plans/261026-0147-video-localization-workflow/phase-04-starter-and-prep-activities.md
+  s_0b729cf0d034d3::t_f2f8b6d15e3d20 210-224
+plans/261026-0147-video-localization-workflow/phase-07-captions-and-renderer.md
+  s_0b729cf0d034d3::t_af3fbd9e565798 179
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3e14cfcd1620b51a135c16df4b26914623f1634e",
+  "prompts": {},
+  "sessions": {
+    "s_0b729cf0d034d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9aa1a711-c362-45ab-8e48-1a9b19f8df48",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
