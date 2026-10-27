@@ -1,0 +1,21 @@
+services/localization/src/localization/config.py
+  s_0b729cf0d034d3::t_2eaefdef6d2bcb 20-33
+services/localization/tests/test_default_caption_font.py
+  s_0b729cf0d034d3::t_2eaefdef6d2bcb 1-21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f4aaaf04221eebf2081e783421530c74a8459d3d",
+  "prompts": {},
+  "sessions": {
+    "s_0b729cf0d034d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9aa1a711-c362-45ab-8e48-1a9b19f8df48",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
