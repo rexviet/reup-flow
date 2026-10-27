@@ -427,29 +427,71 @@ def _box(y: int, h: int = 60, x: int = 100, w: int = 800) -> BBox:
 
 def test_locate_picks_the_most_common_band_and_builds_cues() -> None:
     low, high = _box(1700), _box(100)
-    #        0     1    2    3     4     5     6     7    8
-    boxes = [None, low, low, high, None, None, None, low, low]
-    region, cues = locate(boxes, 1080, 1920, 4500)
-    assert region == BBox(x=100, y=1700, w=800, h=60)
-    assert [(c.start_ms, c.end_ms) for c in cues] == [(500, 1500), (3500, 4500)]
+    #        0     1    2    3     4     5     6     7     8     9    10
+    boxes = [None, low, low, high, None, None, None, None, None, low, low]
+    region, cues = locate(boxes, 1080, 1920, 5500)
+    assert region == BBox(x=67, y=1682, w=866, h=96)  # 60 px band, padded 18 px / 33 px
+    assert [(c.start_ms, c.end_ms) for c in cues] == [(500, 1500), (4500, 5500)]
 
 
-def test_locate_bridges_one_missed_frame_but_not_two() -> None:
+def test_a_gap_is_bridged_by_its_length_in_time_not_by_a_number_of_frames() -> None:
     low = _box(1700)
-    _, one_gap = locate([low, None, low], 1080, 1920, 0)
-    _, two_gaps = locate([low, None, None, low], 1080, 1920, 0)
-    assert len(one_gap) == 1
-    assert len(two_gaps) == 2
+    four_missed = [low, None, None, None, None, low]  # 2000 ms without a detection
+    five_missed = [low, None, None, None, None, None, low]  # 2500 ms
+    assert len(locate(four_missed, 1080, 1920, 0)[1]) == 1
+    assert len(locate(five_missed, 1080, 1920, 0)[1]) == 2
 
 
-def test_locate_unions_the_boxes_of_the_band() -> None:
+def test_locate_unions_the_boxes_of_the_band_before_padding() -> None:
     region, _ = locate([_box(1700, x=100, w=300), _box(1710, x=500, w=400)], 1080, 1920, 0)
-    assert region == BBox(x=100, y=1700, w=800, h=70)
+    # union x 100..900, y 1700..1770 (70 px): 21 px above and below, 33 px each side
+    assert region == BBox(x=67, y=1679, w=866, h=112)
 
 
 def test_a_single_detection_is_not_a_subtitle_and_none_means_no_region() -> None:
     assert locate([None, _box(1700), None], 1080, 1920, 0) == (None, ())
     assert locate([None, None], 1080, 1920, 0) == (None, ())
+
+
+# Measured on a real 1080x1920, 11.1 s clip with burned-in Chinese subtitles: the
+# model's union box was y 1241-1355, and the text with its outline spans y 1290-1385.
+REAL_BOX = BBox(x=206, y=1241, w=874, h=114)
+
+
+def _real_clip_detections() -> list[BBox | None]:
+    # 2 fps: detected at 0.5-3.0 s, unusable answers at 3.5 s and 4.0 s, detected at
+    # 4.5-6.0 s, nothing after.
+    boxes: list[BBox | None] = [None] * 23
+    for second in (0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.5, 5.0, 5.5, 6.0):
+        boxes[int(second * 2)] = REAL_BOX
+    return boxes
+
+
+def test_the_real_clip_is_one_cue_and_its_region_covers_the_whole_text() -> None:
+    region, cues = locate(_real_clip_detections(), 1080, 1920, 11_100)
+    assert [(c.start_ms, c.end_ms) for c in cues] == [(500, 6500)]
+    assert region is not None
+    assert region.y <= 1290 and region.y + region.h >= 1385  # the characters and outline
+    assert region.x <= 200 and region.x + region.w >= 860
+
+
+def test_a_padded_region_stays_inside_the_frame_at_every_edge() -> None:
+    top, bottom = _box(0, h=40, x=0, w=1080), _box(1880, h=40, x=0, w=1080)
+    for box in (top, bottom):
+        region, _ = locate([box, box], 1080, 1920, 0)
+        assert region is not None
+        assert region.x >= 0 and region.y >= 0
+        assert region.x + region.w <= 1080 and region.y + region.h <= 1920
+
+
+def test_a_normal_subtitle_line_is_still_a_plausible_cover_after_padding() -> None:
+    from localization.activities.layout_captions import check_cover_plausible, grow_cover
+
+    region, _ = locate(_real_clip_detections(), 1080, 1920, 11_100)
+    assert region is not None
+    check_cover_plausible(region, 1080, 1920)  # raises ImplausibleCover when too large
+    check_cover_plausible(grow_cover(region, 1080, 1920), 1080, 1920)
+    assert region.h / 1920 < 0.15
 
 
 class FakeOcr:
@@ -484,9 +526,12 @@ async def test_detect_subtitles_samples_two_frames_a_second_in_batches_of_eight(
     )
     assert ocr.calls == 6  # 3 s at 2 frames per second
     assert 1 < ocr.max_running <= BATCH_SIZE
-    assert result.region == region
+    # The model's 300x30 box, padded 9 px above and below and 10 px each side of a
+    # 320x240 frame (clamped to its edge).
+    padded = BBox(x=0, y=191, w=320, h=48)
+    assert result.region == padded
     stored = json.loads(store.get_bytes(result.subtitle_key, produced_by="detect_subtitles"))
-    assert stored["region"] == region.model_dump()
+    assert stored["region"] == padded.model_dump()
     assert stored["cues"] == [{"start_ms": 500, "end_ms": 2500}]
 
 
@@ -600,7 +645,9 @@ async def test_boxes_are_returned_in_source_pixels_when_frames_were_scaled(
     result = await ActivityEnvironment().run(
         DetectSubtitlesActivity(store, ocr).detect_subtitles, spec
     )
-    assert result.region == BBox(x=200, y=1000, w=800, h=80)
+    # In source pixels the box is 800x80 at (200, 1000); then padded 24 px above and
+    # below and 62 px each side (3% of 2048).
+    assert result.region == BBox(x=138, y=976, w=924, h=128)
 
 
 class SlowStore(ObjectStore):

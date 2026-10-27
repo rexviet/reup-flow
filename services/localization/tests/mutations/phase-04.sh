@@ -384,6 +384,33 @@ apply_mutation "$STARTER" 'SET last_error = %(error)s, next_attempt_at' \
   && expect_red "$T_GRANTS" "test_the_starter_can_run_every_statement_it_uses"
 restore
 
+# --- subtitle region padding and gap bridging (registered, not yet run) --------------------------
+mp_mutation "a gap in time is never bridged"
+apply_mutation "$DETECT" 'MAX_GAP_MS = 2000' 'MAX_GAP_MS = 0' \
+  && expect_red "$T_PREP" \
+    "test_the_real_clip_is_one_cue_and_its_region_covers_the_whole_text" \
+    "test_a_gap_is_bridged_by_its_length_in_time_not_by_a_number_of_frames"
+restore
+
+mp_mutation "any gap is bridged"
+apply_mutation "$DETECT" \
+  '        if (index - last - 1) * FRAME_INTERVAL_MS > MAX_GAP_MS:' \
+  '        if (index - last - 1) * FRAME_INTERVAL_MS > MAX_GAP_MS * 1000:' \
+  && expect_red "$T_PREP" "test_a_gap_is_bridged_by_its_length_in_time_not_by_a_number_of_frames"
+restore
+
+mp_mutation "the detected region is not padded vertically"
+apply_mutation "$DETECT" 'REGION_PAD_V = 0.30' 'REGION_PAD_V = 0.0' \
+  && expect_red "$T_PREP" "test_the_real_clip_is_one_cue_and_its_region_covers_the_whole_text"
+restore
+
+mp_mutation "the padded region is not clamped to the frame"
+apply_mutation "$DETECT" \
+  '    left, top = max(0, region.x - dx), max(0, region.y - dy)' \
+  '    left, top = region.x - dx, region.y - dy' \
+  && expect_red "$T_PREP" "test_a_padded_region_stays_inside_the_frame_at_every_edge"
+restore
+
 # --- control A: a constant that is not an invariant ------------------------------------------------------
 mp_mutation "CONTROL: the starter polls an idle outbox four times as often"
 apply_mutation "$STARTER" 'IDLE_SLEEP_SECONDS = 2.0' 'IDLE_SLEEP_SECONDS = 0.5' \

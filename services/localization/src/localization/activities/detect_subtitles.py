@@ -1,6 +1,7 @@
 """Step 2b: find the burned-in subtitle band with a vision model."""
 
 import asyncio
+import math
 import tempfile
 from collections.abc import Sequence
 from functools import partial
@@ -30,8 +31,16 @@ FRAME_INTERVAL_MS = 1000 // SAMPLE_FPS
 BAND_TENTHS = 10
 # A band seen on fewer frames than this is a stray detection, not a subtitle.
 MIN_BAND_FRAMES = 2
-# One missed frame inside a subtitle does not split it into two cues.
-MAX_MISSED_FRAMES = 1
+# The same band on both sides of a gap shorter than this is one subtitle, not two. A
+# line does not vanish for a moment in the middle: a frame without a detection (a
+# missed one, or one whose box was unusable) is far more likely. Measured in time, so
+# it does not change with the sampling rate.
+MAX_GAP_MS = 2000
+# The model's boxes are tight, and a little short of the glyphs and their outline. The
+# region is padded before it becomes the cover: this fraction of the band's height
+# above and below, and this fraction of the frame's width on each side.
+REGION_PAD_V = 0.30
+REGION_PAD_H = 0.03
 # Longest side of a frame sent to the vision model.
 OCR_MAX_SIDE = 1024
 # Frames extracted to disk at once: four OCR batches.
@@ -44,8 +53,9 @@ def locate(
     """`boxes[i]` is the detection on the frame sampled at `i * FRAME_INTERVAL_MS`.
 
     The region is the union of the boxes in the band that appears on the most
-    frames, so a cover painted over it hides the text on every frame. The cues
-    are the runs of frames showing that band."""
+    frames, padded (see `pad_region`), so a cover painted over it hides the text on
+    every frame. The cues are the runs of frames showing that band, joined across
+    gaps of up to `MAX_GAP_MS`."""
     by_band: dict[int, list[int]] = {}
     for index, box in enumerate(boxes):
         if box is not None:
@@ -62,16 +72,25 @@ def locate(
     y1 = min(b.y for b in members if b)
     x2 = max(b.x + b.w for b in members if b)
     y2 = max(b.y + b.h for b in members if b)
-    region = BBox(x=x1, y=y1, w=x2 - x1, h=y2 - y1)
+    region = pad_region(BBox(x=x1, y=y1, w=x2 - x1, h=y2 - y1), width, height)
     cues: list[SubtitleCue] = []
     start = last = frames[0]
     for index in frames[1:]:
-        if index - last > MAX_MISSED_FRAMES + 1:
+        if (index - last - 1) * FRAME_INTERVAL_MS > MAX_GAP_MS:
             cues.append(_cue(start, last, duration_ms))
             start = index
         last = index
     cues.append(_cue(start, last, duration_ms))
     return region, tuple(cues)
+
+
+def pad_region(region: BBox, width: int, height: int) -> BBox:
+    """`region` with a margin on every side, kept inside the frame."""
+    dx = math.ceil(REGION_PAD_H * width)
+    dy = math.ceil(REGION_PAD_V * region.h)
+    left, top = max(0, region.x - dx), max(0, region.y - dy)
+    right, bottom = min(width, region.x + region.w + dx), min(height, region.y + region.h + dy)
+    return BBox(x=left, y=top, w=right - left, h=bottom - top)
 
 
 def _cue(first: int, last: int, duration_ms: int) -> SubtitleCue:

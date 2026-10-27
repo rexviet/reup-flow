@@ -92,7 +92,8 @@ harness_dir() {
 # supervision and shutdown, heartbeats, Demucs timeout and cancel, STT downmix,
 # SKIP LOCKED, the throttle under lagging visibility, outage handling), then parallel shutdown, sibling
 # cancel, end-of-video seek, process-group kill and the release statement's
-# grants: +47, +2.
+# grants: +47, +2. Then four for the subtitle region padding and time-based gap
+# bridging (registered, not yet run): +51, +2.
 # `localization:05` (Localizer: output covers every segment, video text is data,
 # glossary first-writer-wins / cap / contact and digit guards, contacts needing a
 # person, syllable counting, voice rate key and cache, queue pinning, replay marker,
@@ -136,7 +137,7 @@ downloader:infra:22:2
 downloader:11:5:0
 downloader:12:1:0
 localization:03:11:2
-localization:04:47:2
+localization:04:51:2
 localization:05:64:2
 localization:06:61:3
 localization:08:55:2
