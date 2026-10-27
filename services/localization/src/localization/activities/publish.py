@@ -23,8 +23,10 @@ from localization.storage.object_store import ObjectStore, output_key, review_ke
 UPSERT_SQL = """
 INSERT INTO localization.runs
   (aweme_id, generation, workflow_id, status, output_key, review_key, verdict,
-   review_rounds, needs_human, updated_at)
-VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, now())
+   review_rounds, needs_human, llm_cost_usd, updated_at)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
+        (SELECT SUM(cost_usd) FROM localization.llm_calls WHERE aweme_id = %s AND generation = %s),
+        now())
 ON CONFLICT (aweme_id, generation) DO UPDATE SET
   workflow_id = EXCLUDED.workflow_id,
   status = EXCLUDED.status,
@@ -33,6 +35,7 @@ ON CONFLICT (aweme_id, generation) DO UPDATE SET
   verdict = EXCLUDED.verdict,
   review_rounds = EXCLUDED.review_rounds,
   needs_human = EXCLUDED.needs_human,
+  llm_cost_usd = EXCLUDED.llm_cost_usd,
   updated_at = now()
 """
 
@@ -67,6 +70,8 @@ class RunStore:
                     Jsonb(record),
                     review_rounds,
                     needs_human,
+                    aweme_id,
+                    generation,
                 ),
             )
 

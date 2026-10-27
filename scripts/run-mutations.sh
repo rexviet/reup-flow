@@ -101,6 +101,8 @@ harness_dir() {
 # The pixel fitting was then removed (measured worse on real frames) and replaced by
 # a consensus over the model's boxes: 7 mutations out, 6 in (registered, not yet run):
 # localization:04 is 62; renderer:07 gains one for the drawn cover: 67.
+# `localization:09` (the cost OpenRouter reports, on the span and in llm_calls; registered,
+# not yet run): 10 mutations, 0 controls.
 # `localization:05` (Localizer: output covers every segment, video text is data,
 # glossary first-writer-wins / cap / contact and digit guards, contacts needing a
 # person, syllable counting, voice rate key and cache, queue pinning, replay marker,
@@ -148,6 +150,7 @@ localization:04:62:2
 localization:05:64:2
 localization:06:61:3
 localization:08:55:2
+localization:09:10:0
 renderer:07:67:5
 "
 

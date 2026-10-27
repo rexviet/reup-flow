@@ -20,6 +20,7 @@ from tests.support.scratch_db import scratch_database
 CORE = (
     Path(__file__).resolve().parents[2] / "migrations" / "261026-localization-core.sql"
 ).read_text()
+LLM_COST = (Path(__file__).resolve().parents[2] / "migrations" / "261027-llm-cost.sql").read_text()
 RENDER = "work/7001/render-" + "a" * 64 + ".mp4"
 SPEC = make_input("7001", 3)
 
@@ -27,7 +28,7 @@ SPEC = make_input("7001", 3)
 @pytest.fixture
 def db() -> Iterator[tuple[str, psycopg.Connection]]:
     """The real migration, with every session running as `localization`, who the worker is."""
-    for info, conn in scratch_database(CORE):
+    for info, conn in scratch_database(CORE, LLM_COST):
         yield f"{info} options='-c role=localization'", conn
 
 

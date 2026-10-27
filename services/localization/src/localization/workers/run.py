@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
 
+import httpx
 from pydantic_ai.durable_exec.temporal import AgentPlugin
 from temporalio.client import Client
 from temporalio.worker import Worker
@@ -45,9 +46,10 @@ from localization.agents.temporal import (
     localizer,
 )
 from localization.config import ConfigError, Settings, load_settings
+from localization.observability.llm_calls import LlmCallRecorder
 from localization.observability.tracing import init_tracing
 from localization.providers.base import TtsProvider
-from localization.providers.llm import model_for
+from localization.providers.llm import model_for, openrouter_client
 from localization.providers.registry import Providers, build_media_providers, build_providers
 from localization.storage.object_store import ObjectStore
 from localization.temporal.client import connect
@@ -95,6 +97,7 @@ def queue_specs(
     store: ObjectStore,
     providers: Providers,
     engine: Callable[[], str | None] = lambda: None,
+    llm_http: httpx.AsyncClient | None = None,
 ) -> list[QueueSpec]:
     """A queue with nothing to run gets no worker. `engine` names the speech engine
     VoiceStudio reports as active; it is part of a measured voice's identity."""
@@ -136,7 +139,7 @@ def queue_specs(
         review = ReviewRenderActivity(
             store,
             providers.ocr,
-            lambda: model_for("reviewer", settings),
+            lambda: model_for("reviewer", settings, llm_http),
             loudness_lufs=settings.loudness_lufs,
             true_peak_dbtp=settings.true_peak_dbtp,
         )
@@ -184,19 +187,22 @@ def runnable(specs: Sequence[QueueSpec]) -> list[QueueSpec]:
 
 
 def bind_agent_runtime(
-    settings: Settings, store: ObjectStore, tts: TtsProvider | None = None
+    settings: Settings,
+    store: ObjectStore,
+    tts: TtsProvider | None = None,
+    llm_http: httpx.AsyncClient | None = None,
 ) -> None:
     """What the agents' activities need on this process: the models that answer their
     requests and the ports their tools use. Refuses to start without them, so a
     missing setting is found at startup and not on the first video."""
     if settings.loc_database_url is None:
         raise ConfigError("LOC_DATABASE_URL is not set")
-    model = model_for("localizer", settings)
+    model = model_for("localizer", settings, llm_http)
     bind_model_factory(lambda: model)
     bind_ports(StorePorts(store, GlossaryStore(_database_url(settings))))
     # The Reviewer's model is built per review; check now that it can be.
-    model_for("reviewer", settings)
-    dubber_model = model_for("dubber", settings)
+    model_for("reviewer", settings, llm_http)
+    dubber_model = model_for("dubber", settings, llm_http)
     bind_model_factory(lambda: dubber_model, DUBBER_MODEL_ALIAS)
     if tts is not None:
         synthesizer = Synthesizer(store, tts, model=settings.tts_model)
@@ -209,11 +215,24 @@ async def serve(role: str) -> int:
     client = await connect(settings.temporal_address, settings.temporal_namespace)
     if role not in ("agents", "media"):
         raise ConfigError(f"unknown worker role {role!r}; expected 'agents' or 'media'")
-    providers = build_providers(settings) if role == "agents" else build_media_providers(settings)
+    # One HTTP client for every OpenRouter request of this process: its response hook
+    # records what each request cost, on the span and in `localization.llm_calls`.
+    llm_http = (
+        openrouter_client(
+            LlmCallRecorder(_database_url(settings)) if settings.loc_database_url else None
+        )
+        if role == "agents"
+        else None
+    )
+    providers = (
+        build_providers(settings, llm_http=llm_http)
+        if role == "agents"
+        else build_media_providers(settings)
+    )
     store = ObjectStore.from_settings(settings)
     health = VoiceStudioHealth.from_settings(settings) if role == "agents" else None
     if role == "agents":
-        bind_agent_runtime(settings, store, providers.tts)
+        bind_agent_runtime(settings, store, providers.tts, llm_http)
     specs = runnable(
         queue_specs(
             role,
@@ -221,6 +240,7 @@ async def serve(role: str) -> int:
             store,
             providers,
             engine=(lambda: health.state.engine) if health is not None else (lambda: None),
+            llm_http=llm_http,
         )
     )
     workers = [build_worker(client, spec) for spec in specs]
