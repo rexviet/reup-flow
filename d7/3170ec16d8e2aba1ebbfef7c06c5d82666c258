@@ -1,0 +1,21 @@
+services/localization/src/localization/providers/vision_ocr.py
+  s_0b729cf0d034d3::t_e5db9df6bbdeb1 89-95
+services/localization/tests/providers/test_ocr_demucs_llm.py
+  s_0b729cf0d034d3::t_e5db9df6bbdeb1 80-96
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d73170ec16d8e2aba1ebbfef7c06c5d82666c258",
+  "prompts": {},
+  "sessions": {
+    "s_0b729cf0d034d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9aa1a711-c362-45ab-8e48-1a9b19f8df48",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
