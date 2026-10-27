@@ -1,0 +1,44 @@
+docker-compose.yml
+  s_0b729cf0d034d3::t_0224f078a451fa 505-506
+services/localization/src/localization/config.py
+  s_0b729cf0d034d3::t_0224f078a451fa 25-28,84-85
+services/localization/src/localization/agents/localizer_single.py
+  s_0b729cf0d034d3::t_b73158004cddd7 24,290,303
+services/localization/src/localization/agents/temporal.py
+  s_0b729cf0d034d3::t_0224f078a451fa 38
+  s_0b729cf0d034d3::t_faf039e6517476 235-242,251,258,400,407
+services/localization/src/localization/workers/run.py
+  s_0b729cf0d034d3::t_0224f078a451fa 43,242-245,255-258
+services/localization/tests/agents/test_answer_only.py
+  s_0b729cf0d034d3::t_8782ecef53bdf7 176-178
+  s_0b729cf0d034d3::t_bd23da07f264a9 1-175,179-197
+services/localization/src/localization/agents/answer_only.py
+  s_0b729cf0d034d3::t_0224f078a451fa 84-86
+  s_0b729cf0d034d3::t_b73158004cddd7 1-83,87-95
+services/localization/src/localization/agents/dubber_single.py
+  s_0b729cf0d034d3::t_b73158004cddd7 21,221,232
+.env.example
+  s_0b729cf0d034d3::t_0224f078a451fa 117-122
+services/localization/tests/support/dub_fakes.py
+  s_0b729cf0d034d3::t_6c93430ffcb582 95-96,101
+services/localization/tests/support/localizer_fakes.py
+  s_0b729cf0d034d3::t_f6193176e9ce26 127,131,184-185,194
+services/localization/tests/workflows/test_one_request_agents.py
+  s_0b729cf0d034d3::t_605a9738acec0c 282-338
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5b15fd96fe8f6d9f7f46f24dba25ba670c6857bd",
+  "prompts": {},
+  "sessions": {
+    "s_0b729cf0d034d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9aa1a711-c362-45ab-8e48-1a9b19f8df48",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
