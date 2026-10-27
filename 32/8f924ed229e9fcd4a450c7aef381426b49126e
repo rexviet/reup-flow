@@ -1,0 +1,29 @@
+services/localization/src/localization/activities/detect_subtitles.py
+  s_0b729cf0d034d3::t_ff7c4c0b3906b8 4,34-43,56-58,75,79,87-93
+  s_0b729cf0d034d3::t_b7bec716b734f2 94-95
+services/localization/tests/workflows/test_prep_stage.py
+  s_0b729cf0d034d3::t_ff7c4c0b3906b8 430-434,437,439-442,445,447-448,456-494
+  s_0b729cf0d034d3::t_2a8ed0c4955a7f 529-532,534
+  s_0b729cf0d034d3::t_04b695e1a38129 648-650
+  s_0b729cf0d034d3::t_033f2807370afa 495-496
+scripts/run-mutations.sh
+  s_0b729cf0d034d3::t_3d6691d5c95f2e 95-96,140
+services/localization/tests/mutations/phase-04.sh
+  s_0b729cf0d034d3::t_770d72f355e4a9 387-413
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "328f924ed229e9fcd4a450c7aef381426b49126e",
+  "prompts": {},
+  "sessions": {
+    "s_0b729cf0d034d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9aa1a711-c362-45ab-8e48-1a9b19f8df48",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
