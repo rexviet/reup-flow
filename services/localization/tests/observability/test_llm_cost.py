@@ -39,6 +39,7 @@ from tests.support.stub_server import Scenario, StubServer
 MIGRATIONS = Path(__file__).resolve().parents[2] / "migrations"
 CORE = (MIGRATIONS / "261026-localization-core.sql").read_text()
 LLM_COST = (MIGRATIONS / "261027-llm-cost.sql").read_text()
+LLM_PROVIDER = (MIGRATIONS / "261028-llm-call-provider.sql").read_text()
 API_KEY = "sk-or-canary-7f3a9"
 PROMPT = "SECRET PROMPT the user wrote"
 IMAGE = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD"
@@ -68,7 +69,7 @@ def completion(gen_id: str | None = "gen-1", cost: object = 0.00042, **usage: ob
 
 @pytest.fixture
 def db() -> Iterator[tuple[str, psycopg.Connection]]:
-    yield from scratch_database(CORE, LLM_COST)
+    yield from scratch_database(CORE, LLM_COST, LLM_PROVIDER)
 
 
 @pytest.fixture
@@ -260,6 +261,20 @@ async def test_a_priced_request_leaves_a_row_for_its_video_generation_and_stage(
     assert calls(conn) == [
         ("gen-1", "7001", 3, "review_render", "deepseek/probe", 10, 2, Decimal("0.00952000"))
     ]
+
+
+async def test_the_provider_that_served_the_request_is_recorded(
+    stub: StubServer, db: tuple[str, psycopg.Connection]
+) -> None:
+    """The same model answers in 5 s from one OpenRouter provider and in 40 s from
+    another: the row says which one this was."""
+    info, conn = db
+    await request(stub, info, {**completion("gen-1"), "provider": "Relace"})
+    await request(stub, info, completion("gen-2"))  # a body without one
+    rows = conn.execute(
+        "SELECT generation_id, provider FROM localization.llm_calls ORDER BY generation_id"
+    ).fetchall()
+    assert rows == [("gen-1", "Relace"), ("gen-2", None)]
 
 
 async def test_the_runs_row_carries_the_sum_and_writing_it_again_changes_nothing(

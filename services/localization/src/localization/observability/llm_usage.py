@@ -46,6 +46,8 @@ class LlmUsage:
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
     cost_usd: float | None = None
+    # The OpenRouter provider that served the request (the body's `provider`).
+    provider: str | None = None
     cost_details: dict[str, float] = field(default_factory=dict)
 
 
@@ -87,6 +89,7 @@ def parse_usage(body: Any) -> LlmUsage | None:
         prompt_tokens=_count(usage.get("prompt_tokens")),
         completion_tokens=_count(usage.get("completion_tokens")),
         cost_usd=_number(usage.get("cost")),
+        provider=_text(body.get("provider")),
         cost_details=cost_details,
     )
     if not usage and parsed.generation_id is None:

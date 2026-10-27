@@ -98,6 +98,7 @@ async def _capture(response: httpx2.Response) -> None:
             input_tokens=usage.get("input_tokens"),
             output_tokens=usage.get("output_tokens"),
             cost=usage.get("cost"),
+            provider=body.get("provider"),
         )
     except Exception:  # noqa: BLE001 - observing a response must never fail it
         log.warning("could not read the generation id and cost of a jev response")
@@ -117,7 +118,7 @@ def _count(value: object) -> int | None:
 def _usage_of(raw: dict[str, object]) -> LlmUsage:
     """What the response body said it cost: ids and numbers only. A missing generation
     id gets one of our own, so the row still counts once."""
-    generation_id, model = raw.get("id"), raw.get("model")
+    generation_id, model, provider = raw.get("id"), raw.get("model"), raw.get("provider")
     return LlmUsage(
         generation_id=generation_id
         if isinstance(generation_id, str) and generation_id
@@ -127,6 +128,7 @@ def _usage_of(raw: dict[str, object]) -> LlmUsage:
         completion_tokens=_count(raw.get("output_tokens")),
         # What OpenRouter charged; None (not a guess) when the body had none.
         cost_usd=_number(raw.get("cost")),
+        provider=provider if isinstance(provider, str) and provider else None,
     )
 
 

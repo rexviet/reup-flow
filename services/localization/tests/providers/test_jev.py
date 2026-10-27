@@ -75,7 +75,7 @@ async def test_the_cost_and_generation_id_openrouter_sends_are_handed_to_the_rec
     assert usage.generation_id == "gen-dec-1793112141-L0wu0Eq3a75PvrEcqxgl"
     assert usage.cost_usd == pytest.approx(0.000011592)
     assert (usage.prompt_tokens, usage.completion_tokens) == (276, 20)
-    assert usage.model == "typesafe/jev-1.13-20260917"
+    assert usage.model == "typesafe/jev-1.13-20260917" and usage.provider == "TypeSafe"
 
 
 async def test_a_body_without_a_cost_has_no_cost_not_a_guess() -> None:

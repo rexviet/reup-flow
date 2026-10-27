@@ -15,8 +15,9 @@ WRITE_TIMEOUT_SECONDS = 5.0
 
 INSERT_SQL = """
 INSERT INTO localization.llm_calls
-  (generation_id, aweme_id, generation, stage, model, prompt_tokens, completion_tokens, cost_usd)
-VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+  (generation_id, aweme_id, generation, stage, model, prompt_tokens, completion_tokens, cost_usd,
+   provider)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
 ON CONFLICT (generation_id) DO NOTHING
 """
 
@@ -47,5 +48,6 @@ class LlmCallRecorder:
                     usage.prompt_tokens,
                     usage.completion_tokens,
                     usage.cost_usd,
+                    usage.provider,
                 ),
             )
