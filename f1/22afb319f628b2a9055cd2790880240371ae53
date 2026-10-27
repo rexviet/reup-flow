@@ -1,0 +1,62 @@
+services/localization/tests/workflows/test_one_request_agents.py
+  s_0b729cf0d034d3::t_750e60f42d03ac 250-251
+  s_0b729cf0d034d3::t_22696169974015 1-249,252-281
+services/localization/src/localization/agents/temporal.py
+  s_0b729cf0d034d3::t_3b08c99627e62f 31,37,39,47,49,60-66,95-106,224-250,266,269-274,282-290,306-343,384-396,406-418,433-456
+services/localization/src/localization/agents/localizer.py
+  s_0b729cf0d034d3::t_bfd2a8ea13ded0 182-191,213
+services/localization/src/localization/agents/localizer_single.py
+  s_0b729cf0d034d3::t_c2514857c64580 1-299
+  s_0b729cf0d034d3::t_21b473e6742d06 300-301
+services/localization/src/localization/activities/agent_context.py
+  s_0b729cf0d034d3::t_8d837d1db028a4 1-37
+services/localization/src/localization/agents/dubber.py
+  s_0b729cf0d034d3::t_bfd2a8ea13ded0 23,111-115,146
+docker-compose.yml
+  s_0b729cf0d034d3::t_6575dde2c34e01 503-504
+services/localization/tests/support/dub_fakes.py
+  s_0b729cf0d034d3::t_66ddf70777e956 135-136
+services/localization/tests/support/prep_worker.py
+  s_0b729cf0d034d3::t_66ddf70777e956 9-17,67-78,102-103
+services/localization/tests/support/real_dubbing.py
+  s_0b729cf0d034d3::t_3651563e960280 21-23
+services/localization/tests/agents/test_one_request_agents.py
+  s_0b729cf0d034d3::t_b5f94ce5ba0409 1-49,51-80,82-253
+  s_0b729cf0d034d3::t_38858976f602a1 81
+  s_0b729cf0d034d3::t_fd2f405096038d 50
+services/localization/src/localization/workers/run.py
+  s_0b729cf0d034d3::t_261b6e0f1f15d6 47-48,50-51,155-168,183-184
+  s_0b729cf0d034d3::t_66ddf70777e956 25
+services/localization/tests/support/localizer_fakes.py
+  s_0b729cf0d034d3::t_66ddf70777e956 233-234
+  s_0b729cf0d034d3::t_a89bb5f5a6cff5 152-198,239-240,280
+services/localization/src/localization/workflows/video_localization.py
+  s_0b729cf0d034d3::t_70efa9f5ce54d3 20-21,23-24,251-258
+services/localization/tests/workers/test_agent_wiring.py
+  s_0b729cf0d034d3::t_9c8729dc655576 25-32,312-342
+services/localization/tests/activities/test_agent_context.py
+  s_0b729cf0d034d3::t_4ac54847d28ac3 1-46
+.env.example
+  s_0b729cf0d034d3::t_6575dde2c34e01 110-116
+services/localization/src/localization/config.py
+  s_0b729cf0d034d3::t_bfd2a8ea13ded0 18-21,75-76
+services/localization/src/localization/agents/dubber_single.py
+  s_0b729cf0d034d3::t_8d837d1db028a4 30
+  s_0b729cf0d034d3::t_6f028d35f7bc07 1-29,31-230
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f122afb319f628b2a9055cd2790880240371ae53",
+  "prompts": {},
+  "sessions": {
+    "s_0b729cf0d034d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9aa1a711-c362-45ab-8e48-1a9b19f8df48",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
