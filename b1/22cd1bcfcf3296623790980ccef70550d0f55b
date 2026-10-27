@@ -1,0 +1,52 @@
+scripts/run-mutations.sh
+  s_0b729cf0d034d3::t_dbf459f3443f4d 123,142
+plans/261026-0147-video-localization-workflow/phase-08-reviewer-and-publish.md
+  s_0b729cf0d034d3::t_dbf459f3443f4d 113,117-118,133,136-137,159-163,166-170,184,220-224,228-238
+services/localization/tests/mutations/phase-08.sh
+  s_0b729cf0d034d3::t_dbf459f3443f4d 144-145,164,268-270,291-331
+  s_0b729cf0d034d3::t_1d76c4236e2ffd 332
+services/localization/src/localization/text/glyphs.py
+  s_0b729cf0d034d3::t_d85200a77524b3 17,37
+  s_0b729cf0d034d3::t_a3a032e06527a3 34-36
+services/localization/tests/workflows/test_review_loop.py
+  s_0b729cf0d034d3::t_f50c05cbb33839 476-583
+services/localization/tests/agents/test_reviewer.py
+  s_0b729cf0d034d3::t_92040015929f84 27,204-205,209-220,223-243
+  s_0b729cf0d034d3::t_7569f70452aea8 221-222
+services/localization/tests/activities/test_review_render.py
+  s_0b729cf0d034d3::t_92040015929f84 84-85,90-91,301,310-322
+services/localization/src/localization/agents/reviewer.py
+  s_0b729cf0d034d3::t_b28f3f61e45914 35-36,54-59,92-93,114,185-186,188-192,194-199,203-205,210-215
+services/localization/src/localization/activities/review_render.py
+  s_0b729cf0d034d3::t_6362b7f52a49e1 45
+  s_0b729cf0d034d3::t_7569f70452aea8 115-121
+services/localization/src/localization/workflows/video_localization.py
+  s_0b729cf0d034d3::t_56f3c1562089d6 217-225,247-259,524,529,592-604,620-622,629
+  s_0b729cf0d034d3::t_f50c05cbb33839 558
+services/localization/tests/workflows/test_prep_stage.py
+  s_0b729cf0d034d3::t_abc295f43d3f33 33-34,127-132,149,685
+services/localization/tests/text/test_glyphs.py
+  s_0b729cf0d034d3::t_d85200a77524b3 23-24
+  s_0b729cf0d034d3::t_a3a032e06527a3 3-5,25-26,56-64
+  s_0b729cf0d034d3::t_19053aec4799c2 65-66
+services/localization/src/localization/activities/dub_script.py
+  s_0b729cf0d034d3::t_e13ffd7c916aee 47-52,67,69-72
+services/localization/tests/activities/test_dub_script.py
+  s_0b729cf0d034d3::t_0f71494699f568 151,154-155,166-190
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b122cd1bcfcf3296623790980ccef70550d0f55b",
+  "prompts": {},
+  "sessions": {
+    "s_0b729cf0d034d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9aa1a711-c362-45ab-8e48-1a9b19f8df48",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
