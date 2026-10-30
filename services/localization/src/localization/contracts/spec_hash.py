@@ -1,9 +1,9 @@
 """The hash a render is keyed by.
 
-The renderer computes the same hash over the spec it reads, so the two sides must
-agree on the bytes that are hashed: JSON with sorted keys, no whitespace and
-non-ASCII left as it is. A spec holds only strings and integers, which both
-languages write identically.
+The layout stage hashes the spec it writes and the render hashes the spec it reads
+back, so both hash the same canonical bytes: JSON with sorted keys, no whitespace and
+non-ASCII left as it is. A spec holds only strings and integers, so the form is the
+same whoever writes it.
 """
 
 import hashlib

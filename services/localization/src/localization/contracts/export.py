@@ -1,4 +1,4 @@
-"""Writes the JSON Schema of the contracts the renderer consumes.
+"""Writes the JSON Schema of the EditSpec, the contract the render consumes.
 
 python -m localization.contracts.export          # rewrite the file
 python -m localization.contracts.export --check  # exit 1 if it is stale

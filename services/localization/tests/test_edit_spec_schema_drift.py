@@ -1,5 +1,5 @@
-"""The renderer reads `contracts/edit-spec.schema.json`; the Pydantic model is the
-source. The stored file must equal what the model generates today."""
+"""`contracts/edit-spec.schema.json` is the published form of the EditSpec; the Pydantic
+model is the source. The stored file must equal what the model generates today."""
 
 import json
 
@@ -22,13 +22,3 @@ def test_check_mode_reports_a_stale_file(tmp_path, monkeypatch) -> None:
     assert main(["--check"]) == 1
     assert main([]) == 0
     assert main(["--check"]) == 0
-
-
-def test_the_area_limit_the_renderer_checks_is_the_one_the_model_has() -> None:
-    # The schema cannot express width times height, so the renderer states it in code.
-    from localization.contracts.export import REPO_ROOT
-    from localization.contracts.models import MAX_FRAME_AREA
-
-    source = (REPO_ROOT / "services" / "renderer" / "src" / "edit-spec.ts").read_text()
-    assert "MAX_FRAME_AREA = 1920 * 1088;" in source
-    assert MAX_FRAME_AREA == 1920 * 1088

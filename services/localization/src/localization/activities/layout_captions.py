@@ -65,8 +65,8 @@ BOX_PADDING = 0.04
 # fractions of the frame.
 SAFE_ZONE = (0.05, 0.78, 0.90, 0.14)
 
-# Line height as a multiple of the font size. The renderer's composition uses the same
-# number (LINE_HEIGHT in LocalizedVideo.tsx).
+# Line height as a multiple of the font size. The render draws captions with it too
+# (caption_images).
 LINE_HEIGHT = 1.25
 # A caption box is at least two lines of the largest size tall, so text that wraps to two
 # lines never overflows a thin cover.
@@ -455,7 +455,7 @@ class LayoutCaptionsActivity:
         )
         check_one_translation(script, ref, dub, doc)
         check_renderable(ingest)
-        # The renderer's storage key reaches `work/` only, so the source video it draws
+        # The render reads only under this video's `work/` folder, so the source video it draws
         # is copied there (inside the store, no bytes through this process). Always
         # copied: a source downloaded again for the same id must not be rendered stale.
         source_key = work_key(spec.aweme_id, 0, "source.mp4")

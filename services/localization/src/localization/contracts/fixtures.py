@@ -1,11 +1,10 @@
-"""Sample `EditSpec` documents for the renderer's contract test.
+"""Sample `EditSpec` documents with awkward text, for tests of the spec's hash.
 
 python -m localization.contracts.fixtures OUT_DIR
 
 Writes `<name>.json` (what the layout stage stores) and `<name>.sha256` (the hash the
-renderer must compute for it) for each sample. The renderer's tests regenerate them
-from the Pydantic model on every run, so a model change that the renderer's schema
-does not follow is a failing test and not a surprise in production.
+render must compute for it) for each sample. The render's tests read each sample back
+from those bytes and must arrive at the same hash.
 """
 
 import sys

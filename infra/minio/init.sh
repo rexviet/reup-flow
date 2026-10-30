@@ -6,7 +6,6 @@ set -eu
 : "${MINIO_ENDPOINT:?}" "${MINIO_ROOT_USER:?}" "${MINIO_ROOT_PASSWORD:?}"
 : "${S3_ACCESS_KEY_ID:?}" "${S3_SECRET_ACCESS_KEY:?}"
 : "${LOC_S3_ACCESS_KEY_ID:?}" "${LOC_S3_SECRET_ACCESS_KEY:?}"
-: "${RENDER_S3_ACCESS_KEY_ID:?}" "${RENDER_S3_SECRET_ACCESS_KEY:?}"
 : "${LANGFUSE_S3_ACCESS_KEY_ID:?}" "${LANGFUSE_S3_SECRET_ACCESS_KEY:?}"
 
 if [ "$MINIO_ROOT_USER" = "minioadmin" ] || [ "$MINIO_ROOT_PASSWORD" = "minioadmin" ]; then
@@ -44,7 +43,9 @@ write_policy downloader <<JSON
 ]}
 JSON
 
-# localization: read source/*, read-write work/ cache/ review/, write-only output/
+# localization: read source/*, read-write work/ cache/ review/, write-only output/.
+# The render runs in the localization media worker with this user: it reads the spec,
+# the source copy and the dubbed track under work/ and writes work/*/render-*.mp4.
 write_policy localization <<JSON
 {"Version":"2012-10-17","Statement":[
  {"Effect":"Allow","Action":["s3:GetObject"],"Resource":["$BUCKET_ARN/source/*"]},
@@ -52,14 +53,6 @@ write_policy localization <<JSON
  {"Effect":"Allow","Action":["s3:PutObject","s3:AbortMultipartUpload","s3:ListMultipartUploadParts"],"Resource":["$BUCKET_ARN/output/*"]},
  {"Effect":"Allow","Action":["s3:ListBucket"],"Resource":["$BUCKET_ARN"],"Condition":{"StringLike":{"s3:prefix":["source/*","work/*","cache/*","review/*","output/*"]}}},
  {"Effect":"Allow","Action":["s3:ListBucketMultipartUploads"],"Resource":["$BUCKET_ARN"]}
-]}
-JSON
-
-# renderer: only work/*
-write_policy renderer <<JSON
-{"Version":"2012-10-17","Statement":[
- {"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:AbortMultipartUpload","s3:ListMultipartUploadParts"],"Resource":["$BUCKET_ARN/work/*"]},
- {"Effect":"Allow","Action":["s3:ListBucket"],"Resource":["$BUCKET_ARN"],"Condition":{"StringLike":{"s3:prefix":["work/*"]}}}
 ]}
 JSON
 
@@ -80,7 +73,6 @@ ensure_user() {
 }
 ensure_user "$S3_ACCESS_KEY_ID"          "$S3_SECRET_ACCESS_KEY"          downloader
 ensure_user "$LOC_S3_ACCESS_KEY_ID"      "$LOC_S3_SECRET_ACCESS_KEY"      localization
-ensure_user "$RENDER_S3_ACCESS_KEY_ID"   "$RENDER_S3_SECRET_ACCESS_KEY"   renderer
 ensure_user "$LANGFUSE_S3_ACCESS_KEY_ID" "$LANGFUSE_S3_SECRET_ACCESS_KEY" langfuse
 
 # work/ expires after 30 days (a workflow may outlive a week while backfill
