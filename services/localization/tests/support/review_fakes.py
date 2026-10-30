@@ -88,6 +88,9 @@ class ReviewFakes:
     render_bytes: bytes | None = None
     # The real review activity, to run instead of the stand-in that answers from `verdicts`.
     real_review: ReviewRenderActivity | None = None
+    # The reviewer looks at frames of the video (the `llm` mode): asked before the render,
+    # it answers that it needs one, and is asked again with the render of the round.
+    needs_render: bool = False
     # The real layout, to run instead of the stand-in that hashes what it is given.
     real_layout: LayoutCaptionsActivity | None = None
 
@@ -174,6 +177,42 @@ class ReviewFakes:
                 fakes.store.put_bytes(key, fakes.render_bytes or b"mp4:" + sha.encode())
             return RenderResult(render_key=key, spec_sha256=sha)
 
+        def answer(
+            round: int,
+            render_key: str | None,
+            script: LocalizedScriptRef,
+            dub: DubbedAudio,
+            spec_ref: EditSpecRef,
+        ) -> ReviewVerdict:
+            fakes.reviews.append(
+                {
+                    "round": round,
+                    "render_key": render_key,
+                    "script_key": script.script_key,
+                    "audio_key": dub.audio_key,
+                    "spec_sha": spec_ref.spec_sha256,
+                }
+            )
+            index = min(len(fakes.reviews) - 1, len(fakes.verdicts) - 1)
+            return fakes.verdicts[index]
+
+        @activity.defn(name="review_before_render")
+        async def review_before_render(
+            spec: LocalizationInput,
+            script: LocalizedScriptRef,
+            dub: DubbedAudio,
+            spec_ref: EditSpecRef,
+            round: int,
+        ) -> ReviewVerdict | None:
+            fakes._enter("review_before_render")
+            if fakes.real_review is not None:
+                return await fakes.real_review.review_before_render(
+                    spec, script, dub, spec_ref, round
+                )
+            if fakes.needs_render:
+                return None
+            return answer(round, None, script, dub, spec_ref)
+
         @activity.defn(name="review_render")
         async def review_render(
             spec: LocalizationInput,
@@ -188,10 +227,13 @@ class ReviewFakes:
                 return await fakes.real_review.review_render(
                     spec, render, script, dub, spec_ref, round
                 )
-            fakes.reviews.append(
-                {"round": round, "render_key": render.render_key, "script_key": script.script_key}
-            )
-            index = min(len(fakes.reviews) - 1, len(fakes.verdicts) - 1)
-            return fakes.verdicts[index]
+            return answer(round, render.render_key, script, dub, spec_ref)
 
-        return [layout_captions, render, review_render, segment_room, publisher.publish]
+        return [
+            layout_captions,
+            render,
+            review_before_render,
+            review_render,
+            segment_room,
+            publisher.publish,
+        ]

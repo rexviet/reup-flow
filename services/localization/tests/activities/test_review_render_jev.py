@@ -14,6 +14,7 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from localization.activities.assemble_audio import measure_loudness
+from localization.activities.detect_subtitles import subtitles_key
 from localization.activities.review_render import JEV_STAGE, ReviewRenderActivity
 from localization.agents import review_jev
 from localization.contracts import (
@@ -39,6 +40,7 @@ from tests.activities.test_review_render import (  # noqa: F401
     SPEC,
     SPEC_KEY,
     Ocr,
+    put_subtitles,
 )
 from tests.activities.test_review_render import store as _rendered_store
 
@@ -275,39 +277,54 @@ async def test_audio_far_from_the_target_is_measured_on_the_real_file(
     assert (issue.stage, issue.segment_id) == ("render", None) and "LUFS" in issue.reason
 
 
-async def test_source_text_left_next_to_the_caption_is_found_on_a_real_frame(
+BELOW_THE_COVER = BBox(x=40, y=445, w=190, h=30)
+
+
+async def test_source_subtitle_the_cover_misses_is_found_from_what_the_detector_saw(
     store: ObjectStore,
     target_lufs: float,
 ) -> None:
+    put_subtitles(store, [BELOW_THE_COVER] * 6)
     ocr = Ocr(box=BBox(x=30, y=330, w=200, h=40))
     verdict = await review(activity(store, FakeJev(), target_lufs, ocr))
-    assert len(ocr.asked) == 4
-    assert all(frame.startswith(b"\xff\xd8") for _, _, frame in ocr.asked)
     (issue,) = verdict.issues
     assert (issue.stage, issue.segment_id) == ("render", None)
-    assert "left-over source subtitle" in issue.reason
+    assert "left-over source subtitle" in issue.reason and "y=445" in issue.reason
     assert verdict.scores.visual == 0.75
+    # The render is not read again: its own caption is text next to the caption too.
+    assert ocr.asked == []
 
 
-async def test_an_ocr_that_cannot_read_a_frame_does_not_end_the_review(
+async def test_text_the_render_shows_around_its_caption_is_not_left_over_subtitle(
     store: ObjectStore,
     target_lufs: float,
 ) -> None:
-    from localization.providers.errors import UnusableAnswer
-
-    ocr = Ocr(fail=UnusableAnswer("ocr: the reply is not the requested JSON"))
-    assert (await review(activity(store, FakeJev(), target_lufs, ocr))).passed is True
-
-
-async def test_a_video_without_a_covered_subtitle_is_not_sent_to_the_ocr(
-    store: ObjectStore,
-    target_lufs: float,
-) -> None:
-    spec = EditSpec.model_validate_json(store.get_bytes(SPEC_KEY, produced_by="t"))
-    store.put_bytes(SPEC_KEY, spec.model_copy(update={"cover": None}).model_dump_json().encode())
     ocr = Ocr(box=BBox(x=30, y=330, w=200, h=40))
     assert (await review(activity(store, FakeJev(), target_lufs, ocr))).passed is True
     assert ocr.asked == []
+
+
+async def test_a_video_without_a_covered_subtitle_has_nothing_left_over(
+    store: ObjectStore,
+    target_lufs: float,
+    tmp_path: Path,
+) -> None:
+    spec = EditSpec.model_validate_json(store.get_bytes(SPEC_KEY, produced_by="t"))
+    store.put_bytes(SPEC_KEY, spec.model_copy(update={"cover": None}).model_dump_json().encode())
+    (tmp_path / "bucket" / "objects" / subtitles_key("7001")).unlink()
+    assert (await review(activity(store, FakeJev(), target_lufs))).passed is True
+
+
+async def test_a_covered_video_whose_subtitle_document_is_gone_cannot_be_reviewed(
+    store: ObjectStore,
+    target_lufs: float,
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "bucket" / "objects" / subtitles_key("7001")).unlink()
+    with pytest.raises(ApplicationError) as info:
+        await review(activity(store, FakeJev(), target_lufs))
+    assert info.value.type == "ArtifactMissingError"
+    assert "detect_subtitles" in str(info.value)
 
 
 # --- failures -----------------------------------------------------------------------------

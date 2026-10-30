@@ -119,7 +119,11 @@ async def prep_workers(
                 ),
                 build_worker(
                     client,
-                    QueueSpec("llm", activities=[review["review_render"]], plugins=agents),  # type: ignore[list-item]
+                    QueueSpec(
+                        "llm",
+                        activities=[review["review_before_render"], review["review_render"]],  # type: ignore[list-item]
+                        plugins=agents,
+                    ),
                 ),
                 build_worker(client, QueueSpec("render", activities=[review["render"]])),  # type: ignore[list-item]
                 build_worker(

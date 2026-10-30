@@ -1,14 +1,20 @@
-"""Step 8: the Reviewer scores the rendered mp4.
+"""Step 8: the Reviewer scores the video, before it is rendered or on the render.
 
-The whole review happens inside this one activity, in one of two modes (REVIEWER_MODE):
+The whole review happens inside one activity, in one of two modes (REVIEWER_MODE):
 
   jev  checks in code for what can be measured (timing, loudness, caption fit, source
-       text left next to the caption, empty or foreign lines) and one call to Jev, a typed
+       subtitle the cover leaves visible, judged on the boxes the subtitle detector saw
+       on the source, empty or foreign lines) and one call to Jev, a typed
        decision model, for whether each line says what its source says. The only thing
        that leaves the worker is the text of the lines.
   llm  the tool-calling vision agent: frames and OCR are tools it calls in a loop.
 
-Either way the video is a local copy, held for the length of the review and never put in
+`review_before_render` makes the `jev` review on what the render is made from: the script,
+the dubbed track (the audio the render puts in the video, so its loudness is the video's)
+and the edit spec. The `llm` mode looks at frames, which do not exist before the render:
+asked then, it answers None, and the workflow renders the round and asks `review_render`.
+
+Whatever is downloaded is a local copy, held for the length of the review and never put in
 a Temporal payload, a span or a presigned link: the activity returns the verdict and
 nothing else. A retry runs the whole review again, which is fine for a review this short.
 """
@@ -18,7 +24,7 @@ import dataclasses
 import logging
 import shutil
 import tempfile
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
 
 from pydantic_ai import UsageLimits
@@ -28,6 +34,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from localization.activities.assemble_audio import measure_loudness
+from localization.activities.detect_subtitles import subtitles_key
 from localization.activities.ffmpeg import run_blocking, run_ffmpeg
 from localization.activities.layout_captions import FontMeter
 from localization.activities.script_document import read_script
@@ -52,6 +59,7 @@ from localization.contracts import (
     RenderResult,
     ReviewScores,
     ReviewVerdict,
+    SubtitleDocument,
 )
 from localization.observability.llm_usage import LlmUsage, Recorder, current_run
 from localization.observability.tracing import tag_session
@@ -218,7 +226,9 @@ class ReviewRenderActivity:
                 true_peak=self._peak,
             )
             if self._mode == "jev":
-                return await self._review_with_jev(script_doc, segments, edit_spec, ports)
+                return await self._review_with_jev(
+                    spec.aweme_id, script_doc, segments, edit_spec, ports.loudness
+                )
             deps = ReviewDeps(script=script_doc, segments=segments, spec=edit_spec, ports=ports)
             agent = build_reviewer(self._model())
             run = asyncio.ensure_future(
@@ -245,6 +255,49 @@ class ReviewRenderActivity:
         finally:
             shutil.rmtree(root, ignore_errors=True)
 
+    @activity.defn(name="review_before_render")
+    async def review_before_render(
+        self,
+        spec: LocalizationInput,
+        script: LocalizedScriptRef,
+        dub: DubbedAudio,
+        spec_ref: EditSpecRef,
+        round: int,
+    ) -> ReviewVerdict | None:
+        """The `jev` review of a round, before its video is rendered. None from a reviewer
+        that looks at frames: it needs the render, and is asked with it instead."""
+        tag_session(spec.aweme_id)
+        if self._mode != "jev":
+            return None
+        script_doc = await asyncio.to_thread(read_script, self._store, script.script_key)
+        segments = DubSegmentsDocument.model_validate_json(
+            await asyncio.to_thread(
+                self._store.get_bytes, dub.segments_key, produced_by="dub_script"
+            )
+        )
+        edit_spec = EditSpec.model_validate_json(
+            await asyncio.to_thread(
+                self._store.get_bytes, spec_ref.spec_key, produced_by="captions"
+            )
+        )
+        root = Path(tempfile.mkdtemp(prefix="review-"))
+        try:
+            track = root / "dubbed.wav"
+            await asyncio.to_thread(
+                self._store.download_file, dub.audio_key, track, produced_by="assemble_audio"
+            )
+            return await self._review_with_jev(
+                spec.aweme_id, script_doc, segments, edit_spec, lambda: self._measure(track)
+            )
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+    async def _measure(self, audio: Path) -> Loudness:
+        measured = await run_blocking(
+            measure_loudness, audio, self._target, self._peak, heartbeat_every=10.0
+        )
+        return Loudness(float(measured["input_i"]), float(measured["input_tp"]))
+
     async def _record(self, usage: LlmUsage) -> None:
         run = current_run()
         if self._recorder is not None and run is not None:
@@ -252,13 +305,16 @@ class ReviewRenderActivity:
 
     async def _review_with_jev(
         self,
+        aweme_id: str,
         script: LocalizedScript,
         segments: DubSegmentsDocument,
         spec: EditSpec,
-        ports: LocalVideo,
+        loudness: Callable[[], Awaitable[Loudness]],
     ) -> ReviewVerdict:
         assert self._jev is not None
-        work = asyncio.ensure_future(self._judge(script, segments, spec, ports, self._jev()))
+        work = asyncio.ensure_future(
+            self._judge(aweme_id, script, segments, spec, loudness, self._jev())
+        )
         beat = asyncio.ensure_future(_heartbeat_while(work))
         try:
             return await work
@@ -269,25 +325,16 @@ class ReviewRenderActivity:
 
     async def _judge(
         self,
+        aweme_id: str,
         script: LocalizedScript,
         segments: DubSegmentsDocument,
         spec: EditSpec,
-        ports: LocalVideo,
+        loudness: Callable[[], Awaitable[Loudness]],
         jev: Jev,
     ) -> ReviewVerdict:
-        found = review_checks.line_findings(script.segments)
-        found += review_checks.timing_findings(
-            script.segments,
-            segments,
-            spec.duration_ms,
-            await ports.loudness(),
-            target_lufs=self._target,
-            true_peak_dbtp=self._peak,
-        )
-        found += await asyncio.to_thread(review_checks.caption_findings, spec, self._meter)
-        times = review_checks.residual_times(spec)
-        if times:
-            found += review_checks.residual_findings(spec, await ports.find_text(times))
+        """The checks and the Jev call. `loudness` measures the audio of the video: the
+        render's, or the dubbed track the render is made with."""
+        found = await self._checks(aweme_id, script, segments, spec, loudness)
         # Lines that failed the cheap checks are already issues: Jev is asked about the rest.
         broken = {f.issue.segment_id for f in found if f.dimension == "fidelity"}
         asked = [s for s in script.segments if s.id not in broken]
@@ -305,13 +352,102 @@ class ReviewRenderActivity:
                 result.input_tokens,
                 result.output_tokens,
             )
-        issues = tuple(f.issue for f in found)[:MAX_ISSUES]
-        return ReviewVerdict(
-            passed=not issues,
-            scores=ReviewScores(
-                fidelity=_score(found, "fidelity"),
-                timing=_score(found, "timing"),
-                visual=_score(found, "visual"),
-            ),
-            issues=issues,
+        return _verdict(found)
+
+    async def _checks(
+        self,
+        aweme_id: str,
+        script: LocalizedScript,
+        segments: DubSegmentsDocument,
+        spec: EditSpec,
+        loudness: Callable[[], Awaitable[Loudness]],
+    ) -> list[review_checks.Finding]:
+        """What is measured in code: the lines, their timing and the loudness, the captions'
+        fit and the source subtitle the cover leaves visible."""
+        found = review_checks.line_findings(script.segments)
+        found += review_checks.timing_findings(
+            script.segments,
+            segments,
+            spec.duration_ms,
+            await loudness(),
+            target_lufs=self._target,
+            true_peak_dbtp=self._peak,
         )
+        found += await asyncio.to_thread(review_checks.caption_findings, spec, self._meter)
+        if spec.cover is not None:
+            # Judged on what the subtitle detector saw on the source, not on the render:
+            # on the render, the caption drawn over the cover is text there too.
+            subtitles = SubtitleDocument.model_validate_json(
+                await asyncio.to_thread(
+                    self._store.get_bytes,
+                    subtitles_key(aweme_id),
+                    produced_by="detect_subtitles",
+                )
+            )
+            found += review_checks.residual_findings(spec, subtitles)
+        return found
+
+    @activity.defn(name="review_dub")
+    async def review_dub(
+        self,
+        spec: LocalizationInput,
+        script: LocalizedScriptRef,
+        dub: DubbedAudio,
+        spec_ref: EditSpecRef,
+        round: int,
+    ) -> ReviewVerdict:
+        """The review of a Vbee dub before it is rendered: the checks in code only. There
+        is no source line to judge a line's meaning against, so nothing is asked of Jev.
+        The lines' own checks find an empty line or one with characters that are not
+        Vietnamese; with no source, none is missing a number or a name of it."""
+        tag_session(spec.aweme_id)
+        script_doc, segments, edit_spec = await asyncio.to_thread(
+            self._documents, script, dub, spec_ref
+        )
+        root = Path(tempfile.mkdtemp(prefix="review-"))
+        try:
+            track = root / "dubbed.wav"
+            await asyncio.to_thread(
+                self._store.download_file, dub.audio_key, track, produced_by="assemble_audio"
+            )
+            work = asyncio.ensure_future(
+                self._checks(
+                    spec.aweme_id, script_doc, segments, edit_spec, lambda: self._measure(track)
+                )
+            )
+            beat = asyncio.ensure_future(_heartbeat_while(work))
+            try:
+                found = await work
+            finally:
+                work.cancel()
+                beat.cancel()
+                await asyncio.gather(work, beat, return_exceptions=True)
+            return _verdict(found)
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+    def _documents(
+        self, script: LocalizedScriptRef, dub: DubbedAudio, spec_ref: EditSpecRef
+    ) -> tuple[LocalizedScript, DubSegmentsDocument, EditSpec]:
+        return (
+            read_script(self._store, script.script_key),
+            DubSegmentsDocument.model_validate_json(
+                self._store.get_bytes(dub.segments_key, produced_by="dub_script")
+            ),
+            EditSpec.model_validate_json(
+                self._store.get_bytes(spec_ref.spec_key, produced_by="captions")
+            ),
+        )
+
+
+def _verdict(found: Sequence[review_checks.Finding]) -> ReviewVerdict:
+    issues = tuple(f.issue for f in found)[:MAX_ISSUES]
+    return ReviewVerdict(
+        passed=not issues,
+        scores=ReviewScores(
+            fidelity=_score(found, "fidelity"),
+            timing=_score(found, "timing"),
+            visual=_score(found, "visual"),
+        ),
+        issues=issues,
+    )

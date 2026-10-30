@@ -30,7 +30,7 @@ async def test_problems_only_on_a_line_with_no_time_end_after_one_round(
     )
     await run_workflow(temporal_client, run)
     assert run.result.publish.outcome == "needs_human"
-    assert run.reviewing.calls["review_render"] == 1
+    assert run.reviewing.calls["review_before_render"] == 1
     assert run.reviewing.calls["render"] == 1
     assert run.reviewing.calls["layout_captions"] == 1
     # Neither the Localizer nor the Dubber ran again, and no second track was made.
@@ -64,7 +64,7 @@ async def test_a_line_in_the_middle_with_a_gap_after_it_is_still_run_again_once(
     )
     await run_workflow(temporal_client, run)
     assert run.result.publish.outcome == "published"
-    assert run.reviewing.calls["review_render"] == 2
+    assert run.reviewing.calls["review_before_render"] == 2
     assert run.dubbing.calls["assemble_audio"] == 2
     assert run.dubbing.rounds_seen == [0, 1]
 
@@ -97,7 +97,7 @@ async def test_the_same_problem_on_the_same_line_after_a_rerun_stops_the_rounds(
     again = verdict(issue("dub", "still rushed", segment_id=0))
     run.reviewing = ReviewFakes(verdicts=[again, again, again])
     await run_workflow(temporal_client, run, workflow=ThreeReviewWorkflow)
-    assert run.reviewing.calls["review_render"] == 2
+    assert run.reviewing.calls["review_before_render"] == 2
     assert run.dubbing.calls["assemble_audio"] == 2
     assert run.result.publish.outcome == "needs_human"
     assert "came back after a rerun" in " ".join(row(run)["record"]["reasons"])
@@ -117,7 +117,7 @@ async def test_a_different_problem_after_a_rerun_is_run_again_when_rounds_allow(
         ]
     )
     await run_workflow(temporal_client, run, workflow=ThreeReviewWorkflow)
-    assert run.reviewing.calls["review_render"] == 3
+    assert run.reviewing.calls["review_before_render"] == 3
     assert run.result.publish.outcome == "published"
 
 

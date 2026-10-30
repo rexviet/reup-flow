@@ -7,6 +7,7 @@ activity over an object store on a directory. The Localizer and the Dubber are t
 agents on scripted models."""
 
 import asyncio
+import json
 import uuid
 
 import pytest
@@ -87,6 +88,17 @@ def row(run: Run) -> dict:
     return run.reviewing.runs.rows[("7001", 1)]
 
 
+async def publish_requests(run: Run) -> list[dict]:
+    """What each `publish` call was asked, read from the history."""
+    history = await run.handle.fetch_history()
+    return [
+        json.loads(e.activity_task_scheduled_event_attributes.input.payloads[1].data)
+        for e in history.events
+        if e.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
+        and e.activity_task_scheduled_event_attributes.activity_type.name == "publish"
+    ]
+
+
 # --- a review that passes ---------------------------------------------------------------
 
 
@@ -101,9 +113,9 @@ async def test_a_run_that_passes_review_is_published_to_output(temporal_client: 
 
 async def test_the_published_video_is_the_one_that_was_reviewed(temporal_client: Client) -> None:
     run = await run_workflow(temporal_client, Run())
-    reviewed = run.reviewing.reviews[0]["render_key"]
-    assert run.reviewing.store.get_bytes(OUTPUT, produced_by="test") == (
-        run.reviewing.store.get_bytes(reviewed, produced_by="test")
+    reviewed = run.reviewing.reviews[0]["spec_sha"]
+    assert run.reviewing.store.get_bytes(OUTPUT, produced_by="test") == b"mp4:" + (
+        reviewed.encode()
     )
 
 
@@ -115,8 +127,8 @@ async def test_after_the_track_the_steps_run_in_order_on_their_own_queues(
     assert names[names.index("assemble_audio") :] == [
         "assemble_audio",
         "layout_captions",
+        "review_before_render",
         "render",
-        "review_render",
         "publish",
     ]
     history = await run.handle.fetch_history()
@@ -129,7 +141,7 @@ async def test_after_the_track_the_steps_run_in_order_on_their_own_queues(
     }
     assert queue["layout_captions"] == "media"
     assert queue["render"] == "render"
-    assert queue["review_render"] == "llm"
+    assert queue["review_before_render"] == "llm"
     assert queue["publish"] == "io"
 
 
@@ -173,9 +185,9 @@ async def test_a_line_read_badly_runs_only_the_dubber_for_that_line_and_what_fol
     assert second["audio_key"] == "work/7001/r1/dubbed.wav"
     assert second["segments_key"] == "work/7001/r1/dub-segments.json"
     assert run.reviewing.reviews[1]["script_key"] == second["script_key"]
-    assert run.reviewing.calls["render"] == 2
-    assert run.reviewing.calls["review_render"] == 2
-    # What is published is the second render.
+    assert run.reviewing.calls["render"] == 1
+    assert run.reviewing.calls["review_before_render"] == 2
+    # What is published is the render of the second round.
     assert run.reviewing.store.get_bytes(OUTPUT, produced_by="test") == b"mp4:" + (
         second["sha"].encode()
     )
@@ -229,7 +241,7 @@ async def test_a_wrong_translation_runs_the_localizer_again_with_the_notes_and_w
     assert second["script_key"] == "work/7001/r1/script.v4.json"
 
 
-async def test_a_layout_problem_runs_only_the_layout_and_the_render_again(
+async def test_a_layout_problem_runs_only_the_layout_again(
     temporal_client: Client,
 ) -> None:
     run = Run()
@@ -243,7 +255,7 @@ async def test_a_layout_problem_runs_only_the_layout_and_the_render_again(
     assert run.dubbing.calls["write_dubbed_script"] == 1
     assert run.dubbing.calls["assemble_audio"] == 1
     assert [x["round"] for x in run.reviewing.layouts] == [0, 1]
-    assert run.reviewing.calls["render"] == 2
+    assert run.reviewing.calls["render"] == 1
 
 
 async def test_a_layout_that_comes_out_the_same_is_not_reviewed_twice(
@@ -254,7 +266,7 @@ async def test_a_layout_that_comes_out_the_same_is_not_reviewed_twice(
     run = Run()
     run.reviewing = ReviewFakes(verdicts=[verdict(issue("captions", "cut off")), verdict()])
     await run_workflow(temporal_client, run)
-    assert run.reviewing.calls["review_render"] == 1
+    assert run.reviewing.calls["review_before_render"] == 1
     assert run.reviewing.calls["render"] == 1
     assert run.result.publish.outcome == "needs_human"
     assert "same video" in " ".join(row(run)["record"]["reasons"])
@@ -264,11 +276,13 @@ async def test_a_layout_that_comes_out_the_same_is_not_reviewed_twice(
 async def test_a_spec_that_is_rendered_again_does_not_render_again(
     temporal_client: Client,
 ) -> None:
-    """Round one's layout for a caption problem that did not change the spec: asked to
-    render the same spec twice, the renderer renders once (counted per spec hash)."""
+    """A reviewer that looks at frames has each round rendered; the last of those renders
+    is the one published, and is not asked for again (counted per spec hash)."""
     run = Run()
     run.reviewing = ReviewFakes(
-        verdicts=[verdict(issue("captions", "cut off")), verdict()], changed_layout_in_rounds={1}
+        verdicts=[verdict(issue("captions", "cut off")), verdict()],
+        changed_layout_in_rounds={1},
+        needs_render=True,
     )
     await run_workflow(temporal_client, run)
     assert set(run.reviewing.rendered.values()) == {1}
@@ -295,7 +309,7 @@ async def test_a_run_that_fails_every_review_is_kept_for_a_person_and_not_publis
     with pytest.raises(ClientError) as info:
         run.reviewing.s3.head_object(Bucket="reup-media", Key=OUTPUT)
     assert info.value.response["Error"]["Code"] == "NoSuchKey"
-    assert run.reviewing.calls["review_render"] == 2  # never a third
+    assert run.reviewing.calls["review_before_render"] == 2  # never a third
     assert row(run)["status"] == "needs_human" and row(run)["needs_human"] is True
     assert row(run)["review_rounds"] == 2
     assert row(run)["review"] == REVIEW and row(run)["output"] is None
@@ -322,7 +336,7 @@ async def test_a_problem_a_rerun_cannot_fix_goes_to_a_person_after_one_review(
     run.reviewing = ReviewFakes(verdicts=[verdict(*issues), verdict()])
     await run_workflow(temporal_client, run)
     assert run.result.publish.outcome == "needs_human"
-    assert run.reviewing.calls["review_render"] == 1
+    assert run.reviewing.calls["review_before_render"] == 1
     assert run.dubbing.calls["write_dubbed_script"] == 1
     assert run.has(REVIEW) and not run.has(OUTPUT)
 
@@ -339,6 +353,21 @@ async def test_a_flagged_translation_is_never_published_even_when_the_review_pas
     assert row(run)["record"]["verdict"]["pass"] is True
 
 
+async def test_publish_is_given_the_track_it_scores_and_whether_a_line_was_flagged(
+    temporal_client: Client,
+) -> None:
+    clean = await run_workflow(temporal_client, Run())
+    (asked,) = await publish_requests(clean)
+    assert asked["dub"] == json.loads(clean.result.dub.model_dump_json())
+    assert asked["safety_flag"] is False
+
+    flagged = Run()
+    flagged.localizing = LocalizerFakes(flagged_ids=(0,))
+    await run_workflow(temporal_client, flagged)
+    (asked,) = await publish_requests(flagged)
+    assert asked["safety_flag"] is True
+
+
 async def test_a_flagged_run_is_not_sent_round_again_it_goes_to_the_person_with_the_verdict(
     temporal_client: Client,
 ) -> None:
@@ -346,7 +375,7 @@ async def test_a_flagged_run_is_not_sent_round_again_it_goes_to_the_person_with_
     run.localizing = LocalizerFakes(flagged_ids=(0,))
     run.reviewing = ReviewFakes(verdicts=[verdict(issue("dub", "rushed", segment_id=1))])
     await run_workflow(temporal_client, run)
-    assert run.reviewing.calls["review_render"] == 1
+    assert run.reviewing.calls["review_before_render"] == 1
     assert run.dubbing.calls["write_dubbed_script"] == 1
     assert run.result.publish.outcome == "needs_human"
 
@@ -396,9 +425,10 @@ async def test_a_permanent_failure_ends_the_run_with_its_reason_on_it_and_nothin
     )
     await run_workflow(temporal_client, run)
     assert isinstance(run.outcome, BaseException)
-    # Not retried: the step was asked once.
+    # Not retried: the step was asked once. The layout fails before the review; the render
+    # is made after it.
     assert run.reviewing.calls[step] == 1
-    assert run.reviewing.calls["review_render"] == 0
+    assert run.reviewing.calls["review_before_render"] == (step == "render")
     assert not run.has(OUTPUT) and not run.has(REVIEW)
     assert row(run)["status"] == "failed" and row(run)["needs_human"] is False
     assert row(run)["output"] is None and row(run)["review"] is None
@@ -489,12 +519,12 @@ async def test_an_agent_that_gives_up_during_a_rerun_is_written_on_the_run_too(
 async def test_a_review_that_cannot_be_made_keeps_the_render_for_a_person(
     temporal_client: Client,
 ) -> None:
-    """The video exists and nobody could judge it (model, provider or OCR failed): it goes
-    to `review/` with the reason, never to `output/` and never thrown away."""
+    """Nobody could judge the video (model, provider or OCR failed): it is rendered and
+    goes to `review/` with the reason, never to `output/` and never thrown away."""
     run = Run()
     run.reviewing = ReviewFakes(
         fail_on={
-            ("review_render", 1): ApplicationError(
+            ("review_before_render", 1): ApplicationError(
                 "the verdict never validated", type="UnexpectedModelBehavior", non_retryable=True
             )
         }
@@ -515,12 +545,12 @@ async def test_a_review_that_fails_on_both_attempts_is_kept_for_a_person_too(
     run = Run()
     run.reviewing = ReviewFakes(
         fail_on={
-            ("review_render", 1): RuntimeError("429 from the provider"),
-            ("review_render", 2): RuntimeError("429 from the provider"),
+            ("review_before_render", 1): RuntimeError("429 from the provider"),
+            ("review_before_render", 2): RuntimeError("429 from the provider"),
         }
     )
     await run_workflow(temporal_client, run)
-    assert run.reviewing.calls["review_render"] == 2
+    assert run.reviewing.calls["review_before_render"] == 2
     assert run.result.publish.outcome == "needs_human"
     assert run.has(REVIEW) and not run.has(OUTPUT)
 
@@ -532,7 +562,7 @@ async def test_a_review_that_cannot_be_made_in_the_second_round_keeps_the_second
     run.reviewing = ReviewFakes(
         verdicts=[verdict(issue("dub", "rushed", segment_id=1))],
         fail_on={
-            ("review_render", 2): ApplicationError(
+            ("review_before_render", 2): ApplicationError(
                 "no usable answer", type="UnexpectedModelBehavior", non_retryable=True
             )
         },

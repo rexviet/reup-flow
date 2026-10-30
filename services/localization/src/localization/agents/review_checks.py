@@ -2,49 +2,72 @@
 
 Each returns issues in the shape the workflow already routes on (`ReviewIssue`: the stage
 to run again, the line, a reason), and each issue carries the score it counts against.
-Pure: the activity supplies the measurements (the dub document, the loudness, what the
-OCR found), so every check has a case that fails and one that passes.
+Pure: the activity supplies the measurements (the dub document, the loudness, the boxes
+the subtitle detector saw on the source), so every check has a case that fails and one
+that passes.
 
   localize  the line is empty, still has Chinese, or lost a number or Latin name of its source
   dub       a line still overruns its slot, is stretched to its limit, or is cut by the end
   captions  a caption is wider than its box
-  render    the audio is off its loudness limits, or source text shows next to the caption
+  render    the audio is off its loudness limits, or source subtitle shows outside its cover
 """
 
+import itertools
 import math
 import re
+import statistics
 import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
+from fractions import Fraction
 from typing import Literal, Protocol
 
-from localization.agents.reviewer import Loudness, ResidualFinding
+from localization.agents.reviewer import Loudness
 from localization.contracts import (
+    BBox,
     DubSegmentsDocument,
     EditSpec,
     LocalizedSegment,
     ReviewIssue,
+    SubtitleDocument,
 )
+from localization.contracts.models import STRETCH_MAX
 from localization.text.glyphs import foreign_chars, foreign_chars_note
-from localization.text.vi_syllables import numbers_to_words
+from localization.text.vi_numbers import missing_numbers
 
 Dimension = Literal["fidelity", "timing", "visual"]
 
-# A line played faster or slower than this is at the edge of what the stretch can do
-# (it is held between 0.85 and 1.15): the Dubber is asked again for that line.
-FAST_RATIO = 1.12
+# A line is read too fast only at the fastest stretch the dubbing stage allows: every
+# faster reading is already one the Dubber had to shorten, and one left at this limit is
+# one it could not. Slower than SLOW_RATIO is near the other edge (STRETCH_MIN, 0.85).
+# Either way the Dubber is asked again for that line.
+FAST_RATIO = STRETCH_MAX
 SLOW_RATIO = 0.88
 # The assembled audio is normalised to the target; this far off means it was not.
 LUFS_TOLERANCE = 2.0
 PEAK_TOLERANCE = 0.5
-# Text found outside the caption's place counts as left-over subtitle only when it is
-# this close to it, in heights of the band itself: a logo or a title elsewhere on the
-# picture is the video's own.
-RESIDUAL_DISTANCE = 2.0
-RESIDUAL_FRAMES = 4
+# Left-over subtitle is judged on the boxes the subtitle detector drew on the source,
+# one every `frame_interval_ms`, against the cover painted over them. A box is outside
+# the cover when more than this share of it is uncovered: the model draws its box looser
+# than the line, so one that only runs over an edge is the line under the cover.
+RESIDUAL_UNCOVERED = 0.5
+# The model also puts a box well away from the line on some frames, and on a third of
+# them on one video: 70-90 px under a line that never moved from under the cover (checked
+# on the source at 0.5, 2, 21 and 45 s), in and out between frames that boxed it in place.
+# A burned-in line stays where it is while it shows, so a frame outside the cover counts
+# only in a run of frames outside lasting RESIDUAL_MIN_MS: the frame with a box under the
+# cover that breaks a shorter run saw the line there. Runs that long still come from the
+# model, nine frames under a hidden line at most; on that video, 17% of the frames with a
+# box; on another, 1%. A band the cover missed is reported once it is on this share of
+# the frames with a box.
+RESIDUAL_SHARE = Fraction(1, 3)
+RESIDUAL_MIN_MS = 2000
+# Two boxes are the same band when they overlap vertically by this much of the shorter.
+RESIDUAL_SAME_ROW = 0.5
+# How many of the frames that show the band the issue names.
+RESIDUAL_TIMES_SHOWN = 4
 
 _LATIN_NAME = re.compile(r"[A-Za-z][A-Za-z0-9]+")
-_NUMBER = re.compile(r"\d+")
 
 
 @dataclass(frozen=True)
@@ -61,11 +84,6 @@ def _found(dimension: Dimension, stage: str, reason: str, segment_id: int | None
 
 
 # --- the lines ----------------------------------------------------------------------------
-
-
-def _digits_kept(source_number: str, target: str) -> bool:
-    plain = re.sub(r"(?<=\d)[.,\s](?=\d)", "", target)
-    return source_number in plain or numbers_to_words(source_number).lower() in target.lower()
 
 
 def line_findings(segments: Sequence[LocalizedSegment]) -> list[Finding]:
@@ -91,7 +109,7 @@ def line_findings(segments: Sequence[LocalizedSegment]) -> list[Finding]:
                 )
             )
             continue
-        lost = [n for n in dict.fromkeys(_NUMBER.findall(src)) if not _digits_kept(n, text)]
+        lost = missing_numbers(src, text)
         names = [
             w for w in dict.fromkeys(_LATIN_NAME.findall(src)) if w.lower() not in text.lower()
         ]
@@ -198,56 +216,80 @@ def caption_findings(spec: EditSpec, meter: TextMeter) -> list[Finding]:
     return found
 
 
-def residual_times(spec: EditSpec) -> list[int]:
-    """The frames to look at for left-over subtitle: the middle of up to
-    `RESIDUAL_FRAMES` captions spread over the video, or evenly spaced when there are
-    none. None when no subtitle was covered: there is nothing that could be left over."""
-    if spec.cover is None:
+def _in_video_pixels(box: BBox, subtitles: SubtitleDocument, spec: EditSpec) -> BBox:
+    """A box of the subtitle document (in the pixels of the source it was measured on)
+    in the pixels of the spec's cover."""
+    if (subtitles.width, subtitles.height) == (spec.width, spec.height):
+        return box
+    fx, fy = spec.width / subtitles.width, spec.height / subtitles.height
+    return BBox(
+        x=round(box.x * fx),
+        y=round(box.y * fy),
+        w=max(1, round(box.w * fx)),
+        h=max(1, round(box.h * fy)),
+    )
+
+
+def _uncovered(box: BBox, cover: BBox) -> float:
+    """The share of the box's area the cover does not reach."""
+    across = max(0, min(box.x + box.w, cover.x + cover.w) - max(box.x, cover.x))
+    down = max(0, min(box.y + box.h, cover.y + cover.h) - max(box.y, cover.y))
+    return 1 - across * down / (box.w * box.h)
+
+
+def _same_row(a: BBox, b: BBox) -> bool:
+    shared = max(0, min(a.y + a.h, b.y + b.h) - max(a.y, b.y))
+    return shared >= RESIDUAL_SAME_ROW * min(a.h, b.h)
+
+
+def _sustained(
+    seen: Sequence[tuple[int, BBox]], cover: BBox, frames: int
+) -> list[tuple[int, BBox]]:
+    """The frames in runs of at least `frames` frames whose boxes are outside the cover.
+    A frame with a box under the cover ends a run; one without a box does not (it saw
+    nothing, or its answer was unusable)."""
+    sustained: list[tuple[int, BBox]] = []
+    for outside, run in itertools.groupby(
+        seen, key=lambda frame: _uncovered(frame[1], cover) > RESIDUAL_UNCOVERED
+    ):
+        boxes = list(run)
+        if outside and len(boxes) >= frames:
+            sustained.extend(boxes)
+    return sustained
+
+
+def residual_findings(spec: EditSpec, subtitles: SubtitleDocument) -> list[Finding]:
+    """Source subtitle the cover leaves visible: a band of the detector's boxes outside
+    the cover for RESIDUAL_MIN_MS at a time, on enough frames to be text and not the
+    model's error (see `RESIDUAL_SHARE`). Nothing to check without a cover, or in a
+    document written before the detector kept its boxes."""
+    interval = subtitles.frame_interval_ms
+    if spec.cover is None or interval is None:
         return []
-    captions = spec.captions
-    if captions:
-        step = max(1, math.ceil(len(captions) / RESIDUAL_FRAMES))
-        return [(c.start_ms + c.end_ms) // 2 for c in captions[::step]][:RESIDUAL_FRAMES]
-    last = spec.duration_ms - 1
-    return [
-        min(last, spec.duration_ms * (2 * i + 1) // (2 * RESIDUAL_FRAMES))
-        for i in range(RESIDUAL_FRAMES)
+    cover = spec.cover.region
+    # A frame without a box showed no text or had an unusable answer: it is not counted.
+    seen = [
+        (i, _in_video_pixels(box, subtitles, spec))
+        for i, box in enumerate(subtitles.frame_boxes)
+        if box is not None
     ]
-
-
-def _gap(box: tuple[int, int, int, int], place: tuple[int, int, int, int]) -> float:
-    """Pixels between two boxes along the vertical, 0 when they overlap on it."""
-    _, y, _, h = box
-    _, py, _, ph = place
-    return max(0, max(y, py) - min(y + h, py + ph))
-
-
-def residual_findings(spec: EditSpec, found: Sequence[ResidualFinding]) -> list[Finding]:
-    places = [(spec.caption_box.x, spec.caption_box.y, spec.caption_box.w, spec.caption_box.h)]
-    if spec.cover is not None:
-        c = spec.cover.region
-        places.append((c.x, c.y, c.w, c.h))
-    hits: list[ResidualFinding] = []
-    for item in found:
-        if item.unavailable or item.box is None:
-            continue
-        x, y, w, h = item.box
-        # Inside the place of the caption is the caption itself.
-        if any(
-            x >= px - 0.15 * pw
-            and y >= py - 0.15 * ph
-            and x + w <= px + 1.15 * pw
-            and y + h <= py + 1.15 * ph
-            for px, py, pw, ph in places
-        ):
-            continue
-        if min(_gap(item.box, p) for p in places) <= RESIDUAL_DISTANCE * h:
-            hits.append(item)
-    if not hits:
+    run = math.ceil(RESIDUAL_MIN_MS / interval)
+    outside = _sustained(seen, cover, run)
+    band = max(
+        ([(i, box) for i, box in outside if _same_row(box, seed)] for _, seed in outside),
+        key=len,
+        default=[],
+    )
+    if not band or len(band) < max(run, RESIDUAL_SHARE * len(seen)):
         return []
     # One issue however many frames show it: it is one cover that missed the subtitle.
-    x, y, w, h = hits[0].box  # type: ignore[misc]
-    at = ", ".join(str(i.at_ms) for i in hits)
+    boxes = [box for _, box in band]
+    top = round(statistics.median(b.y for b in boxes))
+    bottom = round(statistics.median(b.y + b.h for b in boxes))
+    left = min(b.x for b in boxes)
+    right = max(b.x + b.w for b in boxes)
+    x, y, w, h = left, top, right - left, bottom - top
+    at = ", ".join(str(i * interval) for i, _ in band[:RESIDUAL_TIMES_SHOWN])
     return [
         _found(
             "visual",

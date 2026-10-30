@@ -22,6 +22,7 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
+from localization.activities.detect_subtitles import subtitles_key
 from localization.activities.review_render import FRAME_WIDTH, ReviewRenderActivity
 from localization.contracts import (
     BBox,
@@ -35,6 +36,8 @@ from localization.contracts import (
     LocalizedScriptRef,
     LocalizedSegment,
     RenderResult,
+    SubtitleCue,
+    SubtitleDocument,
 )
 from localization.storage.object_store import ObjectStore, work_key
 from tests.support.file_s3 import FileS3
@@ -115,6 +118,19 @@ class Scripted:
         return FunctionModel(respond, model_name="scripted-reviewer")
 
 
+def put_subtitles(store: ObjectStore, boxes: Sequence[BBox | None]) -> None:
+    """What the subtitle detector saw on the source, one box every 500 ms."""
+    document = SubtitleDocument(
+        width=WIDTH,
+        height=HEIGHT,
+        region=COVER,
+        cues=(SubtitleCue(start_ms=0, end_ms=SECONDS * 1000),),
+        frame_interval_ms=500,
+        frame_boxes=tuple(boxes),
+    )
+    store.put_bytes(subtitles_key("7001"), document.model_dump_json().encode())
+
+
 @pytest.fixture
 def store(tmp_path: Path) -> ObjectStore:
     store = ObjectStore(FileS3(tmp_path / "bucket"), "reup-media")
@@ -168,6 +184,7 @@ def store(tmp_path: Path) -> ObjectStore:
         font_sha256="b" * 64,
     )
     store.put_bytes(SPEC_KEY, spec.model_dump_json().encode())
+    put_subtitles(store, [BBox(x=40, y=395, w=190, h=30)] * (SECONDS * 2))
     video = tmp_path / "render.mp4"
     make_video(video)
     store.put_bytes(RENDER_KEY, video.read_bytes())
