@@ -76,11 +76,14 @@ async def test_the_stage_runs_its_steps_in_order_each_on_its_own_queue(
     # What follows the track (layout, render, review, publish) is the review loop's.
     assert after_script[: after_script.index("assemble_audio") + 1] == [
         "voice_profile",
+        # Three lines are two batches, one per concurrent `tts` slot.
         "plan_synthesis",
+        "synthesize_segments",
         "synthesize_segments",
         "measure_fit",
         "write_dubbed_script",
         "plan_synthesis",
+        "synthesize_segments",
         "synthesize_segments",
         "commit_dub",
         "assemble_audio",
@@ -109,7 +112,7 @@ async def test_the_result_names_the_track_and_the_script_it_was_built_from(
     assert result.script is not None and result.script.script.version == 1
 
 
-async def test_synthesis_is_sent_in_batches_of_ten_hashes_that_together_cover_the_plan(
+async def test_synthesis_is_sent_in_even_batches_of_at_most_ten_hashes_that_cover_the_plan(
     temporal_client: Client,
 ) -> None:
     dubbing = DubFakes(hashes=25)
@@ -117,11 +120,11 @@ async def test_synthesis_is_sent_in_batches_of_ten_hashes_that_together_cover_th
     assert isinstance(result, LocalizationResult), result
     planned = [f"{i:064x}" for i in range(25)]
     # The first pass, then the second pass over the dubbed script (cache hits in real
-    # life): three batches each, 10 + 10 + 5.
-    for first, second in ((0, 3),):
-        pass_one = dubbing.batches[first:second]
-        assert sorted(len(b) for b in pass_one) == [5, 10, 10]
-        assert sorted(h for b in pass_one for h in b) == sorted(planned)
+    # life): three batches each, 9 + 8 + 8.
+    for first, second in ((0, 3), (3, 6)):
+        pass_batches = dubbing.batches[first:second]
+        assert sorted(len(b) for b in pass_batches) == [8, 8, 9]
+        assert sorted(h for b in pass_batches for h in b) == sorted(planned)
     assert len(dubbing.batches) == 6
 
 

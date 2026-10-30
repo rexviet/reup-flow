@@ -25,6 +25,7 @@ from temporalio.exceptions import ApplicationError
 from localization.activities.errors import provider_errors
 from localization.activities.ffmpeg import probe_duration_ms, run_blocking
 from localization.activities.script_document import read_script
+from localization.activities.tts_pieces import Piece, join_pieces, split_line
 from localization.contracts import LocalizationInput, SynthClip, SynthesisPlan, VoiceProfile
 from localization.contracts.models import STRETCH_MAX, STRETCH_MIN
 from localization.contracts.voice import VoiceRef
@@ -43,6 +44,11 @@ META_VOICE = "voice-hash"
 META_DURATION = "duration-ms"
 
 BeforePut = Callable[[str], Awaitable[None] | None]
+
+# How a clip is made from its line, part of the clip's cache identity. A line read in one
+# request dropped words a line read piece by piece does not, so clips cached the old way
+# must not stand in for the new ones.
+CLIP_METHOD = "pieces-1"
 
 
 def _canonical(value: object) -> str:
@@ -65,10 +71,12 @@ def voice_identity_hash(voice: VoiceRef, *, model: str | None, engine: str | Non
 
 
 def tts_hash(voice: VoiceRef, *, model: str | None, engine: str | None, text_vi: str) -> str:
-    """The cache identity of one clip: the voice's identity and the text."""
+    """The cache identity of one clip: the voice's identity, the text and how the clip
+    is made from it."""
     return hashlib.sha256(
         _canonical(
             {
+                "method": CLIP_METHOD,
                 "provider": voice.provider,
                 "model": model,
                 "engine": engine,
@@ -138,6 +146,10 @@ async def background_heartbeat(interval: float = BACKGROUND_HEARTBEAT_SECONDS):
         await asyncio.gather(task, return_exceptions=True)
 
 
+def _as_given(voice: VoiceRef) -> VoiceRef:
+    return voice
+
+
 class Synthesizer:
     """Reads a clip from the cache or asks the provider for it. Shared by the batch
     activity and the Dubber's tool, so a text synthesized by either is a cache hit
@@ -150,15 +162,18 @@ class Synthesizer:
         *,
         model: str | None,
         before_put: BeforePut | None = None,
+        resolve: Callable[[VoiceRef], VoiceRef] = _as_given,
     ) -> None:
         self._store = store
         self._tts = tts
         self._model = model
         self._before_put = before_put
+        # The voice a run names becomes the one spoken and hashed (see `tts_router`).
+        self._resolve = resolve
         self._in_flight: dict[str, asyncio.Future[Clip]] = {}
 
     def hash_of(self, voice: VoiceRef, engine: str | None, text_vi: str) -> str:
-        return tts_hash(voice, model=self._model, engine=engine, text_vi=text_vi)
+        return tts_hash(self._resolve(voice), model=self._model, engine=engine, text_vi=text_vi)
 
     async def cached(self, voice: VoiceRef, engine: str | None, text_vi: str) -> Clip | None:
         digest = self.hash_of(voice, engine, text_vi)
@@ -181,7 +196,8 @@ class Synthesizer:
         asking the provider again. (Another process cannot be seen from here; two
         workers speaking one new text at once can both ask. That costs a call and
         nothing else: the clip is the same and is written whole.)"""
-        digest = self.hash_of(voice, engine, text_vi)
+        voice = self._resolve(voice)
+        digest = tts_hash(voice, model=self._model, engine=engine, text_vi=text_vi)
         flight = self._in_flight.get(digest)
         if flight is None:
             flight = asyncio.ensure_future(self._clip(digest, voice, engine, text_vi))
@@ -207,8 +223,7 @@ class Synthesizer:
                 type="TextTooLong",
                 non_retryable=True,
             )
-        with provider_errors():
-            wav = await self._tts.synthesize(text_vi, voice)
+        wav = await self._speak(voice, text_vi)
         duration_ms = await run_blocking(wav_duration_ms, wav)
         if self._before_put is not None:
             outcome = self._before_put(digest)
@@ -227,6 +242,18 @@ class Synthesizer:
             },
         )
         return Clip(digest, key, duration_ms)
+
+    async def _speak(self, voice: VoiceRef, text_vi: str) -> bytes:
+        """The audio of a line, read piece by piece (see tts_pieces) and joined. A
+        line of one piece is the provider's audio as it came. The pieces are asked
+        for one after another: the voice server is one GPU, already shared by the
+        activities running side by side. Any piece failing fails the line."""
+        pieces = split_line(text_vi) or [Piece(text_vi, 0)]
+        with provider_errors():
+            wavs = [await self._tts.synthesize(piece.text, voice) for piece in pieces]
+            if len(wavs) == 1:
+                return wavs[0]
+            return await run_blocking(join_pieces, wavs, [p.pause_after_ms for p in pieces[:-1]])
 
 
 def segment_hashes(
@@ -248,9 +275,10 @@ class SynthesizeActivities:
         model: str | None,
         engine: Callable[[], str | None] = lambda: None,
         before_put: BeforePut | None = None,
+        resolve: Callable[[VoiceRef], VoiceRef] = _as_given,
     ) -> None:
         self._store = store
-        self._synth = Synthesizer(store, tts, model=model, before_put=before_put)
+        self._synth = Synthesizer(store, tts, model=model, before_put=before_put, resolve=resolve)
         self._engine = engine
 
     @property

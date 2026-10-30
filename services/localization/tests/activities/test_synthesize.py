@@ -3,7 +3,9 @@ the clip says what it was made from, and a line is judged by how long it takes."
 
 import asyncio
 import base64
+import io
 import time
+import wave
 
 import boto3
 import pytest
@@ -11,6 +13,7 @@ from moto import mock_aws
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
+from localization.activities import synthesize as synthesize_module
 from localization.activities.script_document import read_script
 from localization.activities.synthesize import (
     META_DURATION,
@@ -23,12 +26,13 @@ from localization.activities.synthesize import (
     tts_hash,
     voice_identity_hash,
 )
+from localization.activities.tts_pieces import split_line
 from localization.contracts import LocalizationInput
 from localization.contracts.voice import VoiceRef
-from localization.providers.errors import PermanentProviderError
+from localization.providers.errors import PermanentProviderError, TransientProviderError
 from localization.storage.object_store import ObjectStore, tts_cache_key
 from tests.support.inputs import make_input
-from tests.support.tts_fakes import FakeTts, put_script, segment
+from tests.support.tts_fakes import FakeTts, make_wav, put_script, segment
 
 SPEC = make_input()
 VOICE = SPEC.voice
@@ -75,6 +79,14 @@ def _hash(voice=None, model="m", engine="e", text="xin chào") -> str:
 def test_the_hash_is_stable_for_the_same_inputs() -> None:
     assert _hash() == _hash()
     assert len(_hash()) == 64
+
+
+def test_the_hash_changes_with_the_way_a_clip_is_made(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A clip read whole is not the clip read piece by piece: a cache made one way must
+    not answer for the other."""
+    before = _hash()
+    monkeypatch.setattr(synthesize_module, "CLIP_METHOD", "another-way")
+    assert _hash() != before
 
 
 @pytest.mark.parametrize(
@@ -257,6 +269,148 @@ async def test_the_object_is_not_there_when_the_before_put_hook_runs(store: Obje
     )
     assert seen == [(clip.hash, False)]
     assert store.exists(clip.key)
+
+
+# --- a long line is read in pieces ----------------------------------------------
+
+
+LONG_LINE = (
+    "Sáu miligam sắt. Mỗi ngày uống ba viên là vừa đủ, dịu nhẹ, dễ hấp thu, "
+    "không kích ứng, còn kết hợp thêm peptide hemoglobin và vitamin C."
+)
+
+
+class RecordingTts(FakeTts):
+    """Remembers the texts it was asked for, in order."""
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.asked: list[str] = []
+
+    async def synthesize(self, text, voice):
+        self.asked.append(text)
+        return await super().synthesize(text, voice)
+
+
+async def test_a_long_line_is_asked_for_piece_by_piece_and_stored_as_one_clip(
+    store: ObjectStore,
+) -> None:
+    tts = RecordingTts(seconds_per_char=0.05)
+    clip = await Synthesizer(store, tts, model="m").clip(VOICE, None, LONG_LINE)
+    pieces = split_line(LONG_LINE)
+    assert len(pieces) > 1
+    assert tts.asked == [p.text for p in pieces]
+    assert clip.hash == tts_hash(VOICE, model="m", engine=None, text_vi=LONG_LINE)
+    meta = store.metadata(clip.key)
+    assert meta is not None
+    assert base64.b64decode(meta[META_TEXT]).decode() == LONG_LINE
+    for piece in pieces:
+        piece_hash = tts_hash(VOICE, model="m", engine=None, text_vi=piece.text)
+        assert not store.exists(tts_cache_key(piece_hash))
+
+
+async def test_the_clip_of_a_long_line_lasts_its_pieces_plus_the_pauses(
+    store: ObjectStore,
+) -> None:
+    tts = RecordingTts(seconds_per_char=0.05)
+    clip = await Synthesizer(store, tts, model="m").clip(VOICE, None, LONG_LINE)
+    pieces = split_line(LONG_LINE)
+    expected = sum(tts.length_of(p.text) * 1000 for p in pieces) + sum(
+        p.pause_after_ms for p in pieces
+    )
+    assert clip.duration_ms == pytest.approx(expected, abs=len(pieces) + 2)
+    assert int(store.metadata(clip.key)[META_DURATION]) == clip.duration_ms  # type: ignore[index]
+
+
+async def test_a_long_line_said_again_is_a_cache_hit_for_the_whole_line(
+    store: ObjectStore,
+) -> None:
+    tts = RecordingTts()
+    first = await Synthesizer(store, tts, model="m").clip(VOICE, None, LONG_LINE)
+    asked = len(tts.asked)
+    second = await Synthesizer(store, tts, model="m").clip(VOICE, None, LONG_LINE)
+    assert first == second
+    assert len(tts.asked) == asked
+
+
+async def test_a_piece_is_not_a_cache_entry_of_its_own(store: ObjectStore) -> None:
+    """The cache is keyed on the whole line: a piece said on its own is a new clip."""
+    tts = RecordingTts()
+    synth = Synthesizer(store, tts, model="m")
+    await synth.clip(VOICE, None, LONG_LINE)
+    assert await synth.cached(VOICE, None, split_line(LONG_LINE)[0].text) is None
+
+
+def _stereo_wav_at_16k(seconds: float) -> bytes:
+    """Audio in a format a join would convert, so a join that ran would show."""
+    mono = make_wav(seconds)
+    with wave.open(io.BytesIO(mono)) as audio:
+        frames = audio.readframes(audio.getnframes())
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as out:
+        out.setnchannels(2)
+        out.setsampwidth(2)
+        out.setframerate(16000)
+        out.writeframes(b"".join(frames[i : i + 2] * 2 for i in range(0, len(frames), 2)))
+    return buffer.getvalue()
+
+
+class StereoTts(RecordingTts):
+    async def synthesize(self, text, voice):
+        await super().synthesize(text, voice)
+        return _stereo_wav_at_16k(self.length_of(text))
+
+
+async def test_a_short_line_is_still_one_request_and_the_provider_audio_untouched(
+    store: ObjectStore,
+) -> None:
+    tts = StereoTts()
+    clip = await Synthesizer(store, tts, model="m").clip(VOICE, None, "Xin chào các bạn.")
+    assert tts.asked == ["Xin chào các bạn."]
+    assert store.get_bytes(clip.key, produced_by="test") == _stereo_wav_at_16k(
+        tts.length_of("Xin chào các bạn.")
+    )
+
+
+class FailsOnSecondPiece(RecordingTts):
+    async def synthesize(self, text, voice):
+        if self.asked:
+            self.asked.append(text)
+            raise TransientProviderError("tts: timeout")
+        return await super().synthesize(text, voice)
+
+
+async def test_a_failed_piece_fails_the_clip_as_retryable_and_stores_nothing(
+    store: ObjectStore,
+) -> None:
+    tts = FailsOnSecondPiece()
+    with pytest.raises(ApplicationError) as failure:
+        await Synthesizer(store, tts, model="m").clip(VOICE, None, LONG_LINE)
+    assert not failure.value.non_retryable
+    assert len(tts.asked) == 2
+    digest = tts_hash(VOICE, model="m", engine=None, text_vi=LONG_LINE)
+    assert not store.exists(tts_cache_key(digest))
+
+
+async def test_the_pieces_of_a_line_are_asked_for_one_at_a_time(store: ObjectStore) -> None:
+    """The voice server is one GPU already shared by two activities: a line must not
+    add requests running side by side."""
+    running = 0
+    most = 0
+
+    class Overlap(RecordingTts):
+        async def synthesize(self, text, voice):
+            nonlocal running, most
+            running += 1
+            most = max(most, running)
+            await asyncio.sleep(0.02)
+            running -= 1
+            return await super().synthesize(text, voice)
+
+    tts = Overlap()
+    await Synthesizer(store, tts, model="m").clip(VOICE, None, LONG_LINE)
+    assert len(tts.asked) > 1
+    assert most == 1
 
 
 # --- the activities -------------------------------------------------------------
