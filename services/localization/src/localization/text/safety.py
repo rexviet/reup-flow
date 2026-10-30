@@ -34,7 +34,9 @@ _DOMAIN_RE = re.compile(
 _SPOKEN_DOMAIN_RE = re.compile(rf"\b[a-z0-9-]+\s*(?:chấm|dot)\s*(?:{_TLDS})\b", re.IGNORECASE)
 # Seven or more digits, which may be split by spaces, dots, dashes or brackets, with
 # an optional leading +. Shorter runs (a year, a price, "3.5") are not phone numbers.
-_PHONE_RE = re.compile(r"(?<![\d.,])\+?\(?\d(?:[\s().-]?\d){6,}(?![\d])")
+# A run straight after "1." or "1," is the tail of a number, but one after a bare
+# comma is not: NFKC turns the full-width "，" before a number into ",".
+_PHONE_RE = re.compile(r"(?<!\d)(?<!\d[.,])\+?\(?\d(?:[\s().-]?\d){6,}(?![\d])")
 # 1.500.000 or 1,000,000: a price or a count written with thousands separators.
 _GROUPED_NUMBER_RE = re.compile(r"[1-9]\d{0,2}(?:[.,]\d{3})+")
 

@@ -23,6 +23,7 @@ from typing import Any, Literal
 from pydantic_ai import Agent
 from pydantic_ai.agent import AgentModelSettings
 from pydantic_ai.models import Model
+from pydantic_ai.usage import UsageLimits
 
 from localization.agents.localizer import (
     UNTRUSTED_CLOSE,
@@ -181,7 +182,7 @@ def render_prompt(
     return prompt
 
 
-Kind = Literal["unusable", "too_long"]
+Kind = Literal["unusable", "too_long", "missing_term"]
 
 
 @dataclass(frozen=True)
@@ -202,9 +203,31 @@ class Assessment:
         return {i: p for i, p in self.problems.items() if p.kind == "unusable"}
 
 
-def assess(deps: LocalizerDeps, context: LocalizerContext, lines: LocalizedLines) -> Assessment:
+def missing_terms(context: LocalizerContext, source: str, text: str) -> list[TermContext]:
+    """The glossary terms `source` says whose Vietnamese `text` does not carry (case and
+    full-width forms aside)."""
+    spoken, written = normalise(source).casefold(), normalise(text).casefold()
+    return [
+        t
+        for t in context.terms
+        if (zh := normalise(t.term_zh.strip()).casefold())
+        and zh in spoken
+        and normalise(t.term_vi.strip()).casefold() not in written
+    ]
+
+
+def assess(
+    deps: LocalizerDeps,
+    context: LocalizerContext,
+    lines: LocalizedLines,
+    *,
+    check_terms: bool = False,
+) -> Assessment:
     """Checks `lines` against the segments. A line is too long when reading it takes
-    longer than its slot even at the fastest speed-up the voice is played at."""
+    longer than its slot even at the fastest speed-up the voice is played at. With
+    `check_terms`, a line that drops a glossary term its source says is redone too: the
+    model is told which term to put back. Neither of those ends a run; a line still too
+    long or still without its term after the repair is kept."""
     wanted = set(deps.expected_ids())
     texts: dict[int, str] = {}
     for line in lines.lines:
@@ -224,14 +247,25 @@ def assess(deps: LocalizerDeps, context: LocalizerContext, lines: LocalizedLines
                 f"the line has characters the caption font cannot show "
                 f"({foreign_chars_note(chars)}): write them out in Vietnamese or leave them out",
             )
-        elif (took := estimate_ms(text, rate)) > seg.slot_ms * STRETCH_MAX:
-            budget = syllable_budget(seg.slot_ms, rate)
-            problems[seg.id] = Problem(
-                "too_long",
-                f"the line takes about {took} ms to say ({count_syllables(text)} syllables) "
-                f"but the slot is {seg.slot_ms} ms: {took - seg.slot_ms} ms over. "
-                f"Shorten it to at most {budget} syllables",
-            )
+        else:
+            notes: list[str] = []
+            kind: Kind = "missing_term"
+            if check_terms and (lost := missing_terms(context, seg.text, text)):
+                kept = "; ".join(f"{t.term_zh} → {t.term_vi}" for t in lost)
+                notes.append(
+                    f"the source says glossary term(s) the line leaves out: {kept}. "
+                    "Put each one in, exactly as given, and shorten the rest instead"
+                )
+            if (took := estimate_ms(text, rate)) > seg.slot_ms * STRETCH_MAX:
+                budget = syllable_budget(seg.slot_ms, rate)
+                kind = "too_long"
+                notes.append(
+                    f"the line takes about {took} ms to say ({count_syllables(text)} "
+                    f"syllables) but the slot is {seg.slot_ms} ms: {took - seg.slot_ms} ms "
+                    f"over. Shorten it to at most {budget} syllables"
+                )
+            if notes:
+                problems[seg.id] = Problem(kind, ". ".join(notes))
     return Assessment(texts, problems)
 
 
@@ -301,4 +335,47 @@ def build_single_agent(
         retries={"output": 1},
         capabilities=list(capabilities),
         model_settings=model_settings,
+    )
+
+
+# One model request, and one more if the first answer breaks a check. A request whose
+# answer does not parse is retried once by the agent, hence the room.
+SINGLE_USAGE_LIMITS = UsageLimits(request_limit=2)
+
+
+async def localize(
+    answer: Agent[LocalizerDeps, LocalizedLines],
+    repair: Agent[LocalizerDeps, LocalizedLines],
+    deps: LocalizerDeps,
+    context: LocalizerContext,
+    feedback: Sequence[str] = (),
+    *,
+    check_terms: bool = False,
+) -> Assessment:
+    """The one-request flow: `answer` translates the whole script, and `repair` is asked
+    once for the lines that broke a check. Returns the assessment of the merged lines;
+    the caller decides what an unusable line means. Used by the workflow (on its durable
+    agents) and by the eval (on plain ones), so both run the same steps. `check_terms`
+    is off only for runs recorded before the glossary check existed."""
+    first = await answer.run(
+        render_prompt(deps, context, feedback), deps=deps, usage_limits=SINGLE_USAGE_LIMITS
+    )
+    lines = first.output
+    assessment = assess(deps, context, lines, check_terms=check_terms)
+    if assessment.problems:
+        asked = set(assessment.problems)
+        repaired = await repair.run(
+            render_repair_prompt(deps, context, assessment),
+            deps=deps,
+            usage_limits=SINGLE_USAGE_LIMITS,
+        )
+        assessment = assess(
+            deps, context, merge(lines, repaired.output, asked), check_terms=check_terms
+        )
+    return assessment
+
+
+def lines_of(assessment: Assessment) -> LocalizedLines:
+    return LocalizedLines(
+        lines=tuple(LocalizedLine(id=i, text_vi=t) for i, t in sorted(assessment.texts.items()))
     )

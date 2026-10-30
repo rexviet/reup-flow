@@ -29,7 +29,7 @@ from localization.text.glyphs import foreign_chars, foreign_chars_note
 from localization.text.safety import normalise
 from localization.text.vi_syllables import count_syllables, estimate_ms
 
-PROMPT_VERSION = "localizer-1"
+PROMPT_VERSION = "localizer-2"
 
 UNTRUSTED_OPEN = "<untrusted_video_text>"
 UNTRUSTED_CLOSE = "</untrusted_video_text>"

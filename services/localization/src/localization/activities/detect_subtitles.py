@@ -55,6 +55,12 @@ OCR_MAX_SIDE = 1024
 CHUNK_FRAMES = 4 * BATCH_SIZE
 
 
+def subtitles_key(aweme_id: str) -> str:
+    """Where the subtitle document of a video is stored. It depends on the video alone,
+    so a later stage reaches the document without being handed the key."""
+    return work_key(aweme_id, 0, "subtitles.json")
+
+
 def _overlap(a: tuple[float, float], b: tuple[float, float]) -> float:
     """How much of the shorter of two vertical extents `(top, bottom)` the other covers."""
     inter = max(0.0, min(a[1], b[1]) - max(a[0], b[0]))
@@ -92,9 +98,13 @@ def _median_rows(members: Sequence[BBox]) -> tuple[float, float]:
 
 
 def locate(
-    boxes: Sequence[BBox | None], width: int, height: int, duration_ms: int
+    boxes: Sequence[BBox | None],
+    width: int,
+    height: int,
+    duration_ms: int,
+    interval_ms: int = FRAME_INTERVAL_MS,
 ) -> tuple[BBox | None, tuple[SubtitleCue, ...]]:
-    """`boxes[i]` is the detection on the frame sampled at `i * FRAME_INTERVAL_MS`.
+    """`boxes[i]` is the detection on the frame sampled at `i * interval_ms`.
 
     The model's box is accurate on most frames and badly off on a few (another text
     elsewhere, a box above the line), so the region comes from a consensus: the
@@ -117,17 +127,17 @@ def locate(
     cues: list[SubtitleCue] = []
     start = last = frames[0]
     for index in frames[1:]:
-        if (index - last - 1) * FRAME_INTERVAL_MS > MAX_GAP_MS:
-            cues.append(_cue(start, last, duration_ms))
+        if (index - last - 1) * interval_ms > MAX_GAP_MS:
+            cues.append(_cue(start, last, duration_ms, interval_ms))
             start = index
         last = index
-    cues.append(_cue(start, last, duration_ms))
+    cues.append(_cue(start, last, duration_ms, interval_ms))
     return region, tuple(cues)
 
 
-def _cue(first: int, last: int, duration_ms: int) -> SubtitleCue:
-    start = first * FRAME_INTERVAL_MS
-    end = (last + 1) * FRAME_INTERVAL_MS
+def _cue(first: int, last: int, duration_ms: int, interval_ms: int) -> SubtitleCue:
+    start = first * interval_ms
+    end = (last + 1) * interval_ms
     if duration_ms:
         end = min(end, duration_ms)
     return SubtitleCue(start_ms=start, end_ms=max(start, end))
@@ -177,7 +187,7 @@ class DetectSubtitlesActivity:
     async def detect_subtitles(self, spec: LocalizationInput) -> SubtitleTrack:
         tag_session(spec.aweme_id)
         boxes: list[BBox | None] = []
-        unusable = 0
+        unusable: list[int] = []
         with (
             provider_errors(),
             tempfile.TemporaryDirectory(prefix="subs-", dir=self._tmp_root) as tmp,
@@ -213,20 +223,28 @@ class DetectSubtitlesActivity:
                     batch = frames[start : start + BATCH_SIZE]
                     images = [await asyncio.to_thread(p.read_bytes) for p in batch]
                     found = await asyncio.gather(*(self._read(img, scaled) for img in images))
-                    unusable += sum(1 for _, bad in found if bad)
+                    unusable += [len(boxes) + i for i, (_, bad) in enumerate(found) if bad]
                     boxes.extend(to_source(box, scaled, source) for box, _ in found)
                     for path in batch:
                         path.unlink()
                     activity.heartbeat(len(boxes))
                 if len(frames) < self._chunk_frames:
                     break
-            if len(boxes) >= MIN_FRAMES_TO_JUDGE and unusable * 2 > len(boxes):
+            if len(boxes) >= MIN_FRAMES_TO_JUDGE and len(unusable) * 2 > len(boxes):
                 raise PermanentProviderError(
-                    f"ocr: {unusable} of {len(boxes)} sampled frames had an unusable answer; "
+                    f"ocr: {len(unusable)} of {len(boxes)} sampled frames had an unusable answer; "
                     "check OCR_MODEL, OCR_BBOX_FORMAT and the provider key"
                 )
         region, cues = locate(boxes, info.width, info.height, info.duration_ms)
-        document = SubtitleDocument(width=info.width, height=info.height, region=region, cues=cues)
-        key = work_key(spec.aweme_id, 0, "subtitles.json")
+        document = SubtitleDocument(
+            width=info.width,
+            height=info.height,
+            region=region,
+            cues=cues,
+            frame_interval_ms=FRAME_INTERVAL_MS,
+            frame_boxes=tuple(boxes),
+            unusable_frames=tuple(unusable),
+        )
+        key = subtitles_key(spec.aweme_id)
         await asyncio.to_thread(put_json, self._store, key, document)
         return SubtitleTrack(subtitle_key=key, region=region)

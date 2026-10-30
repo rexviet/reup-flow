@@ -93,7 +93,8 @@ async def test_the_prompt_holds_the_whole_transcript_with_its_budgets_and_glossa
         temporal_client, LocalizerFakes(mode="single", model=model, ports=ports)
     )
     assert isinstance(result, LocalizationResult), result
-    (prompt,) = model.prompts
+    # The answer leaves 手机's Vietnamese out, so a repair follows; this is the first prompt.
+    prompt = model.prompts[0]
     assert "[0] 0-1500 ms, slot 1500 ms, up to 6 syllables: 大家好" in prompt
     assert "[1] 1800-3000 ms, slot 1200 ms, up to 5 syllables: 今天" in prompt
     assert "Segments that overlap one: 0" in prompt
@@ -128,6 +129,49 @@ async def test_a_line_over_its_slot_gets_one_repair_request_with_only_that_line(
         (0, SHORT),
         (1, "tạm biệt"),
     ]
+
+
+async def test_a_line_that_drops_a_glossary_term_gets_one_repair_request_naming_the_term(
+    temporal_client: Client,
+) -> None:
+    """Segment 1 says 手机; the first answer leaves its glossary Vietnamese out."""
+    model = OneRequestModel(
+        answers=(
+            fits,
+            lambda prompt: [{"id": i, "text_vi": "điện thoại mới"} for i in segment_ids_in(prompt)],
+        )
+    )
+    ports = FakePorts(glossary={("chan_1", "手机"): "điện thoại"})
+    localizing = LocalizerFakes(mode="single", model=model, ports=ports)
+    handle, result = await run(temporal_client, localizing)
+    assert isinstance(result, LocalizationResult), result
+    assert model.requests == 2
+    _, repair = model.prompts
+    assert segment_ids_in(repair) == [1]
+    assert "手机 → điện thoại" in repair and "leaves out" in repair
+    assert [(x.id, x.text_vi) for x in localizing.lines_seen[0].lines] == [
+        (0, SHORT),
+        (1, "điện thoại mới"),
+    ]
+    history = await handle.fetch_history()
+    # A new run records the marker, so it replays with the check on.
+    assert any(
+        b"localizer-glossary-terms" in e.SerializeToString()
+        for e in history.events
+        if e.event_type == EventType.EVENT_TYPE_MARKER_RECORDED
+    )
+
+
+async def test_a_line_still_missing_its_term_after_the_repair_is_kept_not_fatal(
+    temporal_client: Client,
+) -> None:
+    model = OneRequestModel(answers=(fits,))
+    ports = FakePorts(glossary={("chan_1", "手机"): "điện thoại"})
+    localizing = LocalizerFakes(mode="single", model=model, ports=ports)
+    _, result = await run(temporal_client, localizing)
+    assert isinstance(result, LocalizationResult), result
+    assert model.requests == 2
+    assert [(x.id, x.text_vi) for x in localizing.lines_seen[0].lines] == [(0, SHORT), (1, SHORT)]
 
 
 async def test_a_line_still_too_long_after_the_repair_is_kept_for_the_dubbing_stage(

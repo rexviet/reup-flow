@@ -251,3 +251,60 @@ def test_the_decisions_follow_the_order_the_lines_were_given(dubbing_context) ->
     reordered = dubber_single.DubberContext(lines=tuple(reversed(dubbing_context.lines)))
     assessment = dubber_single.assess(d, reordered, lines((0, SHORT), (1, SHORT)))
     assert [x.id for x in dubber_single.decisions(d, reordered, assessment).items] == [1, 0]
+
+
+# --- glossary terms the source says --------------------------------------------------
+
+CALL_TO_ACTION = "打赏支持明镜与点点栏目"  # the last line of 7575765838708520689
+
+
+def _term_context(text: str = CALL_TO_ACTION, slot_ms: int = 3000):  # noqa: ANN202
+    return localizer_single.LocalizerContext(
+        segments=(
+            localizer_single.SegmentContext(
+                id=0, start_ms=0, end_ms=slot_ms, slot_ms=slot_ms, text=text
+            ),
+        ),
+        subtitle_spans=(),
+        on_screen_ids=(),
+        terms=(
+            localizer_single.TermContext(term_zh="明镜", term_vi="Minh Kính"),
+            localizer_single.TermContext(term_zh="点点栏目", term_vi="chuyên mục Điểm Điểm"),
+        ),
+    )
+
+
+def test_a_line_that_drops_a_glossary_term_its_source_says_is_redone_with_the_term() -> None:
+    """The real 7575 answer: 'Ủng hộ Minh Kính' lost 点点栏目."""
+    assessment = localizer_single.assess(
+        deps(1), _term_context(), lines((0, "Ủng hộ Minh Kính")), check_terms=True
+    )
+    problem = assessment.problems[0]
+    assert problem.kind == "missing_term"
+    assert "点点栏目" in problem.note and "chuyên mục Điểm Điểm" in problem.note
+    assert "明镜" not in problem.note  # kept, so not asked for
+    # It is redone, never a reason to end the run.
+    assert assessment.unusable() == {}
+
+
+def test_a_term_is_found_whatever_its_case() -> None:
+    kept = "Ủng hộ minh kính và CHUYÊN MỤC ĐIỂM ĐIỂM"
+    assessment = localizer_single.assess(
+        deps(1), _term_context(), lines((0, kept)), check_terms=True
+    )
+    assert assessment.problems == {}
+
+
+def test_a_line_both_too_long_and_missing_a_term_names_both() -> None:
+    context = _term_context(slot_ms=1000)
+    assessment = localizer_single.assess(
+        deps(1), context, lines((0, "Ủng hộ Minh Kính " + LONG)), check_terms=True
+    )
+    note = assessment.problems[0].note
+    assert "点点栏目" in note and "ms over" in note
+
+
+def test_without_the_term_check_a_dropped_term_is_not_a_problem() -> None:
+    """How runs recorded before the check replay: the same answer, nothing redone."""
+    assessment = localizer_single.assess(deps(1), _term_context(), lines((0, "Ủng hộ Minh Kính")))
+    assert assessment.problems == {}

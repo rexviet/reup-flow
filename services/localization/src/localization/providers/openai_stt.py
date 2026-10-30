@@ -4,6 +4,7 @@ import httpx
 
 from localization.config import Settings
 from localization.contracts.models import SttSegment, SttWord, TranscriptDocument
+from localization.observability.provider_spans import wav_seconds
 from localization.providers.base import OpenAICompatClient
 from localization.providers.errors import PermanentProviderError
 
@@ -24,10 +25,17 @@ class OpenAICompatStt:
         *,
         timeout_seconds: float = 120.0,
         http: httpx.AsyncClient | None = None,
+        provider: str = "openai-compatible",
     ) -> None:
         self._model = model
         self._client = OpenAICompatClient(
-            "stt", base_url, api_key, timeout_seconds=timeout_seconds, http=http
+            "stt",
+            base_url,
+            api_key,
+            timeout_seconds=timeout_seconds,
+            http=http,
+            provider=provider,
+            model=model,
         )
 
     @classmethod
@@ -43,6 +51,7 @@ class OpenAICompatStt:
             settings.stt_model,
             timeout_seconds=settings.provider_timeout_seconds,
             http=http,
+            provider=settings.voice_provider,
         )
 
     async def transcribe(
@@ -56,7 +65,10 @@ class OpenAICompatStt:
         if language:
             data["language"] = language
         response = await self._client.post(
-            "/v1/audio/transcriptions", data=data, files={"file": (filename, audio)}
+            "/v1/audio/transcriptions",
+            units=wav_seconds(audio),
+            data=data,
+            files={"file": (filename, audio)},
         )
         return self._parse(self._client.json(response))
 

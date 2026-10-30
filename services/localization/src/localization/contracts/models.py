@@ -88,12 +88,21 @@ class SubtitleCue(Contract):
 
 class SubtitleDocument(Contract):
     """Stored at `SubtitleTrack.subtitle_key`. `region` is None when the video has
-    no burned-in subtitles, and then `cues` is empty."""
+    no burned-in subtitles, and then `cues` is empty.
+
+    `frame_boxes` is what the OCR answered on each sampled frame (in source pixels,
+    None for no subtitle or an unusable answer), one every `frame_interval_ms` from the
+    start, and `unusable_frames` the indexes of the unusable ones: enough to tell whether
+    a wrong region came from the model or from the consensus built on its answers. A
+    document written before they existed has neither."""
 
     width: PositiveInt
     height: PositiveInt
     region: BBox | None
     cues: tuple[SubtitleCue, ...]
+    frame_interval_ms: PositiveInt | None = None
+    frame_boxes: tuple[BBox | None, ...] = ()
+    unusable_frames: tuple[NonNegativeInt, ...] = ()
 
 
 # --- Preparation ------------------------------------------------------------
@@ -382,7 +391,7 @@ class ReviewVerdict(Contract):
 
 
 class RenderInput(Contract):
-    """What the render worker (queue `render`, TypeScript) is asked."""
+    """What the render activity (queue `render`) is asked."""
 
     aweme_id: AwemeId
     spec_key: Key
@@ -401,13 +410,18 @@ PublishOutcome = Literal["published", "needs_human", "failed"]
 class PublishRequest(Contract):
     """How a run ended. `needs_human` and `failed` runs are never written to
     `output/`: the first keeps its render under `review/`, the second has none.
-    `reasons` are for the person who reads the run (what was flagged, what failed)."""
+    `reasons` are for the person who reads the run (what was flagged, what failed).
+    `dub` (the track the render was made from) and `safety_flag` (a line carried a
+    contact its source lacked) are what the run's scores are measured from; a request
+    recorded before they existed has neither."""
 
     outcome: PublishOutcome
     render_key: Key | None = None
     reasons: Annotated[tuple[Annotated[str, Field(max_length=500)], ...], Field(max_length=20)] = ()
     review_rounds: NonNegativeInt = 0
     verdict: ReviewVerdict | None = None
+    dub: DubbedAudio | None = None
+    safety_flag: bool = False
 
 
 class PublishResult(Contract):

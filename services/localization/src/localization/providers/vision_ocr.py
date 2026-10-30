@@ -10,7 +10,7 @@ from localization.providers.base import OpenAICompatClient
 from localization.providers.bbox import normalize_bbox
 from localization.providers.errors import PermanentProviderError, UnusableAnswer
 
-_PROMPT = (
+PROMPT = (
     "Find the band of burned-in subtitle text in this video frame. Reply with JSON only: "
     '{"bbox": [a, b, c, d]} for the tightest box around the band, or {"bbox": null} when '
     "the frame has no burned-in subtitles."
@@ -40,11 +40,23 @@ class VisionOcr:
         *,
         timeout_seconds: float = 120.0,
         http: httpx.AsyncClient | None = None,
+        prompt: str = PROMPT,
+        answer_only: bool = True,
     ) -> None:
+        """`prompt` and `answer_only` are what the OCR eval varies; production uses the
+        defaults."""
         self._model = model
         self._format = bbox_format
+        self._prompt = prompt
+        self._body = dict(_ANSWER_ONLY) if answer_only else {}
         self._client = OpenAICompatClient(
-            "ocr", base_url, api_key, timeout_seconds=timeout_seconds, http=http
+            "ocr",
+            base_url,
+            api_key,
+            timeout_seconds=timeout_seconds,
+            http=http,
+            provider="openrouter",
+            model=model,
         )
 
     @classmethod
@@ -67,14 +79,15 @@ class VisionOcr:
         image = base64.b64encode(frame_png).decode("ascii")
         response = await self._client.post(
             "/chat/completions",
+            units=1,
             json={
                 "model": self._model,
-                **_ANSWER_ONLY,
+                **self._body,
                 "messages": [
                     {
                         "role": "user",
                         "content": [
-                            {"type": "text", "text": _PROMPT},
+                            {"type": "text", "text": self._prompt},
                             {
                                 "type": "image_url",
                                 "image_url": {"url": f"data:{_mime(frame_png)};base64,{image}"},

@@ -17,10 +17,17 @@ class OpenAICompatTts:
         *,
         timeout_seconds: float = 120.0,
         http: httpx.AsyncClient | None = None,
+        provider: str = "openai-compatible",
     ) -> None:
         self._model = model
         self._client = OpenAICompatClient(
-            "tts", base_url, api_key, timeout_seconds=timeout_seconds, http=http
+            "tts",
+            base_url,
+            api_key,
+            timeout_seconds=timeout_seconds,
+            http=http,
+            provider=provider,
+            model=model,
         )
 
     @classmethod
@@ -36,6 +43,7 @@ class OpenAICompatTts:
             settings.tts_model,
             timeout_seconds=settings.provider_timeout_seconds,
             http=http,
+            provider=settings.voice_provider,
         )
 
     async def synthesize(self, text: str, voice: VoiceRef) -> bytes:
@@ -46,7 +54,7 @@ class OpenAICompatTts:
             "response_format": "wav",
             **voice.settings.model_dump(exclude_none=True),
         }
-        response = await self._client.post("/v1/audio/speech", json=payload)
+        response = await self._client.post("/v1/audio/speech", units=len(text), json=payload)
         audio = response.content
         # The result is cached forever under a hash of its inputs, so anything that
         # is not a WAV (a 200 carrying a JSON error, an empty body) must never be

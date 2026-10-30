@@ -6,19 +6,33 @@ to `output/{aweme_id}.mp4`. A run that needs a person keeps its render under
 written to `output/`. A run that failed has no render at all. Each of the three also
 leaves one row in `localization.runs`, keyed by video and generation, so the same
 call made twice leaves the same state.
+
+Last, the run's scores go on its Langfuse trace (see `observability.scores`), best
+effort: a run is published, kept or failed whatever happens to its scores.
 """
 
 import asyncio
 import json
+import logging
 
 import psycopg
 from psycopg.types.json import Jsonb
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from localization.contracts import LocalizationInput, PublishRequest, PublishResult
+from localization.activities.script_document import read_script
+from localization.contracts import (
+    DubSegmentsDocument,
+    LocalizationInput,
+    LocalizedScript,
+    PublishRequest,
+    PublishResult,
+)
+from localization.observability.scores import LangfuseScores, current_trace_id, run_scores
 from localization.observability.tracing import tag_session
 from localization.storage.object_store import ObjectStore, output_key, review_key
+
+log = logging.getLogger(__name__)
 
 UPSERT_SQL = """
 INSERT INTO localization.runs
@@ -81,9 +95,12 @@ def _refuse(message: str) -> ApplicationError:
 
 
 class PublishActivity:
-    def __init__(self, store: ObjectStore, runs: RunStore) -> None:
+    def __init__(
+        self, store: ObjectStore, runs: RunStore, scores: LangfuseScores | None = None
+    ) -> None:
         self._store = store
         self._runs = runs
+        self._scores = scores
 
     @activity.defn(name="publish")
     async def publish(self, spec: LocalizationInput, request: PublishRequest) -> PublishResult:
@@ -131,4 +148,38 @@ class PublishActivity:
             review_rounds=request.review_rounds,
             needs_human=request.outcome == "needs_human",
         )
+        try:
+            await self._score(request)
+        except Exception as exc:  # noqa: BLE001 - a run is never failed for its scores
+            log.warning("run scores not sent: %s", type(exc).__name__)
         return PublishResult(outcome=request.outcome, output_key=output, review_key=review)
+
+    async def _score(self, request: PublishRequest) -> None:
+        trace_id = current_trace_id()
+        if self._scores is None or trace_id is None:
+            return
+        segments: DubSegmentsDocument | None = None
+        script: LocalizedScript | None = None
+        if request.dub is not None:
+            try:
+                segments, script = await asyncio.to_thread(self._dub_documents, request)
+            except Exception as exc:  # noqa: BLE001 - a missing document costs its scores only
+                log.warning("run scores without the dub documents: %s", type(exc).__name__)
+        scores = run_scores(
+            verdict=request.verdict,
+            segments=segments,
+            script=script,
+            review_rounds=request.review_rounds,
+            needs_human=request.outcome == "needs_human",
+            safety_flag=request.safety_flag,
+        )
+        await self._scores.send(trace_id, scores)
+
+    def _dub_documents(
+        self, request: PublishRequest
+    ) -> tuple[DubSegmentsDocument, LocalizedScript]:
+        assert request.dub is not None
+        segments = DubSegmentsDocument.model_validate_json(
+            self._store.get_bytes(request.dub.segments_key, produced_by="dub_script")
+        )
+        return segments, read_script(self._store, request.dub.script_key)

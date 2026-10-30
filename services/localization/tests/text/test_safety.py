@@ -53,6 +53,16 @@ def test_the_contacts_come_back_in_order_without_repeats() -> None:
     assert found == ["a.com", "b.vn", "0912345678"]
 
 
+def test_a_phone_number_next_to_chinese_punctuation_is_found_whole() -> None:
+    # Full-width "，" becomes "," under NFKC; the number after it must not lose "138-".
+    src = "也接点定制，有兴趣的可以加我，138-0013-8000，微信同号，没事儿就聊聊养猫养狗的"
+    vi = "ai thích thì gọi 138-0013-8000, Zalo cũng số này"
+    assert find_contacts(src) == ["138-0013-8000"]
+    assert find_contacts(vi) == ["138-0013-8000"]
+    assert find_contacts("电话：13800138000。") == ["13800138000"]
+    assert find_contacts("加我13800138000吧") == ["13800138000"]
+
+
 def test_a_url_is_one_contact_not_a_url_and_a_domain() -> None:
     assert find_contacts("https://shop-xyz.vn/a") == ["https://shop-xyz.vn/a"]
 
