@@ -15,7 +15,9 @@ from localization.config import ConfigError, Settings
 from localization.storage.object_store import ObjectStore
 from localization.workers.run import bind_agent_runtime, queue_specs, runnable
 
-PROVIDERS = SimpleNamespace(stt=object(), ocr=object(), tts=object(), demucs=object())
+PROVIDERS = SimpleNamespace(
+    stt=object(), ocr=object(), tts=object(), demucs=object(), vbee_stt=None, vbee_tts=None
+)
 
 
 def _registered(settings: Settings) -> dict[str, set[str]]:
@@ -67,18 +69,32 @@ def test_the_dubbing_stage_is_served_on_the_queues_the_workflow_sends_it_to() ->
 
 def test_the_review_and_the_publish_are_served_on_the_queues_the_workflow_sends_them_to() -> None:
     served = _registered(Settings())
-    assert "review_render" in served["llm"]
+    assert {"review_before_render", "review_render"} <= served["llm"]
     assert "publish" in served["io"]
     assert "segment_room" in served["io"]
     assert "publish" not in served["llm"] and "review_render" not in served["io"]
+    assert "review_before_render" not in served["io"]
 
 
-def test_the_rendering_activity_is_not_served_by_python() -> None:
-    """`render` is the TypeScript worker's: a Python worker that also answered on the
-    `render` queue would take renders it cannot do."""
-    specs = runnable(queue_specs("agents", Settings(), ObjectStore(object(), "b"), PROVIDERS))  # type: ignore[arg-type]
-    media = runnable(queue_specs("media", Settings(), STORE, PROVIDERS))  # type: ignore[arg-type]
-    assert "render" not in {s.name for s in [*specs, *media]}
+def test_the_render_is_served_by_the_media_worker_on_its_own_queue_and_limit() -> None:
+    """`render` keeps its own queue, so its limit (RENDER_CONCURRENCY) is not shared with
+    the separations and the layout on `media`; the agents worker does not answer it."""
+    settings = Settings(render_concurrency=3, caption_font_path="/fonts/x.ttf")
+    media = {s.name: s for s in runnable(queue_specs("media", settings, STORE, PROVIDERS))}  # type: ignore[arg-type]
+    render = media["render"]
+    assert render.limit == 3
+    (served,) = render.activities
+    assert served.__temporal_activity_definition.name == "render"  # type: ignore[attr-defined]
+    assert served.__self__._font_path == "/fonts/x.ttf"  # type: ignore[attr-defined]  # noqa: SLF001
+    assert "render" not in {
+        fn.__temporal_activity_definition.name  # type: ignore[attr-defined]
+        for s in media.values()
+        if s.name != "render"
+        for fn in s.activities
+    }
+    agents = runnable(queue_specs("agents", Settings(), STORE, PROVIDERS))  # type: ignore[arg-type]
+    assert "render" not in {s.name for s in agents}
+    assert Settings().render_concurrency == 1
 
 
 def test_the_media_worker_normalises_to_the_configured_loudness() -> None:
@@ -326,12 +342,16 @@ def _served_by_production() -> set[tuple[str, str]]:
     return served
 
 
+# Runs that rendered each round and reviewed the render, and runs reviewed before the one
+# render: the workflow asks for both shapes, so production serves both.
 RECORDINGS = sorted(
-    (Path(__file__).parents[1] / "replay" / "histories" / "phase-08").glob("*.json")
+    path
+    for phase in ("phase-08", "review-before-render")
+    for path in (Path(__file__).parents[1] / "replay" / "histories" / phase).glob("*.json")
 )
 
 
-@pytest.mark.parametrize("history", RECORDINGS, ids=lambda p: p.stem)
+@pytest.mark.parametrize("history", RECORDINGS, ids=lambda p: f"{p.parent.name}/{p.stem}")
 def test_every_activity_the_workflow_schedules_is_served_on_its_queue_by_a_real_worker(
     history: Path,
 ) -> None:
@@ -341,19 +361,14 @@ def test_every_activity_the_workflow_schedules_is_served_on_its_queue_by_a_real_
     stand-in would pass every test above and leave a real run waiting for ever."""
     asked = _asked_for(history)
     assert asked, "the recording schedules nothing: this would prove nothing"
-    served = _served_by_production()
-    # `render` is the TypeScript worker's: see the next test.
-    missing = {pair for pair in asked - served if pair != ("render", "render")}
-    assert missing == set()
+    assert asked - _served_by_production() == set()
 
 
-def test_the_activity_the_python_workers_do_not_serve_is_the_one_the_renderer_does() -> None:
-    """The one step Python does not serve is `render`, on the queue `render`, which
-    `services/renderer` serves: the same name on the same queue."""
+def test_the_recordings_ask_for_the_render_on_the_queue_it_is_served_on() -> None:
+    """The render is asked for by name on the `render` queue; the media worker serves it
+    there under the same name, so the recorded histories hold as they are."""
     assert {pair for h in RECORDINGS for pair in _asked_for(h)} >= {("render", "render")}
-    worker = (Path(__file__).parents[3] / "renderer" / "src" / "worker.ts").read_text()
-    assert 'RENDER_QUEUE = "render"' in worker
-    assert "createProductionWorker(connection, settings, { render })" in worker
+    assert ("render", "render") in _served_by_production()
 
 
 def test_no_stand_in_is_registered_by_a_production_worker() -> None:

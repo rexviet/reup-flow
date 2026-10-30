@@ -19,6 +19,8 @@ from temporalio.workflow import NondeterminismError
 
 from localization.temporal.client import guarded_data_converter
 from localization.workflows.video_localization import VideoLocalizationWorkflow
+from tests.replay.ungated_batches_flow import UngatedBatchesWorkflow
+from tests.replay.ungated_review_first_flow import UngatedReviewFirstWorkflow
 from tests.support.reordered_flow import ReorderedWorkflow
 from tests.support.ungated_dub_flow import UngatedDubWorkflow
 from tests.support.ungated_rate_flow import UngatedRateWorkflow
@@ -228,6 +230,9 @@ async def test_control_the_rerun_question_without_its_marker_breaks_the_older_hi
 
 NEW_RATE = "voice-rate-with-ingest"
 ONE_REQUEST = "single-request"
+GLOSSARY_TERMS = "glossary-terms"
+EVEN_TTS = "even-tts-batches"
+REVIEW_FIRST = "review-before-render"
 
 
 def _scheduled(path: Path) -> list[str]:
@@ -265,7 +270,7 @@ def test_the_histories_recorded_before_the_rate_moved_are_really_without_it() ->
     """The rate was asked for after the preparation in every one of them (or not at all,
     before the Localizer stage existed)."""
     for path in HISTORIES:
-        if path.parent.name in (NEW_RATE, ONE_REQUEST):
+        if path.parent.name in (NEW_RATE, ONE_REQUEST, GLOSSARY_TERMS, EVEN_TTS, REVIEW_FIRST):
             continue
         assert "voice-rate-with-ingest" not in _patches(path), path.name
         scheduled = _scheduled(path)
@@ -317,7 +322,7 @@ def test_the_histories_recorded_with_the_one_request_agents_have_them() -> None:
 
 def test_the_histories_recorded_before_the_one_request_agents_are_really_without_them() -> None:
     for path in HISTORIES:
-        if path.parent.name == ONE_REQUEST:
+        if path.parent.name in (ONE_REQUEST, GLOSSARY_TERMS, EVEN_TTS, REVIEW_FIRST):
             continue
         assert "localizer-single-request" not in _patches(path), path.name
         assert "dubber-single-request" not in _patches(path), path.name
@@ -343,3 +348,135 @@ async def test_control_the_localizer_context_without_its_marker_breaks_the_older
     proves nothing. (Histories from before the Localizer stage end at its own marker.)"""
     with pytest.raises(NondeterminismError):
         await _replayer(UngatedSingleWorkflow).replay_workflow(_history(path))
+
+
+def test_the_glossary_term_histories_carry_the_check_and_one_of_them_its_repair() -> None:
+    """The check's histories must really be on its path: the marker is recorded, and the
+    run whose first answer left the term out made the repair request."""
+    by = {p.stem: p for p in _of(GLOSSARY_TERMS)}
+    assert set(by) == {"term-put-back-by-the-repair", "term-kept-by-the-first-answer"}
+    for path in by.values():
+        assert "localizer-glossary-terms" in _patches(path), path.stem
+    assert "agent__localizer_repair__model_request" in by["term-put-back-by-the-repair"].read_text()
+    assert "agent__localizer_repair__model_request" not in (
+        by["term-kept-by-the-first-answer"].read_text()
+    )
+    # Every history recorded before the check runs without it.
+    older = [p for p in HISTORIES if p.parent.name not in (GLOSSARY_TERMS, REVIEW_FIRST)]
+    assert older and not any("localizer-glossary-terms" in _patches(p) for p in older)
+
+
+def test_the_even_batch_histories_carry_the_marker_and_one_batch_per_slot() -> None:
+    """The split's histories must really be on its path: the marker is recorded, and a
+    script of three lines (one batch before) was spoken as two."""
+    by = {p.stem: _scheduled(p) for p in _of(EVEN_TTS)}
+    assert set(by) == {
+        "three-lines-in-two-batches",
+        "twenty-five-lines-in-three-batches",
+        "dubber-runs-again-for-one-line",
+    }
+    for path in _of(EVEN_TTS):
+        assert "even-tts-batches" in _patches(path), path.stem
+    # Each run speaks its script twice (the Localizer's, then the dubbed one); the rerun
+    # after the review speaks it a third time.
+    assert by["three-lines-in-two-batches"].count("synthesize_segments") == 2 * 2
+    assert by["twenty-five-lines-in-three-batches"].count("synthesize_segments") == 2 * 3
+    assert by["dubber-runs-again-for-one-line"].count("synthesize_segments") == 3 * 2
+    assert by["dubber-runs-again-for-one-line"].count("review_render") == 2
+
+
+def test_the_histories_recorded_before_the_even_batches_are_really_without_them() -> None:
+    older = [p for p in HISTORIES if p.parent.name not in (EVEN_TTS, REVIEW_FIRST)]
+    assert older and not any("even-tts-batches" in _patches(p) for p in older)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        p
+        for p in HISTORIES
+        if p.parent.name not in (EVEN_TTS, REVIEW_FIRST)
+        and "synthesize_segments" in _scheduled(p)
+        # Twenty-five lines are three batches either way, and replay does not compare an
+        # activity's input, so that run cannot tell the two splits apart.
+        and (p.parent.name, p.stem) != ("phase-06", "plain-run")
+    ],
+    ids=lambda p: f"{p.parent.name}/{p.stem}",
+)
+async def test_control_the_even_batches_without_their_marker_break_the_older_histories(
+    path: Path,
+) -> None:
+    """The marker is what lets a run recorded before the split replay: the same split made
+    without it must be rejected, or the real workflow's marker proves nothing."""
+    with pytest.raises(NondeterminismError):
+        await _replayer(UngatedBatchesWorkflow).replay_workflow(_history(path))
+
+
+def _rounds_of(path: Path) -> list[str]:
+    """What a history scheduled from the first layout on."""
+    scheduled = _scheduled(path)
+    return scheduled[scheduled.index("layout_captions") :]
+
+
+def test_the_review_first_histories_carry_the_marker_and_render_once_after_the_review() -> None:
+    """The new order's histories must really be on its path: the marker is recorded, every
+    round is reviewed without a render, and the one render follows the last review."""
+    by = {p.stem: _rounds_of(p) for p in _of(REVIEW_FIRST)}
+    assert set(by) == {
+        "published-at-the-first-review",
+        "dubber-runs-again-for-one-line",
+        "needs-a-person-after-two-reviews",
+        "review-could-not-be-made",
+        "render-fails-for-good-after-the-review",
+        "reviewer-needs-the-render",
+    }
+    for path in _of(REVIEW_FIRST):
+        assert REVIEW_FIRST in _patches(path), path.stem
+    assert by["published-at-the-first-review"] == [
+        "layout_captions",
+        "review_before_render",
+        "render",
+        "publish",
+    ]
+    for name in ("dubber-runs-again-for-one-line", "needs-a-person-after-two-reviews"):
+        rounds = by[name]
+        assert rounds.count("review_before_render") == 2 and rounds.count("render") == 1, name
+        assert "review_render" not in rounds, name
+        assert rounds[-2:] == ["render", "publish"], name
+    # A review that could not be made still has the video rendered, for the person.
+    assert by["review-could-not-be-made"] == [
+        "layout_captions",
+        "review_before_render",
+        "render",
+        "publish",
+    ]
+    failed = by["render-fails-for-good-after-the-review"]
+    assert failed == ["layout_captions", "review_before_render", "render", "publish"]
+    text = {p.stem: p.read_text() for p in _of(REVIEW_FIRST)}
+    assert "EVENT_TYPE_WORKFLOW_EXECUTION_FAILED" in text["render-fails-for-good-after-the-review"]
+    # The reviewer that looks at frames is shown a render of each round, as before.
+    frames = by["reviewer-needs-the-render"]
+    assert frames.count("render") == frames.count("review_render") == 2
+    assert frames[:4] == ["layout_captions", "review_before_render", "render", "review_render"]
+
+
+def test_the_histories_recorded_before_the_review_came_first_are_really_without_it() -> None:
+    older = [p for p in HISTORIES if p.parent.name != REVIEW_FIRST]
+    assert older and not any(REVIEW_FIRST in _patches(p) for p in older)
+    assert not any("review_before_render" in _scheduled(p) for p in older)
+
+
+@pytest.mark.parametrize(
+    "path",
+    # A run that never had a round reviewed (it failed earlier) issues the same commands
+    # either way.
+    [p for p in HISTORIES if p.parent.name != REVIEW_FIRST and "review_render" in _scheduled(p)],
+    ids=lambda p: f"{p.parent.name}/{p.stem}",
+)
+async def test_control_the_review_first_without_its_marker_breaks_the_older_histories(
+    path: Path,
+) -> None:
+    """The marker is what lets a run recorded when every round was rendered replay: the same
+    order taken without it must be rejected, or the real workflow's marker proves nothing."""
+    with pytest.raises(NondeterminismError):
+        await _replayer(UngatedReviewFirstWorkflow).replay_workflow(_history(path))

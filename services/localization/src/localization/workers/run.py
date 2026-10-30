@@ -1,7 +1,7 @@
 """One process, one `Worker` per task queue.
 
     python -m localization.workers.run agents   # workflows, llm, io, stt, tts
-    python -m localization.workers.run media    # media
+    python -m localization.workers.run media    # media, render
 
 Each queue is its own `Worker`, so each has its own concurrency limit. `workflows`
 carries only the workflow and depends on nothing external: a VoiceStudio outage
@@ -34,10 +34,14 @@ from localization.activities.ingest import IngestActivity
 from localization.activities.layout_captions import FontMeter, LayoutCaptionsActivity
 from localization.activities.localizer_ports import StorePorts
 from localization.activities.persist import PersistActivity
+from localization.activities.plan_slots import PlanSlotsActivity
 from localization.activities.publish import PublishActivity, RunStore
+from localization.activities.render import RenderActivity
 from localization.activities.review_render import ReviewRenderActivity
+from localization.activities.slot_script import SlotScriptActivity
 from localization.activities.synthesize import SynthesizeActivities, Synthesizer
 from localization.activities.transcribe import TranscribeActivity
+from localization.activities.vbee_stt import VbeeSttActivity
 from localization.activities.voice_rate import VoiceRateActivity, VoiceRateStore
 from localization.agents import dubber as dubber_module
 from localization.agents.answer_only import AnswerOnlyModel
@@ -51,19 +55,24 @@ from localization.agents.temporal import (
     localizer,
     localizer_repair_agent,
     localizer_single_agent,
+    slot_shortener_agent,
+    slot_shortener_repair_agent,
 )
 from localization.config import ConfigError, Settings, load_settings
 from localization.observability.llm_calls import LlmCallRecorder
 from localization.observability.llm_usage import Recorder
+from localization.observability.scores import LangfuseScores
 from localization.observability.tracing import init_tracing
 from localization.providers.base import TtsProvider
 from localization.providers.jev import jev_for
 from localization.providers.llm import model_for, openrouter_client
 from localization.providers.registry import Providers, build_media_providers, build_providers
+from localization.providers.tts_router import ConfiguredVoices, TtsByProvider
 from localization.storage.object_store import ObjectStore
 from localization.temporal.client import connect
 from localization.workers.health import VoiceStudioHealth
-from localization.workflows.video_localization import VideoLocalizationWorkflow
+from localization.workflows.vbee_dubbing import VbeeDubbingWorkflow
+from localization.workflows.video_localization import RENDER_QUEUE, VideoLocalizationWorkflow
 
 log = logging.getLogger(__name__)
 
@@ -124,26 +133,36 @@ def queue_specs(
             cover_color=settings.cover_color,
             cover_opacity=settings.cover_opacity,
         )
+        render = RenderActivity(store, font_path=settings.caption_font_path)
         return [
             QueueSpec(
                 "media",
                 settings.media_concurrency,
                 activities=[ingest.ingest, assemble_audio.assemble_audio, layout.layout_captions],
-            )
+            ),
+            # Its own queue and limit: a render does not wait behind separations, and
+            # RENDER_CONCURRENCY bounds the encoders running at once.
+            QueueSpec(RENDER_QUEUE, settings.render_concurrency, activities=[render.render]),
         ]
     if role == "agents":
         transcribe = TranscribeActivity(store, providers.stt)
         detect = DetectSubtitlesActivity(store, providers.ocr)
         database_url = _database_url(settings)
         assemble = AssembleScriptActivity(store)
+        # One synthesizer and clip cache for both pipelines: a voice is spoken by the
+        # provider it belongs to, and the Vbee voice a run names by a marker is the
+        # configured one.
+        tts = speech_provider(providers)
+        resolve = ConfiguredVoices(settings.vbee_voice_id).resolve
         voice_rate = VoiceRateActivity(
-            providers.tts,
+            tts,
             VoiceRateStore(database_url),
             model=settings.tts_model,
             engine=engine,
+            resolve=resolve,
         )
         synthesis = SynthesizeActivities(
-            store, providers.tts, model=settings.tts_model, engine=engine
+            store, tts, model=settings.tts_model, engine=engine, resolve=resolve
         )
         dub = DubScriptActivities(store, synthesis.synthesizer)
         review = ReviewRenderActivity(
@@ -157,7 +176,9 @@ def queue_specs(
             recorder=recorder,
             font_path=settings.caption_font_path,
         )
-        publish = PublishActivity(store, RunStore(database_url))
+        publish = PublishActivity(
+            store, RunStore(database_url), LangfuseScores.from_settings(settings)
+        )
         # The agents' model requests (`llm`) and tools (`io`, and the Dubber's
         # `synthesize` on `tts`) are activities of the agents; their plugins register
         # them on each queue's worker.
@@ -172,15 +193,21 @@ def queue_specs(
                 localizer_repair_agent,
                 dubber_single_agent,
                 dubber_repair_agent,
+                slot_shortener_agent,
+                slot_shortener_repair_agent,
             )
         ]
         agent_context = AgentContextActivities(settings.localizer_mode, settings.dubber_mode)
+        hear = VbeeSttActivity(store, providers.vbee_stt)
         return [
-            QueueSpec("workflows", workflows=[VideoLocalizationWorkflow]),
-            # The Reviewer's model requests are made inside `review_render`, which is why
-            # that activity lives here and not on a queue of its own.
+            QueueSpec("workflows", workflows=[VideoLocalizationWorkflow, VbeeDubbingWorkflow]),
+            # The Reviewer's model requests are made inside `review_before_render` and
+            # `review_render`, which is why they live here and not on a queue of their own.
             QueueSpec(
-                "llm", settings.llm_concurrency, activities=[review.review_render], plugins=agents
+                "llm",
+                settings.llm_concurrency,
+                activities=[review.review_before_render, review.review_render],
+                plugins=agents,
             ),
             QueueSpec(
                 "io",
@@ -198,10 +225,20 @@ def queue_specs(
                     dub.write_dubbed_script,
                     dub.commit_dub,
                     publish.publish,
+                    # The Vbee dubbing workflow's steps that are not shared with the other.
+                    PlanSlotsActivity(store).plan_slots,
+                    SlotScriptActivity(store).write_slot_script,
+                    dub.clip_durations,
+                    review.review_dub,
                 ],
                 plugins=agents,
             ),
-            QueueSpec("stt", settings.stt_concurrency, activities=[transcribe.transcribe]),
+            # Speech to text, local or Vbee's: STT_CONCURRENCY bounds the jobs at once.
+            QueueSpec(
+                "stt",
+                settings.stt_concurrency,
+                activities=[transcribe.transcribe, hear.vbee_stt],
+            ),
             QueueSpec(
                 "tts",
                 settings.tts_concurrency,
@@ -210,6 +247,12 @@ def queue_specs(
             ),
         ]
     raise ConfigError(f"unknown worker role {role!r}; expected 'agents' or 'media'")
+
+
+def speech_provider(providers: Providers) -> TtsByProvider:
+    """The TTS every speaking activity of the agents worker uses: a voice goes to the
+    provider it belongs to."""
+    return TtsByProvider(providers.tts, providers.vbee_tts)
 
 
 def runnable(specs: Sequence[QueueSpec]) -> list[QueueSpec]:
@@ -258,7 +301,12 @@ def bind_agent_runtime(
     )
     bind_model_factory(lambda: dubber_model, DUBBER_MODEL_ALIAS)
     if tts is not None:
-        synthesizer = Synthesizer(store, tts, model=settings.tts_model)
+        synthesizer = Synthesizer(
+            store,
+            tts,
+            model=settings.tts_model,
+            resolve=ConfiguredVoices(settings.vbee_voice_id).resolve,
+        )
         dubber_module.bind_ports(StoreDubberPorts(store, synthesizer))
 
 
@@ -284,7 +332,7 @@ async def serve(role: str) -> int:
     store = ObjectStore.from_settings(settings)
     health = VoiceStudioHealth.from_settings(settings) if role == "agents" else None
     if role == "agents":
-        bind_agent_runtime(settings, store, providers.tts, llm_http)
+        bind_agent_runtime(settings, store, speech_provider(providers), llm_http)
     specs = runnable(
         queue_specs(
             role,

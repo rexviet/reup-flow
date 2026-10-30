@@ -38,16 +38,6 @@ x-localization-s3-env: &localization-s3-env
   LOC_S3_ACCESS_KEY_ID: ${LOC_S3_ACCESS_KEY_ID}
   LOC_S3_SECRET_ACCESS_KEY: ${LOC_S3_SECRET_ACCESS_KEY}
 
-# What the render worker reads of the object store: its own user, which reaches work/*
-# only (infra/minio/init.sh).
-x-renderer-s3-env: &renderer-s3-env
-  S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
-  S3_REGION: ${S3_REGION:-us-east-1}
-  S3_BUCKET: ${S3_BUCKET:-reup-media}
-  S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
-  RENDER_S3_ACCESS_KEY_ID: ${RENDER_S3_ACCESS_KEY_ID}
-  RENDER_S3_SECRET_ACCESS_KEY: ${RENDER_S3_SECRET_ACCESS_KEY}
-
 services:
   nest:
     build:
@@ -364,8 +354,6 @@ services:
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
       LOC_S3_ACCESS_KEY_ID: ${LOC_S3_ACCESS_KEY_ID}
       LOC_S3_SECRET_ACCESS_KEY: ${LOC_S3_SECRET_ACCESS_KEY}
-      RENDER_S3_ACCESS_KEY_ID: ${RENDER_S3_ACCESS_KEY_ID}
-      RENDER_S3_SECRET_ACCESS_KEY: ${RENDER_S3_SECRET_ACCESS_KEY}
       LANGFUSE_S3_ACCESS_KEY_ID: ${LANGFUSE_S3_ACCESS_KEY_ID}
       LANGFUSE_S3_SECRET_ACCESS_KEY: ${LANGFUSE_S3_SECRET_ACCESS_KEY}
     depends_on:
@@ -380,7 +368,7 @@ services:
       TZ: UTC
     # No `ports:`. ClickHouse is reachable only by the Langfuse services.
     # Idle ClickHouse alone can take several GB; the host also runs Demucs and
-    # Chromium (plan §7).
+    # the ffmpeg renders (plan §7).
     mem_limit: 2g
     ulimits:
       nofile:
@@ -471,6 +459,13 @@ services:
       VOICESTUDIO_URL: ${VOICESTUDIO_URL:-}
       VOICESTUDIO_API_KEY: ${VOICESTUDIO_API_KEY:-}
       VOICESTUDIO_ALLOW_PRIVATE_HTTP_CIDRS: ${VOICESTUDIO_ALLOW_PRIVATE_HTTP_CIDRS:-100.64.0.0/10}
+      # voicestudio: VideoLocalizationWorkflow; vbee: VbeeDubbingWorkflow. In vbee mode the
+      # starter only checks that the three Vbee settings are set (it calls neither Vbee nor
+      # VoiceStudio), and names the voice by a marker: the voice id never enters a history.
+      LOCALIZATION_PIPELINE: ${LOCALIZATION_PIPELINE:-voicestudio}
+      VBEE_APP_ID: ${VBEE_APP_ID:-}
+      VBEE_API_TOKEN: ${VBEE_API_TOKEN:-}
+      VBEE_VOICE_ID: ${VBEE_VOICE_ID:-}
       MAX_OPEN_WORKFLOWS: ${MAX_OPEN_WORKFLOWS:-10}
       OUTBOX_MAX_ATTEMPTS: ${OUTBOX_MAX_ATTEMPTS:-5}
     depends_on:
@@ -516,13 +511,21 @@ services:
       VOICESTUDIO_ALLOW_PRIVATE_HTTP_CIDRS: ${VOICESTUDIO_ALLOW_PRIVATE_HTTP_CIDRS:-100.64.0.0/10}
       STT_MODEL: ${STT_MODEL:-}
       TTS_MODEL: ${TTS_MODEL:-}
+      # Serves both pipelines; with LOCALIZATION_PIPELINE=vbee it refuses to start without
+      # the Vbee settings and needs no VoiceStudio.
+      LOCALIZATION_PIPELINE: ${LOCALIZATION_PIPELINE:-voicestudio}
+      VBEE_BASE_URL: ${VBEE_BASE_URL:-https://api.vbee.vn}
+      VBEE_APP_ID: ${VBEE_APP_ID:-}
+      VBEE_API_TOKEN: ${VBEE_API_TOKEN:-}
+      VBEE_VOICE_ID: ${VBEE_VOICE_ID:-}
+      VBEE_POLL_TIMEOUT_SECONDS: ${VBEE_POLL_TIMEOUT_SECONDS:-300}
       STT_CONCURRENCY: ${STT_CONCURRENCY:-1}
       TTS_CONCURRENCY: ${TTS_CONCURRENCY:-2}
       LLM_CONCURRENCY: ${LLM_CONCURRENCY:-8}
       IO_CONCURRENCY: ${IO_CONCURRENCY:-2}
       LOUDNESS_LUFS: ${LOUDNESS_LUFS:--14}
       TRUE_PEAK_DBTP: ${TRUE_PEAK_DBTP:--1.5}
-      # The Jev review measures captions with the font the renderer draws with.
+      # The Jev review measures captions with the font the render draws with.
       CAPTION_FONT_PATH: ${CAPTION_FONT_PATH:-/assets/fonts/BeVietnamPro-SemiBold.ttf}
     volumes:
       - ./assets/fonts:/assets/fonts:ro
@@ -532,62 +535,30 @@ services:
       minio-init:
         condition: service_completed_successfully
 
-  # Queue: media (Demucs, CPU heavy). MEDIA_CONCURRENCY bounds its memory.
+  # Queues: media (Demucs, CPU heavy; MEDIA_CONCURRENCY bounds its memory) and render
+  # (one ffmpeg encode per render; RENDER_CONCURRENCY of them at once).
   worker-media:
     build: *localization-build
     restart: unless-stopped
     command: ["python", "-m", "localization.workers.run", "media"]
     stop_grace_period: 90s
     # Demucs works in /tmp: the extracted audio and both stems, per running
-    # separation (MEDIA_CONCURRENCY of them).
+    # separation (MEDIA_CONCURRENCY of them). A render keeps the source, the dubbed
+    # track, the caption images and the output there until it is uploaded.
     tmpfs:
       - /tmp:size=4g,mode=1777
     environment:
       <<: [*localization-env, *localization-s3-env]
       MEDIA_CONCURRENCY: ${MEDIA_CONCURRENCY:-2}
+      RENDER_CONCURRENCY: ${RENDER_CONCURRENCY:-1}
       LOUDNESS_LUFS: ${LOUDNESS_LUFS:--14}
       TRUE_PEAK_DBTP: ${TRUE_PEAK_DBTP:--1.5}
-      # Captions are measured with the same font file the renderer draws with.
+      # Captions are measured (layout) and drawn (render) with this one font file.
       CAPTION_FONT_PATH: ${CAPTION_FONT_PATH:-/assets/fonts/BeVietnamPro-SemiBold.ttf}
       COVER_COLOR: ${COVER_COLOR:-#101010}
       COVER_OPACITY: ${COVER_OPACITY:-0.92}
     volumes:
       - ./assets/fonts:/assets/fonts:ro
-    depends_on:
-      temporal-namespace-init:
-        condition: service_completed_successfully
-      minio-init:
-        condition: service_completed_successfully
-
-  # ---------------------------------------------------------------------------
-  # The render worker (plan 261026-0147, phase 07): Node, Remotion and Chromium.
-  # Queue: render. Stop it and a workflow waits at the render step; nothing is lost.
-  # ---------------------------------------------------------------------------
-  worker-render:
-    build:
-      # Repo root, as for `nest`: the pnpm lockfile, `contracts/` and `assets/` live there.
-      context: .
-      dockerfile: services/renderer/Dockerfile
-    restart: unless-stopped
-    # Longer than the worker's graceful shutdown (10 minutes), so a stop lets a running
-    # render finish instead of killing it.
-    stop_grace_period: 660s
-    # Chromium keeps frames in shared memory; Docker's default /dev/shm is 64 MB, which a
-    # long or wide render can exhaust with a crashed tab and no useful message.
-    shm_size: 512m
-    # Measured on a 60 s 1080x1920 HEVC render in this image (2 tabs, 512 MB video cache,
-    # see services/renderer/src/remotion-render.ts): peak 4.1 GiB resident, 52 MB of /tmp,
-    # about 40 MB of /dev/shm. tmpfs and shm pages count against the container's memory,
-    # so the limit covers the measured peak PLUS both caps, filled; compose-constraints.spec.ts
-    # keeps it that way. The same render in a 4 GB container was killed by the OOM killer.
-    mem_limit: 6g
-    # The source video, the dubbed track and the output are written here, per render.
-    tmpfs:
-      - /tmp:size=1g,mode=1777
-    environment:
-      <<: [*localization-env, *renderer-s3-env]
-      RENDER_CONCURRENCY: ${RENDER_CONCURRENCY:-1}
-      CAPTION_FONT_PATH: ${CAPTION_FONT_PATH:-/assets/fonts/BeVietnamPro-SemiBold.ttf}
     depends_on:
       temporal-namespace-init:
         condition: service_completed_successfully

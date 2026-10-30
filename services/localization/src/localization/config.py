@@ -26,6 +26,10 @@ ReviewerMode = Literal["jev", "llm"]
 # token cap sized to the script (`off`), or send the plain request and let it reason
 # (`default`).
 ReasoningMode = Literal["off", "default"]
+# Which workflow the starter starts for a video. `voicestudio`: VideoLocalizationWorkflow
+# (VoiceStudio STT and TTS, the Localizer, the Dubber, the Jev review). `vbee`:
+# VbeeDubbingWorkflow (Vbee STT that answers in Vietnamese, and Vbee's cloned voice).
+Pipeline = Literal["voicestudio", "vbee"]
 
 
 def default_caption_font(module_path: Path) -> Path:
@@ -62,6 +66,7 @@ class Settings(BaseSettings):
 
     temporal_address: str = "localhost:7233"
     temporal_namespace: str = "default"
+    localization_pipeline: Pipeline = "voicestudio"
 
     voicestudio_url: str | None = None
     voicestudio_allow_private_http_cidrs: str = "100.64.0.0/10"
@@ -124,6 +129,15 @@ class Settings(BaseSettings):
     demucs_bin: str = "demucs"
     provider_timeout_seconds: float = 120.0
 
+    # Vbee speech (STT and batch TTS). The voice id names a cloned voice of the account
+    # and is kept out of output like the credentials are.
+    vbee_base_url: str = "https://api.vbee.vn"
+    vbee_app_id: SecretStr | None = None
+    vbee_api_token: SecretStr | None = None
+    vbee_voice_id: SecretStr | None = None
+    # How long one STT job or one TTS request is polled before it counts as lost.
+    vbee_poll_timeout_seconds: float = Field(default=300.0, gt=0.0, le=3600.0)
+
     @field_validator("ocr_bbox_format", mode="before")
     @classmethod
     def _empty_format_is_unset(cls, value: object) -> object:
@@ -158,6 +172,7 @@ class Settings(BaseSettings):
         if self.voicestudio_url is not None:
             check_endpoint_url("VOICESTUDIO_URL", self.voicestudio_url, cidrs)
         check_endpoint_url("OPENROUTER_BASE_URL", self.openrouter_base_url, cidrs)
+        check_endpoint_url("VBEE_BASE_URL", self.vbee_base_url, cidrs)
 
 
 def check_endpoint_url(name: str, url: str, allow_private_http_cidrs: str) -> None:

@@ -1,6 +1,7 @@
 """Records workflow histories to replay in CI.
 
     uv run python -m tests.replay.record_histories phase-06
+    uv run python -m tests.replay.record_histories vbee-dubbing   # the Vbee workflow's set
 
 Each scenario is a real execution of the real workflow on a local Temporal server
 (activities are the in-memory stand-ins, which is all the history needs: replay
@@ -20,10 +21,12 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 
 from localization.contracts import LocalizationResult
+from localization.providers.errors import PermanentProviderError
 from localization.temporal.client import connect
 from tests.support.dub_fakes import DubFakes, ScriptedDubber
 from tests.support.inputs import make_input
 from tests.support.localizer_fakes import (
+    FakePorts,
     LocalizerFakes,
     OneRequestModel,
     ScriptedModel,
@@ -33,6 +36,17 @@ from tests.support.localizer_fakes import (
 from tests.support.prep_fakes import PrepFakes
 from tests.support.prep_worker import prep_workers
 from tests.support.review_fakes import ReviewFakes, issue, verdict
+from tests.support.vbee_fakes import (
+    SLOW_WORD,
+    FakeVbeeStt,
+    FakeVbeeVoice,
+    ScriptedShortener,
+    VbeeRun,
+    run_vbee,
+    three_slots,
+    vbee_input,
+    words,
+)
 
 HISTORIES = Path(__file__).parent / "histories"
 
@@ -259,6 +273,12 @@ def _one_long(prompt: str) -> list[dict]:
     return [{"id": i, "text_vi": LONG if i == 1 else SHORT} for i in segment_ids_in(prompt)]
 
 
+def _with_term(prompt: str) -> list[dict]:
+    return [
+        {"id": i, "text_vi": "điện thoại mới" if i == 1 else SHORT} for i in segment_ids_in(prompt)
+    ]
+
+
 def _shorter_dub(prompt: str) -> list[dict]:
     return [{"id": i, "text_vi": "câu ngắn"} for i in (0, 1)]
 
@@ -290,8 +310,161 @@ SCENARIOS["single-request"] = {
     ),
 }
 
+# A line that leaves out the glossary Vietnamese of a term its source says (segment 1
+# says 手机) is redone once, behind the `localizer-glossary-terms` marker.
+SCENARIOS["glossary-terms"] = {
+    "term-put-back-by-the-repair": (
+        PrepFakes(),
+        LocalizerFakes(
+            mode="single",
+            model=OneRequestModel(answers=(_fits, _with_term)),
+            ports=FakePorts(glossary={("chan_1", "手机"): "điện thoại"}),
+        ),
+        DubFakes(),
+        ReviewFakes(),
+    ),
+    "term-kept-by-the-first-answer": (
+        PrepFakes(),
+        LocalizerFakes(
+            mode="single",
+            model=OneRequestModel(answers=(_with_term,)),
+            ports=FakePorts(glossary={("chan_1", "手机"): "điện thoại"}),
+        ),
+        DubFakes(),
+        ReviewFakes(),
+    ),
+}
+
+
+# Runs recorded with the texts to synthesize split into even batches, at least one per
+# concurrent `tts` slot. Every set above is from before it: their runs cut the texts into
+# runs of ten and a rest, and they prove a run already in flight still resumes.
+SCENARIOS["even-tts-batches"] = {
+    "three-lines-in-two-batches": (PrepFakes(), LocalizerFakes(), DubFakes(), ReviewFakes()),
+    "twenty-five-lines-in-three-batches": (
+        PrepFakes(),
+        LocalizerFakes(),
+        DubFakes(hashes=25),
+        ReviewFakes(),
+    ),
+    "dubber-runs-again-for-one-line": (
+        PrepFakes(),
+        LocalizerFakes(),
+        DubFakes(hashes=7),
+        ReviewFakes(verdicts=[verdict(issue("dub", "rushed", segment_id=1)), verdict()]),
+    ),
+}
+
+
+# Runs recorded with each round reviewed before the render and the video rendered once,
+# after the last round. Every set above is from before it: their runs rendered each round
+# and reviewed the render, and they prove a run already in flight still resumes.
+SCENARIOS["review-before-render"] = {
+    "published-at-the-first-review": (PrepFakes(), LocalizerFakes(), DubFakes(), ReviewFakes()),
+    "dubber-runs-again-for-one-line": (
+        PrepFakes(),
+        LocalizerFakes(),
+        DubFakes(),
+        ReviewFakes(verdicts=[verdict(issue("dub", "rushed", segment_id=1)), verdict()]),
+    ),
+    "needs-a-person-after-two-reviews": (
+        PrepFakes(),
+        LocalizerFakes(),
+        DubFakes(),
+        ReviewFakes(
+            verdicts=[
+                verdict(issue("dub", "rushed", segment_id=1)),
+                verdict(issue("dub", "still rushed", segment_id=1)),
+            ]
+        ),
+    ),
+    "review-could-not-be-made": (
+        PrepFakes(),
+        LocalizerFakes(),
+        DubFakes(),
+        ReviewFakes(
+            fail_on={
+                ("review_before_render", 1): ApplicationError(
+                    "no usable answer", type="UnexpectedModelBehavior", non_retryable=True
+                )
+            }
+        ),
+    ),
+    "render-fails-for-good-after-the-review": (
+        PrepFakes(),
+        LocalizerFakes(),
+        DubFakes(),
+        ReviewFakes(
+            fail_on={
+                ("render", 1): ApplicationError(
+                    "the render ran past its deadline", type="RenderDeadline", non_retryable=True
+                )
+            }
+        ),
+    ),
+    "reviewer-needs-the-render": (
+        PrepFakes(),
+        LocalizerFakes(),
+        DubFakes(),
+        ReviewFakes(
+            verdicts=[verdict(issue("dub", "rushed", segment_id=1)), verdict()],
+            needs_render=True,
+        ),
+    ),
+}
+
+
+# Runs of the Vbee dubbing workflow, a workflow type of its own: its histories live apart
+# (`vbee_histories/`), since they replay against that workflow and not the one above.
+VBEE_HISTORIES = Path(__file__).parent / "vbee_histories"
+
+
+def _vbee_scenarios() -> dict[str, VbeeRun]:
+    slow = words(12, SLOW_WORD)
+    return {
+        "published-at-the-first-review": VbeeRun(
+            slots=three_slots(words(10), words(30), words(10))
+        ),
+        "lines-shortened-at-the-measured-rate": VbeeRun(
+            slots=three_slots(words(10), words(24), words(10)),
+            voice=FakeVbeeVoice(rate=4.5, sample_rate=6.0),
+        ),
+        "review-shortens-one-line": VbeeRun(slots=three_slots(words(10), words(10), slow)),
+        "needs-a-person-after-two-reviews": VbeeRun(
+            slots=three_slots(words(10), words(10), slow),
+            voice=FakeVbeeVoice(slow={SLOW_WORD: 2.5, "gọn": 1.0}),
+        ),
+        "line-that-cannot-be-shortened": VbeeRun(
+            slots=three_slots(words(10), words(10), slow),
+            shortener=ScriptedShortener(word="你好"),
+        ),
+        "no-speech": VbeeRun(slots=three_slots()),
+        "stt-fails-for-good": VbeeRun(
+            stt=FakeVbeeStt(PermanentProviderError("vbee stt: HTTP 401 UNAUTHORIZED"))
+        ),
+    }
+
+
+async def record_vbee() -> None:
+    VBEE_HISTORIES.mkdir(parents=True, exist_ok=True)
+    env = await WorkflowEnvironment.start_local()
+    try:
+        client = await connect(env.client.service_client.config.target_host)
+        for name, run in _vbee_scenarios().items():
+            run.spec = vbee_input(str(7100 + len(list(VBEE_HISTORIES.glob("*.json")))))
+            await run_vbee(client, run)
+            assert run.handle is not None
+            history = await run.handle.fetch_history()
+            (VBEE_HISTORIES / f"{name}.json").write_text(history.to_json() + "\n")
+            print(f"recorded {name}: {len(history.events)} events")
+    finally:
+        await env.shutdown()
+
 
 async def record(phase: str) -> None:
+    if phase == "vbee-dubbing":
+        await record_vbee()
+        return
     if phase not in SCENARIOS:
         raise SystemExit(f"nothing to record for {phase!r}; known: {sorted(SCENARIOS)}")
     out = HISTORIES / phase

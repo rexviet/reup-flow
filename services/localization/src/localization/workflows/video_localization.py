@@ -80,14 +80,24 @@ UNFIXABLE_PATCH = "stop-unfixable-review"
 # Marks a run that measures the voice's speaking rate while the video is being prepared. A
 # run recorded before measured it after the preparation, just before the Localizer.
 VOICE_RATE_PATCH = "voice-rate-with-ingest"
+# Marks a run that splits the texts to synthesize into even batches, at least one per
+# concurrent `tts` slot. A run recorded before cut them into runs of `TTS_BATCH` and a rest.
+EVEN_TTS_BATCHES_PATCH = "even-tts-batches"
+# Marks a run whose rounds are reviewed before the video is rendered, and which renders once,
+# after the last round. A run recorded before rendered every round and reviewed the render.
+REVIEW_BEFORE_RENDER_PATCH = "review-before-render"
 
-# Reviews of one run: the first looks at the first render, the second at the render made
-# after the one rerun a failed review sends the run back for.
+# Reviews of one run: the first looks at the first layout, the second at the one made after
+# the one rerun a failed review sends the run back for.
 REVIEW_ROUNDS = 2
 
 # Hashes sent to the provider in one activity. Small enough that a killed worker
 # loses little, large enough that the activity overhead is not the cost.
 TTS_BATCH = 10
+# Batches the `tts` queue speaks at once: the default `tts_concurrency`. Lines inside a
+# batch are spoken one after another, so a script is split into at least this many
+# batches of even size, or one slot would sit idle while the other speaks them all.
+TTS_PARALLEL = 2
 
 ARTIFACT_MISSING = "ArtifactMissingError"
 # The stages whose artifacts the workflow can regenerate (once) when one is lost.
@@ -174,7 +184,7 @@ LAYOUT = dict(
     start_to_close_timeout=timedelta(minutes=10),
     retry_policy=_retry(3, 5, 60),
 )
-# The longest render the renderer allows itself is 95 minutes (see its deadline); it
+# The longest render the renderer allows itself is 35 minutes (see its deadline); it
 # heartbeats every few seconds, so a worker that died is noticed in a minute.
 RENDER = dict(
     task_queue=RENDER_QUEUE,
@@ -214,6 +224,23 @@ PUBLISH = dict(
 # The round every dubbing artifact of a run's first pass belongs to. A rerun after a
 # review writes into the next round's folder.
 DUB_ROUND = 0
+
+
+def tts_batches(hashes: list[str]) -> list[list[str]]:
+    """`hashes` in order, cut into the fewest batches of at most `TTS_BATCH` that still
+    give each of the `TTS_PARALLEL` slots one, their sizes differing by at most one."""
+    n = len(hashes)
+    count = max(-(-n // TTS_BATCH), min(TTS_PARALLEL, n))
+    if count == 0:
+        return []
+    size, extra = divmod(n, count)
+    batches: list[list[str]] = []
+    start = 0
+    for i in range(count):
+        end = start + size + (1 if i < extra else 0)
+        batches.append(hashes[start:end])
+        start = end
+    return batches
 
 
 # `asyncio.FIRST_EXCEPTION`, spelled out because workflow code does not import asyncio.
@@ -561,13 +588,17 @@ class VideoLocalizationWorkflow:
         hashes = list(plan.hashes)
         if not hashes:
             return
+        if workflow.patched(EVEN_TTS_BATCHES_PATCH):
+            batches = tts_batches(hashes)
+        else:
+            batches = [hashes[i : i + TTS_BATCH] for i in range(0, len(hashes), TTS_BATCH)]
         handles = [
             workflow.start_activity(
                 "synthesize_segments",
-                args=[spec, engine, script_key, hashes[i : i + TTS_BATCH]],
+                args=[spec, engine, script_key, batch],
                 **SYNTHESIZE,
             )
-            for i in range(0, len(hashes), TTS_BATCH)
+            for batch in batches
         ]
         try:
             await workflow.wait(handles, return_when=_FIRST_EXCEPTION)
@@ -629,9 +660,25 @@ class VideoLocalizationWorkflow:
             )
         return flags
 
+    def _review_first(self) -> bool:
+        """True for a run whose rounds are reviewed before the video is rendered."""
+        return workflow.patched(REVIEW_BEFORE_RENDER_PATCH)
+
+    async def _render(self, spec: LocalizationInput, spec_ref: EditSpecRef) -> RenderResult:
+        return await workflow.execute_activity(
+            "render",
+            RenderInput(aweme_id=spec.aweme_id, spec_key=spec_ref.spec_key),
+            result_type=RenderResult,
+            **RENDER,
+        )
+
     async def _rounds(
         self, spec: LocalizationInput, prep: PrepResult, script: ScriptResult, dub: DubbedAudio
     ) -> tuple[ScriptResult, DubbedAudio, PublishResult]:
+        # The review reads what the render is made from, so a round is not rendered to be
+        # reviewed: the video is rendered once, after the last round. A run recorded before
+        # rendered each round and reviewed the render.
+        review_first = self._review_first()
         round_no = 0
         flags = self._flags(script)
         verdict: ReviewVerdict | None = None
@@ -653,25 +700,37 @@ class VideoLocalizationWorkflow:
                 # review would only repeat the last verdict.
                 stopped = "the rerun produced the same video, so the reviewer's problems remain"
                 break
-            render = await workflow.execute_activity(
-                "render",
-                RenderInput(aweme_id=spec.aweme_id, spec_key=spec_ref.spec_key),
-                result_type=RenderResult,
-                **RENDER,
-            )
-            try:
-                verdict = await workflow.execute_activity(
-                    "review_render",
-                    args=[spec, render, final, dub, spec_ref, round_no],
-                    result_type=ReviewVerdict,
-                    **REVIEW,
-                )
-            except ActivityError as error:
-                # The video was made and nobody could judge it (the model answered
-                # nothing usable, the provider was down, the OCR failed): it is kept for a
-                # person, never published unreviewed and never thrown away.
-                stopped = f"the review could not be made: {_describe(error)}"
-                break
+            # A review nobody could make (the model answered nothing usable, the provider
+            # was down, the OCR failed) leaves the video to a person: it is rendered and
+            # kept, never published unreviewed and never thrown away.
+            found: ReviewVerdict | None = None
+            if review_first:
+                try:
+                    found = await workflow.execute_activity(
+                        "review_before_render",
+                        args=[spec, final, dub, spec_ref, round_no],
+                        # A type hint the payload converter reads; the stub asks for a class.
+                        result_type=ReviewVerdict | None,  # type: ignore[arg-type]
+                        **REVIEW,
+                    )
+                except ActivityError as error:
+                    stopped = f"the review could not be made: {_describe(error)}"
+                    break
+            if found is None:
+                # A reviewer that looks at frames (or a run recorded before the review
+                # came first) is shown the render of this round.
+                render = await self._render(spec, spec_ref)
+                try:
+                    found = await workflow.execute_activity(
+                        "review_render",
+                        args=[spec, render, final, dub, spec_ref, round_no],
+                        result_type=ReviewVerdict,
+                        **REVIEW,
+                    )
+                except ActivityError as error:
+                    stopped = f"the review could not be made: {_describe(error)}"
+                    break
+            verdict = found
             self._reviews = attempt + 1
             if verdict.passed or flags:
                 # A run that needs a person goes to one with the verdict in hand; sending
@@ -687,8 +746,13 @@ class VideoLocalizationWorkflow:
             round_no += 1
             script, dub = await self._rerun(spec, prep, script, dub, route, round_no)
             flags = self._flags(script)
-        # The first pass of the loop always renders: it is only the later ones that can stop
-        # before they do. A review that could not be made leaves `verdict` empty.
+        if review_first and (render is None or render.spec_sha256 != spec_ref.spec_sha256):
+            # Whatever the verdict, the person or the channel gets the video of the last
+            # layout. A render that fails for good fails the run, like any other stage.
+            render = await self._render(spec, spec_ref)
+        # Before the review came first, the first pass of the loop always rendered: only the
+        # later ones could stop before they did. A review that could not be made leaves
+        # `verdict` empty.
         assert render is not None
         reasons = list(flags)
         if verdict is not None and not verdict.passed:
@@ -707,6 +771,8 @@ class VideoLocalizationWorkflow:
                     reasons=tuple(r[:500] for r in reasons[:20]),
                     review_rounds=self._reviews,
                     verdict=verdict,
+                    dub=dub,
+                    safety_flag=bool(flags),
                 ),
             ],
             result_type=PublishResult,

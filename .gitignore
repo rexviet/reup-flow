@@ -23,3 +23,6 @@ services/downloader/test/spike-cookie-swap/data/
 
 # Phase 00 spike evidence is copied into reports/gate-results.md; the raw runs stay local.
 services/localization/spikes/out/
+
+# Promo videos made with HyperFrames (motion-studio); renders and node_modules stay local.
+videos/

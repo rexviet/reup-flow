@@ -10,7 +10,7 @@ settings, no provider, no storage. The model and the tools' ports are supplied b
 the worker that runs the activities (`bind_model_factory`, `localizer.bind_ports`).
 """
 
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import AsyncIterator, Callable, Collection, Sequence
 from contextlib import asynccontextmanager
 from datetime import timedelta
 from typing import Any
@@ -34,7 +34,7 @@ from temporalio.exceptions import ApplicationError
 from temporalio.workflow import ActivityConfig
 
 from localization.agents import dubber as dubber_module
-from localization.agents import dubber_single, localizer_single
+from localization.agents import dubber_single, localizer_single, slot_shortener
 from localization.agents.answer_only import answer_only_settings
 from localization.agents.dubber import DubberDeps, build_dubber
 from localization.agents.dubber_single import DubberContext
@@ -47,7 +47,8 @@ from localization.agents.localizer import (
 )
 from localization.agents.localizer_single import LocalizerContext
 from localization.contracts.limits import MAX_PAYLOAD_BYTES, payload_size
-from localization.contracts.models import DubDecisions, LocalizedLine, LocalizedLines
+from localization.contracts.models import DubDecisions, LocalizedLines
+from localization.contracts.vbee_flow import SlotPlan
 
 LLM_QUEUE = "llm"
 IO_QUEUE = "io"
@@ -64,6 +65,9 @@ DUBBER_MODEL_ALIAS = "dubber-model"
 # worker is configured for.
 LOCALIZER_SINGLE_PATCH = "localizer-single-request"
 DUBBER_SINGLE_PATCH = "dubber-single-request"
+# Marks a run whose one-request Localizer redoes a line that drops a glossary term its
+# source says. A run recorded before it took no repair for such a line.
+LOCALIZER_TERMS_PATCH = "localizer-glossary-terms"
 
 _PERMANENT = ["PermanentProviderError", "PayloadTooLarge", "ArtifactMissingError"]
 
@@ -314,31 +318,21 @@ async def run_localizer(deps: LocalizerDeps, feedback: Sequence[str] = ()) -> Lo
     return result.output
 
 
-# One model request, and one more if the first answer breaks a check. A request whose
-# answer does not parse is retried once by the agent, hence the room.
-SINGLE_USAGE_LIMITS = UsageLimits(request_limit=2)
+SINGLE_USAGE_LIMITS = localizer_single.SINGLE_USAGE_LIMITS
 
 
 async def _localize_in_one_request(
     deps: LocalizerDeps, context: LocalizerContext, feedback: Sequence[str]
 ) -> LocalizedLines:
     try:
-        first = await localizer_single_agent.run(
-            localizer_single.render_prompt(deps, context, feedback),
-            deps=deps,
-            usage_limits=SINGLE_USAGE_LIMITS,
+        assessment = await localizer_single.localize(
+            localizer_single_agent,
+            localizer_repair_agent,
+            deps,
+            context,
+            feedback,
+            check_terms=workflow.patched(LOCALIZER_TERMS_PATCH),
         )
-        lines = first.output
-        assessment = localizer_single.assess(deps, context, lines)
-        if assessment.problems:
-            asked = set(assessment.problems)
-            repaired = await localizer_repair_agent.run(
-                localizer_single.render_repair_prompt(deps, context, assessment),
-                deps=deps,
-                usage_limits=SINGLE_USAGE_LIMITS,
-            )
-            lines = localizer_single.merge(lines, repaired.output, asked)
-            assessment = localizer_single.assess(deps, context, lines)
     except (UnexpectedModelBehavior, UsageLimitExceeded) as exc:
         raise _gave_up("Localizer", exc) from None
     unusable = assessment.unusable()
@@ -347,9 +341,7 @@ async def _localize_in_one_request(
         # runs long is kept: the dubbing stage shortens or speeds up what does not fit.
         notes = "; ".join(f"line {i}: {p.note}" for i, p in sorted(unusable.items())[:10])
         raise _gave_up("Localizer", UnexpectedModelBehavior(notes))
-    return LocalizedLines(
-        lines=tuple(LocalizedLine(id=i, text_vi=t) for i, t in sorted(assessment.texts.items()))
-    )
+    return localizer_single.lines_of(assessment)
 
 
 # --- the Dubber -------------------------------------------------------------------
@@ -467,3 +459,57 @@ async def _dub_in_one_request(
     except (UnexpectedModelBehavior, UsageLimitExceeded) as exc:
         raise _gave_up("Dubber", exc) from None
     return dubber_single.decisions(deps, context, assessment)
+
+
+# --- the slot shortener ------------------------------------------------------------
+
+# The Vbee dubbing flow's one request for the lines too long for their slots, and its
+# repair. They run on the Localizer's model, with its answer-only settings.
+slot_shortener_agent = slot_shortener.build_agent(
+    MODEL_ALIAS,
+    name=slot_shortener.SHORTEN_NAME,
+    instructions=slot_shortener.INSTRUCTIONS,
+    capabilities=_durable(MODEL_ALIAS),
+    model_settings=slot_shortener.settings_for,
+)
+slot_shortener_repair_agent = slot_shortener.build_agent(
+    MODEL_ALIAS,
+    name=slot_shortener.REPAIR_NAME,
+    instructions=slot_shortener.REPAIR_INSTRUCTIONS,
+    capabilities=_durable(MODEL_ALIAS),
+    model_settings=slot_shortener.settings_for,
+)
+
+
+async def run_slot_shortener(
+    plan: SlotPlan, syllables_per_sec: float, ids: Collection[int] | None = None
+) -> SlotPlan:
+    """The plan with its overrunning lines shortened and checked (see `slot_shortener`).
+    Makes no model request when every line fits, and at most two (plus one retry each
+    for an answer that does not parse) otherwise. A model that answers nothing usable
+    leaves the lines as they are, listed in `unfit_ids`; only a model activity that
+    exhausts its retries fails the run. A prompt too big to travel fails it at once
+    (see `MAX_CONVERSATION_BYTES`). With `ids`, exactly those lines are asked, whether
+    or not their estimate overruns (see `slot_shortener.to_ask`)."""
+    if not syllables_per_sec > 0:
+        # A plain error in workflow code fails the task and is retried forever.
+        raise ApplicationError(
+            f"the speaking rate must be positive, got {syllables_per_sec}",
+            type="ValueError",
+            non_retryable=True,
+        )
+    asked = slot_shortener.to_ask(plan, syllables_per_sec, ids)
+    if asked:
+        size = payload_size(slot_shortener.render_prompt(plan, asked, syllables_per_sec))
+        # The repair and the answers ride in the same conversation size budget.
+        if size > MAX_CONVERSATION_BYTES // 2:
+            raise ApplicationError(
+                f"the slot shortener prompt is {size} bytes, over the "
+                f"{MAX_CONVERSATION_BYTES // 2} byte limit; too many lines overrun to shorten "
+                "in one request",
+                type="PayloadTooLarge",
+                non_retryable=True,
+            )
+    return await slot_shortener.shorten(
+        slot_shortener_agent, slot_shortener_repair_agent, plan, syllables_per_sec, ids
+    )
