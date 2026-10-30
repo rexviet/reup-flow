@@ -1,0 +1,87 @@
+services/localization/tests/activities/test_review_before_render.py
+  s_1fd7bb73f83ca7::t_86ac3ad42e7fb7 1-50,53-154
+  s_1fd7bb73f83ca7::t_f000b2ff6a852f 51-52
+services/localization/tests/workflows/test_review_before_render.py
+  s_1fd7bb73f83ca7::t_975805e6ce1cde 1-167
+services/localization/tests/workflows/test_review_loop.py
+  s_1fd7bb73f83ca7::t_118f134a5e07db 189,269,312,339,378,527,548-549,553,565
+  s_1fd7bb73f83ca7::t_79ab428aadfe69 522-523
+  s_1fd7bb73f83ca7::t_4e0bab125c7511 116-118,130,144,188,190,244,258,279-280,283-285,428-429,431
+  s_1fd7bb73f83ca7::t_eff1e7aa5725cf 10,91-101,356-368
+  s_1fd7bb73f83ca7::t_2a4d3601563fe3 369-370
+services/localization/src/localization/activities/review_render.py
+  s_1fd7bb73f83ca7::t_cff59ac25c9030 6-7
+  s_1fd7bb73f83ca7::t_af26729cbd13fa 337,355-366,375,388-438,441-453
+  s_1fd7bb73f83ca7::t_cd108bfd49a443 377-387
+  s_1fd7bb73f83ca7::t_a0d4d316723c16 290
+  s_1fd7bb73f83ca7::t_4544774abe6f23 1,3,12-17,27,230,258-289,291-299,312,316,332,335-336,372
+  s_1fd7bb73f83ca7::t_e7042f87d2e515 37,62,229,231,308,315,317,328
+  s_1fd7bb73f83ca7::t_a6ef54e3fbc9b2 300,367-371,373-374,376
+services/localization/tests/activities/test_review_render.py
+  s_1fd7bb73f83ca7::t_11791cfcb8b231 187
+  s_1fd7bb73f83ca7::t_1fc597041e7757 39-40
+  s_1fd7bb73f83ca7::t_f392897ec14a6d 25
+  s_1fd7bb73f83ca7::t_78e1ff3501bc1b 121-133
+services/localization/tests/replay/histories/review-before-render/review-could-not-be-made.json
+  s_1fd7bb73f83ca7::t_3bd6f50de29c90 1-3627
+services/localization/tests/agents/test_review_checks.py
+  s_1fd7bb73f83ca7::t_ea2d35255353a8 324-359,366-391,398,404-405
+  s_1fd7bb73f83ca7::t_113e2a4ef148ae 94-97,99-119
+  s_1fd7bb73f83ca7::t_30cfd33be25601 4-5,10,20-21
+  s_1fd7bb73f83ca7::t_469b07b5984577 153-154,156-159
+  s_1fd7bb73f83ca7::t_75128bbcb577fd 137
+  s_1fd7bb73f83ca7::t_442f6c6269b1e7 23
+  s_1fd7bb73f83ca7::t_078d9d0415c4b0 360-365
+  s_1fd7bb73f83ca7::t_628b094ce31885 234-238,241-257,259-268,273-282,285-288,290-323,406-417,422-431
+  s_1fd7bb73f83ca7::t_31b5607bb40a52 392-397,399-403
+  s_1fd7bb73f83ca7::t_d302727141f399 98
+  s_1fd7bb73f83ca7::t_2d4affe82fdf3a 269-272,418-420
+  s_1fd7bb73f83ca7::t_0a0fec2e0e72bf 155
+services/localization/tests/replay/histories/review-before-render/dubber-runs-again-for-one-line.json
+  s_1fd7bb73f83ca7::t_3bd6f50de29c90 1-5556
+services/localization/tests/replay/ungated_review_first_flow.py
+  s_1fd7bb73f83ca7::t_7436b7f65e7d2b 1-19
+services/localization/tests/replay/histories/review-before-render/render-fails-for-good-after-the-review.json
+  s_1fd7bb73f83ca7::t_3bd6f50de29c90 1-3639
+services/localization/tests/replay/histories/review-before-render/needs-a-person-after-two-reviews.json
+  s_1fd7bb73f83ca7::t_3bd6f50de29c90 1-5556
+services/localization/tests/support/review_fakes.py
+  s_1fd7bb73f83ca7::t_28f4540eb3a147 91-93,180,186-215,230-239
+  s_1fd7bb73f83ca7::t_f000b2ff6a852f 181-185
+services/localization/tests/replay/histories/review-before-render/published-at-the-first-review.json
+  s_1fd7bb73f83ca7::t_3bd6f50de29c90 1-3628
+services/localization/tests/support/prep_worker.py
+  s_1fd7bb73f83ca7::t_28f4540eb3a147 122-126
+services/localization/tests/replay/histories/review-before-render/reviewer-needs-the-render.json
+  s_1fd7bb73f83ca7::t_3bd6f50de29c90 1-5994
+services/localization/src/localization/agents/review_checks.py
+  s_1fd7bb73f83ca7::t_358380e2ea7078 270,274
+  s_1fd7bb73f83ca7::t_47b9e8fd39e913 15
+  s_1fd7bb73f83ca7::t_49eda4a042aab4 36,112
+  s_1fd7bb73f83ca7::t_57884989717adb 245-260,263-265,276-277,283
+  s_1fd7bb73f83ca7::t_c9fb0f7dcbd01b 5-7,12,18,22,25,27,32,34,40-44,49-53,63-68
+  s_1fd7bb73f83ca7::t_313f67429ff9b9 219-230,233-244,261-262,266-269,271-273,275,278-282,286-292
+  s_1fd7bb73f83ca7::t_abf25d57fbadd8 54-62
+services/localization/tests/workflows/test_unfixable_review.py
+  s_1fd7bb73f83ca7::t_118f134a5e07db 33,67,100,120
+services/localization/tests/activities/test_review_render_jev.py
+  s_1fd7bb73f83ca7::t_efd15d24544021 17
+  s_1fd7bb73f83ca7::t_e7f0f8b9ace9f6 43
+  s_1fd7bb73f83ca7::t_2c1fdf1e92a966 280-283,287,292,294-295,298,302,304,307,310,314-327
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b4fb84fb22fc18d09d554ac8814f69125c6fc4be",
+  "prompts": {},
+  "sessions": {
+    "s_1fd7bb73f83ca7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "07f62d39-b5c7-4084-a633-0d769a53fb9d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
