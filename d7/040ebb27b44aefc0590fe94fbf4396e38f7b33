@@ -1,0 +1,117 @@
+plans/reports/fullstack-developer-261029-1544-plan-slots.md
+  s_1fd7bb73f83ca7::t_cd5d4ae18a6ebd 151
+  s_1fd7bb73f83ca7::t_077837a7be3fc8 1-150,152-165
+plans/reports/fullstack-developer-261029-1106-even-tts-batches.md
+  s_1fd7bb73f83ca7::t_f38e7e89dfdecf 1-46,48
+  s_1fd7bb73f83ca7::t_d8b5a18f09518b 47
+plans/261026-0147-video-localization-workflow/phase-09-observability-and-eval.md
+  s_1fd7bb73f83ca7::t_22c702b43a6dd2 227-244,246,248-250,252-259
+  s_1fd7bb73f83ca7::t_a9eca97f420601 245,247
+  s_5a1bc45a5aae35::t_f63e3ebeb63a99 103-119,131-143
+  s_1fd7bb73f83ca7::t_8f4a0025369d47 276-287
+  s_1fd7bb73f83ca7::t_c2b5de922afd43 263
+  s_1fd7bb73f83ca7::t_fed691c06d074a 251
+  s_1fd7bb73f83ca7::t_a4ff8856ef72a5 205-216
+  s_1fd7bb73f83ca7::t_0b61c24f3973e6 260-262,264-275
+  s_1fd7bb73f83ca7::t_53e58ac468e6a8 4,94-95,97
+  s_5a1bc45a5aae35::t_96090a635a0075 120-130
+  s_1fd7bb73f83ca7::t_26f567fd22882d 196-199
+  s_1fd7bb73f83ca7::t_4f528452bca45c 165-195,200-204,217-226
+plans/reports/code-reviewer-261026-2126-phase-05-rereview.md
+  s_0b729cf0d034d3::t_2a5eb59b7075a0 1-62
+plans/261029-1106-faster-render-and-tts/plan.md
+  s_1fd7bb73f83ca7::t_5fba384e5efeea 54-72
+  s_1fd7bb73f83ca7::t_b1e1284a41a6b2 1-2,23-53
+  s_1fd7bb73f83ca7::t_04d2ea1d314e3b 3-14
+  s_1fd7bb73f83ca7::t_0f6d86935cc89e 15-22
+plans/261029-1544-vbee-dubbing-pipeline/plan.md
+  s_1fd7bb73f83ca7::t_e609ad4d90d80e 1-2,9-71
+  s_1fd7bb73f83ca7::t_fdfa4833782462 3-8
+plans/reports/fullstack-developer-261029-2223-spelled-numbers.md
+  s_1fd7bb73f83ca7::t_11ce4079e31562 1-58
+plans/reports/fullstack-developer-261029-1237-review-false-positives.md
+  s_1fd7bb73f83ca7::t_12f00ef66be06e 1-61
+plans/reports/code-reviewer-261027-0914-phase-08-review.md
+  s_0b729cf0d034d3::t_89e8e174635b74 1-85
+plans/reports/fullstack-developer-261029-1319-tts-sentences.md
+  s_1fd7bb73f83ca7::t_33b9de9b906d8c 1-53
+plans/reports/fullstack-developer-261029-2251-stt-number-boundary.md
+  s_1fd7bb73f83ca7::t_8cb69176eb68e0 1-63
+plans/reports/researcher-261029-1353-vbee-speech-api.md
+  s_1fd7bb73f83ca7::t_eb832e05476f27 1-158
+plans/reports/fullstack-developer-261029-1544-vbee-providers.md
+  s_1fd7bb73f83ca7::t_08aa77d4101557 1-169
+plans/reports/code-reviewer-261027-0810-phase-07-rereview.md
+  s_0b729cf0d034d3::t_25932f88ec9bc7 1-96
+plans/reports/fullstack-developer-261029-1319-transcript-numbers.md
+  s_1fd7bb73f83ca7::t_d86eeebdc71ebe 1-100
+plans/reports/fullstack-developer-261029-2251-number-idioms.md
+  s_1fd7bb73f83ca7::t_c5e5316cec972e 1-57
+plans/reports/code-reviewer-261027-0509-phase-07-review.md
+  s_0b729cf0d034d3::t_39c83c2bcd38d0 1-114
+plans/reports/code-reviewer-261027-0108-phase-06-review.md
+  s_0b729cf0d034d3::t_adb6e1e0cd278d 1-94
+docs/journals/261028-2115-phase-09-score-va-eval.md
+  s_1fd7bb73f83ca7::t_8573a0d42a79e3 1-36
+plans/reports/handoff-261027-2310-video-localization-session.md
+  s_0b729cf0d034d3::t_4d44618209df76 1-103
+plans/reports/fullstack-developer-261029-1319-review-before-render.md
+  s_1fd7bb73f83ca7::t_887969f94478f5 1-79,84-99
+  s_1fd7bb73f83ca7::t_7d1d69e085f8c3 80-83
+plans/reports/fullstack-developer-261029-1106-ffmpeg-render.md
+  s_1fd7bb73f83ca7::t_58c62c7d12b4ca 1-69
+plans/reports/fullstack-developer-261029-1437-vbee-dub-spike.md
+  s_1fd7bb73f83ca7::t_a08742c8badaaa 1-169
+  s_1fd7bb73f83ca7::t_f0670dac082671 170-258
+plans/reports/investigation-261029-1052-render-speed.md
+  s_1fd7bb73f83ca7::t_545402fcedd9ff 1-50
+plans/reports/fullstack-developer-261029-1620-vbee-workflow.md
+  s_1fd7bb73f83ca7::t_db8345d9b0734d 1-73,77,82-109,111-121,123-132,134-150,156-163,165
+  s_1fd7bb73f83ca7::t_e7723014d6683b 166-172
+  s_1fd7bb73f83ca7::t_06afb42b1f5470 74-76,78-81,110,122,133,151-155,164
+plans/reports/handoff-261030-0744-video-localization-session.md
+  s_1fd7bb73f83ca7::t_dd7aee7f6ee8a8 1-81
+plans/reports/fullstack-developer-261029-2251-residual-false-positive.md
+  s_1fd7bb73f83ca7::t_cf3646fd9a2708 1-73
+plans/reports/code-reviewer-261027-0234-phase-06-rereview.md
+  s_0b729cf0d034d3::t_44697eebe4b7af 1-76
+plans/journals/261029-1708-vbee-pipeline-va-tang-toc.md
+  s_1fd7bb73f83ca7::t_e1a12294cd0285 1-81
+  s_1fd7bb73f83ca7::t_927d299122ebb8 82-127
+plans/reports/fullstack-developer-261029-1544-slot-shortener.md
+  s_1fd7bb73f83ca7::t_0744d3d5b6a539 1-135
+plans/reports/fullstack-developer-261029-1408-vbee-stt-spike.md
+  s_1fd7bb73f83ca7::t_5d9d486f964600 1-111
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d7040ebb27b44aefc0590fe94fbf4396e38f7b33",
+  "prompts": {},
+  "sessions": {
+    "s_0b729cf0d034d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9aa1a711-c362-45ab-8e48-1a9b19f8df48",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    },
+    "s_1fd7bb73f83ca7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "07f62d39-b5c7-4084-a633-0d769a53fb9d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    },
+    "s_5a1bc45a5aae35": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c08eed55-5ecc-4431-b323-c03502d73494",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
