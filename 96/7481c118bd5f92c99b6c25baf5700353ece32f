@@ -1,0 +1,60 @@
+services/localization/tests/workflows/test_tts_batches.py
+  s_1fd7bb73f83ca7::t_1f4309d878801e 1-93
+services/localization/src/localization/activities/synthesize.py
+  s_1fd7bb73f83ca7::t_3c079042d7ab51 149-152,165,171-172,176,199-200,278
+  s_1fd7bb73f83ca7::t_183a86448afdee 246-256
+  s_1fd7bb73f83ca7::t_a401f7956c078f 74-75,79
+  s_1fd7bb73f83ca7::t_74a2ffa02320d2 48-51
+  s_1fd7bb73f83ca7::t_65f38b553ceaed 281
+  s_1fd7bb73f83ca7::t_2e177ab6cc5913 28
+  s_1fd7bb73f83ca7::t_bcc95e310273c9 226
+  s_1fd7bb73f83ca7::t_ead99eeb85580c 52,257
+services/localization/src/localization/text/pieces.py
+  s_1fd7bb73f83ca7::t_4d790aa2dcec04 1-82
+services/localization/tests/replay/histories/even-tts-batches/three-lines-in-two-batches.json
+  s_1fd7bb73f83ca7::t_9f3e5bd723c8ce 1-3592
+services/localization/tests/replay/histories/even-tts-batches/dubber-runs-again-for-one-line.json
+  s_1fd7bb73f83ca7::t_9f3e5bd723c8ce 1-5652
+services/localization/tests/workflows/test_dubbing_stage.py
+  s_1fd7bb73f83ca7::t_9a3a7fccb15a9e 79,82,87,115,123-127
+services/localization/tests/activities/test_tts_pieces.py
+  s_1fd7bb73f83ca7::t_c63c16f7aeb730 1-157,162-183
+  s_1fd7bb73f83ca7::t_04f11f56ef1836 158-161
+services/localization/src/localization/activities/tts_pieces.py
+  s_1fd7bb73f83ca7::t_92b7f785309ebb 23,32
+  s_1fd7bb73f83ca7::t_ef4cdadb1cdf50 63,88
+  s_1fd7bb73f83ca7::t_31a50cbb5c185b 41
+  s_1fd7bb73f83ca7::t_09261a29867501 81
+  s_1fd7bb73f83ca7::t_39e02ff5636cb4 1-22,30-31,33-40,42-62,65-80,82-87,89-97
+  s_1fd7bb73f83ca7::t_235c5f5bdeacec 64
+  s_1fd7bb73f83ca7::t_4d790aa2dcec04 24-29
+services/localization/tests/activities/test_synthesize.py
+  s_1fd7bb73f83ca7::t_04f11f56ef1836 6,8,344-363,367,370
+  s_1fd7bb73f83ca7::t_6846defe04b6f2 29,32,35,307-309
+  s_1fd7bb73f83ca7::t_6f408036a01bc9 84-91
+  s_1fd7bb73f83ca7::t_208faa18821dc3 274-306,310-343,364-366,368-369,371-413
+  s_1fd7bb73f83ca7::t_d517bf91f2668e 16
+  s_1fd7bb73f83ca7::t_10e0bcf92cb972 414-415
+services/localization/tests/replay/histories/even-tts-batches/twenty-five-lines-in-three-batches.json
+  s_1fd7bb73f83ca7::t_9f3e5bd723c8ce 1-3788
+services/localization/tests/replay/ungated_batches_flow.py
+  s_1fd7bb73f83ca7::t_17ba02f9d21443 1-2,5-6,8-31,33-35
+  s_1fd7bb73f83ca7::t_17d6d2f2a95227 3-4,32,36-39
+  s_1fd7bb73f83ca7::t_0b278eac9a4d4f 7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "967481c118bd5f92c99b6c25baf5700353ece32f",
+  "prompts": {},
+  "sessions": {
+    "s_1fd7bb73f83ca7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "07f62d39-b5c7-4084-a633-0d769a53fb9d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
