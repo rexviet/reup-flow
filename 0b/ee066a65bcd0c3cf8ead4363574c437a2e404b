@@ -1,0 +1,49 @@
+services/localization/tests/test_edit_spec_schema_drift.py
+  s_1fd7bb73f83ca7::t_05735064c6767f 1-2
+services/localization/tests/activities/test_render.py
+  s_1fd7bb73f83ca7::t_f066448bfcd84f 144-148,236,239,338-340
+  s_1fd7bb73f83ca7::t_ae1d5b8a5e6c2d 42,92
+  s_1fd7bb73f83ca7::t_176f423fde309a 1-41,43-91,93-143,149-223,227-235,237-238,240-337,341-349,355-476
+  s_1fd7bb73f83ca7::t_cc62da955c8043 224-226
+  s_1fd7bb73f83ca7::t_05735064c6767f 350-354
+services/localization/tests/integration/test_font_parity.py
+  s_1fd7bb73f83ca7::t_50dee0f61aef3e 1,3,6-8,10,20,23,131-135,211,214-215,219-221
+services/localization/src/localization/contracts/spec_hash.py
+  s_1fd7bb73f83ca7::t_98b111754a63ef 3-6
+services/localization/src/localization/contracts/ids.py
+  s_1fd7bb73f83ca7::t_98b111754a63ef 75
+services/localization/src/localization/contracts/export.py
+  s_1fd7bb73f83ca7::t_98b111754a63ef 1
+services/localization/src/localization/activities/caption_images.py
+  s_1fd7bb73f83ca7::t_995d69ebed351a 1-199
+services/localization/src/localization/contracts/fixtures.py
+  s_1fd7bb73f83ca7::t_98b111754a63ef 1,6-7
+services/localization/src/localization/activities/layout_captions.py
+  s_1fd7bb73f83ca7::t_98b111754a63ef 68-69,458
+infra/minio/init.sh
+  s_1fd7bb73f83ca7::t_6c5f960f1f5ac1 46-48
+services/localization/src/localization/activities/render.py
+  s_1fd7bb73f83ca7::t_ec3180124fa909 27,306,311
+  s_1fd7bb73f83ca7::t_e585d9f199571a 364-365
+  s_1fd7bb73f83ca7::t_e3ef0266453780 1-26,28-104,108-152,154-271,275-290,294-300,304-305,312-319,323-363,366-369
+  s_1fd7bb73f83ca7::t_ae1d5b8a5e6c2d 105-107,272-274,291-293,301-303,307-310,320-322,370-372
+  s_1fd7bb73f83ca7::t_2e5407b29912f3 153
+pnpm-lock.yaml
+  s_1fd7bb73f83ca7::t_b6f7587862e1a5 1031-1032,1034-1035,1037-1040,1042-1045,1047-1050,1052-1055,1057-1060,1062-1065,1067-1071,4681,4759-4760,4939,4941-4942,4947,5594-5595,7289,7422
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0bee066a65bcd0c3cf8ead4363574c437a2e404b",
+  "prompts": {},
+  "sessions": {
+    "s_1fd7bb73f83ca7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "07f62d39-b5c7-4084-a633-0d769a53fb9d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
