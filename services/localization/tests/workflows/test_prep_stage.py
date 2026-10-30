@@ -21,12 +21,20 @@ from localization.activities.detect_subtitles import (
     DetectSubtitlesActivity,
     _consensus,
     locate,
+    subtitles_key,
     to_source,
 )
 from localization.activities.ffmpeg import parse_probe
 from localization.activities.ingest import IngestActivity
 from localization.activities.persist import PersistActivity
-from localization.activities.transcribe import SILENCE_GAP_MS, TranscribeActivity, regroup
+from localization.activities.synthesize import MAX_METADATA_TEXT_BYTES
+from localization.activities.transcribe import (
+    MAX_SEGMENT_CHARS,
+    MIN_SEGMENT_CHARS,
+    SILENCE_GAP_MS,
+    TranscribeActivity,
+    regroup,
+)
 from localization.config import Settings
 from localization.contracts import (
     BBox,
@@ -34,6 +42,7 @@ from localization.contracts import (
     LocalizationResult,
     PublishRequest,
     PublishResult,
+    SttSegment,
     SttWord,
     SubtitleTrack,
     TranscriptDocument,
@@ -184,7 +193,9 @@ def test_the_workflow_names_only_activities_that_are_registered() -> None:
 def _providers():  # noqa: ANN202
     from types import SimpleNamespace
 
-    return SimpleNamespace(stt=object(), ocr=object(), tts=object(), demucs=object())
+    return SimpleNamespace(
+        stt=object(), ocr=object(), tts=object(), demucs=object(), vbee_stt=None, vbee_tts=None
+    )
 
 
 # --- ffprobe --------------------------------------------------------------------
@@ -350,6 +361,226 @@ def test_latin_words_are_spaced_and_chinese_words_are_not() -> None:
 def test_without_word_timestamps_the_providers_segments_are_kept() -> None:
     doc = TranscriptDocument(language="zh", duration_ms=1, segments=(), words=())
     assert regroup(doc) is doc
+    short = TranscriptDocument(
+        language="zh",
+        duration_ms=2000,
+        segments=(SttSegment(id=0, start_ms=0, end_ms=2000, text="你好世界"),),
+        words=(),
+    )
+    assert regroup(short) is short
+
+
+# The worst ratio measured on real and synthetic runs: 220 Chinese characters came
+# back as 1,568 bytes of base64 Vietnamese, 7.13 per character.
+_WORST_B64_BYTES_PER_CHAR = 7.2
+
+
+def test_the_longest_segment_leaves_the_tts_cache_twice_the_room_it_needs() -> None:
+    assert 2 * MAX_SEGMENT_CHARS * _WORST_B64_BYTES_PER_CHAR <= MAX_METADATA_TEXT_BYTES
+    assert MIN_SEGMENT_CHARS * 2 <= MAX_SEGMENT_CHARS
+
+
+def _assert_fit(grouped: TranscriptDocument, text: str) -> None:
+    lengths = [len(s.text) for s in grouped.segments]
+    assert max(lengths) <= MAX_SEGMENT_CHARS
+    assert min(lengths) >= MIN_SEGMENT_CHARS
+    assert "".join(s.text for s in grouped.segments) == text
+    assert [s.id for s in grouped.segments] == list(range(len(lengths)))
+    ends = [(s.start_ms, s.end_ms) for s in grouped.segments]
+    assert all(a[1] <= b[0] for a, b in zip(ends, ends[1:], strict=False))
+
+
+def test_speech_without_a_pause_is_cut_into_segments_the_tts_cache_can_hold() -> None:
+    # Contiguous timestamps, as the provider returns them: no gap ever exceeds 400 ms.
+    text = "我" * 150
+    grouped = regroup(_doc([(c, i * 200, (i + 1) * 200) for i, c in enumerate(text)]))
+    assert len(grouped.segments) == 3
+    _assert_fit(grouped, text)
+
+
+def test_a_long_run_is_cut_after_punctuation_before_anywhere_else() -> None:
+    text = "我" * 30 + "，" + "你" * 30 + "。" + "他" * 30
+    grouped = regroup(_doc([(c, i * 200, (i + 1) * 200) for i, c in enumerate(text)]))
+    assert [s.text[-1] for s in grouped.segments[:-1]] == ["，", "。"]
+    _assert_fit(grouped, text)
+
+
+def test_without_punctuation_a_long_run_is_cut_where_a_word_is_held_longest() -> None:
+    # The pause is in the word's own span: it lasts until the next word starts.
+    words, t = [], 0
+    for i in range(100):
+        length = 3000 if i == 44 else 200
+        words.append(("我", t, t + length))
+        t += length
+    grouped = regroup(_doc(words))
+    assert [len(s.text) for s in grouped.segments] == [45, 55]
+    assert grouped.segments[1].start_ms == words[45][1]
+
+
+def test_a_long_provider_segment_without_word_timestamps_is_cut_in_proportion() -> None:
+    text = "我" * 50 + "。" + "你" * 49
+    doc = TranscriptDocument(
+        language="zh",
+        duration_ms=20_000,
+        segments=(SttSegment(id=0, start_ms=1000, end_ms=21_000, text=text),),
+        words=(),
+    )
+    grouped = regroup(doc)
+    assert [(s.start_ms, s.end_ms) for s in grouped.segments] == [(1000, 11_200), (11_200, 21_000)]
+    _assert_fit(grouped, text)
+    assert grouped.words == ()
+
+
+# A real 24 s video (7664547853368951397) that came back from speech to text as one
+# segment: one character per word, each word ending exactly where the next begins.
+_REAL_TEXT = (
+    "因为你每天喜欢点起脚尖靠墙,举起双手站立两分钟,所以你全身通畅看起来很年轻,"
+    "因为你喜欢每天双手环抱膝盖,靠墙站立三分钟,所以骨盆前倾小肚子突出会远离你,"
+    "因为你每天喜欢用头靠着墙面,站立两分钟,所以头前倾会远离你,"
+    "因为你每天喜欢双手推墙向下俯身,所以寒心婆背会远离你。"
+)
+_REAL_ENDS = [
+    191, 211, 352, 532, 752, 933, 1133, 1333, 1494, 1834, 1854, 2035, 2435, 2756, 2776,
+    2796, 3016, 3277, 3477, 3637, 3878, 4018, 4399, 4599, 4619, 4820, 5000, 5220, 5401,
+    5581, 5841, 6082, 6182, 6322, 6483, 6703, 7244, 7344, 7364, 7384, 7564, 7705, 7885,
+    8085, 8266, 8486, 8686, 8847, 9027, 9207, 9528, 9708, 9728, 9949, 10109, 10289, 10490,
+    10630, 11091, 11271, 11291, 11491, 11652, 11832, 12273, 12293, 12573, 12734, 12894,
+    13054, 13335, 14156, 14176, 14196, 14276, 14297, 14317, 14457, 14597, 14777, 14998,
+    15198, 15599, 15819, 16020, 16801, 16821, 16841, 16861, 17142, 17162, 17182, 17442,
+    17582, 17963, 18143, 18163, 18324, 18544, 19045, 19065, 19205, 19706, 19726, 19746,
+    19766, 19786, 19927, 20067, 20267, 20468, 20608, 20808, 21009, 21229, 21369, 21590,
+    21810, 22171, 22191, 22651, 22812, 22832, 22992, 23212, 23433, 23593, 23874, 24014,
+    24214, 24615, 24635, 24655,
+]  # fmt: skip
+
+
+def test_the_real_one_segment_transcript_is_cut_at_its_commas() -> None:
+    starts = [31, *_REAL_ENDS[:-1]]
+    grouped = regroup(_doc(list(zip(_REAL_TEXT, starts, _REAL_ENDS, strict=True))))
+    # Of the commas in reach, each cut takes the one held longest.
+    assert [len(s.text) for s in grouped.segments] == [24, 36, 30, 43]
+    assert all(s.text[-1] in ",。" for s in grouped.segments)
+    assert (grouped.segments[0].start_ms, grouped.segments[-1].end_ms) == (31, 24_655)
+    _assert_fit(grouped, _REAL_TEXT)
+
+
+def _chars(text: str, start: int = 0, step: int = 150) -> list[tuple[str, int, int]]:
+    """One word per character, each ending where the next begins, as the provider
+    returns Chinese; a space only separates words and is not one."""
+    words, t = [], start
+    for token in text.split(" "):
+        for ch in token:
+            words.append((ch, t, t + step))
+            t += step
+    return words
+
+
+def test_digits_the_provider_split_into_words_are_one_number_again() -> None:
+    # 7616569292510948709: "3 0岁更像2 0岁", "每1 0 0个女生7 0个缺铁".
+    grouped = regroup(_doc(_chars("3 0岁更像2 0岁，每1 0 0个女生7 0个缺铁")))
+    assert [s.text for s in grouped.segments] == ["30岁更像20岁，每100个女生70个缺铁"]
+
+
+def test_a_decimal_point_between_digits_joins_them() -> None:
+    grouped = regroup(_doc(_chars("就有4 . 6安纳铁")))
+    assert [s.text for s in grouped.segments] == ["就有4.6安纳铁"]
+
+
+def test_a_thousands_comma_joins_digits_and_a_clause_comma_does_not() -> None:
+    grouped = regroup(_doc(_chars("卖了1 , 0 0 0个，买了3 , 5个")))
+    # "3 , 5" is two numbers either side of a clause comma, spaced as before.
+    assert [s.text for s in grouped.segments] == ["卖了1,000个，买了3 , 5个"]
+
+
+def test_a_pause_between_digits_keeps_them_two_numbers() -> None:
+    # A gap under the silence that ends a segment, but still a pause.
+    words = [("有", 0, 150), ("3", 150, 300), ("5", 600, 750), ("个", 750, 900)]
+    grouped = regroup(_doc(words))
+    assert [s.text for s in grouped.segments] == ["有3 5个"]
+
+
+def test_text_that_is_not_a_number_is_joined_as_before() -> None:
+    words = [("买", 0, 100), ("iPhone", 100, 300), ("15", 300, 400), (".", 400, 500)]
+    words += [("好", 500, 600), ("A", 600, 700), ("4", 700, 800), ("纸", 800, 900)]
+    grouped = regroup(_doc(words))
+    assert [s.text for s in grouped.segments] == ["买iPhone 15 .好A 4纸"]
+
+
+def test_a_number_cut_off_by_a_sentence_end_is_not_cut() -> None:
+    # 7616569292510948709 was cut after "就有4 ." and went on with "6安纳铁".
+    head = "温和好吸收还不刺激还搭配了血蛋白多钛花青素和高浓度维系效率特别高小小一颗就有"
+    text = head + "4 . 6安纳铁每天吃三颗刚好满足一天所需像那一吃了半斤枸杞一"
+    grouped = regroup(_doc(_chars(text)))
+    assert all("4.6安" in s.text or "4" not in s.text for s in grouped.segments)
+    assert "".join(s.text for s in grouped.segments) == text.replace(" ", "")
+
+
+def test_a_number_at_the_length_limit_moves_the_cut_off_it() -> None:
+    # The number starts at character 59 and runs to 61 ("100" ends past the limit),
+    # with its measure word after it; no punctuation anywhere.
+    text = "我" * 58 + "1 0 0个" + "你" * 30
+    grouped = regroup(_doc(_chars(text)))
+    joined = text.replace(" ", "")
+    assert "".join(s.text for s in grouped.segments) == joined
+    assert any("100个" in s.text for s in grouped.segments)
+    assert max(len(s.text) for s in grouped.segments) <= MAX_SEGMENT_CHARS
+
+
+def test_a_number_and_its_measure_word_are_not_cut_apart() -> None:
+    # Held longest after "70": without the rule the cut lands between it and "个".
+    words, t = [], 0
+    for i, ch in enumerate("我" * 40 + "70" + "个" + "你" * 30):
+        length = 3000 if i == 41 else 150
+        words.append((ch, t, t + length))
+        t += length
+    grouped = regroup(_doc(words))
+    assert any("70个" in s.text for s in grouped.segments)
+    assert all(not s.text.startswith("个") for s in grouped.segments)
+
+
+# 7616569292510948709 from faster-whisper: punctuation rides on the word before it
+# ("和,"), and "4.6" came back as "4." then "6", 80 ms apart.
+_FW_REAL = [
+    ("温", 26980, 27360), ("和,", 27360, 27520), ("好", 27580, 27700), ("吸", 27700, 27920),
+    ("收,", 27920, 28160), ("还", 28200, 28300), ("不", 28300, 28440), ("刺", 28440, 28620),
+    ("激,", 28620, 28840), ("还", 28940, 29240), ("搭", 29240, 29420), ("配", 29420, 29600),
+    ("了", 29600, 29760), ("血", 29760, 29900), ("蛋", 29900, 30040), ("白", 30040, 30180),
+    ("多", 30180, 30360), ("钛,", 30360, 30620), ("花", 30700, 30960), ("青", 30960, 31140),
+    ("素", 31140, 31380), ("和", 31380, 31540), ("高", 31540, 31740), ("浓", 31740, 31920),
+    ("度", 31920, 32040), ("维", 32040, 32180), ("系,", 32180, 32300), ("效", 32360, 32460),
+    ("率", 32460, 32660), ("特", 32660, 32800), ("别", 32800, 32980), ("高,", 32980, 33140),
+    ("小", 33240, 33340), ("小", 33340, 33520), ("一", 33520, 33680), ("颗", 33680, 33840),
+    ("就", 33840, 33960), ("有", 33960, 34120), ("4.", 34120, 34360), ("6", 34440, 34620),
+    ("安", 34620, 34800), ("纳", 34800, 34920), ("铁,", 34920, 35100), ("每", 35240, 35400),
+    ("天", 35400, 35560), ("吃", 35560, 35740), ("三", 35740, 35960), ("颗,", 35960, 36240),
+    ("刚", 36300, 36640), ("好", 36640, 36820), ("满", 36820, 37020), ("足", 37020, 37220),
+    ("一", 37220, 37340), ("天", 37340, 37480), ("所", 37480, 37640), ("需,", 37640, 37920),
+]  # fmt: skip
+
+
+def test_a_number_faster_whisper_ends_a_word_inside_is_one_number_in_one_segment() -> None:
+    grouped = regroup(_doc(_FW_REAL))
+    texts = [s.text for s in grouped.segments]
+    assert sum("4.6安" in t for t in texts) == 1
+    assert all(not t.endswith("4.") and not t.startswith("6") for t in texts)
+    assert "".join(texts) == "".join(w for w, _, _ in _FW_REAL)
+    assert max(len(t) for t in texts) <= MAX_SEGMENT_CHARS
+
+
+def test_faster_whisper_number_fragments_join_only_into_a_real_number() -> None:
+    words = [("有", 0, 150), ("1,", 150, 300), ("000", 300, 450), ("个,", 450, 600)]
+    words += [("买", 600, 750), ("3,", 750, 900), ("5", 900, 1050), ("个", 1050, 1200)]
+    words += [("看", 1200, 1350), ("4.", 1350, 1500), ("6", 1700, 1850), ("点", 1850, 2000)]
+    grouped = regroup(_doc(words))
+    # A clause comma before one digit, and a pause after "4.", keep them apart,
+    # spaced as before.
+    assert [s.text for s in grouped.segments] == ["有1,000个,买3, 5个看4. 6点"]
+    assert [w.text for w in grouped.words] == [w for w, _, _ in words]
+
+
+def test_the_stored_words_are_the_providers_own() -> None:
+    words = _chars("3 0岁")
+    assert [(w.text, w.start_ms, w.end_ms) for w in regroup(_doc(words)).words] == words
 
 
 class FakeStt:
@@ -593,9 +824,38 @@ async def test_detect_subtitles_samples_two_frames_a_second_in_batches_of_eight(
     assert ocr.calls == 6  # 3 s at 2 frames per second
     assert 1 < ocr.max_running <= BATCH_SIZE
     assert result.region is not None  # fitted to the frames' pixels, see subtitle_pixels
+    # The review reads the document at the same key, derived from the video alone.
+    assert result.subtitle_key == subtitles_key(spec.aweme_id)
     stored = json.loads(store.get_bytes(result.subtitle_key, produced_by="detect_subtitles"))
     assert stored["region"] == result.region.model_dump()
     assert stored["cues"] == [{"start_ms": 500, "end_ms": 2500}]
+
+
+async def test_every_frames_own_answer_is_kept_so_the_region_can_be_rebuilt(
+    store: ObjectStore, video: Path
+) -> None:
+    """The region is a consensus; what each frame said is stored beside it, so a wrong
+    region can be traced to the model or to the consensus."""
+    spec = make_input()
+    store.put_file(spec.video_key, video)
+    low, high = BBox(x=10, y=200, w=300, h=30), BBox(x=40, y=20, w=100, h=20)
+    ocr = FakeOcr({1: low, 2: high, 3: low, 4: low}, unusable=frozenset({5}))
+    result = await ActivityEnvironment().run(
+        DetectSubtitlesActivity(store, ocr).detect_subtitles, spec
+    )
+    stored = json.loads(store.get_bytes(result.subtitle_key, produced_by="detect_subtitles"))
+    assert stored["frame_interval_ms"] == 500
+    assert stored["frame_boxes"] == [
+        None,
+        low.model_dump(),
+        high.model_dump(),
+        low.model_dump(),
+        low.model_dump(),
+        None,
+    ]
+    assert stored["unusable_frames"] == [5]
+    # The outlier is in the record and not in the region.
+    assert result.region is not None and result.region.y > 100
 
 
 async def test_a_video_without_subtitles_has_no_region(store: ObjectStore, video: Path) -> None:
@@ -639,12 +899,13 @@ def test_queue_limits_come_from_settings() -> None:
         media_concurrency=3,
         llm_concurrency=5,
         io_concurrency=2,
+        render_concurrency=4,
     )
     store = ObjectStore(object(), BUCKET)
     agents = {s.name: s.limit for s in queue_specs("agents", settings, store, _providers())}
     media = {s.name: s.limit for s in queue_specs("media", settings, store, _providers())}
     assert agents == {"workflows": None, "llm": 5, "io": 2, "stt": 1, "tts": 2}
-    assert media == {"media": 3}
+    assert media == {"media": 3, "render": 4}
     assert dataclasses.is_dataclass(QueueSpec)
 
 
