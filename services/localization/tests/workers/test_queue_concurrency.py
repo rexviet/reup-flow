@@ -63,7 +63,9 @@ async def _measure(client: Client, spec: QueueSpec) -> int:
 
 
 def _specs(settings: Settings) -> dict[str, QueueSpec]:
-    providers = SimpleNamespace(stt=object(), ocr=object(), tts=object(), demucs=object())
+    providers = SimpleNamespace(
+        stt=object(), ocr=object(), tts=object(), demucs=object(), vbee_stt=None, vbee_tts=None
+    )
     store = ObjectStore(object(), "b")
     specs = queue_specs("agents", settings, store, providers) + queue_specs(  # type: ignore[arg-type]
         "media",
@@ -103,4 +105,7 @@ async def test_the_workflows_queue_has_no_limit_and_no_activities() -> None:
     spec = _specs(Settings())["workflows"]
     assert spec.limit is None
     assert not spec.activities
-    assert [w.__name__ for w in spec.workflows] == ["VideoLocalizationWorkflow"]
+    assert [w.__name__ for w in spec.workflows] == [
+        "VideoLocalizationWorkflow",
+        "VbeeDubbingWorkflow",
+    ]

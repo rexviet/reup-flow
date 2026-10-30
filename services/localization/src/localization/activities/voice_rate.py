@@ -102,15 +102,21 @@ class VoiceRateActivity:
         *,
         model: str | None,
         engine: Callable[[], str | None] = lambda: None,
+        resolve: Callable[[VoiceRef], VoiceRef] = lambda voice: voice,
     ) -> None:
         self._tts = tts
         self._store = store
         self._model = model
         self._engine = engine
+        self._resolve = resolve
 
     @activity.defn(name="voice_rate")
     async def voice_rate(self, voice: VoiceRef) -> float:
-        key = voice_hash(voice, model=self._model, engine=self._engine())
+        # The voice a run names becomes the one spoken and hashed (see `tts_router`). The
+        # engine is the one VoiceStudio reports; it says nothing about a Vbee voice.
+        voice = self._resolve(voice)
+        engine = None if voice.provider == "vbee" else self._engine()
+        key = voice_hash(voice, model=self._model, engine=engine)
         known = await self._store.get(key)
         if known is not None:
             return known

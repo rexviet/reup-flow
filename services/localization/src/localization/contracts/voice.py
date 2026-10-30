@@ -7,7 +7,7 @@ from localization.contracts.base import Contract
 
 _SECRET_FIELD_RE = re.compile(r"key|token|secret|password", re.IGNORECASE)
 
-Provider = Literal["voicestudio", "openai_compat"]
+Provider = Literal["voicestudio", "openai_compat", "vbee"]
 
 
 class ProviderSettings(Contract):
@@ -36,18 +36,24 @@ class OpenAICompatSettings(ProviderSettings):
     speed: Annotated[float, Field(ge=0.25, le=4.0)] = 1.0
 
 
+class VbeeSettings(ProviderSettings):
+    # The range Vbee's TTS accepts.
+    speed: Annotated[float, Field(ge=0.25, le=1.9)] = 1.0
+
+
 # One entry per provider. Adding a provider is one line here plus its settings
 # class; no existing provider's contract changes.
 SETTINGS_BY_PROVIDER: dict[str, type[ProviderSettings]] = {
     "voicestudio": VoiceStudioSettings,
     "openai_compat": OpenAICompatSettings,
+    "vbee": VbeeSettings,
 }
 
 
 class VoiceRef(Contract):
     provider: Provider
     voice_id: Annotated[str, Field(min_length=1, max_length=128)]
-    settings: VoiceStudioSettings | OpenAICompatSettings
+    settings: VoiceStudioSettings | OpenAICompatSettings | VbeeSettings
 
     @model_validator(mode="before")
     @classmethod

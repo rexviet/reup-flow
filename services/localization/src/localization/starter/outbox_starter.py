@@ -32,6 +32,8 @@ from temporalio.service import RPCError, RPCStatusCode
 from localization.config import ConfigError, Settings, load_settings, voice_ref_from_settings
 from localization.contracts import LocalizationInput, VoiceRef
 from localization.contracts.ids import validate_channel_id, validate_source_key
+from localization.contracts.vbee_flow import VBEE_CONFIGURED_VOICE
+from localization.contracts.voice import VbeeSettings
 from localization.observability.tracing import init_tracing, tag_session
 from localization.providers.voices import VoiceCatalog, VoiceUnavailable
 from localization.temporal.client import connect
@@ -39,6 +41,9 @@ from localization.temporal.client import connect
 log = logging.getLogger(__name__)
 
 WORKFLOW_TYPE = "VideoLocalizationWorkflow"
+# The workflow `LOCALIZATION_PIPELINE=vbee` starts instead.
+VBEE_WORKFLOW_TYPE = "VbeeDubbingWorkflow"
+WORKFLOW_TYPES = {"voicestudio": WORKFLOW_TYPE, "vbee": VBEE_WORKFLOW_TYPE}
 WORKFLOW_QUEUE = "workflows"
 EXECUTION_TIMEOUT_DAYS = 14
 # A claim hides the row from other starters for this long; if this process dies
@@ -135,6 +140,31 @@ def backoff_seconds(attempts_so_far: int) -> int:
     return min(BACKOFF_CAP_SECONDS, BACKOFF_BASE_SECONDS * 2**attempts_so_far)
 
 
+def vbee_voice(settings: Settings) -> VoiceRef:
+    """The voice of a Vbee run: a marker the activities replace with VBEE_VOICE_ID, so the
+    cloned voice's id never enters a workflow's history. Checks that the Vbee settings the
+    run needs are present, without calling Vbee (every call is paid for)."""
+    missing = [
+        name
+        for name, value in (
+            ("VBEE_APP_ID", settings.vbee_app_id),
+            ("VBEE_API_TOKEN", settings.vbee_api_token),
+            ("VBEE_VOICE_ID", settings.vbee_voice_id),
+        )
+        if value is None or not value.get_secret_value()
+    ]
+    if missing:
+        raise ConfigError(f"LOCALIZATION_PIPELINE=vbee needs {', '.join(missing)}")
+    return VoiceRef(provider="vbee", voice_id=VBEE_CONFIGURED_VOICE, settings=VbeeSettings())
+
+
+def run_voice(settings: Settings) -> VoiceRef:
+    """The voice every new workflow is started with, for the configured pipeline."""
+    if settings.localization_pipeline == "vbee":
+        return vbee_voice(settings)
+    return voice_ref_from_settings(settings)
+
+
 class Rejected(Exception):
     """The row can never become a valid input; retrying it would change nothing."""
 
@@ -196,9 +226,9 @@ class OutboxStarter:
         )
 
     async def _open_workflows(self) -> int:
-        count = await self._client.count_workflows(
-            f'WorkflowType="{WORKFLOW_TYPE}" AND ExecutionStatus="Running"'
-        )
+        # Both pipelines share the workers: their runs count against one limit.
+        types = " OR ".join(f'WorkflowType="{t}"' for t in WORKFLOW_TYPES.values())
+        count = await self._client.count_workflows(f'({types}) AND ExecutionStatus="Running"')
         now = self._clock()
         while self._recent and now - self._recent[0][0] > RECENT_START_SECONDS:
             self._recent.popleft()
@@ -229,8 +259,9 @@ class OutboxStarter:
         # affects workflows started afterwards and never one already running.
         settings = self._load()
         try:
-            voice = voice_ref_from_settings(settings)
-            catalog = self._voices(settings)
+            voice = run_voice(settings)
+            # A Vbee run never asks VoiceStudio: its voice is not one of VoiceStudio's.
+            catalog = None if voice.provider == "vbee" else self._voices(settings)
             if catalog is not None:
                 await catalog.ensure_exists(voice.voice_id)
         except (ConfigError, VoiceUnavailable) as exc:
@@ -261,7 +292,7 @@ class OutboxStarter:
             if video is None:
                 raise Rejected("the video row does not exist")
             spec = self._start_input(settings, voice, claimed, video)
-            await self._start(spec, id_)
+            await self._start(spec, id_, WORKFLOW_TYPES[settings.localization_pipeline])
         except Rejected as exc:
             await conn.execute(REJECTED_SQL, (str(exc), claimed.aweme_id, claimed.generation))
             log.warning("rejected %s: %s", id_, exc)
@@ -296,13 +327,15 @@ class OutboxStarter:
         log.info("dispatched %s", id_)
         return Outcome.DISPATCHED
 
-    async def _start(self, spec: LocalizationInput, id_: str) -> None:
+    async def _start(
+        self, spec: LocalizationInput, id_: str, workflow_type: str = WORKFLOW_TYPE
+    ) -> None:
         tracer = trace.get_tracer("localization.starter")
         with tracer.start_as_current_span("localization.start"):
             tag_session(spec.aweme_id)
             try:
                 await self._client.start_workflow(
-                    WORKFLOW_TYPE,
+                    workflow_type,
                     spec,
                     id=id_,
                     task_queue=WORKFLOW_QUEUE,

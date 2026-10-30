@@ -22,6 +22,9 @@ ALLOWED = (
     "localization.agents.temporal",
     # Pure: which stage a failed review sends a run back to.
     "localization.workflows.review_routing",
+    # The other workflow's queues, retry policies and pure helpers, shared by the Vbee
+    # workflow. It is a workflow module itself, scanned against these same rules.
+    "localization.workflows.video_localization",
     "datetime.timedelta",
 )
 

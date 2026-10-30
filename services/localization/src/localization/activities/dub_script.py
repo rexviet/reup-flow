@@ -27,6 +27,7 @@ from localization.contracts import (
     SegmentRoom,
     SegmentRooms,
 )
+from localization.contracts.vbee_flow import ClipDuration, ClipDurations
 from localization.contracts.voice import VoiceRef
 from localization.observability.tracing import tag_session
 from localization.storage.object_store import ObjectStore, work_key
@@ -104,6 +105,22 @@ class DubScriptActivities:
             if stretch_for(duration, seg.slot_ms) is None:
                 unfit.append(seg.id)
         return FitReport(unfit_ids=tuple(unfit))
+
+    @activity.defn(name="clip_durations")
+    async def clip_durations(
+        self, spec: LocalizationInput, script_key: str, engine: str | None
+    ) -> ClipDurations:
+        """How long each line's clip really is: what the voice's real speaking rate is
+        measured from."""
+        tag_session(spec.aweme_id)
+        script = await asyncio.to_thread(read_script, self._store, script_key)
+        items = [
+            ClipDuration(
+                id=seg.id, duration_ms=await self._duration(spec.voice, engine, seg.text_vi)
+            )
+            for seg in script.segments
+        ]
+        return ClipDurations(items=tuple(items))
 
     @activity.defn(name="segment_room")
     async def segment_room(
