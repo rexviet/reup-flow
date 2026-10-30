@@ -1,0 +1,84 @@
+services/downloader/test/compose-constraints.spec.ts
+  s_1fd7bb73f83ca7::t_8e84247d78eb9b 206-210,222-227,236-241,246-248,336-340
+  s_1fd7bb73f83ca7::t_58cb1bce39c03f 254,343,351,373-375,380-384
+services/localization/tests/replay/test_replay.py
+  s_1fd7bb73f83ca7::t_6ac5e240e796cf 233,356
+  s_1fd7bb73f83ca7::t_9a2f3e10e0378a 23,235,273,325,365,373,376-377,389,398,413-445,447-454,457-482
+  s_1fd7bb73f83ca7::t_f000b2ff6a852f 455-456
+  s_1fd7bb73f83ca7::t_35f453dd6eb511 351-355,357-364,366
+  s_1fd7bb73f83ca7::t_0b278eac9a4d4f 22
+  s_1fd7bb73f83ca7::t_df0e0290762918 391-397,399-412
+  s_1fd7bb73f83ca7::t_77f5728bb7efb0 446
+  s_1fd7bb73f83ca7::t_207658c843d1de 234,367-372,374-375,378-388,390
+services/localization/src/localization/config.py
+  s_1fd7bb73f83ca7::t_4bbbd088f78a7f 132-140,175
+  s_1fd7bb73f83ca7::t_fb267180f0b4ac 69
+  s_1fd7bb73f83ca7::t_3f77dd89634325 29-32
+services/localization/src/localization/agents/temporal.py
+  s_1fd7bb73f83ca7::t_b9fcfae565dafa 68-70,329-334
+  s_1fd7bb73f83ca7::t_233a838df8ba34 494-500
+  s_1fd7bb73f83ca7::t_c3a84bf60875de 13,484-493,501-514
+  s_1fd7bb73f83ca7::t_4d06c896232a64 328,344
+  s_1fd7bb73f83ca7::t_5ae1b4d0853a31 50,321
+  s_1fd7bb73f83ca7::t_4c3f39e8823a40 37,51,462-483,515
+services/localization/tests/replay/record_histories.py
+  s_1fd7bb73f83ca7::t_d97b164534693a 335,359-413
+  s_1fd7bb73f83ca7::t_c4e66f10738b3a 29,276-281,313-334
+  s_1fd7bb73f83ca7::t_fa80680f0f9edb 4,24,39-49,415-462,465-467
+  s_1fd7bb73f83ca7::t_9f3e5bd723c8ce 336,339-358,414
+  s_1fd7bb73f83ca7::t_676552c6748f6e 337-338
+.env.example
+  s_1fd7bb73f83ca7::t_c45359a339cb1f 138-145
+  s_1fd7bb73f83ca7::t_7860ec3aafd5d3 178,194-195
+  s_1fd7bb73f83ca7::t_3fb79f9c45eb92 146-154
+services/localization/tests/workers/test_agent_wiring.py
+  s_1fd7bb73f83ca7::t_d250aa458b211a 18-20
+  s_1fd7bb73f83ca7::t_1ce2fb9109b5d8 72,76,345-346,348-350
+  s_1fd7bb73f83ca7::t_7f00edfc51589c 354
+  s_1fd7bb73f83ca7::t_0ad47787c997db 79-97,364,367-369,371
+  s_1fd7bb73f83ca7::t_2f3feb358e8e77 77-78
+services/localization/src/localization/workers/run.py
+  s_1fd7bb73f83ca7::t_687b5c53398a35 41,44,58-59,70,74,152-156,158,162,165,196-197,201,203,228-232,236-241,252-257,304-309,335
+  s_1fd7bb73f83ca7::t_0b278eac9a4d4f 4,39,75,136,142-145
+  s_1fd7bb73f83ca7::t_65f38b553ceaed 37
+  s_1fd7bb73f83ca7::t_e12adc22040534 64,179-181
+  s_1fd7bb73f83ca7::t_7f00edfc51589c 204-205,207-210
+services/localization/src/localization/workflows/video_localization.py
+  s_1fd7bb73f83ca7::t_eb7e0a78abbe96 703-705
+  s_1fd7bb73f83ca7::t_b8b2103a009758 83-85,97-100,229-245,591-594,598,601
+  s_1fd7bb73f83ca7::t_81edc4752e8cc8 712
+  s_1fd7bb73f83ca7::t_87334a1f35a91e 774-775
+  s_1fd7bb73f83ca7::t_09261a29867501 86-91,667-674,678-680,706-711,713-733,749-755
+  s_1fd7bb73f83ca7::t_7436b7f65e7d2b 663-666,681
+  s_1fd7bb73f83ca7::t_4c45685f3c0b20 187
+docker-compose.yml
+  s_1fd7bb73f83ca7::t_7860ec3aafd5d3 528,538-539,546-547,553,556
+  s_1fd7bb73f83ca7::t_6c5f960f1f5ac1 371
+  s_1fd7bb73f83ca7::t_7fb5c6ccf760b9 462-468,514-521
+.gitignore
+  s_359310afaecc55::t_1d498c59857e25 26-28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2543242753b62a43450b2d2f88f54701bb66373e",
+  "prompts": {},
+  "sessions": {
+    "s_1fd7bb73f83ca7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "07f62d39-b5c7-4084-a633-0d769a53fb9d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    },
+    "s_359310afaecc55": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5e17c037-5a16-4e26-998f-fddfabf3cb91",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
