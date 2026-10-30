@@ -1,0 +1,146 @@
+services/localization/src/localization/providers/base.py
+  s_1fd7bb73f83ca7::t_d697364ad05ce1 12,46-47,57-58,61-62,68-69,72,74-76,78-81,92,95,97
+services/localization/tests/eval/test_synth_scenarios.py
+  s_1fd7bb73f83ca7::t_49649af75e8963 107-117
+  s_1fd7bb73f83ca7::t_ffebadec05b9f7 1-71,75-83,118-145
+  s_1fd7bb73f83ca7::t_a4c0a84f414fd9 95,97,99
+  s_1fd7bb73f83ca7::t_ae07bca7feda14 84-94,96,98,100-106
+  s_1fd7bb73f83ca7::t_b03240c0b2b18d 72-74
+services/localization/src/localization/activities/publish.py
+  s_1fd7bb73f83ca7::t_76303aa2db4e19 157
+  s_1fd7bb73f83ca7::t_e12adc22040534 9-11,16,23-31,35-36,98-100,103,156,158-175,177-185
+  s_1fd7bb73f83ca7::t_6ddb0484aa25d1 151-154
+  s_1fd7bb73f83ca7::t_f99dd266941e96 176
+services/localization/src/localization/agents/localizer_single.py
+  s_1fd7bb73f83ca7::t_4d06c896232a64 26,339-351,354-357,360-363,365-370,374-381
+  s_1fd7bb73f83ca7::t_b9fcfae565dafa 185,206-225,227-230,250-268,352-353,358-359,364,371-373
+services/localization/tests/eval/test_pipeline_eval.py
+  s_1fd7bb73f83ca7::t_8d3d258ec90c3b 12,14
+  s_1fd7bb73f83ca7::t_29ae8a220ff46e 1-11,13,15-141
+services/localization/tests/eval/conftest.py
+  s_1fd7bb73f83ca7::t_0dbfd9e5d39e3a 1-9
+services/localization/src/localization/observability/provider_spans.py
+  s_1fd7bb73f83ca7::t_0d1578e92f8ec3 1-58
+services/localization/eval/synth_scenarios.py
+  s_1fd7bb73f83ca7::t_1fb6205008756f 387-391
+  s_1fd7bb73f83ca7::t_2cfd6eb8075d50 1-32,34-64,68-119,121-284,286-287,295,297-386,392-441
+  s_1fd7bb73f83ca7::t_0fac7480e3f85f 33,120,296
+  s_1fd7bb73f83ca7::t_0fc93297f9b517 65-67
+  s_1fd7bb73f83ca7::t_9b04b673771d4c 288-291
+  s_1fd7bb73f83ca7::t_bd6db924d25a01 292-294
+  s_1fd7bb73f83ca7::t_49649af75e8963 285
+services/localization/eval/run_experiment.py
+  s_1fd7bb73f83ca7::t_b9fcfae565dafa 113
+  s_1fd7bb73f83ca7::t_638f8d788075bf 4
+  s_1fd7bb73f83ca7::t_0dbfd9e5d39e3a 24-25
+  s_1fd7bb73f83ca7::t_0fac7480e3f85f 117-120
+  s_1fd7bb73f83ca7::t_e5adcdab62c3f9 135-150,181-185,188-190
+  s_1fd7bb73f83ca7::t_30c5a3d4d5e1f0 1-3,5-23,26-112,114-116,121-134,151-180,186-187,191-223
+services/localization/tests/observability/test_run_scores.py
+  s_1fd7bb73f83ca7::t_f99dd266941e96 143-144
+  s_1fd7bb73f83ca7::t_6ddb0484aa25d1 108-111,156-159,163-186
+  s_1fd7bb73f83ca7::t_a003694812b64d 40-46,215,218
+  s_1fd7bb73f83ca7::t_2989a1fdb412c1 1-39,47-107,112-142,145-155,160-162,187-214,216-217,219-268
+services/localization/tests/text/test_safety.py
+  s_1fd7bb73f83ca7::t_77639657bf4578 56-65
+services/localization/eval/build_dataset.py
+  s_1fd7bb73f83ca7::t_ccb89dcf233e8c 5-6,11-12,33,38,41,50,78-82,95-96,101
+  s_1fd7bb73f83ca7::t_3d2e1ae5910abc 20-28,31,104-106
+  s_1fd7bb73f83ca7::t_2afb5c08e3559e 1-4,7-10,13-19,29-30,32,34-37,39-40,42-49,51-77,83-94,97-100,102-103,107-114
+services/localization/src/localization/contracts/models.py
+  s_1fd7bb73f83ca7::t_3d344c83810c33 91-97,103-105
+  s_1fd7bb73f83ca7::t_87334a1f35a91e 413-416,423-424
+  s_1fd7bb73f83ca7::t_98b111754a63ef 394
+services/localization/tests/agents/test_one_request_agents.py
+  s_1fd7bb73f83ca7::t_53e2be7cb42156 254-310
+services/localization/tests/replay/histories/glossary-terms/term-kept-by-the-first-answer.json
+  s_1fd7bb73f83ca7::t_c4e66f10738b3a 1-3097
+services/localization/tests/observability/test_trace_completeness.py
+  s_1fd7bb73f83ca7::t_9e59f5ca95d081 1-22,30-49,51-77,79-80,82-127,129-161,163-164
+  s_1fd7bb73f83ca7::t_e19438536ddc70 23-29,78,81
+  s_1fd7bb73f83ca7::t_26509a7efdd748 50
+  s_1fd7bb73f83ca7::t_118f134a5e07db 128,162
+services/localization/src/localization/observability/scores.py
+  s_1fd7bb73f83ca7::t_6ddb0484aa25d1 98-108
+  s_1fd7bb73f83ca7::t_f99dd266941e96 140-144
+  s_1fd7bb73f83ca7::t_02a18bf60e5512 1-97,109-139,145-171
+services/localization/tests/observability/test_provider_spans.py
+  s_1fd7bb73f83ca7::t_3a50b4f77ad5e6 1-10,12-51,55-56,59-70,72-84,86-99,101-116,118-131
+  s_1fd7bb73f83ca7::t_2339819806457a 11,52-54,57-58,71,85,100,117
+services/localization/eval/evaluators.py
+  s_1fd7bb73f83ca7::t_854f329efe74d9 130-136,138-144
+  s_1fd7bb73f83ca7::t_49649af75e8963 27,197-198,202
+  s_1fd7bb73f83ca7::t_d069a98a53d421 206
+  s_1fd7bb73f83ca7::t_003a41545244e5 1-13,15-24,28-57,64-68,73-129,137,145-162
+  s_1fd7bb73f83ca7::t_ffebadec05b9f7 14
+  s_1fd7bb73f83ca7::t_0fac7480e3f85f 25-26,163-196,199-201,203-205,207-229
+  s_1fd7bb73f83ca7::t_833fd4a44818c8 58-63,69-72
+services/localization/tests/replay/histories/glossary-terms/term-put-back-by-the-repair.json
+  s_1fd7bb73f83ca7::t_c4e66f10738b3a 1-3247
+services/localization/eval/pipeline_eval.py
+  s_1fd7bb73f83ca7::t_9c987a23b362ad 32,205-208,212-215
+  s_1fd7bb73f83ca7::t_67918c1dd95452 1-19,22-31,33-42,44-204,209-211,216-236
+  s_1fd7bb73f83ca7::t_8d3d258ec90c3b 43
+  s_1fd7bb73f83ca7::t_6ddb0484aa25d1 20-21
+services/localization/src/localization/activities/detect_subtitles.py
+  s_1fd7bb73f83ca7::t_3d344c83810c33 190,226,233,235,239-247
+  s_1fd7bb73f83ca7::t_0b0865219605ab 58-63
+  s_1fd7bb73f83ca7::t_312eb51981422a 101-105,107,130-131,134,138-140
+  s_1fd7bb73f83ca7::t_bae9f1629bcedb 248
+services/localization/eval/common.py
+  s_1fd7bb73f83ca7::t_ccb89dcf233e8c 148-150,179-180
+  s_1fd7bb73f83ca7::t_79f90d019c8d89 1-135,151-178,181-200,204-212
+  s_1fd7bb73f83ca7::t_e5adcdab62c3f9 136-147
+  s_1fd7bb73f83ca7::t_3d2e1ae5910abc 201-203
+services/localization/tests/workflows/test_one_request_agents.py
+  s_1fd7bb73f83ca7::t_e1336b2c449bfe 134-156,160-161,163-176
+  s_1fd7bb73f83ca7::t_b0fedbdb033e77 96-97,157-159,162
+services/localization/src/localization/text/safety.py
+  s_1fd7bb73f83ca7::t_eaad56e77e07e6 37-39
+services/localization/src/localization/agents/localizer.py
+  s_1fd7bb73f83ca7::t_8b19090eb3a260 32
+services/localization/src/localization/providers/vision_ocr.py
+  s_1fd7bb73f83ca7::t_312eb51981422a 13,43-44,46-47,50-51,53-59,82,85,90
+services/localization/eval/ocr_eval.py
+  s_1fd7bb73f83ca7::t_659a480eec60ed 1-48,51-224,226,229,231,237-366,368-378
+  s_1fd7bb73f83ca7::t_f4af653e30d5e7 49-50,225,227-228,230,232-236,367
+services/localization/tests/eval/test_evaluators.py
+  s_1fd7bb73f83ca7::t_854f329efe74d9 111-123
+  s_1fd7bb73f83ca7::t_596c065778865a 1-3,5,12-22,26-62,75-81,83-110,124-126
+  s_1fd7bb73f83ca7::t_3034c59e8acc02 4,23-25
+  s_1fd7bb73f83ca7::t_bf3308f50dbe00 63-74
+  s_1fd7bb73f83ca7::t_443fbecd0a0adf 6-11,82
+services/localization/tests/mutations/phase-09.sh
+  s_1fd7bb73f83ca7::t_89e8c59edb21dc 11-16,34-40,43-50,120-169,175
+  s_1fd7bb73f83ca7::t_e6d71cbafdf821 51
+  s_1fd7bb73f83ca7::t_c26498ac989a02 170-174
+  s_1fd7bb73f83ca7::t_6c52d5fee21489 176
+  s_1fd7bb73f83ca7::t_c6aee6721404f0 54
+services/localization/tests/support/spans.py
+  s_1fd7bb73f83ca7::t_39545cbbf8e885 1-12,14-31,35-37,39-40
+  s_1fd7bb73f83ca7::t_30902696bb0307 13,32-34,38
+services/localization/tests/eval/test_ocr_eval.py
+  s_1fd7bb73f83ca7::t_a84417559be69a 1-131
+services/localization/eval/scenarios/localizer-synth-v1.jsonl
+  s_1fd7bb73f83ca7::t_49f029519205a6 1-41
+services/localization/src/localization/providers/openai_stt.py
+  s_1fd7bb73f83ca7::t_714e5b97c602e1 7,28,32-38,54,68-71
+services/localization/src/localization/providers/openai_tts.py
+  s_1fd7bb73f83ca7::t_1ffbd4b39b9104 20,24-30,46,57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "dd3408b39359bf28b527fd76f40127d40eb318f8",
+  "prompts": {},
+  "sessions": {
+    "s_1fd7bb73f83ca7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "07f62d39-b5c7-4084-a633-0d769a53fb9d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
