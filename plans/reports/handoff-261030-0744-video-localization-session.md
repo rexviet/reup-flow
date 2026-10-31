@@ -1,6 +1,6 @@
 # Handoff: video localization, phiên 2026-10-29
 
-Branch `feat/localization-phase-00-infra`. Commit gần nhất vẫn là `5b15fd9`: **toàn bộ thay đổi từ hôm qua chưa được commit**, gồm khoảng 94 file sửa và 88 file mới. Người dùng chưa yêu cầu commit.
+Branch `feat/localization-phase-00-infra`, chưa push. Toàn bộ thay đổi đã nằm trong 8 commit, từ `dd3408b` tới `d7040eb`, chia theo mạch việc.
 
 Hãy đọc file này trước, rồi đọc:
 - journal `plans/journals/261029-1708-vbee-pipeline-va-tang-toc.md` (nhất là phần cập nhật tối);
@@ -33,11 +33,10 @@ Việc người dùng đang chờ:
 
 Quyết định người dùng chưa trả lời:
 - Sơ đồ: chỉ gom "synthesize" và "Dubber Agent" vào khung "Lồng tiếng", hay đổi hẳn TTS thành tool của Dubber Agent? Đã khuyên không đổi kiến trúc.
-- Có commit không, và chia commit thế nào.
 
 ## 3. Cách chạy một video thật
 
-- **Không tự chạy video.** Người dùng bật máy GPU rồi mới chạy. Khi máy không dùng, nhắc người dùng Stop (không Destroy) để đỡ tiền.
+- **Không tự chạy video.** Người dùng bật máy GPU rồi mới chạy. Máy Vast.ai đã Stop không giữ GPU và có thể kẹt "Scheduling" hàng giờ tới hàng tuần (đã xảy ra ngày 2026-10-30): trước khi nhắc người dùng Stop, nói rõ rủi ro này và chép dữ liệu giọng ra trước.
 - **Mỗi lần URL tunnel đổi**, phải tạo lại **cả** `worker-agents` lẫn `localization-starter`, vì starter cũng gọi VoiceStudio để kiểm giọng (có memory ghi việc này). Sau khi đẩy video vào outbox, kiểm đã có `workflow_id` rồi mới báo là đang chạy.
 - **Đẩy lại một video:** sao lưu bảng `localization_outbox` trước (dùng `pg_dump`). Sau đó tăng `generation` lên 1 và đặt `state='pending'`, `next_attempt_at=now()`, `dispatched_at=null`, `workflow_id=null`, `dispatch_attempts=0`, `last_error=null`. Workflow id có dạng `video-<aweme_id>-g<generation>`.
 - **Chạy từng video một.** Đợi video trước qua được ít nhất bước STT rồi mới gửi video sau.
