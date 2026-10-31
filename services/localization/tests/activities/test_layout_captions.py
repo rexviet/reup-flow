@@ -280,6 +280,15 @@ async def test_without_a_burned_in_subtitle_there_is_no_cover(store: ObjectStore
     assert spec.caption_box == safe_zone(1080, 1920)
 
 
+async def test_a_video_with_nothing_to_caption_gets_no_cover(store: ObjectStore) -> None:
+    """Nothing is drawn in place of the burned-in text, so hiding it would only take
+    picture away: the box would sit over whatever is behind that text."""
+    ref, subs, dub = await stage(store, [], region=BURNED_IN)
+    _, spec = await run(store, ref, subs, dub)
+    assert spec.captions == ()
+    assert spec.cover is None
+
+
 async def test_every_line_of_every_caption_fits_the_box_at_its_own_size(
     store: ObjectStore,
 ) -> None:

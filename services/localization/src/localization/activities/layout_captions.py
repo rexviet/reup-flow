@@ -355,8 +355,11 @@ def lay_out(
     cover_color: str,
     cover_opacity: float,
 ) -> EditSpec:
+    spans = caption_spans(script, doc, ingest.duration_ms)
     cover = None
-    if subtitles.region is not None:
+    # A cover hides the burned-in text so the caption can stand in its place. With no
+    # caption to draw it would only hide the picture behind that text.
+    if subtitles.region is not None and spans:
         check_cover_plausible(subtitles.region, ingest.width, ingest.height)
         box = caption_box_for(
             grow_cover(subtitles.region, ingest.width, ingest.height), ingest.height
@@ -366,7 +369,6 @@ def lay_out(
         cover = Cover(region=box, color=cover_color, opacity_pct=round(cover_opacity * 100))
     else:
         box = safe_zone(ingest.width, ingest.height)
-    spans = caption_spans(script, doc, ingest.duration_ms)
     check_glyph_coverage(spans, meter)
     return EditSpec(
         source_key=source_key,
