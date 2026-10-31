@@ -106,9 +106,10 @@ async def test_the_stage_comes_after_preparation_and_the_voice_rate_is_known_bef
 ) -> None:
     handle, _ = await run_workflow(temporal_client, PrepFakes(), LocalizerFakes())
     names = [name for name, _ in await scheduled(handle)]
-    # The voice's rate is asked for beside the ingest, then the two preparation stages.
-    assert names[:2] == ["ingest", "voice_rate"]
-    assert set(names[2:4]) == {"transcribe", "detect_subtitles"}
+    # The voice check comes first; the voice's rate is asked for beside the ingest, then the
+    # two preparation stages.
+    assert names[:3] == ["check_voice", "ingest", "voice_rate"]
+    assert set(names[3:5]) == {"transcribe", "detect_subtitles"}
     assert names.index("voice_rate") < names.index("agent__localizer__model_request")
     assert names.index("agent__localizer__model_request") < names.index("assemble_script")
     # The dubbing stage follows the script: the Localizer's stage ends at assemble_script.

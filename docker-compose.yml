@@ -512,6 +512,8 @@ services:
       STT_MODEL: ${STT_MODEL:-}
       TTS_MODEL: ${TTS_MODEL:-}
       # Serves both pipelines; with LOCALIZATION_PIPELINE=vbee it refuses to start without
+      # Prompts, answers, the Dubber's code and tool arguments in the agents' traces.
+      TRACE_AGENT_CONTENT: ${TRACE_AGENT_CONTENT:-true}
       # the Vbee settings and needs no VoiceStudio.
       LOCALIZATION_PIPELINE: ${LOCALIZATION_PIPELINE:-voicestudio}
       VBEE_BASE_URL: ${VBEE_BASE_URL:-https://api.vbee.vn}

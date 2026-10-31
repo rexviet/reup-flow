@@ -17,7 +17,6 @@ from typing import Any, Protocol
 from pydantic_ai import Agent, BinaryContent, ModelRetry, RunContext, ToolReturn
 from pydantic_ai.capabilities import Instrumentation
 from pydantic_ai.models import Model
-from pydantic_ai.models.instrumented import InstrumentationSettings
 
 from localization.agents.localizer import UNTRUSTED_CLOSE, UNTRUSTED_OPEN, wrap_untrusted
 from localization.contracts.models import (
@@ -26,6 +25,7 @@ from localization.contracts.models import (
     LocalizedScript,
     ReviewVerdict,
 )
+from localization.observability.agent_tracing import agent_instrumentation
 
 PROMPT_VERSION = "reviewer-1"
 
@@ -255,8 +255,9 @@ def check_verdict(deps: ReviewDeps, verdict: ReviewVerdict) -> ReviewVerdict:
 def build_reviewer(
     model: Model | str, *, name: str = "reviewer", tracer_provider: Any = None
 ) -> Agent[ReviewDeps, ReviewVerdict]:
-    """The Reviewer agent. Its spans never carry the frames (`include_binary_content`
-    is off): they would make a trace the size of the video."""
+    """The Reviewer agent. Its spans never carry the frames (`agent_instrumentation`
+    leaves binary content out): they would make a trace the size of the video. They
+    carry its prompts and answers unless the worker turned content capture off."""
     agent: Agent[ReviewDeps, ReviewVerdict] = Agent(
         model,
         name=name,
@@ -264,13 +265,7 @@ def build_reviewer(
         output_type=ReviewVerdict,
         instructions=INSTRUCTIONS,
         retries={"tools": 3, "output": 3},
-        capabilities=[
-            Instrumentation(
-                InstrumentationSettings(
-                    include_binary_content=False, tracer_provider=tracer_provider
-                )
-            )
-        ],
+        capabilities=[Instrumentation(agent_instrumentation(tracer_provider))],
     )
     for tool_name, fn in TOOLS.items():
         agent.tool(fn, name=tool_name)

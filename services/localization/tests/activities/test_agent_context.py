@@ -44,3 +44,25 @@ async def test_each_agent_follows_its_own_setting() -> None:
     acts = AgentContextActivities("tools", "single")
     assert await acts.localizer_context(localizer_deps()) is None
     assert await acts.dubber_context(dubber_deps((0, 1))) is not None
+
+
+async def test_the_setup_names_the_dubbers_mode_and_reads_lines_only_to_answer_in_one_request(
+    _ports,
+) -> None:
+    _, dubbing = _ports
+    for mode in ("tools", "code"):
+        setup = await AgentContextActivities("single", mode).dubber_setup(dubber_deps((0, 1)))
+        assert (setup.mode, setup.context) == (mode, None)
+    assert not dubbing.calls
+    setup = await AgentContextActivities("tools", "single").dubber_setup(dubber_deps((0, 1)))
+    assert setup.mode == "single"
+    assert setup.context is not None and [x.id for x in setup.context.lines] == [0, 1]
+
+
+async def test_a_run_recorded_before_the_code_mode_gets_the_tool_loop_from_a_code_worker(
+    _ports,
+) -> None:
+    """Such a run asks `dubber_context`, which knows two modes: "no lines" is the loop."""
+    _, dubbing = _ports
+    assert await AgentContextActivities("single", "code").dubber_context(dubber_deps()) is None
+    assert not dubbing.calls

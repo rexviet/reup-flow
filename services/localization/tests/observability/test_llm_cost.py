@@ -18,20 +18,35 @@ import pytest
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-from pydantic_ai import Agent
+from pydantic_ai import Agent, ModelResponse, TextPart
+from pydantic_ai.capabilities import Instrumentation
+from pydantic_ai.messages import ModelRequest, UserPromptPart
+from pydantic_ai.models import ModelRequestParameters
+from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai.usage import RequestUsage
+from temporalio.contrib.pydantic import pydantic_data_converter
 from temporalio.testing import ActivityEnvironment
 
 from localization.activities.publish import RunStore
+from localization.observability.agent_tracing import agent_instrumentation
 from localization.observability.llm_calls import LlmCallRecorder
 from localization.observability.llm_usage import (
     COST_DETAILS,
     MODEL_NAME,
     OBSERVATION_TYPE,
     USAGE_DETAILS,
+    LlmUsage,
     parse_usage,
 )
+from localization.observability.model_cost import (
+    COST_DETAILS_KEY,
+    CostOnRequestSpan,
+    request_usage,
+    with_reported_cost,
+)
+from localization.observability.reported_cost import ReportedCostModel
 from localization.providers.llm import openrouter_client
 from tests.support.scratch_db import scratch_database
 from tests.support.stub_server import Scenario, StubServer
@@ -150,7 +165,8 @@ async def test_the_cost_reaches_the_span_in_the_form_langfuse_ingests(
             await post(client, stub)
     attrs = attributes_of(exporter)
     assert attrs[OBSERVATION_TYPE] == "generation"
-    assert attrs[MODEL_NAME] == "deepseek/probe"
+    # The model that answered, as the response names it.
+    assert attrs[MODEL_NAME]
     assert json.loads(attrs[USAGE_DETAILS]) == {"input": 10, "output": 2, "total": 12}
     assert json.loads(attrs[COST_DETAILS])["total"] == 0.00952
 
@@ -229,6 +245,108 @@ async def test_a_pydantic_ai_agent_request_is_priced_by_the_same_hook(
     attrs = attributes_of(exporter)
     assert json.loads(attrs[COST_DETAILS])["total"] == 0.00952
     assert attrs[OBSERVATION_TYPE] == "generation"
+
+
+# --- a durable agent's request: the cost travels back with the answer ---
+
+
+async def _reported_request(stub: StubServer, body: dict) -> ModelResponse:
+    """One request of a durable agent's model, as the worker binds it, through the
+    production client."""
+    stub.scenario = Scenario(json_body=body)
+    async with openrouter_client() as client:
+        model = ReportedCostModel(
+            OpenAIChatModel(
+                "deepseek/probe",
+                provider=OpenAIProvider(base_url=stub.url, api_key=API_KEY, http_client=client),
+            )
+        )
+        return await model.request(
+            [ModelRequest(parts=[UserPromptPart("hello")])], None, ModelRequestParameters()
+        )
+
+
+async def test_a_durable_agents_model_returns_the_cost_openrouter_reported(
+    stub: StubServer,
+) -> None:
+    response = await _reported_request(stub, completion("gen-dur", 0.00952))
+    assert response.provider_response_id == "gen-dur"
+    assert response.usage.cost == Decimal("0.00952")
+    assert response.provider_details[COST_DETAILS_KEY] == {"upstream_inference_cost": 0.0004}
+    # It reaches the workflow as an activity result: the cost survives the payload.
+    converter = pydantic_data_converter.payload_converter
+    (payload,) = converter.to_payloads([response])
+    (back,) = converter.from_payloads([payload], [ModelResponse])
+    assert back.usage.cost == Decimal("0.00952")
+    assert request_usage(back).cost_details == {"upstream_inference_cost": 0.0004}
+
+
+async def test_a_reply_without_a_reported_cost_comes_back_without_one(stub: StubServer) -> None:
+    response = await _reported_request(stub, completion("gen-free", None))
+    assert response.usage.cost is None
+    assert COST_DETAILS_KEY not in (response.provider_details or {})
+
+
+def test_a_reply_for_another_generation_lends_the_response_no_cost() -> None:
+    response = ModelResponse(parts=[TextPart("ok")], provider_response_id="gen-2")
+    other = LlmUsage(generation_id="gen-1", cost_usd=0.5)
+    assert with_reported_cost(response, [other]).usage.cost is None
+    mine = LlmUsage(generation_id="gen-2", cost_usd=0.25)
+    assert with_reported_cost(response, [other, mine]).usage.cost == Decimal("0.25")
+
+
+def _answer(cost: Decimal | None) -> FunctionModel:
+    async def respond(messages: list, info: AgentInfo) -> ModelResponse:
+        return ModelResponse(
+            parts=[TextPart("ok")],
+            usage=RequestUsage(input_tokens=11, output_tokens=3, cost=cost),
+            model_name="deepseek/probe",
+            provider_response_id="gen-span",
+            provider_details=(
+                {COST_DETAILS_KEY: {"upstream_inference_cost": 0.0004}} if cost else None
+            ),
+        )
+
+    return FunctionModel(respond)
+
+
+async def test_the_reported_cost_is_written_on_the_requests_own_span(
+    spans: tuple[TracerProvider, InMemorySpanExporter],
+) -> None:
+    provider, exporter = spans
+    agent = Agent(
+        _answer(Decimal("0.00952")),
+        capabilities=[
+            Instrumentation(agent_instrumentation(provider, include_content=False)),
+            CostOnRequestSpan(),
+        ],
+    )
+    await agent.run("hello")
+    (chat,) = [s for s in exporter.get_finished_spans() if s.name.startswith("chat ")]
+    attrs = dict(chat.attributes or {})
+    assert attrs[OBSERVATION_TYPE] == "generation"
+    # The model that answered, as the response names it.
+    assert attrs[MODEL_NAME]
+    assert json.loads(attrs[USAGE_DETAILS]) == {"input": 11, "output": 3, "total": 14}
+    assert json.loads(attrs[COST_DETAILS]) == {"upstream_inference_cost": 0.0004, "total": 0.00952}
+    # The agent's run span carries no cost: Langfuse would count it twice.
+    others = [s for s in exporter.get_finished_spans() if s is not chat]
+    assert others and not [s.name for s in others if COST_DETAILS in (s.attributes or {})]
+
+
+async def test_a_request_with_no_reported_cost_gets_no_cost_on_its_span(
+    spans: tuple[TracerProvider, InMemorySpanExporter],
+) -> None:
+    provider, exporter = spans
+    agent = Agent(
+        _answer(None),
+        capabilities=[Instrumentation(agent_instrumentation(provider)), CostOnRequestSpan()],
+    )
+    await agent.run("hello")
+    (chat,) = [s for s in exporter.get_finished_spans() if s.name.startswith("chat ")]
+    attrs = dict(chat.attributes or {})
+    assert COST_DETAILS not in attrs
+    assert json.loads(attrs[USAGE_DETAILS]) == {"input": 11, "output": 3, "total": 14}
 
 
 # --- the table and the run's total ---

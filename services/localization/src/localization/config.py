@@ -19,6 +19,9 @@ Concurrency = Annotated[int, Field(ge=1, le=64)]
 # (one model request, at most one more to repair lines that break their checks);
 # `tools` lets it call tools in a loop, one model request per call.
 AgentMode = Literal["single", "tools"]
+# The Dubber has a third: `code`, where it writes code that calls its tools (the same as
+# `localization.agents.dubber.DubberMode`, kept here so settings import no agent).
+DubberMode = Literal["single", "tools", "code"]
 # How the Reviewer judges a render. `jev`: checks in code plus one call to Jev, a typed
 # decision model, for what needs understanding. `llm`: the tool-calling vision agent.
 ReviewerMode = Literal["jev", "llm"]
@@ -85,7 +88,7 @@ class Settings(BaseSettings):
     localizer_model: str | None = None
     dubber_model: str | None = None
     localizer_mode: AgentMode = "single"
-    dubber_mode: AgentMode = "single"
+    dubber_mode: DubberMode = "single"
     localizer_reasoning: ReasoningMode = "off"
     dubber_reasoning: ReasoningMode = "off"
     reviewer_model: str | None = None
@@ -128,6 +131,11 @@ class Settings(BaseSettings):
 
     demucs_bin: str = "demucs"
     provider_timeout_seconds: float = 120.0
+    # Whether the agents' spans carry what they say and do: every prompt and answer, the
+    # code the Dubber writes, each tool call's arguments and result. Off, a trace keeps the
+    # shape of each run (which tool was called when), timings, token counts and costs, and
+    # none of that text.
+    trace_agent_content: bool = True
 
     # Vbee speech (STT and batch TTS). The voice id names a cloned voice of the account
     # and is kept out of output like the credentials are.

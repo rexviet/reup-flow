@@ -211,6 +211,41 @@ async def test_a_failed_run_has_no_review_scores(store: ObjectStore, langfuse: S
     assert set(_sent(langfuse)) == {"review_rounds", "needs_human", "safety_flag"}
 
 
+async def test_a_skipped_advertisement_sends_no_scores(
+    store: ObjectStore, langfuse: StubServer
+) -> None:
+    """Nothing of it was made: a `needs_human` of 0 and no review rounds would read as a
+    video that went out unreviewed."""
+    runs = MemoryRuns()
+    act = PublishActivity(store, runs, _scorer(langfuse))
+    await _publish(act, PublishRequest(outcome="skipped_ad"))
+    assert langfuse.requests == []
+    assert runs.rows[("7001", 3)]["status"] == "skipped_ad"
+
+
+async def test_a_published_original_sends_no_scores(
+    store: ObjectStore, langfuse: StubServer
+) -> None:
+    """Nothing of it was made either: it went out as it came in, with no review to score."""
+    store.put_bytes(SPEC.video_key, b"the-original-mp4")
+    runs = MemoryRuns()
+    act = PublishActivity(store, runs, _scorer(langfuse))
+    await _publish(act, PublishRequest(outcome="published_original"))
+    assert langfuse.requests == []
+    assert runs.rows[("7001", 3)]["status"] == "published_original"
+
+
+async def test_a_file_skipped_for_having_no_picture_sends_no_scores(
+    store: ObjectStore, langfuse: StubServer
+) -> None:
+    """Nothing of it was made: no review, no dub, nothing that went out to score."""
+    runs = MemoryRuns()
+    act = PublishActivity(store, runs, _scorer(langfuse))
+    await _publish(act, PublishRequest(outcome="skipped_no_video"))
+    assert langfuse.requests == []
+    assert runs.rows[("7001", 3)]["status"] == "skipped_no_video"
+
+
 async def test_a_missing_dub_document_costs_its_scores_not_the_run(
     root: Path, store: ObjectStore, langfuse: StubServer
 ) -> None:

@@ -44,6 +44,7 @@ ASSEMBLESCRIPT=src/localization/activities/assemble_script.py
 SCRIPTDOC=src/localization/activities/script_document.py
 RUN=src/localization/workers/run.py
 TEMPORAL=src/localization/agents/temporal.py
+TRACING=src/localization/observability/agent_tracing.py
 
 T_LOOP=tests/workflows/test_review_loop.py
 T_ONE=tests/workflows/test_one_translation.py
@@ -62,7 +63,7 @@ T_WIRING=tests/workers/test_agent_wiring.py
 T_REPLAY=tests/replay/test_replay.py
 T_DUBSTAGE=tests/workflows/test_dubbing_stage.py
 
-mp_init "$WORKFLOW" "$ROUTING" "$PUBLISH" "$REVIEWER" "$REVIEWACT" "$GLYPHS" "$LOCALIZER" "$DUBSCRIPT" "$ASSEMBLESCRIPT" "$SCRIPTDOC" "$RUN" "$TEMPORAL"
+mp_init "$WORKFLOW" "$ROUTING" "$PUBLISH" "$REVIEWER" "$REVIEWACT" "$GLYPHS" "$LOCALIZER" "$DUBSCRIPT" "$ASSEMBLESCRIPT" "$SCRIPTDOC" "$RUN" "$TEMPORAL" "$TRACING"
 MP_TEST_CMD=(uv run pytest -q -p no:cacheprovider)
 MP_TIMEOUT_SECONDS=${MP_TIMEOUT_SECONDS:-400}
 
@@ -346,8 +347,8 @@ apply_mutation "$REVIEWER" $'    if deps.frame_calls >= MAX_FRAME_CALLS:' \
 restore
 
 mp_mutation "frames in the telemetry"
-apply_mutation "$REVIEWER" $'                    include_binary_content=False, tracer_provider=tracer_provider' \
-  $'                    include_binary_content=True, tracer_provider=tracer_provider' \
+apply_mutation "$TRACING" $'        include_binary_content=False,' \
+  $'        include_binary_content=True,' \
   && expect_red "$T_REVIEWER" "test_the_agent_does_not_put_frames_in_its_telemetry"
 restore
 

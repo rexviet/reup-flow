@@ -7,7 +7,8 @@ transcribing, finding subtitles and speaking also call the real STT, OCR and TTS
 provider classes against local stub servers, so the provider spans are the ones
 production makes. Spans are read from an in-memory exporter; only the Python side is
 covered here (the `render` span of the Node worker is checked against Langfuse in the
-acceptance phase).
+acceptance phase). The agents are traced as a worker with Langfuse configured traces
+them: the Localizer's model request is its `chat` span, made in workflow code.
 """
 
 import uuid
@@ -36,7 +37,7 @@ from tests.support.dub_fakes import DubFakes, by_name
 from tests.support.inputs import make_input
 from tests.support.prep_fakes import PrepFakes
 from tests.support.prep_worker import prep_workers
-from tests.support.spans import exported_spans
+from tests.support.spans import exported_spans, instrumented_agents
 from tests.support.stub_server import Scenario, StubServer
 
 WAV = b"RIFF\x24\x00\x00\x00WAVEfmt " + b"\x00" * 32
@@ -97,7 +98,7 @@ def servers() -> Iterator[tuple[StubServer, StubServer]]:
 
 
 async def _run(client: Client, voice: StubServer, router: StubServer) -> list[ReadableSpan]:
-    with exported_spans() as exporter:
+    with exported_spans() as exporter, instrumented_agents():
         async with prep_workers(client, ProviderPrep(voice, router), dubbing=ProviderDub(voice)):
             handle = await client.start_workflow(
                 "VideoLocalizationWorkflow",
@@ -117,18 +118,19 @@ def _finished(exporter: InMemorySpanExporter) -> tuple[ReadableSpan, ...]:
 
 def _steps(spans: list[ReadableSpan]) -> dict[str, list[ReadableSpan]]:
     """The spans of each step a person reading the trace looks for."""
-    wanted: dict[str, Callable[[str], bool]] = {
-        "ingest": lambda n: n == "RunActivity:ingest",
-        "provider.stt": lambda n: n == "provider.stt",
-        "provider.ocr": lambda n: n == "provider.ocr",
-        "localizer model request": lambda n: (
-            n.startswith("RunActivity:agent__localizer") and n.endswith("model_request")
+    wanted: dict[str, Callable[[ReadableSpan], bool]] = {
+        "ingest": lambda s: s.name == "RunActivity:ingest",
+        "provider.stt": lambda s: s.name == "provider.stt",
+        "provider.ocr": lambda s: s.name == "provider.ocr",
+        "localizer model request": lambda s: (
+            s.name.startswith("chat ")
+            and str((s.attributes or {}).get("gen_ai.agent.name", "")).startswith("localizer")
         ),
-        "provider.tts": lambda n: n == "provider.tts",
-        "review_before_render": lambda n: n == "RunActivity:review_before_render",
-        "publish": lambda n: n == "RunActivity:publish",
+        "provider.tts": lambda s: s.name == "provider.tts",
+        "review_before_render": lambda s: s.name == "RunActivity:review_before_render",
+        "publish": lambda s: s.name == "RunActivity:publish",
     }
-    return {step: [s for s in spans if match(s.name)] for step, match in wanted.items()}
+    return {step: [s for s in spans if match(s)] for step, match in wanted.items()}
 
 
 async def test_one_run_is_one_trace_with_every_step(

@@ -50,6 +50,7 @@ from localization.agents.temporal import (
     DUBBER_MODEL_ALIAS,
     bind_model_factory,
     dubber,
+    dubber_code,
     dubber_repair_agent,
     dubber_single_agent,
     localizer,
@@ -59,8 +60,10 @@ from localization.agents.temporal import (
     slot_shortener_repair_agent,
 )
 from localization.config import ConfigError, Settings, load_settings
+from localization.observability.agent_tracing import instrument_agents
 from localization.observability.llm_calls import LlmCallRecorder
 from localization.observability.llm_usage import Recorder
+from localization.observability.reported_cost import ReportedCostModel
 from localization.observability.scores import LangfuseScores
 from localization.observability.tracing import init_tracing
 from localization.providers.base import TtsProvider
@@ -183,7 +186,8 @@ def queue_specs(
         # `synthesize` on `tts`) are activities of the agents; their plugins register
         # them on each queue's worker.
         # The one-request mode has its own agents (the answer and its repair, for each of
-        # the two), so each model request is recorded under its own stage.
+        # the two), so each model request is recorded under its own stage; so has the
+        # Dubber that writes code.
         agents = [
             AgentPlugin(a)
             for a in (
@@ -205,6 +209,7 @@ def queue_specs(
             # `review_render`, which is why they live here and not on a queue of their own.
             QueueSpec(
                 "llm",
+                dubber_code,
                 settings.llm_concurrency,
                 activities=[review.review_before_render, review.review_render],
                 plugins=agents,
@@ -245,6 +250,7 @@ def queue_specs(
                 activities=[voice_rate.voice_rate, synthesis.synthesize_segments],
                 plugins=agents,
             ),
+                    agent_context.dubber_setup,
         ]
     raise ConfigError(f"unknown worker role {role!r}; expected 'agents' or 'media'")
 
@@ -282,9 +288,12 @@ def bind_agent_runtime(
     missing setting is found at startup and not on the first video."""
     if settings.loc_database_url is None:
         raise ConfigError("LOC_DATABASE_URL is not set")
-    model = AnswerOnlyModel(
-        model_for("localizer", settings, llm_http),
-        reasoning_off=settings.localizer_reasoning == "off",
+    # The durable agents' models return the cost OpenRouter reports, for their spans.
+    model = ReportedCostModel(
+        AnswerOnlyModel(
+            model_for("localizer", settings, llm_http),
+            reasoning_off=settings.localizer_reasoning == "off",
+        )
     )
     bind_model_factory(lambda: model)
     bind_ports(StorePorts(store, GlossaryStore(_database_url(settings))))
@@ -295,9 +304,11 @@ def bind_agent_runtime(
         if settings.openrouter_api_key is None:
             raise ConfigError("OPENROUTER_API_KEY is not set")
         check_caption_font(settings.caption_font_path)
-    dubber_model = AnswerOnlyModel(
-        model_for("dubber", settings, llm_http),
-        reasoning_off=settings.dubber_reasoning == "off",
+    dubber_model = ReportedCostModel(
+        AnswerOnlyModel(
+            model_for("dubber", settings, llm_http),
+            reasoning_off=settings.dubber_reasoning == "off",
+        )
     )
     bind_model_factory(lambda: dubber_model, DUBBER_MODEL_ALIAS)
     if tts is not None:
@@ -312,12 +323,14 @@ def bind_agent_runtime(
 
 async def serve(role: str) -> int:
     settings = load_settings()
-    init_tracing(settings, f"localization-worker-{role}")
+    provider = init_tracing(settings, f"localization-worker-{role}")
+    if provider is not None:
+        instrument_agents(provider, include_content=settings.trace_agent_content)
     client = await connect(settings.temporal_address, settings.temporal_namespace)
     if role not in ("agents", "media"):
         raise ConfigError(f"unknown worker role {role!r}; expected 'agents' or 'media'")
     # One HTTP client for every OpenRouter request of this process: its response hook
-    # records what each request cost, on the span and in `localization.llm_calls`.
+    # records what each request cost, on its span and in `localization.llm_calls`.
     recorder = (
         LlmCallRecorder(_database_url(settings))
         if role == "agents" and settings.loc_database_url

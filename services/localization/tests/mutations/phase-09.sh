@@ -27,6 +27,7 @@ cd "$(dirname "$0")/../.." || exit 1
 source ../../scripts/lib/mutation-protocol.sh
 
 USAGE=src/localization/observability/llm_usage.py
+GENERATION=src/localization/observability/generation.py
 CALLS=src/localization/observability/llm_calls.py
 LLM=src/localization/providers/llm.py
 REGISTRY=src/localization/providers/registry.py
@@ -47,19 +48,19 @@ T_LOOP=tests/workflows/test_review_loop.py
 T_PREP=tests/workflows/test_prep_stage.py
 T_ONE=tests/agents/test_one_request_agents.py
 
-mp_init "$USAGE" "$CALLS" "$LLM" "$REGISTRY" "$PUBLISH" "$SCORES" "$SPANS" "$HTTP_BASE" \
+mp_init "$USAGE" "$GENERATION" "$CALLS" "$LLM" "$REGISTRY" "$PUBLISH" "$SCORES" "$SPANS" "$HTTP_BASE" \
   "$CLIENT" "$WORKFLOW" "$DETECT" "$SINGLE"
 MP_TEST_CMD=(uv run pytest -q -p no:cacheprovider)
 
 mp_baseline "$T_COST $T_SCORES $T_TRACE $T_SPANS $T_LOOP $T_PREP $T_ONE"
 
 mp_mutation "the span is not marked as a generation, so Langfuse drops its cost"
-apply_mutation "$USAGE" '    attributes = {OBSERVATION_TYPE: "generation"}' '    attributes = {}' \
+apply_mutation "$GENERATION" '    attributes = {OBSERVATION_TYPE: "generation"}' '    attributes = {}' \
   && expect_red "$T_COST" "test_the_cost_reaches_the_span_in_the_form_langfuse_ingests"
 restore
 
 mp_mutation "the span carries a cost of zero instead of the reported one"
-apply_mutation "$USAGE" '"total": usage.cost_usd})' '"total": 0.0})' \
+apply_mutation "$GENERATION" '"total": usage.cost_usd})' '"total": 0.0})' \
   && expect_red "$T_COST" "test_the_cost_reaches_the_span_in_the_form_langfuse_ingests"
 restore
 

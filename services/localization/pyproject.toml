@@ -17,6 +17,11 @@ dependencies = [
   "pillow>=13.0.0",
   "fonttools>=4.67.0",
   "typesafe-sdk>=0.7.2,<0.8",
+  "pydantic-ai-harness[codemode,temporal]==0.61.0",
+  # The voice check before the ingest. Its model weights ship inside the wheel; it runs on
+  # the CPU build of torch, the version the image's Demucs is installed with.
+  "silero-vad==6.2.3",
+  "torch==2.5.1",
 ]
 
 [dependency-groups]
@@ -27,6 +32,15 @@ dev = [
   "moto[s3]>=5",
   "python-dotenv>=1.0",
 ]
+
+# torch from PyTorch's CPU index only: the default one resolves to the CUDA build on Linux.
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [build-system]
 requires = ["hatchling"]

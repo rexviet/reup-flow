@@ -9,46 +9,42 @@ agents' model use, so a single place serves them all. It reads the body of a
 non-streaming JSON reply, puts the cost on the current span in the form Langfuse
 ingests (verified against Langfuse v3's OpenTelemetry endpoint: `type=generation` is
 what makes it a generation that carries a cost; on a plain span the cost is dropped),
-and hands the call to a recorder. It records only numbers and ids: never a prompt, an
-image, a header or a key. Whatever goes wrong in it is swallowed, because the request
-it observes must not fail for the sake of bookkeeping.
+hands the usage to whoever is collecting it (`collect_usage`) and the call to a
+recorder. What it adds is numbers and ids only; the prompt and the answer, when they are
+traced, are on the span pydantic-ai makes for the request (see `tracing`). Whatever goes
+wrong in it is swallowed, because the request it observes must not fail for the sake of
+bookkeeping.
+
+A durable agent's model request runs in an activity that has no span of its own: the
+request's span (`chat ...`) is made in workflow code. There the hook finds no span to
+write on, so `model_cost` collects the usage around the request and carries the cost back
+in the model's response, to be written on that span.
 """
 
-import json
 import logging
 import math
 import re
-from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from collections.abc import Awaitable, Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
 from opentelemetry import trace
 from temporalio import activity
 
-log = logging.getLogger(__name__)
+from localization.observability.generation import COST_DETAILS as COST_DETAILS
+from localization.observability.generation import MODEL_NAME as MODEL_NAME
+from localization.observability.generation import OBSERVATION_TYPE as OBSERVATION_TYPE
+from localization.observability.generation import USAGE_DETAILS as USAGE_DETAILS
+from localization.observability.generation import LlmUsage, usage_attributes
 
-# Langfuse's OpenTelemetry attribute names.
-OBSERVATION_TYPE = "langfuse.observation.type"
-MODEL_NAME = "langfuse.observation.model.name"
-USAGE_DETAILS = "langfuse.observation.usage_details"
-COST_DETAILS = "langfuse.observation.cost_details"
+log = logging.getLogger(__name__)
 
 # A reply bigger than this is not a chat completion we want to read twice.
 MAX_BODY_BYTES = 4 * 1024 * 1024
 _WORKFLOW_ID = re.compile(r"video-([0-9]{1,32})-g([0-9]+)")
-
-
-@dataclass(frozen=True)
-class LlmUsage:
-    generation_id: str | None = None
-    model: str | None = None
-    prompt_tokens: int | None = None
-    completion_tokens: int | None = None
-    cost_usd: float | None = None
-    # The OpenRouter provider that served the request (the body's `provider`).
-    provider: str | None = None
-    cost_details: dict[str, float] = field(default_factory=dict)
 
 
 def _number(value: Any) -> float | None:
@@ -97,24 +93,6 @@ def parse_usage(body: Any) -> LlmUsage | None:
     return parsed
 
 
-def usage_attributes(usage: LlmUsage) -> dict[str, str]:
-    """Span attributes for Langfuse. Only what is known is set."""
-    attributes = {OBSERVATION_TYPE: "generation"}
-    if usage.model:
-        attributes[MODEL_NAME] = usage.model
-    tokens = {
-        "input": usage.prompt_tokens,
-        "output": usage.completion_tokens,
-    }
-    tokens = {k: v for k, v in tokens.items() if v is not None}
-    if tokens:
-        tokens["total"] = sum(tokens.values())
-        attributes[USAGE_DETAILS] = json.dumps(tokens)
-    if usage.cost_usd is not None:
-        attributes[COST_DETAILS] = json.dumps({**usage.cost_details, "total": usage.cost_usd})
-    return attributes
-
-
 @dataclass(frozen=True)
 class RunContext:
     aweme_id: str
@@ -137,6 +115,19 @@ def current_run() -> RunContext | None:
 
 Recorder = Callable[[LlmUsage, RunContext], Awaitable[None]]
 
+_collected: ContextVar[list[LlmUsage] | None] = ContextVar("collected_llm_usage", default=None)
+
+
+@contextmanager
+def collect_usage() -> Iterator[list[LlmUsage]]:
+    """The usage of every priced reply the hook reads inside the block, in order."""
+    collected: list[LlmUsage] = []
+    token = _collected.set(collected)
+    try:
+        yield collected
+    finally:
+        _collected.reset(token)
+
 
 def make_response_hook(
     recorder: Recorder | None = None,
@@ -146,6 +137,9 @@ def make_response_hook(
             usage = await _read(response)
             if usage is None:
                 return
+            collected = _collected.get()
+            if collected is not None:
+                collected.append(usage)
             span = trace.get_current_span()
             if span.is_recording():
                 span.set_attributes(usage_attributes(usage))

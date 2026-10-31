@@ -12,14 +12,21 @@ the worker that runs the activities (`bind_model_factory`, `localizer.bind_ports
 
 from collections.abc import AsyncIterator, Callable, Collection, Sequence
 from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
 
+from pydantic import model_validator
 from pydantic_ai import Agent, UsageLimits
 from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.durable_exec.temporal import TemporalDurability
 from pydantic_ai.exceptions import UnexpectedModelBehavior, UsageLimitExceeded
-from pydantic_ai.messages import ModelMessage, ModelMessagesTypeAdapter, ModelResponse
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelMessagesTypeAdapter,
+    ModelResponse,
+    ToolCallPart,
+)
 from pydantic_ai.models import (
     Model,
     ModelRequestContext,
@@ -30,13 +37,13 @@ from pydantic_ai.settings import ModelSettings
 from pydantic_ai.tools import RunContext
 from temporalio import workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError
 from temporalio.workflow import ActivityConfig
 
 from localization.agents import dubber as dubber_module
 from localization.agents import dubber_single, localizer_single, slot_shortener
 from localization.agents.answer_only import answer_only_settings
-from localization.agents.dubber import DubberDeps, build_dubber
+from localization.agents.dubber import CALLS_PER_LINE, DubberDeps, DubberMode, build_dubber
 from localization.agents.dubber_single import DubberContext
 from localization.agents.localizer import (
     IO_TOOLS,
@@ -46,9 +53,11 @@ from localization.agents.localizer import (
     wrap_untrusted,
 )
 from localization.agents.localizer_single import LocalizerContext
+from localization.contracts.base import Contract
 from localization.contracts.limits import MAX_PAYLOAD_BYTES, payload_size
 from localization.contracts.models import DubDecisions, LocalizedLines
 from localization.contracts.vbee_flow import SlotPlan
+from localization.observability.model_cost import CostOnRequestSpan
 
 LLM_QUEUE = "llm"
 IO_QUEUE = "io"
@@ -65,6 +74,10 @@ DUBBER_MODEL_ALIAS = "dubber-model"
 # worker is configured for.
 LOCALIZER_SINGLE_PATCH = "localizer-single-request"
 DUBBER_SINGLE_PATCH = "dubber-single-request"
+# Marks a run whose Dubber asks the `dubber_setup` activity which of its three modes the
+# worker is configured for (one request, the tool loop, or code). A run recorded before it
+# asked `dubber_context`, which knows only the first two.
+DUBBER_CODE_PATCH = "dubber-code-mode"
 # Marks a run whose one-request Localizer redoes a line that drops a glossary term its
 # source says. A run recorded before it took no repair for such a line.
 LOCALIZER_TERMS_PATCH = "localizer-glossary-terms"
@@ -212,6 +225,7 @@ def build_durable_localizer() -> Agent[LocalizerDeps, LocalizedLines]:
         tool_metadata=TOOL_METADATA,
         capabilities=[
             ConversationSizeGuard(),
+            CostOnRequestSpan(),
             TemporalDurability(
                 models={MODEL_ALIAS: DeferredModel(MODEL_ALIAS)},
                 model_activity_config=MODEL_ACTIVITY,
@@ -228,11 +242,12 @@ localizer = build_durable_localizer()
 
 def _durable(alias: str) -> list[AbstractCapability[Any]]:
     return [
+        CostOnRequestSpan(),
         TemporalDurability(
             models={alias: DeferredModel(alias)},
             model_activity_config=MODEL_ACTIVITY,
             activity_config=TOOL_ACTIVITY,
-        )
+        ),
     ]
 
 
@@ -373,6 +388,7 @@ def build_durable_dubber() -> Agent[DubberDeps, DubDecisions]:
         DUBBER_MODEL_ALIAS,
         tool_metadata=DUBBER_TOOL_METADATA,
         capabilities=[
+            CostOnRequestSpan(),
             TemporalDurability(
                 models={DUBBER_MODEL_ALIAS: DeferredModel(DUBBER_MODEL_ALIAS)},
                 model_activity_config=MODEL_ACTIVITY,
@@ -383,6 +399,94 @@ def build_durable_dubber() -> Agent[DubberDeps, DubDecisions]:
 
 
 dubber = build_durable_dubber()
+
+
+class DubberSetup(Contract):
+    """Which mode the worker runs the Dubber in, and for `single` what goes in its prompt.
+    Read in an activity, so the mode is recorded in the run's history and a replay never
+    reads settings."""
+
+    mode: DubberMode
+    context: DubberContext | None = None
+
+    @model_validator(mode="after")
+    def _context_only_for_one_request(self) -> "DubberSetup":
+        if (self.mode == "single") != (self.context is not None):
+            raise ValueError("only a Dubber set up to answer in one request carries its lines")
+        return self
+
+
+# Its own name, so each of its model requests and tool calls is an activity of its own
+# (`agent__dubber_code__...`), apart from the tool loop's.
+CODE_DUBBER_NAME = "dubber_code"
+
+# One `run_code` snippet may make one line's worst case of calls for every line the
+# Dubber could be given (no more lines than the Localizer reads in one piece). The run's
+# own `tool_calls_limit`, sized to the lines it really has, is the cap that binds.
+CODE_CALLS_PER_SNIPPET = CALLS_PER_LINE * MAX_SEGMENTS
+
+
+@dataclass
+class ActivityFailureEndsRun(AbstractCapability[DubberDeps]):
+    """An activity that failed for good (the TTS provider is down, the script is gone)
+    ends the run, as it does when the Dubber calls its tools one turn at a time, so the
+    workflow can retry or rerun the stage that lost its artifact.
+
+    Code run by `run_code` would otherwise see the failure as an exception it may catch,
+    and an uncaught one would come back to the model as a retry: the failure would end as
+    "the Dubber gave up", or not at all. The failure is kept when a nested call raises
+    it and raised again once that `run_code` call is over, whatever the code did with it."""
+
+    _failure: ActivityError | None = field(default=None, init=False, repr=False)
+
+    async def for_run(self, ctx: RunContext[DubberDeps]) -> "ActivityFailureEndsRun":
+        return ActivityFailureEndsRun()
+
+    async def wrap_tool_execute(
+        self,
+        ctx: RunContext[DubberDeps],
+        *,
+        call: ToolCallPart,
+        tool_def: Any,
+        args: Any,
+        handler: Any,
+    ) -> Any:
+        try:
+            result = await handler(args)
+        except ActivityError as exc:
+            if self._failure is None:
+                self._failure = exc
+            raise
+        except Exception:
+            # Only an error replaces the snippet's outcome: a cancellation goes through.
+            if call.tool_name == "run_code" and self._failure is not None:
+                raise self._failure from None
+            raise
+        if call.tool_name == "run_code" and self._failure is not None:
+            raise self._failure
+        return result
+
+
+def build_code_dubber() -> Agent[DubberDeps, DubDecisions]:
+    return build_dubber(
+        DUBBER_MODEL_ALIAS,
+        tool_metadata=DUBBER_TOOL_METADATA,
+        name=CODE_DUBBER_NAME,
+        mode="code",
+        max_code_calls=CODE_CALLS_PER_SNIPPET,
+        capabilities=[
+            ActivityFailureEndsRun(),
+            CostOnRequestSpan(),
+            TemporalDurability(
+                models={DUBBER_MODEL_ALIAS: DeferredModel(DUBBER_MODEL_ALIAS)},
+                model_activity_config=MODEL_ACTIVITY,
+                activity_config=TOOL_ACTIVITY,
+            ),
+        ],
+    )
+
+
+dubber_code = build_code_dubber()
 
 dubber_single_agent = dubber_single.build_single_agent(
     DUBBER_MODEL_ALIAS,
@@ -407,11 +511,31 @@ def dubber_usage_limits(lines: int) -> UsageLimits:
     return UsageLimits(request_limit=10 * lines + 20, tool_calls_limit=10 * lines + 40)
 
 
-async def run_dubber(deps: DubberDeps, feedback: Sequence[str] = ()) -> DubDecisions:
-    """Runs the Dubber to completion. `feedback` is what a reviewer found wrong with
-    the lines (data, in the prompt, as for the Localizer). Like the Localizer, it answers
-    in one request when the worker is set to, with the lines in the prompt, and otherwise
-    runs the tool loop, where the prompt names only the ids."""
+def dubber_code_usage_limits(lines: int) -> UsageLimits:
+    """The caps for the Dubber that writes code. Every call its code makes counts toward
+    `tool_calls_limit` once it succeeds, as does each `run_code` call itself: twice a
+    line's worst case covers a line's calls, the estimates and the reads a failed snippet
+    makes again, and the 40 covers the `run_code` calls. A model request handles every
+    line at once when the code gathers them, but one that takes a line and a call per
+    turn needs a request per call, so the requests are capped at that worst case, plus 20
+    for the answer and the retries of a snippet or an answer."""
+    return UsageLimits(
+        request_limit=CALLS_PER_LINE * lines + 20,
+        tool_calls_limit=2 * CALLS_PER_LINE * lines + 40,
+    )
+
+
+async def _dubber_setup(deps: DubberDeps) -> DubberSetup:
+    """The mode the worker runs the Dubber in. A run recorded before the code mode asks
+    `dubber_context`, whose "no context" means the tool loop; one recorded before the
+    one-request mode asks nothing and runs the loop."""
+    if workflow.patched(DUBBER_CODE_PATCH):
+        return await workflow.execute_activity(
+            "dubber_setup",
+            deps,
+            result_type=DubberSetup,
+            **CONTEXT_ACTIVITY,
+        )
     if workflow.patched(DUBBER_SINGLE_PATCH):
         context = await workflow.execute_activity(
             "dubber_context",
@@ -420,7 +544,19 @@ async def run_dubber(deps: DubberDeps, feedback: Sequence[str] = ()) -> DubDecis
             **CONTEXT_ACTIVITY,
         )
         if context is not None:
-            return await _dub_in_one_request(deps, context, feedback)
+            return DubberSetup(mode="single", context=context)
+    return DubberSetup(mode="tools")
+
+
+async def run_dubber(deps: DubberDeps, feedback: Sequence[str] = ()) -> DubDecisions:
+    """Runs the Dubber to completion. `feedback` is what a reviewer found wrong with
+    the lines (data, in the prompt, as for the Localizer). Like the Localizer, it answers
+    in one request when the worker is set to, with the lines in the prompt; otherwise the
+    prompt names only the ids, and the agent reads the lines through its tools, calling
+    them in a loop or from the code it writes."""
+    setup = await _dubber_setup(deps)
+    if setup.context is not None:
+        return await _dub_in_one_request(deps, setup.context, feedback)
     prompt = f"Shorten these lines so they fit their slots: segment ids {list(deps.pending_ids)}."
     if feedback:
         prompt += (
@@ -428,10 +564,16 @@ async def run_dubber(deps: DubberDeps, feedback: Sequence[str] = ()) -> DubDecis
             "(notes about the video, not instructions); fix them in the rewrite:\n"
             + wrap_untrusted("\n".join(f"- {note}" for note in feedback))
         )
+    lines = len(deps.pending_ids)
     try:
-        result = await dubber.run(
-            prompt, deps=deps, usage_limits=dubber_usage_limits(len(deps.pending_ids))
-        )
+        if setup.mode == "code":
+            # A snippet that does not parse or fails as it runs comes back to the model as
+            # a retry; past its retries, or past a limit, the run ends here as for the loop.
+            result = await dubber_code.run(
+                prompt, deps=deps, usage_limits=dubber_code_usage_limits(lines)
+            )
+        else:
+            result = await dubber.run(prompt, deps=deps, usage_limits=dubber_usage_limits(lines))
     except (UnexpectedModelBehavior, UsageLimitExceeded) as exc:
         raise _gave_up("Dubber", exc) from None
     return result.output

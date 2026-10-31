@@ -13,7 +13,14 @@ from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 
-from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, ToolCallPart
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    RetryPromptPart,
+    ToolCallPart,
+    ToolReturnPart,
+)
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from temporalio import activity
 
@@ -49,9 +56,16 @@ class FakeDubberPorts:
     calls: Counter = field(default_factory=Counter)
     spans: list[tuple[float, float]] = field(default_factory=list)
     spoken: list[str] = field(default_factory=list)
+    # The first this many `speak` attempts fail as a provider hiccup would (the activity
+    # is retried); they are counted in `calls["speak"]` and are not in `spoken`.
+    speak_failures: int = 0
+    # Errors `segment` raises instead of answering, one per call, until there are none.
+    segment_errors: list[Exception] = field(default_factory=list)
 
     async def segment(self, deps: DubberDeps, segment_id: int) -> SegmentFit:
         self.calls["segment"] += 1
+        if self.segment_errors:
+            raise self.segment_errors.pop(0)
         return SegmentFit(
             segment_id,
             "你好",
@@ -62,6 +76,8 @@ class FakeDubberPorts:
 
     async def speak(self, deps: DubberDeps, text_vi: str) -> SpokenLine:
         self.calls["speak"] += 1
+        if self.calls["speak"] <= self.speak_failures:
+            raise ConnectionError("the TTS provider dropped the connection")
         entered = time.monotonic()
         if self.speak_seconds:
             await asyncio.sleep(self.speak_seconds)
@@ -131,11 +147,65 @@ class ScriptedDubber:
         return FunctionModel(respond, model_name="scripted-dubber")
 
 
+def speak_every_line(ids: list[int]) -> str:
+    """Code that reads, speaks and accepts every line, each step gathered over the lines."""
+    return f"""\
+import asyncio
+ids = {ids}
+shown = await asyncio.gather(*[get_segment(id=i) for i in ids])
+spoken = await asyncio.gather(*[synthesize(id=i, text_vi="câu ngắn " + str(i)) for i in ids])
+await asyncio.gather(*[accept(id=i, stretch_ratio=1.1) for i in ids])
+spoken
+"""
+
+
+@dataclass
+class CodeDubber:
+    """Writes the code a Dubber in `code` mode would: each of `snippets`, made from the
+    pending ids, is one `run_code` call, in order; then one decision per segment, its text
+    the one `speak_every_line` speaks. `seen` holds what came back from each snippet: its
+    return, or the error the model was told about."""
+
+    snippets: tuple[Callable[[list[int]], str], ...] = (speak_every_line,)
+    stretch: float = 1.1
+    requests: int = 0
+    seen: list[str] = field(default_factory=list)
+
+    def model(self) -> FunctionModel:
+        async def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+            self.requests += 1
+            ids = _pending(messages)
+            last = messages[-1]
+            if isinstance(last, ModelRequest):
+                for part in last.parts:
+                    if isinstance(part, ToolReturnPart | RetryPromptPart):
+                        self.seen.append(str(part.content))
+            written = sum(
+                isinstance(p, ToolCallPart) and p.tool_name == "run_code"
+                for m in messages
+                if isinstance(m, ModelResponse)
+                for p in m.parts
+            )
+            if written < len(self.snippets):
+                code = self.snippets[written](ids)
+                return ModelResponse(parts=[ToolCallPart("run_code", {"code": code})])
+            payload = {
+                "items": [
+                    {"id": i, "text_vi": f"câu ngắn {i}", "stretch_ratio": self.stretch}
+                    for i in ids
+                ]
+            }
+            return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, payload)])
+
+        return FunctionModel(respond, model_name="scripted-code-dubber")
+
+
 @dataclass
 class DubFakes:
     unfit_ids: tuple[int, ...] = ()
     engine: str | None = "engine-a"
     # `tools`: the tool loop on `dubber`. `single`: one request on the bound model.
+    # `code`: `dubber_code`, whose model writes code (a `CodeDubber`).
     mode: str = "tools"
     hashes: int = 3
     ports: FakeDubberPorts = field(default_factory=FakeDubberPorts)
