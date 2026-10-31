@@ -1,0 +1,90 @@
+services/localization/tests/replay/histories/dubber-code-mode/dubber-writes-code.json
+  s_28788f0f453f24::t_091e410a8f0931 1-4347
+services/localization/tests/replay/histories/dubber-code-mode/tool-loop-by-setting.json
+  s_28788f0f453f24::t_9f27b731d6270f 1-4754
+services/localization/tests/workers/test_agent_wiring.py
+  s_28788f0f453f24::t_c5dfce7c8ad1b0 460-474
+  s_28788f0f453f24::t_5cd9fc321886da 262-321
+services/localization/tests/replay/histories/dubber-code-mode/code-fails-mid-gather-then-finishes.json
+  s_28788f0f453f24::t_b86009d15dcbb5 1-4901
+services/localization/tests/workflows/test_prep_stage.py
+  s_28788f0f453f24::t_0b72d6a30167ed 57
+  s_28788f0f453f24::t_8030e63d62fe5e 100-104,165-168,195-203,918,923-930,1059-1061
+services/localization/tests/replay/record_histories.py
+  s_28788f0f453f24::t_a151d9682381bf 26-27,51,62-63
+  s_28788f0f453f24::t_36556f3e9a2841 421-539,600-606
+services/localization/tests/replay/test_replay.py
+  s_28788f0f453f24::t_9a8aa534f8a7f3 443,509-511,520-524
+  s_28788f0f453f24::t_972ebfb7c7ef8d 22,25,238-240,278-287,297-305,347-355,369-376,402-406,430-434,534-718
+services/localization/tests/replay/histories/dubber-code-mode/dubber-in-one-request.json
+  s_28788f0f453f24::t_2ba10622e5e4db 1-3689
+services/localization/tests/support/prep_worker.py
+  s_28788f0f453f24::t_168c1bc357a12f 12,21,26
+  s_28788f0f453f24::t_86764e871a7519 54-55,65-69,71-74,84,117,138-142,147
+.env.example
+  s_28788f0f453f24::t_0dcf2614f6c387 136-148,204-205
+docker-compose.yml
+  s_28788f0f453f24::t_15bfce5b7a7de4 477,505-512,515-516,536
+plans/reports/fullstack-developer-261031-1025-no-voice-shortcut.md
+  s_28788f0f453f24::t_daf0a60a9c3ee5 1-318
+services/localization/eval/ad_classifier_spike.py
+  s_28788f0f453f24::t_7d66aa12404d47 1-89
+services/localization/src/localization/activities/check_voice.py
+  s_28788f0f453f24::t_331b3186fcdaab 1-160
+services/localization/src/localization/activities/publish.py
+  s_28788f0f453f24::t_0bc443eb258525 6-13,16-18,117,119-128,177-180
+services/localization/src/localization/config.py
+  s_28788f0f453f24::t_a6277b696c68b8 100-109,127,134-138
+services/localization/src/localization/contracts/models.py
+  s_28788f0f453f24::t_9d2d2fbae1535b 128-141,277-281,283,425-433,437-441
+services/localization/src/localization/workers/run.py
+  s_28788f0f453f24::t_59d456c1bb3cdc 3,29-30,80-84,177-179,187,191-197,212,222-227,232-233,237-241,253,269-275
+services/localization/src/localization/workflows/video_localization.py
+  s_28788f0f453f24::t_1f2df50839c593 52,69-71,93-100,224-242,352-355,357-358,372-428
+services/localization/tests/activities/test_check_voice.py
+  s_28788f0f453f24::t_f9813dbb39f3b6 1-231
+services/localization/tests/activities/test_classify_video.py
+  s_28788f0f453f24::t_93386fd57e7cde 1-183
+services/localization/tests/activities/test_publish.py
+  s_28788f0f453f24::t_98e91bf23ec382 182-337
+services/localization/tests/replay/histories/publish-originals-without-voice/check-fails-for-good.json
+  s_28788f0f453f24::t_8e651eb79c88d7 1-3712
+services/localization/tests/replay/histories/publish-originals-without-voice/no-video-skipped.json
+  s_28788f0f453f24::t_64ee562a9d54cc 1-410
+services/localization/tests/replay/histories/publish-originals-without-voice/original-published.json
+  s_28788f0f453f24::t_ee4d26708f1d25 1-410
+services/localization/tests/replay/histories/publish-originals-without-voice/voice-localized.json
+  s_28788f0f453f24::t_a2defa7ff07b8b 1-3713
+services/localization/tests/replay/histories/skip-advertisements/advertisement-skipped.json
+  s_28788f0f453f24::t_04e3a8c4e98b5a 1-876
+services/localization/tests/replay/histories/skip-advertisements/check-fails-for-good.json
+  s_28788f0f453f24::t_c3423290fa6485 1-3544
+services/localization/tests/replay/histories/skip-advertisements/not-an-advertisement.json
+  s_28788f0f453f24::t_8ab2ea60feb6b3 1-3545
+services/localization/tests/replay/ungated_ad_gate_flow.py
+  s_28788f0f453f24::t_468f651fdb7b67 1-18
+services/localization/tests/replay/ungated_voice_check_flow.py
+  s_28788f0f453f24::t_d04979ed050a7b 1-18
+services/localization/tests/support/voice_fakes.py
+  s_28788f0f453f24::t_c3a4d80c30c779 1-97
+services/localization/tests/workflows/test_ad_gate.py
+  s_28788f0f453f24::t_c15e49f2fd9b4d 1-160
+services/localization/tests/workflows/test_voice_check.py
+  s_28788f0f453f24::t_cb87c541793890 1-230
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b7ac8a6420359ff517e58acb754fd15f7f1cb5d7",
+  "prompts": {},
+  "sessions": {
+    "s_28788f0f453f24": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e44d7982-5bf6-4765-9acd-e47d92746115",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
