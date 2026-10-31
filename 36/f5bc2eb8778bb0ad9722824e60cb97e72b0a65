@@ -1,0 +1,18 @@
+plans/journals/261031-1355-cong-bo-qua-va-chay-mau-8-video.md
+  h_43770622f8f2a6 1-49
+plans/reports/handoff-261030-0744-video-localization-session.md
+  h_43770622f8f2a6 3,39
+plans/reports/handoff-261031-1355-cong-bo-qua-va-chay-mau.md
+  h_43770622f8f2a6 1-112
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "36f5bc2eb8778bb0ad9722824e60cb97e72b0a65",
+  "prompts": {},
+  "humans": {
+    "h_43770622f8f2a6": {
+      "author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
