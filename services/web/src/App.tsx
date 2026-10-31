@@ -4,10 +4,48 @@ import { CookieBadge } from './components/CookieBadge';
 import { JobCard } from './components/JobCard';
 import { JobForm } from './components/JobForm';
 import { usePolling } from './hooks/usePolling';
+import { WorkspacePage } from './workspace/WorkspacePage';
 
 const POLL_INTERVAL_MS = 1000; // §8.1: "Polling 1s"
 
+type Tab = 'jobs' | 'workspace';
+const TAB_LABELS: Record<Tab, string> = { jobs: 'Jobs', workspace: 'Workspace' };
+
+function tabFromHash(): Tab {
+  return window.location.hash === '#workspace' ? 'workspace' : 'jobs';
+}
+
 export default function App() {
+  const [tab, setTab] = useState<Tab>(tabFromHash);
+
+  function selectTab(next: Tab) {
+    setTab(next);
+    window.location.hash = next === 'workspace' ? 'workspace' : '';
+  }
+
+  return (
+    <div className={`mx-auto px-4 py-6 ${tab === 'workspace' ? 'max-w-6xl' : 'max-w-3xl'}`}>
+      <nav aria-label="Trang" className="mb-4 flex gap-1 border-b border-gray-200">
+        {(Object.keys(TAB_LABELS) as Tab[]).map((t) => (
+          <button
+            key={t}
+            type="button"
+            aria-current={tab === t ? 'page' : undefined}
+            onClick={() => selectTab(t)}
+            className={`-mb-px border-b-2 px-3 py-2 text-sm ${
+              tab === t ? 'border-blue-600 font-medium text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-800'
+            }`}
+          >
+            {TAB_LABELS[t]}
+          </button>
+        ))}
+      </nav>
+      {tab === 'workspace' ? <WorkspacePage /> : <JobsPage />}
+    </div>
+  );
+}
+
+function JobsPage() {
   const cookieFetcher = useCallback(() => getCookieStatus(), []);
   const jobsFetcher = useCallback(() => listJobs(100, 0), []);
 
@@ -44,7 +82,7 @@ export default function App() {
   const items = jobs.data?.items ?? [];
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-6">
+    <div>
       <header className="mb-6 flex items-center justify-between gap-4">
         <h1 className="text-lg font-semibold text-gray-900">Douyin Downloader</h1>
         {/* §8.3: always visible, never in a menu. */}

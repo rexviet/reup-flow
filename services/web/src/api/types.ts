@@ -70,3 +70,85 @@ export interface CookieStatus {
   age_seconds: number | null;
   last_ok_at: string | null;
 }
+
+/**
+ * `GET /api/workspace/snapshot` and `GET /api/workspace/runs/:awemeId/:generation`.
+ * Source of truth: services/downloader/src/workspace/workspace.schemas.ts
+ * (`snapshotSchema`, `runDetailSchema`). Every string is built by the server
+ * from structured fields; none is free text from Temporal or a prompt.
+ */
+export type SourceState = 'ok' | 'down';
+export type AgentState = 'idle' | 'working' | 'retrying' | 'failed';
+export type Zone = 'media' | 'voice' | 'llm' | 'unknown';
+export type GateOutcome = 'skipped_ad' | 'skipped_no_video' | 'published_original' | 'needs_human';
+export type WorkspaceEventKind =
+  | 'activity_started'
+  | 'activity_retrying'
+  | 'activity_completed'
+  | 'activity_failed'
+  | 'llm_call_recorded'
+  | 'gate_decision'
+  | 'handoff';
+
+export interface WorkspaceSources {
+  temporal: SourceState;
+  postgres: SourceState;
+}
+
+export interface WorkspaceAgent {
+  id: string;
+  zone: Zone;
+  state: AgentState;
+  awemeId?: string;
+  generation?: number;
+  since?: string;
+  attempt?: number;
+}
+
+export interface WorkspaceEvent {
+  id: string;
+  at: string;
+  kind: WorkspaceEventKind;
+  agentId?: string;
+  toAgentId?: string;
+  awemeId?: string;
+  generation?: number;
+  detail: string;
+}
+
+export interface WorkspaceRun {
+  awemeId: string;
+  generation: number;
+  phase: string;
+  outcome?: GateOutcome;
+  llmCostUsd: number;
+  updatedAt?: string;
+}
+
+export interface WorkspaceSnapshot {
+  generatedAt: string;
+  sources: WorkspaceSources;
+  agents: WorkspaceAgent[];
+  events: WorkspaceEvent[];
+  runs: WorkspaceRun[];
+}
+
+export interface RunPhase {
+  agentId: string;
+  state: 'running' | 'retrying' | 'done' | 'failed';
+  startedAt: string;
+  endedAt?: string;
+  activities: number;
+}
+
+export interface RunDetail {
+  awemeId: string;
+  generation: number;
+  sources: WorkspaceSources;
+  status?: string;
+  outcome?: GateOutcome;
+  phases: RunPhase[];
+  llmCostUsd: number;
+  costByStage: Array<{ stage: string; calls: number; costUsd: number }>;
+  gpuSecondsEstimate: { stt: number; tts: number };
+}

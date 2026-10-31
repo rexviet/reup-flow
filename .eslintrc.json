@@ -21,7 +21,26 @@
             "patterns": [
               {
                 "group": ["@temporalio/*"],
-                "message": "The downloader never talks to Temporal: it writes localization_outbox in markDone's transaction and stops. The workflow engine is the localization service's concern."
+                "message": "Only src/workspace and src/temporal read Temporal. The downloader never starts or signals a workflow: it writes localization_outbox in markDone's transaction and stops. The workflow engine is the localization service's concern."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      // The one place the downloader may import the Temporal client: the read-only
+      // workspace view. It still may not reach a lane, and nothing outside these two
+      // directories may import Temporal (the generic rule above stays for them).
+      "files": ["services/downloader/src/workspace/**", "services/downloader/src/temporal/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/lanes/**", "**/lanes"],
+                "message": "The workspace view never calls a lane: it reads Temporal and Postgres and writes nothing."
               }
             ]
           }
@@ -41,7 +60,7 @@
             "patterns": [
               {
                 "group": ["@temporalio/*"],
-                "message": "The downloader never talks to Temporal: it writes localization_outbox in markDone's transaction and stops. The workflow engine is the localization service's concern."
+                "message": "Only src/workspace and src/temporal read Temporal. The downloader never starts or signals a workflow: it writes localization_outbox in markDone's transaction and stops. The workflow engine is the localization service's concern."
               },
               {
                 "group": ["**/lanes/**", "**/lanes"],

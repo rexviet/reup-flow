@@ -132,7 +132,7 @@ describe('raw-SQL round trip (plan §0 principle 1: Postgres is the only channel
   });
 });
 
-const SCAN_DIR_NAMES = ['jobs', 'videos', 'cookie'];
+const SCAN_DIR_NAMES = ['jobs', 'videos', 'cookie', 'workspace', 'temporal'];
 
 /** Every literal-string-containing spot ESLint's `no-restricted-imports`
  * does NOT check: a `require(...)` call and a dynamic `import(...)`
@@ -205,11 +205,29 @@ describe('static scan for a lane reference (plan §0 principle 1)', () => {
  * cannot see it; `require.cache` cannot miss it, because running the module is
  * what puts it there.
  */
+describe('Temporal is read only by the workspace view', () => {
+  it('no file outside src/workspace and src/temporal imports @temporalio', () => {
+    const srcRoot = resolve(__dirname, '../../src');
+    const offenders = listTsFilesRecursive(srcRoot)
+      .filter((file) => !/[\\/]src[\\/](workspace|temporal)[\\/]/.test(file))
+      .filter((file) => /@temporalio/.test(readFileSync(file, 'utf8')));
+    expect(offenders).toEqual([]);
+  });
+
+  it('nothing under src/workspace or src/temporal can write: no start, signal, cancel, terminate or update call', () => {
+    const srcRoot = resolve(__dirname, '../../src');
+    const writers = [...listTsFilesRecursive(join(srcRoot, 'workspace')), ...listTsFilesRecursive(join(srcRoot, 'temporal'))]
+      .filter((file) => /\.(start|signalWithStart|signal|cancel|terminate|update|execute)\s*\(/.test(readFileSync(file, 'utf8')));
+    expect(writers).toEqual([]);
+  });
+});
+
 describe('module-graph proof (plan §0 principle 1): requiring the HTTP-layer feature modules never pulls in a lanes/ module', () => {
   const FEATURE_MODULES = [
     '../../src/jobs/jobs.module',
     '../../src/videos/videos.module',
     '../../src/cookie/cookie.module',
+    '../../src/workspace/workspace.module',
   ];
 
   it('no entry in require.cache resolves under a lanes/ path after requiring jobs.module, videos.module, and cookie.module', () => {

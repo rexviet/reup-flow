@@ -1,4 +1,4 @@
-import type { CookieStatus, JobListResponse, JobResponse } from './types';
+import type { CookieStatus, JobListResponse, JobResponse, RunDetail, WorkspaceSnapshot } from './types';
 
 /**
  * Thin fetch wrapper for the downloader API (services/downloader).
@@ -76,4 +76,12 @@ export async function retryJob(id: string): Promise<{ job: JobResponse; videos_r
 
 export async function getCookieStatus(): Promise<CookieStatus> {
   return request<CookieStatus>('/internal/cookie/status');
+}
+
+export async function getWorkspaceSnapshot(): Promise<WorkspaceSnapshot> {
+  return request<WorkspaceSnapshot>('/api/workspace/snapshot');
+}
+
+export async function getRunDetail(awemeId: string, generation: number): Promise<RunDetail> {
+  return request<RunDetail>(`/api/workspace/runs/${encodeURIComponent(awemeId)}/${generation}`);
 }

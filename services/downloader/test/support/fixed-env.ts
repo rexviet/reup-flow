@@ -14,6 +14,8 @@ export function fixedEnv(overrides: Partial<Env> = {}): Env {
     REDIS_URL: 'redis://localhost:6379',
     PARSER_BASE_URL: 'http://parser:80',
     PROBE_SEC_USER_ID: 'probe-sec-user-id',
+    TEMPORAL_ADDRESS: 'temporal:7233',
+    TEMPORAL_NAMESPACE: 'default',
     DATA_DIR: '/data',
     DOWNLOAD_CONCURRENCY: 6,
     ENUMERATE_SLEEP_MS_MIN: 3000,

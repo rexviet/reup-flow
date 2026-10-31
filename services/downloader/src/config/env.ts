@@ -156,6 +156,13 @@ export const envSchema = z
           .map((origin) => origin.trim())
           .filter((origin) => origin.length > 0)
       ),
+    /**
+     * Where the workspace page reads workflows from. Read-only: the downloader
+     * never starts or signals a workflow. The connection is lazy, so an
+     * unreachable address costs the page its Temporal data, not the boot.
+     */
+    TEMPORAL_ADDRESS: z.string().min(1, "TEMPORAL_ADDRESS must not be empty").default("temporal:7233"),
+    TEMPORAL_NAMESPACE: z.string().min(1, "TEMPORAL_NAMESPACE must not be empty").default("default"),
     DATA_DIR: z.string().min(1, "DATA_DIR must not be empty").default("/data"),
     DOWNLOAD_CONCURRENCY: positiveInt("DOWNLOAD_CONCURRENCY").default(6),
     ENUMERATE_SLEEP_MS_MIN: positiveInt("ENUMERATE_SLEEP_MS_MIN").default(3000),

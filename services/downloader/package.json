@@ -16,6 +16,7 @@
     "@nestjs/common": "^11.0.1",
     "@nestjs/core": "^11.0.1",
     "@nestjs/platform-express": "^11.0.1",
+    "@temporalio/client": "^1.25.0",
     "drizzle-orm": "^0.45.2",
     "ioredis": "^6.0.0",
     "pg": "^8.23.0",

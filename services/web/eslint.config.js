@@ -26,6 +26,9 @@ export default [
         clearInterval: 'readonly',
         RequestInit: 'readonly',
         Response: 'readonly',
+        HTMLDivElement: 'readonly',
+        HTMLElement: 'readonly',
+        Event: 'readonly',
       },
     },
     plugins: {

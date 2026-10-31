@@ -16,7 +16,17 @@ export interface PollingState<T> {
  * Fires the fetcher immediately on mount (not after the first `intervalMs`
  * wait) so the UI is not artificially blank for the first second.
  */
-export function usePolling<T>(fetcher: () => Promise<T>, intervalMs: number): PollingState<T> {
+export interface PollingOptions {
+  /** Skip ticks while the browser tab is hidden, and fetch at once when it shows again. */
+  pauseWhenHidden?: boolean;
+}
+
+export function usePolling<T>(
+  fetcher: () => Promise<T>,
+  intervalMs: number,
+  options: PollingOptions = {},
+): PollingState<T> {
+  const pauseWhenHidden = options.pauseWhenHidden ?? false;
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<Error | null>(null);
   const [loading, setLoading] = useState(true);
@@ -32,6 +42,7 @@ export function usePolling<T>(fetcher: () => Promise<T>, intervalMs: number): Po
     let cancelled = false;
 
     async function tick() {
+      if (pauseWhenHidden && document.hidden) return;
       try {
         const result = await fetcherRef.current();
         if (cancelled) return;
@@ -52,11 +63,17 @@ export function usePolling<T>(fetcher: () => Promise<T>, intervalMs: number): Po
       void tick();
     }, intervalMs);
 
+    const onVisibility = () => {
+      if (!document.hidden) void tick();
+    };
+    if (pauseWhenHidden) document.addEventListener('visibilitychange', onVisibility);
+
     return () => {
       cancelled = true;
       clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [intervalMs]);
+  }, [intervalMs, pauseWhenHidden]);
 
   return { data, error, loading };
 }

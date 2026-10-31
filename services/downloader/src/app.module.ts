@@ -12,6 +12,8 @@ import { VideosModule } from "./videos/videos.module";
 import { CookieModule } from "./cookie/cookie.module";
 import { StorageModule } from "./storage/storage.module";
 import { LanesModule } from "./lanes/lanes.module";
+import { TemporalModule } from "./temporal/temporal.module";
+import { WorkspaceModule } from "./workspace/workspace.module";
 
 /**
  * `ApiKeyGuard` is registered here as `APP_GUARD` -- the one place that
@@ -46,10 +48,12 @@ import { LanesModule } from "./lanes/lanes.module";
     ParserModule,
     CdnModule,
     StorageModule,
+    TemporalModule,
     LanesModule,
     JobsModule,
     VideosModule,
     CookieModule,
+    WorkspaceModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ApiKeyGuard }],

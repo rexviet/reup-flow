@@ -91,6 +91,41 @@ describe('App (real timers -- interactions)', () => {
   });
 });
 
+describe('App tabs', () => {
+  afterEach(() => {
+    window.location.hash = '';
+  });
+
+  it('opens on Jobs and does not poll the workspace until its tab is opened', async () => {
+    vi.mocked(client.getWorkspaceSnapshot).mockResolvedValue({
+      generatedAt: new Date().toISOString(),
+      sources: { temporal: 'ok', postgres: 'ok' },
+      agents: [],
+      events: [],
+      runs: [],
+    });
+    render(<App />);
+    await flush();
+    expect(screen.getByRole('button', { name: 'Jobs' })).toHaveAttribute('aria-current', 'page');
+    expect(client.getWorkspaceSnapshot).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Workspace' }));
+    await flush();
+    expect(client.getWorkspaceSnapshot).toHaveBeenCalled();
+    expect(screen.getByRole('region', { name: 'Cổng' })).toBeInTheDocument();
+    expect(screen.queryByTestId('cookie-badge')).toBeNull();
+    expect(window.location.hash).toBe('#workspace');
+  });
+
+  it('opens on the Workspace tab when the address says so', async () => {
+    window.location.hash = '#workspace';
+    vi.mocked(client.getWorkspaceSnapshot).mockRejectedValue(new Error('down'));
+    render(<App />);
+    await flush();
+    expect(screen.getByRole('button', { name: 'Workspace' })).toHaveAttribute('aria-current', 'page');
+  });
+});
+
 describe('App (fake timers -- polling cadence)', () => {
   beforeEach(() => {
     vi.useFakeTimers();
