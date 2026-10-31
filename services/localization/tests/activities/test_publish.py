@@ -179,6 +179,162 @@ async def test_a_failed_run_has_no_render_to_keep(store: ObjectStore) -> None:
         )
 
 
+# --- a product advertisement, not localized ----------------------------------------------
+
+
+async def test_a_skipped_advertisement_leaves_a_row_and_copies_nothing(store: ObjectStore) -> None:
+    runs = MemoryRuns()
+    result = await publish(publisher(store, runs), PublishRequest(outcome="skipped_ad"))
+    assert (result.outcome, result.output_key, result.review_key) == ("skipped_ad", None, None)
+    assert not present(store, output_key("7001")) and not present(store, review_key("7001", 3))
+    row = runs.rows[("7001", 3)]
+    assert (row["status"], row["needs_human"], row["review_rounds"]) == ("skipped_ad", False, 0)
+    assert (row["output"], row["review"]) == (None, None)
+    assert row["record"] == {"reasons": [], "verdict": None}
+
+
+async def test_a_skipped_advertisement_has_no_render_to_keep(store: ObjectStore) -> None:
+    runs = MemoryRuns()
+    with pytest.raises(ApplicationError, match="no render"):
+        await publish(
+            publisher(store, runs), PublishRequest(outcome="skipped_ad", render_key=RENDER)
+        )
+    assert runs.rows == {} and not present(store, review_key("7001", 3))
+
+
+async def test_a_skipped_advertisement_is_a_row_the_real_table_takes(
+    store: ObjectStore, db: tuple[str, psycopg.Connection]
+) -> None:
+    """`status` is free text with no CHECK on its values: the new one is stored as it is."""
+    info, conn = db
+    await publish(publisher(store, RunStore(info)), PublishRequest(outcome="skipped_ad"))
+    status, out, review, needs_human, rounds, workflow_id, record = _row(conn)
+    assert (status, out, review, needs_human, rounds) == ("skipped_ad", None, None, False, 0)
+    assert workflow_id and record == {"reasons": [], "verdict": None}
+
+
+# --- a video without a voice, published as it is --------------------------------------------
+
+
+SOURCE = b"the-original-mp4"
+
+
+async def test_an_original_is_copied_to_output_as_it_is_and_leaves_its_row(
+    store: ObjectStore,
+) -> None:
+    store.put_bytes(SPEC.video_key, SOURCE)
+    runs = MemoryRuns()
+    result = await publish(publisher(store, runs), PublishRequest(outcome="published_original"))
+    assert (result.outcome, result.output_key, result.review_key) == (
+        "published_original",
+        output_key("7001"),
+        None,
+    )
+    assert store.get_bytes(output_key("7001"), produced_by="t") == SOURCE
+    # The source stays where it was, and nothing is kept for a person.
+    assert store.get_bytes(SPEC.video_key, produced_by="t") == SOURCE
+    assert not present(store, review_key("7001", 3))
+    row = runs.rows[("7001", 3)]
+    assert (row["status"], row["needs_human"], row["review_rounds"]) == (
+        "published_original",
+        False,
+        0,
+    )
+    assert (row["output"], row["review"]) == (output_key("7001"), None)
+    assert row["record"] == {"reasons": [], "verdict": None}
+
+
+@pytest.mark.parametrize(
+    "request_",
+    [
+        PublishRequest(outcome="published_original", render_key=RENDER),
+        PublishRequest(outcome="published_original", verdict=verdict()),
+        PublishRequest(outcome="published_original", reasons=("music only",)),
+    ],
+    ids=["a-render", "a-verdict", "reasons"],
+)
+async def test_an_original_is_published_only_for_a_run_that_made_nothing(
+    store: ObjectStore, request_: PublishRequest
+) -> None:
+    store.put_bytes(SPEC.video_key, SOURCE)
+    runs = MemoryRuns()
+    with pytest.raises(ApplicationError) as caught:
+        await publish(publisher(store, runs), request_)
+    assert caught.value.type == "PublishRefused" and caught.value.non_retryable
+    assert runs.rows == {} and not present(store, output_key("7001"))
+
+
+async def test_a_missing_source_is_a_lost_download_not_a_publish(store: ObjectStore) -> None:
+    runs = MemoryRuns()
+    with pytest.raises(ApplicationError) as caught:
+        await publish(publisher(store, runs), PublishRequest(outcome="published_original"))
+    assert caught.value.type == "ArtifactMissingError"
+    assert caught.value.details[0] == "download"
+    assert runs.rows == {} and not present(store, output_key("7001"))
+
+
+async def test_a_published_original_is_a_row_the_real_table_takes(
+    store: ObjectStore, db: tuple[str, psycopg.Connection]
+) -> None:
+    """`status` is free text with no CHECK on its values: the new one is stored as it is."""
+    store.put_bytes(SPEC.video_key, SOURCE)
+    info, conn = db
+    await publish(publisher(store, RunStore(info)), PublishRequest(outcome="published_original"))
+    status, out, review, needs_human, rounds, workflow_id, record = _row(conn)
+    assert (status, out, review, needs_human, rounds) == (
+        "published_original",
+        output_key("7001"),
+        None,
+        False,
+        0,
+    )
+    assert workflow_id and record == {"reasons": [], "verdict": None}
+
+
+# --- a file without a video stream, skipped -----------------------------------------------
+
+
+async def test_a_file_without_a_picture_leaves_a_row_and_copies_nothing(
+    store: ObjectStore,
+) -> None:
+    store.put_bytes(SPEC.video_key, SOURCE)
+    runs = MemoryRuns()
+    result = await publish(publisher(store, runs), PublishRequest(outcome="skipped_no_video"))
+    assert (result.outcome, result.output_key, result.review_key) == (
+        "skipped_no_video",
+        None,
+        None,
+    )
+    assert not present(store, output_key("7001")) and not present(store, review_key("7001", 3))
+    row = runs.rows[("7001", 3)]
+    assert (row["status"], row["needs_human"], row["review_rounds"]) == (
+        "skipped_no_video",
+        False,
+        0,
+    )
+    assert (row["output"], row["review"]) == (None, None)
+    assert row["record"] == {"reasons": [], "verdict": None}
+
+
+async def test_a_file_without_a_picture_has_no_render_to_keep(store: ObjectStore) -> None:
+    runs = MemoryRuns()
+    with pytest.raises(ApplicationError, match="no render"):
+        await publish(
+            publisher(store, runs), PublishRequest(outcome="skipped_no_video", render_key=RENDER)
+        )
+    assert runs.rows == {} and not present(store, output_key("7001"))
+
+
+async def test_a_skipped_file_without_a_picture_is_a_row_the_real_table_takes(
+    store: ObjectStore, db: tuple[str, psycopg.Connection]
+) -> None:
+    info, conn = db
+    await publish(publisher(store, RunStore(info)), PublishRequest(outcome="skipped_no_video"))
+    status, out, review, needs_human, rounds, workflow_id, record = _row(conn)
+    assert (status, out, review, needs_human, rounds) == ("skipped_no_video", None, None, False, 0)
+    assert workflow_id and record == {"reasons": [], "verdict": None}
+
+
 async def test_a_missing_render_is_a_lost_artifact_not_a_publish(tmp_path: Path) -> None:
     empty = ObjectStore(FileS3(tmp_path), "reup-media")
     runs = MemoryRuns()

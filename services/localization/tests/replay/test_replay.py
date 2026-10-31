@@ -19,8 +19,10 @@ from temporalio.workflow import NondeterminismError
 
 from localization.temporal.client import guarded_data_converter
 from localization.workflows.video_localization import VideoLocalizationWorkflow
+from tests.replay.ungated_ad_gate_flow import UngatedAdGateWorkflow
 from tests.replay.ungated_batches_flow import UngatedBatchesWorkflow
 from tests.replay.ungated_review_first_flow import UngatedReviewFirstWorkflow
+from tests.replay.ungated_voice_check_flow import UngatedVoiceCheckWorkflow
 from tests.support.reordered_flow import ReorderedWorkflow
 from tests.support.ungated_dub_flow import UngatedDubWorkflow
 from tests.support.ungated_rate_flow import UngatedRateWorkflow
@@ -233,6 +235,9 @@ ONE_REQUEST = "single-request"
 GLOSSARY_TERMS = "glossary-terms"
 EVEN_TTS = "even-tts-batches"
 REVIEW_FIRST = "review-before-render"
+CODE_MODE = "dubber-code-mode"
+AD_GATE = "skip-advertisements"
+VOICE_CHECK = "publish-originals-without-voice"
 
 
 def _scheduled(path: Path) -> list[str]:
@@ -270,7 +275,16 @@ def test_the_histories_recorded_before_the_rate_moved_are_really_without_it() ->
     """The rate was asked for after the preparation in every one of them (or not at all,
     before the Localizer stage existed)."""
     for path in HISTORIES:
-        if path.parent.name in (NEW_RATE, ONE_REQUEST, GLOSSARY_TERMS, EVEN_TTS, REVIEW_FIRST):
+        if path.parent.name in (
+            NEW_RATE,
+            ONE_REQUEST,
+            GLOSSARY_TERMS,
+            EVEN_TTS,
+            REVIEW_FIRST,
+            CODE_MODE,
+            AD_GATE,
+            VOICE_CHECK,
+        ):
             continue
         assert "voice-rate-with-ingest" not in _patches(path), path.name
         scheduled = _scheduled(path)
@@ -280,7 +294,15 @@ def test_the_histories_recorded_before_the_rate_moved_are_really_without_it() ->
 
 @pytest.mark.parametrize(
     "path",
-    [p for p in HISTORIES if p.parent.name not in (NEW_RATE, ONE_REQUEST)],
+    [
+        p
+        for p in HISTORIES
+        if p.parent.name not in (NEW_RATE, ONE_REQUEST, CODE_MODE)
+        # A run that ended at the voice check never prepared anything, so had no rate to move.
+        and not (
+            p.parent.name == VOICE_CHECK and p.stem in ("original-published", "no-video-skipped")
+        )
+    ],
     ids=lambda p: f"{p.parent.name}/{p.stem}",
 )
 async def test_control_the_rate_beside_the_ingest_without_its_marker_breaks_the_older_histories(
@@ -322,7 +344,15 @@ def test_the_histories_recorded_with_the_one_request_agents_have_them() -> None:
 
 def test_the_histories_recorded_before_the_one_request_agents_are_really_without_them() -> None:
     for path in HISTORIES:
-        if path.parent.name in (ONE_REQUEST, GLOSSARY_TERMS, EVEN_TTS, REVIEW_FIRST):
+        if path.parent.name in (
+            ONE_REQUEST,
+            GLOSSARY_TERMS,
+            EVEN_TTS,
+            REVIEW_FIRST,
+            CODE_MODE,
+            AD_GATE,
+            VOICE_CHECK,
+        ):
             continue
         assert "localizer-single-request" not in _patches(path), path.name
         assert "dubber-single-request" not in _patches(path), path.name
@@ -336,7 +366,14 @@ def test_the_histories_recorded_before_the_one_request_agents_are_really_without
         p
         for p in HISTORIES
         # A run that ends before the Localizer stage never reaches the context.
-        if p.parent.name not in ("phase-04", ONE_REQUEST) and p.stem != "voice-rate-fails-for-good"
+        if p.parent.name not in ("phase-04", ONE_REQUEST, CODE_MODE)
+        and p.stem
+        not in (
+            "voice-rate-fails-for-good",
+            "advertisement-skipped",
+            "original-published",
+            "no-video-skipped",
+        )
     ],
     ids=lambda p: f"{p.parent.name}/{p.stem}",
 )
@@ -362,7 +399,11 @@ def test_the_glossary_term_histories_carry_the_check_and_one_of_them_its_repair(
         by["term-kept-by-the-first-answer"].read_text()
     )
     # Every history recorded before the check runs without it.
-    older = [p for p in HISTORIES if p.parent.name not in (GLOSSARY_TERMS, REVIEW_FIRST)]
+    older = [
+        p
+        for p in HISTORIES
+        if p.parent.name not in (GLOSSARY_TERMS, REVIEW_FIRST, CODE_MODE, AD_GATE, VOICE_CHECK)
+    ]
     assert older and not any("localizer-glossary-terms" in _patches(p) for p in older)
 
 
@@ -386,7 +427,11 @@ def test_the_even_batch_histories_carry_the_marker_and_one_batch_per_slot() -> N
 
 
 def test_the_histories_recorded_before_the_even_batches_are_really_without_them() -> None:
-    older = [p for p in HISTORIES if p.parent.name not in (EVEN_TTS, REVIEW_FIRST)]
+    older = [
+        p
+        for p in HISTORIES
+        if p.parent.name not in (EVEN_TTS, REVIEW_FIRST, CODE_MODE, AD_GATE, VOICE_CHECK)
+    ]
     assert older and not any("even-tts-batches" in _patches(p) for p in older)
 
 
@@ -395,7 +440,7 @@ def test_the_histories_recorded_before_the_even_batches_are_really_without_them(
     [
         p
         for p in HISTORIES
-        if p.parent.name not in (EVEN_TTS, REVIEW_FIRST)
+        if p.parent.name not in (EVEN_TTS, REVIEW_FIRST, CODE_MODE)
         and "synthesize_segments" in _scheduled(p)
         # Twenty-five lines are three batches either way, and replay does not compare an
         # activity's input, so that run cannot tell the two splits apart.
@@ -461,7 +506,9 @@ def test_the_review_first_histories_carry_the_marker_and_render_once_after_the_r
 
 
 def test_the_histories_recorded_before_the_review_came_first_are_really_without_it() -> None:
-    older = [p for p in HISTORIES if p.parent.name != REVIEW_FIRST]
+    older = [
+        p for p in HISTORIES if p.parent.name not in (REVIEW_FIRST, CODE_MODE, AD_GATE, VOICE_CHECK)
+    ]
     assert older and not any(REVIEW_FIRST in _patches(p) for p in older)
     assert not any("review_before_render" in _scheduled(p) for p in older)
 
@@ -470,7 +517,11 @@ def test_the_histories_recorded_before_the_review_came_first_are_really_without_
     "path",
     # A run that never had a round reviewed (it failed earlier) issues the same commands
     # either way.
-    [p for p in HISTORIES if p.parent.name != REVIEW_FIRST and "review_render" in _scheduled(p)],
+    [
+        p
+        for p in HISTORIES
+        if p.parent.name not in (REVIEW_FIRST, CODE_MODE) and "review_render" in _scheduled(p)
+    ],
     ids=lambda p: f"{p.parent.name}/{p.stem}",
 )
 async def test_control_the_review_first_without_its_marker_breaks_the_older_histories(
@@ -480,3 +531,188 @@ async def test_control_the_review_first_without_its_marker_breaks_the_older_hist
     order taken without it must be rejected, or the real workflow's marker proves nothing."""
     with pytest.raises(NondeterminismError):
         await _replayer(UngatedReviewFirstWorkflow).replay_workflow(_history(path))
+
+
+CODE_TOOL = "agent__dubber_code__toolset__<agent>__call_tool"
+
+
+def _scheduled_on(path: Path) -> list[tuple[str, str]]:
+    """The activities a history scheduled, with the queue each was sent to."""
+    return [
+        (
+            e["activityTaskScheduledEventAttributes"]["activityType"]["name"],
+            e["activityTaskScheduledEventAttributes"]["taskQueue"]["name"],
+        )
+        for e in json.loads(path.read_text())["events"]
+        if "activityTaskScheduledEventAttributes" in e
+    ]
+
+
+def test_the_code_mode_histories_ask_the_setup_and_each_runs_its_mode() -> None:
+    """The set must really be on the new path in each of the three modes: the marker is
+    recorded, the Dubber's mode is asked through `dubber_setup` (not `dubber_context`), and
+    the agent of that mode is the one that ran."""
+    by = {p.stem: p for p in _of(CODE_MODE)}
+    assert set(by) == {
+        "dubber-writes-code",
+        "code-fails-mid-gather-then-finishes",
+        "dubber-in-one-request",
+        "tool-loop-by-setting",
+    }
+    for path in by.values():
+        assert CODE_MODE in _patches(path), path.stem
+        scheduled = _scheduled(path)
+        assert scheduled.count("dubber_setup") == 1, path.stem
+        assert "dubber_context" not in scheduled, path.stem
+        assert "EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED" in path.read_text(), path.stem
+    for name in ("dubber-writes-code", "code-fails-mid-gather-then-finishes"):
+        on = _scheduled_on(by[name])
+        assert not any(n.startswith("agent__dubber__") for n, _ in on), name
+        assert ("agent__dubber_code__model_request", "llm") in on, name
+        assert (CODE_TOOL, "tts") in on and (CODE_TOOL, "io") in on, name
+    # Two lines read and spoken, each speech its own activity on `tts`.
+    plain = _scheduled_on(by["dubber-writes-code"])
+    assert plain.count((CODE_TOOL, "tts")) == 2 and plain.count((CODE_TOOL, "io")) == 2
+    # The failed snippet asked for one more model request, and its two speeches were made.
+    failed = _scheduled_on(by["code-fails-mid-gather-then-finishes"])
+    assert failed.count(("agent__dubber_code__model_request", "llm")) == 3
+    assert failed.count((CODE_TOOL, "tts")) >= 4
+    single = _scheduled(by["dubber-in-one-request"])
+    assert single.count("agent__dubber_single__model_request") == 1
+    assert not any(n.startswith("agent__dubber_code__") for n in single)
+    loop = _scheduled(by["tool-loop-by-setting"])
+    assert "agent__dubber__model_request" in loop
+    assert not any(n.startswith("agent__dubber_code__") for n in loop)
+
+
+def test_the_histories_recorded_before_the_code_mode_are_really_without_it() -> None:
+    """They asked `dubber_context` or nothing: the proof that a run already in flight when
+    the code mode shipped still replays."""
+    older = [p for p in HISTORIES if p.parent.name not in (CODE_MODE, VOICE_CHECK)]
+    assert older and not any(CODE_MODE in _patches(p) for p in older)
+    assert not any("dubber_setup" in _scheduled(p) for p in older)
+    assert any("dubber_context" in _scheduled(p) for p in older)
+    assert not any("agent__dubber_code__" in p.read_text() for p in older)
+
+
+def test_the_ad_check_histories_carry_the_marker_and_one_ends_after_the_preparation() -> None:
+    """The set must really be on the new path: the marker is recorded, the check is asked
+    once, right after the preparation, and the advertisement ends there with its row."""
+    by = {p.stem: p for p in _of(AD_GATE)}
+    assert set(by) == {"advertisement-skipped", "not-an-advertisement", "check-fails-for-good"}
+    for path in by.values():
+        assert AD_GATE in _patches(path), path.stem
+        scheduled = _scheduled(path)
+        assert scheduled.count("classify_video") == 1, path.stem
+        before = scheduled[: scheduled.index("classify_video")]
+        assert set(before) == {"ingest", "voice_rate", "transcribe", "detect_subtitles"}, path.stem
+        assert "EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED" in path.read_text(), path.stem
+    skipped = _scheduled(by["advertisement-skipped"])
+    assert skipped[-2:] == ["classify_video", "publish"]
+    (publish,) = [
+        e["activityTaskScheduledEventAttributes"]["input"]["payloads"][1]["data"]
+        for e in json.loads(by["advertisement-skipped"].read_text())["events"]
+        if e.get("activityTaskScheduledEventAttributes", {}).get("activityType", {}).get("name")
+        == "publish"
+    ]
+    assert json.loads(base64.b64decode(publish))["outcome"] == "skipped_ad"
+    for name in ("not-an-advertisement", "check-fails-for-good"):
+        scheduled = _scheduled(by[name])
+        after = scheduled[scheduled.index("classify_video") + 1 :]
+        assert {"assemble_script", "synthesize_segments", "render", "publish"} <= set(after), name
+    assert "EVENT_TYPE_ACTIVITY_TASK_FAILED" in by["check-fails-for-good"].read_text()
+
+
+def test_the_histories_recorded_before_the_ad_check_are_really_without_it() -> None:
+    older = [p for p in HISTORIES if p.parent.name not in (AD_GATE, VOICE_CHECK)]
+    assert older and not any(AD_GATE in _patches(p) for p in older)
+    assert not any("classify_video" in _scheduled(p) for p in older)
+
+
+@pytest.mark.parametrize(
+    "path",
+    # A run that failed during the preparation, or ended before it, never reached the check
+    # either way.
+    [
+        p
+        for p in HISTORIES
+        if p.parent.name != AD_GATE
+        and p.stem not in ("voice-rate-fails-for-good", "original-published", "no-video-skipped")
+    ],
+    ids=lambda p: f"{p.parent.name}/{p.stem}",
+)
+async def test_control_the_ad_check_without_its_marker_breaks_the_older_histories(
+    path: Path,
+) -> None:
+    """The marker is what lets a run recorded before the check replay: the same check made
+    without it must be rejected, or the real workflow's marker proves nothing."""
+    with pytest.raises(NondeterminismError):
+        await _replayer(UngatedAdGateWorkflow).replay_workflow(_history(path))
+
+
+def _publish_outcome(path: Path) -> str:
+    """The outcome of the one `publish` a history scheduled."""
+    (publish,) = [
+        e["activityTaskScheduledEventAttributes"]["input"]["payloads"][1]["data"]
+        for e in json.loads(path.read_text())["events"]
+        if e.get("activityTaskScheduledEventAttributes", {}).get("activityType", {}).get("name")
+        == "publish"
+    ]
+    return json.loads(base64.b64decode(publish))["outcome"]
+
+
+def test_the_voice_check_histories_carry_the_marker_and_two_end_before_the_preparation() -> None:
+    """The set must really be on the new path: the marker is recorded, the check is the first
+    activity, on its own queue, the video without a voice ends right after it with the
+    original published, and the file without a picture right after it as skipped."""
+    by = {p.stem: p for p in _of(VOICE_CHECK)}
+    assert set(by) == {
+        "original-published",
+        "voice-localized",
+        "check-fails-for-good",
+        "no-video-skipped",
+    }
+    for path in by.values():
+        assert VOICE_CHECK in _patches(path), path.stem
+        on = _scheduled_on(path)
+        assert on[0] == ("check_voice", "voice_check"), path.stem
+        assert [name for name, _ in on].count("check_voice") == 1, path.stem
+    assert _scheduled_on(by["original-published"]) == [
+        ("check_voice", "voice_check"),
+        ("publish", "io"),
+    ]
+    assert _publish_outcome(by["original-published"]) == "published_original"
+    assert "EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED" in by["original-published"].read_text()
+    for name in ("voice-localized", "check-fails-for-good"):
+        scheduled = _scheduled(by[name])
+        assert scheduled[1:3] == ["ingest", "voice_rate"], name
+        assert {"classify_video", "assemble_script", "render", "publish"} <= set(scheduled), name
+        assert "EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED" in by[name].read_text(), name
+    assert "EVENT_TYPE_ACTIVITY_TASK_FAILED" in by["check-fails-for-good"].read_text()
+    # No picture: skipped at once with its row, nothing prepared, nothing published.
+    no_picture = by["no-video-skipped"]
+    assert _scheduled_on(no_picture) == [("check_voice", "voice_check"), ("publish", "io")]
+    assert _publish_outcome(no_picture) == "skipped_no_video"
+    assert "EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED" in no_picture.read_text()
+
+
+def test_the_histories_recorded_before_the_voice_check_are_really_without_it() -> None:
+    older = [p for p in HISTORIES if p.parent.name != VOICE_CHECK]
+    assert older and not any(VOICE_CHECK in _patches(p) for p in older)
+    assert not any("check_voice" in _scheduled(p) for p in older)
+    assert all(_scheduled(p)[0] == "ingest" for p in older)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [p for p in HISTORIES if p.parent.name != VOICE_CHECK],
+    ids=lambda p: f"{p.parent.name}/{p.stem}",
+)
+async def test_control_the_voice_check_without_its_marker_breaks_the_older_histories(
+    path: Path,
+) -> None:
+    """The marker is what lets a run recorded before the check replay: the same check made
+    without it must be rejected, or the real workflow's marker proves nothing. Every older run
+    began with the ingest, so every one of them must be rejected."""
+    with pytest.raises(NondeterminismError):
+        await _replayer(UngatedVoiceCheckWorkflow).replay_workflow(_history(path))

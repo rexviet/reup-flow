@@ -125,6 +125,20 @@ class PrepResult(Contract):
     subtitles: SubtitleTrack
 
 
+class VoiceCheck(Contract):
+    """What the voice check found on the source, before anything else runs. A file without
+    a video stream (`has_video` False: sound alone, or a still picture over it) is skipped
+    whatever it says, so its audio is not measured and `speech_share` is None. Otherwise
+    `speech_share` is the part of the audio a voice-activity detector calls speech (0 for a
+    file without audio), and `no_voice` says it is under the worker's threshold. A check that
+    is switched off looks at nothing (`speech_share` None, a video stream assumed) and finds
+    a voice, so the video is localized."""
+
+    speech_share: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
+    has_video: bool = True
+    no_voice: bool = False
+
+
 # --- Localization -----------------------------------------------------------
 
 
@@ -260,9 +274,13 @@ class DubbedAudio(Contract):
 
 class LocalizationResult(Contract):
     """What a run returns. `script` is None for a run that began before the
-    Localizer stage existed."""
+    Localizer stage existed, and for a video that was not localized because it is a
+    product advertisement (its `publish` says `skipped_ad`). `prep` is None for a video
+    without a voice, whose original was published before anything was prepared (its
+    `publish` says `published_original`), and for a file without a video stream, skipped
+    before anything was prepared (`skipped_no_video`)."""
 
-    prep: PrepResult
+    prep: PrepResult | None = None
     script: ScriptResult | None
     # None for a run that began before the dubbing stage existed.
     dub: DubbedAudio | None = None
@@ -404,12 +422,23 @@ class RenderResult(Contract):
     spec_sha256: Sha256
 
 
-PublishOutcome = Literal["published", "needs_human", "failed"]
+# `skipped_ad`: the video is a product advertisement, worth nothing outside the market it
+# was made for, so nothing was localized, rendered or reviewed.
+# `published_original`: the video has no voice (music, sounds), so there was nothing to
+# translate or dub; the source itself was published, as it is, before any preparation.
+# `skipped_no_video`: the file has no video stream (pictures with music laid over them, as an
+# image post is), so there is no video to localize or publish; nothing was prepared.
+PublishOutcome = Literal[
+    "published", "needs_human", "failed", "skipped_ad", "published_original", "skipped_no_video"
+]
 
 
 class PublishRequest(Contract):
-    """How a run ended. `needs_human` and `failed` runs are never written to
-    `output/`: the first keeps its render under `review/`, the second has none.
+    """How a run ended. `needs_human`, `failed`, `skipped_ad` and `skipped_no_video` runs
+    are never written to `output/`: the first keeps its render under `review/`, the others
+    have none. A
+    `published_original` run has no render either: what goes to `output/` is the run's
+    source video (`LocalizationInput.video_key`), so the request names no key.
     `reasons` are for the person who reads the run (what was flagged, what failed).
     `dub` (the track the render was made from) and `safety_flag` (a line carried a
     contact its source lacked) are what the run's scores are measured from; a request

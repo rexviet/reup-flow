@@ -1,6 +1,6 @@
 """One process, one `Worker` per task queue.
 
-    python -m localization.workers.run agents   # workflows, llm, io, stt, tts
+    python -m localization.workers.run agents   # workflows, llm, io, stt, tts, voice_check
     python -m localization.workers.run media    # media, render
 
 Each queue is its own `Worker`, so each has its own concurrency limit. `workflows`
@@ -26,6 +26,8 @@ from temporalio.worker import Worker
 from localization.activities.agent_context import AgentContextActivities
 from localization.activities.assemble_audio import AssembleAudioActivity
 from localization.activities.assemble_script import AssembleScriptActivity
+from localization.activities.check_voice import CheckVoiceActivity, SileroSpeechDetector
+from localization.activities.classify_video import ClassifyVideoActivity
 from localization.activities.detect_subtitles import DetectSubtitlesActivity
 from localization.activities.dub_script import DubScriptActivities
 from localization.activities.dubber_ports import StoreDubberPorts
@@ -75,7 +77,11 @@ from localization.storage.object_store import ObjectStore
 from localization.temporal.client import connect
 from localization.workers.health import VoiceStudioHealth
 from localization.workflows.vbee_dubbing import VbeeDubbingWorkflow
-from localization.workflows.video_localization import RENDER_QUEUE, VideoLocalizationWorkflow
+from localization.workflows.video_localization import (
+    RENDER_QUEUE,
+    VOICE_CHECK_QUEUE,
+    VideoLocalizationWorkflow,
+)
 
 log = logging.getLogger(__name__)
 
@@ -168,6 +174,9 @@ def queue_specs(
             store, tts, model=settings.tts_model, engine=engine, resolve=resolve
         )
         dub = DubScriptActivities(store, synthesis.synthesizer)
+        # One Jev client for the process, built on first use: the ad check and the review
+        # share it.
+        jev = functools.cache(lambda: jev_for(settings))
         review = ReviewRenderActivity(
             store,
             providers.ocr,
@@ -175,9 +184,16 @@ def queue_specs(
             loudness_lufs=settings.loudness_lufs,
             true_peak_dbtp=settings.true_peak_dbtp,
             mode=settings.reviewer_mode,
-            jev=functools.cache(lambda: jev_for(settings)),
+            jev=jev,
             recorder=recorder,
             font_path=settings.caption_font_path,
+        )
+        classify = ClassifyVideoActivity(
+            store,
+            jev,
+            threshold=settings.ad_gate_threshold,
+            enabled=settings.ad_gate_enabled,
+            recorder=recorder,
         )
         publish = PublishActivity(
             store, RunStore(database_url), LangfuseScores.from_settings(settings)
@@ -193,6 +209,7 @@ def queue_specs(
             for a in (
                 localizer,
                 dubber,
+                dubber_code,
                 localizer_single_agent,
                 localizer_repair_agent,
                 dubber_single_agent,
@@ -202,16 +219,26 @@ def queue_specs(
             )
         ]
         agent_context = AgentContextActivities(settings.localizer_mode, settings.dubber_mode)
+        check_voice = CheckVoiceActivity(
+            store,
+            SileroSpeechDetector(),
+            min_speech_share=settings.voice_check_min_speech_share,
+            enabled=settings.voice_check_enabled,
+        )
         hear = VbeeSttActivity(store, providers.vbee_stt)
         return [
             QueueSpec("workflows", workflows=[VideoLocalizationWorkflow, VbeeDubbingWorkflow]),
             # The Reviewer's model requests are made inside `review_before_render` and
-            # `review_render`, which is why they live here and not on a queue of their own.
+            # `review_render`, which is why they live here and not on a queue of their own;
+            # so is the ad check's one Jev call.
             QueueSpec(
                 "llm",
-                dubber_code,
                 settings.llm_concurrency,
-                activities=[review.review_before_render, review.review_render],
+                activities=[
+                    review.review_before_render,
+                    review.review_render,
+                    classify.classify_video,
+                ],
                 plugins=agents,
             ),
             QueueSpec(
@@ -223,6 +250,7 @@ def queue_specs(
                     assemble.assemble_script,
                     agent_context.localizer_context,
                     agent_context.dubber_context,
+                    agent_context.dubber_setup,
                     synthesis.voice_profile,
                     synthesis.plan_synthesis,
                     dub.measure_fit,
@@ -238,6 +266,13 @@ def queue_specs(
                 ],
                 plugins=agents,
             ),
+            # Every run starts with the voice check, so it has a queue of its own: it never
+            # waits behind a subtitle detection on `io` or a separation on `media`.
+            QueueSpec(
+                VOICE_CHECK_QUEUE,
+                settings.voice_check_concurrency,
+                activities=[check_voice.check_voice],
+            ),
             # Speech to text, local or Vbee's: STT_CONCURRENCY bounds the jobs at once.
             QueueSpec(
                 "stt",
@@ -250,7 +285,6 @@ def queue_specs(
                 activities=[voice_rate.voice_rate, synthesis.synthesize_segments],
                 plugins=agents,
             ),
-                    agent_context.dubber_setup,
         ]
     raise ConfigError(f"unknown worker role {role!r}; expected 'agents' or 'media'")
 

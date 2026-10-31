@@ -23,7 +23,8 @@ from temporalio.testing import WorkflowEnvironment
 from localization.contracts import LocalizationResult
 from localization.providers.errors import PermanentProviderError
 from localization.temporal.client import connect
-from tests.support.dub_fakes import DubFakes, ScriptedDubber
+from tests.support.ad_fakes import AD_LINES, AdFakes, FakeJev
+from tests.support.dub_fakes import CodeDubber, DubFakes, ScriptedDubber, speak_every_line
 from tests.support.inputs import make_input
 from tests.support.localizer_fakes import (
     FakePorts,
@@ -47,6 +48,7 @@ from tests.support.vbee_fakes import (
     vbee_input,
     words,
 )
+from tests.support.voice_fakes import FakeDetector, VoiceFakes
 
 HISTORIES = Path(__file__).parent / "histories"
 
@@ -57,6 +59,8 @@ HISTORIES = Path(__file__).parent / "histories"
 Scenario = (
     tuple[PrepFakes, LocalizerFakes, DubFakes | None]
     | tuple[PrepFakes, LocalizerFakes, DubFakes | None, ReviewFakes]
+    | tuple[PrepFakes, LocalizerFakes, DubFakes | None, ReviewFakes, AdFakes]
+    | tuple[PrepFakes, LocalizerFakes, DubFakes | None, ReviewFakes, AdFakes, VoiceFakes]
 )
 SCENARIOS: dict[str, dict[str, Scenario]] = {
     "phase-05": {
@@ -414,6 +418,125 @@ SCENARIOS["review-before-render"] = {
 }
 
 
+# Runs recorded with the Dubber asking `dubber_setup` for its mode, behind the
+# `dubber-code-mode` marker: in each of its three modes, and in `code` once with a snippet
+# that fails in the middle of a gather. Every set above is from before it: their runs asked
+# `dubber_context` (or nothing), and they prove a run already in flight still resumes.
+SPEAK_THEN_FAIL = """\
+import asyncio
+await asyncio.gather(
+    synthesize(id=0, text_vi="đầu 0"),
+    synthesize(id=1, text_vi="đầu 1"),
+    synthesize(id=99, text_vi="lạ"),
+)
+"""
+
+SCENARIOS["dubber-code-mode"] = {
+    "dubber-writes-code": (
+        PrepFakes(),
+        LocalizerFakes(mode="single", model=OneRequestModel(answers=(_fits,))),
+        DubFakes(unfit_ids=(0, 1), mode="code", dubber=CodeDubber()),
+        ReviewFakes(),
+    ),
+    "code-fails-mid-gather-then-finishes": (
+        PrepFakes(),
+        LocalizerFakes(mode="single", model=OneRequestModel(answers=(_fits,))),
+        DubFakes(
+            unfit_ids=(0, 1),
+            mode="code",
+            dubber=CodeDubber(snippets=(lambda ids: SPEAK_THEN_FAIL, speak_every_line)),
+        ),
+        ReviewFakes(),
+    ),
+    "dubber-in-one-request": (
+        PrepFakes(),
+        LocalizerFakes(mode="single", model=OneRequestModel(answers=(_fits,))),
+        DubFakes(unfit_ids=(0, 1), mode="single", dubber=OneRequestModel(answers=(_shorter_dub,))),
+        ReviewFakes(),
+    ),
+    "tool-loop-by-setting": (
+        PrepFakes(),
+        LocalizerFakes(mode="tools"),
+        DubFakes(unfit_ids=(0, 1), mode="tools", dubber=ScriptedDubber(rewrites_per_segment=2)),
+        ReviewFakes(),
+    ),
+}
+
+
+# Runs recorded with the question, once the video is prepared, whether it is a product
+# advertisement. Every set above is from before it: their runs went from the preparation
+# straight to the Localizer, and they prove a run already in flight still resumes.
+SCENARIOS["skip-advertisements"] = {
+    "advertisement-skipped": (
+        PrepFakes(),
+        LocalizerFakes(mode="single", model=OneRequestModel(answers=(_fits,))),
+        DubFakes(),
+        ReviewFakes(),
+        AdFakes(lines=AD_LINES, jev=FakeJev(score=0.99)),
+    ),
+    "not-an-advertisement": (
+        PrepFakes(),
+        LocalizerFakes(mode="single", model=OneRequestModel(answers=(_fits,))),
+        DubFakes(),
+        ReviewFakes(),
+        AdFakes(jev=FakeJev(score=0.02)),
+    ),
+    "check-fails-for-good": (
+        PrepFakes(),
+        LocalizerFakes(mode="single", model=OneRequestModel(answers=(_fits,))),
+        DubFakes(),
+        ReviewFakes(),
+        AdFakes(
+            lines=AD_LINES,
+            jev=FakeJev(
+                fail=ApplicationError(
+                    "jev: HTTP 401", type="PermanentProviderError", non_retryable=True
+                )
+            ),
+        ),
+    ),
+}
+
+
+# Runs recorded with the voice check before anything else: a video without a voice has its
+# original published and ends there. Every set above is from before it: their runs began with
+# the ingest, and they prove a run already in flight still resumes.
+SCENARIOS["publish-originals-without-voice"] = {
+    "original-published": (
+        PrepFakes(),
+        LocalizerFakes(mode="single", model=OneRequestModel(answers=(_fits,))),
+        DubFakes(),
+        ReviewFakes(),
+        AdFakes(),
+        VoiceFakes(detector=FakeDetector(share=0.0)),
+    ),
+    "voice-localized": (
+        PrepFakes(),
+        LocalizerFakes(mode="single", model=OneRequestModel(answers=(_fits,))),
+        DubFakes(),
+        ReviewFakes(),
+        AdFakes(),
+        VoiceFakes(detector=FakeDetector(share=0.4)),
+    ),
+    "check-fails-for-good": (
+        PrepFakes(),
+        LocalizerFakes(mode="single", model=OneRequestModel(answers=(_fits,))),
+        DubFakes(),
+        ReviewFakes(),
+        AdFakes(),
+        VoiceFakes(detector=FakeDetector(share=0.0, fail=PermanentProviderError("vad"))),
+    ),
+    "no-video-skipped": (
+        PrepFakes(),
+        LocalizerFakes(mode="single", model=OneRequestModel(answers=(_fits,))),
+        DubFakes(),
+        ReviewFakes(),
+        AdFakes(),
+        VoiceFakes(source="sound_only", detector=FakeDetector(share=0.9)),
+    ),
+}
+
+
 # Runs of the Vbee dubbing workflow, a workflow type of its own: its histories live apart
 # (`vbee_histories/`), since they replay against that workflow and not the one above.
 VBEE_HISTORIES = Path(__file__).parent / "vbee_histories"
@@ -474,7 +597,13 @@ async def record(phase: str) -> None:
         client = await connect(env.client.service_client.config.target_host)
         for name, (fakes, localizing, dubbing, *rest) in SCENARIOS[phase].items():
             async with prep_workers(
-                client, fakes, localizing, dubbing=dubbing, reviewing=rest[0] if rest else None
+                client,
+                fakes,
+                localizing,
+                dubbing=dubbing,
+                reviewing=rest[0] if rest else None,
+                classifying=rest[1] if len(rest) > 1 else None,
+                voicing=rest[2] if len(rest) > 2 else None,
             ):
                 aweme_id = str(7000 + len(list(out.glob("*.json"))))
                 handle = await client.start_workflow(

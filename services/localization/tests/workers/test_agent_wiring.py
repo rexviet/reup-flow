@@ -259,6 +259,66 @@ def test_the_mode_decides_which_reviewer_the_worker_builds() -> None:
     assert built("llm")._mode == "llm"  # noqa: SLF001
 
 
+def test_the_ad_check_is_served_on_llm_with_the_settings_threshold_and_switch() -> None:
+    from localization.activities.classify_video import ClassifyVideoActivity
+
+    def built(**values: object) -> ClassifyVideoActivity:
+        settings = _settings(openrouter_api_key="k", **values)  # type: ignore[arg-type]
+        (llm,) = (q for q in queue_specs("agents", settings, STORE, PROVIDERS) if q.name == "llm")  # type: ignore[arg-type]
+        (check,) = (
+            fn
+            for fn in llm.activities
+            if fn.__temporal_activity_definition.name == "classify_video"  # type: ignore[attr-defined]
+        )
+        return check.__self__  # type: ignore[attr-defined,no-any-return]
+
+    default = built()
+    assert (default._threshold, default._enabled) == (0.8, True)  # noqa: SLF001
+    tuned = built(ad_gate_threshold=0.95, ad_gate_enabled=False)
+    assert (tuned._threshold, tuned._enabled) == (0.95, False)  # noqa: SLF001
+    assert "classify_video" not in _registered(Settings())["io"]
+
+
+def test_the_voice_check_has_a_queue_of_its_own_with_the_settings_threshold_and_switch() -> None:
+    """Every run starts with it: on `media` it would wait behind the separations, on `io`
+    behind the subtitle detections. Its queue is served by the agents worker only."""
+    from localization.activities.check_voice import CheckVoiceActivity, SileroSpeechDetector
+    from localization.workflows.video_localization import VOICE_CHECK, VOICE_CHECK_QUEUE
+
+    def built(**values: object) -> tuple[int | None, CheckVoiceActivity]:
+        settings = _settings(**values)  # type: ignore[arg-type]
+        queues = {q.name: q for q in queue_specs("agents", settings, STORE, PROVIDERS)}  # type: ignore[arg-type]
+        (check,) = queues[VOICE_CHECK_QUEUE].activities
+        assert check.__temporal_activity_definition.name == "check_voice"  # type: ignore[attr-defined]
+        return queues[VOICE_CHECK_QUEUE].limit, check.__self__  # type: ignore[attr-defined]
+
+    assert VOICE_CHECK_QUEUE == VOICE_CHECK["task_queue"] == "voice_check"
+    limit, default = built()
+    assert (limit, default._min_speech_share, default._enabled) == (2, 0.05, True)  # noqa: SLF001
+    assert isinstance(default._detector, SileroSpeechDetector)  # noqa: SLF001
+    limit, tuned = built(
+        voice_check_min_speech_share=0.1, voice_check_enabled=False, voice_check_concurrency=4
+    )
+    assert (limit, tuned._min_speech_share, tuned._enabled) == (4, 0.1, False)  # noqa: SLF001
+    served = _registered(Settings())
+    assert all("check_voice" not in names for q, names in served.items() if q != "voice_check")
+    media = runnable(queue_specs("media", Settings(), STORE, PROVIDERS))  # type: ignore[arg-type]
+    assert "voice_check" not in {s.name for s in media}
+    assert not any(
+        fn.__temporal_activity_definition.name == "check_voice"  # type: ignore[attr-defined]
+        for s in media
+        for fn in s.activities
+    )
+
+
+def test_the_ad_check_threshold_is_a_probability() -> None:
+    from pydantic import ValidationError
+
+    for wrong in (-0.1, 1.5):
+        with pytest.raises(ValidationError):
+            _settings(ad_gate_threshold=wrong)  # type: ignore[arg-type]
+
+
 def test_jev_is_reached_through_the_openrouter_base_url_without_its_version_segment() -> None:
     """The SDK adds `/v1/systemone` itself: `/api/v1` twice is a 404."""
     assert Settings().jev_base_url == "https://openrouter.ai/api"
@@ -397,8 +457,21 @@ def test_each_model_request_of_the_one_request_agents_has_its_own_stage_name() -
     }
     assert stages <= served["llm"]
     assert len(stages) == 6
-    assert {"localizer_context", "dubber_context"} <= served["io"]
-    assert not {"localizer_context", "dubber_context"} & served["llm"]
+    assert {"localizer_context", "dubber_context", "dubber_setup"} <= served["io"]
+    assert not {"localizer_context", "dubber_context", "dubber_setup"} & served["llm"]
+
+
+def test_the_dubber_that_writes_code_has_its_activities_on_the_agents_queues() -> None:
+    """Its model requests on `llm`, and its tool calls on `io` (the reads) and `tts` (the
+    speech): a worker missing one of them would leave the run waiting on that queue."""
+    specs = runnable(queue_specs("agents", Settings(), ObjectStore(object(), "b"), PROVIDERS))  # type: ignore[arg-type]
+    served: dict[str, set[str]] = {}
+    for spec in specs:
+        activities = [a for plugin in spec.plugins for a in plugin.activities or ()]
+        served[spec.name] = {a.__temporal_activity_definition.name for a in activities}
+    assert "agent__dubber_code__model_request" in served["llm"]
+    tool = "agent__dubber_code__toolset__<agent>__call_tool"
+    assert tool in served["io"] and tool in served["tts"]
 
 
 def test_the_agents_answer_in_one_request_unless_the_setting_says_otherwise(

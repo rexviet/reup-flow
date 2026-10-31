@@ -9,6 +9,7 @@ from temporalio.worker import Worker
 from localization.activities.agent_context import AgentContextActivities
 from localization.agents.temporal import (
     dubber,
+    dubber_code,
     dubber_repair_agent,
     dubber_single_agent,
     localizer,
@@ -17,10 +18,12 @@ from localization.agents.temporal import (
 )
 from localization.workers.run import QueueSpec, build_worker
 from localization.workflows.video_localization import VideoLocalizationWorkflow
+from tests.support.ad_fakes import AdFakes
 from tests.support.dub_fakes import DubFakes, by_name
 from tests.support.localizer_fakes import LocalizerFakes, bound_localizer
 from tests.support.prep_fakes import PrepFakes
 from tests.support.review_fakes import ReviewFakes
+from tests.support.voice_fakes import VoiceFakes
 
 
 def fake_activities(fakes: PrepFakes) -> dict[str, object]:
@@ -48,6 +51,8 @@ async def prep_workers(
     tts_limit: int | None = None,
     reviewing: ReviewFakes | None = None,
     workflow: type = VideoLocalizationWorkflow,
+    classifying: AdFakes | None = None,
+    voicing: VoiceFakes | None = None,
 ) -> AsyncIterator[None]:
     """The real workflow on the `workflows` queue, fake activities on the others.
     The Localizer stage runs for real (agent, validator, durable activities) on a
@@ -57,9 +62,16 @@ async def prep_workers(
     Dubber runs for real on a scripted model. `tts_limit` is the `tts` queue's
     concurrency. `reviewing` is the layout, render, review and publish steps: fakes that
     pass the first review unless the test says otherwise. `workflow` is the workflow class to
-    run: the real one, or a subclass that changes one of its limits."""
+    run: the real one, or a subclass that changes one of its limits. `classifying` is the
+    ad check: the real activity on a stand-in Jev that finds no advertisement unless the
+    test says otherwise. `voicing` is the voice check: the real activity on a stand-in
+    detector that hears a voice unless the test says otherwise, over the bucket `publish`
+    copies from."""
     acts = fake_activities(fakes)
-    review = by_name((reviewing or ReviewFakes()).activities())
+    (classify,) = (classifying or AdFakes()).activities()
+    reviewing = reviewing or ReviewFakes()
+    review = by_name(reviewing.activities())
+    (check_voice,) = (voicing or VoiceFakes()).activities(reviewing.store)
     localizing = localizing or LocalizerFakes()
     stage = {a.__temporal_activity_definition.name: a for a in localizing.activities()}  # type: ignore[attr-defined]
     dubbing = dubbing or DubFakes()
@@ -69,6 +81,7 @@ async def prep_workers(
         for a in (
             localizer,
             dubber,
+            dubber_code,
             localizer_single_agent,
             localizer_repair_agent,
             dubber_single_agent,
@@ -101,6 +114,7 @@ async def prep_workers(
                             stage["assemble_script"],  # type: ignore[list-item]
                             context.localizer_context,
                             context.dubber_context,
+                            context.dubber_setup,
                             review["publish"],  # type: ignore[list-item]
                             review["segment_room"],  # type: ignore[list-item]
                             *(
@@ -121,11 +135,16 @@ async def prep_workers(
                     client,
                     QueueSpec(
                         "llm",
-                        activities=[review["review_before_render"], review["review_render"]],  # type: ignore[list-item]
+                        activities=[
+                            review["review_before_render"],  # type: ignore[list-item]
+                            review["review_render"],  # type: ignore[list-item]
+                            classify,  # type: ignore[list-item]
+                        ],
                         plugins=agents,
                     ),
                 ),
                 build_worker(client, QueueSpec("render", activities=[review["render"]])),  # type: ignore[list-item]
+                build_worker(client, QueueSpec("voice_check", activities=[check_voice])),
                 build_worker(
                     client,
                     QueueSpec(

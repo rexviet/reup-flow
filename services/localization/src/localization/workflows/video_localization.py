@@ -49,6 +49,7 @@ from localization.contracts import (
     Transcript,
     VoiceProfile,
 )
+from localization.contracts.models import PublishOutcome, VoiceCheck
 from localization.workflows.review_routing import (
     IssueKey,
     NoRoute,
@@ -65,6 +66,9 @@ IO_QUEUE = "io"
 TTS_QUEUE = "tts"
 LLM_QUEUE = "llm"
 RENDER_QUEUE = "render"
+# The voice check: quick, and never behind a separation on `media` or a subtitle detection
+# on `io`, since every run starts with it.
+VOICE_CHECK_QUEUE = "voice_check"
 
 # Marks a run that has the Localizer stage. A run recorded before the stage existed
 # replays without this marker and finishes where it used to; a new run records it.
@@ -86,6 +90,14 @@ EVEN_TTS_BATCHES_PATCH = "even-tts-batches"
 # Marks a run whose rounds are reviewed before the video is rendered, and which renders once,
 # after the last round. A run recorded before rendered every round and reviewed the render.
 REVIEW_BEFORE_RENDER_PATCH = "review-before-render"
+# Marks a run that asks, once the video is prepared, whether it is a product advertisement,
+# and ends there when it is. A run recorded before went from the preparation straight to
+# the Localizer.
+AD_GATE_PATCH = "skip-advertisements"
+# Marks a run that first checks the source and ends there when there is nothing to localize:
+# a file without a video stream is skipped, a video without a voice has its original
+# published as it is. A run recorded before began with the ingest.
+VOICE_CHECK_PATCH = "publish-originals-without-voice"
 
 # Reviews of one run: the first looks at the first layout, the second at the one made after
 # the one rerun a failed review sends the run back for.
@@ -209,6 +221,25 @@ REVIEW = dict(
         non_retryable_error_types=[*_PERMANENT, "ReviewRunaway"],
     ),
 )
+# One Jev call on the transcript's text, each attempt bounded by the provider's own
+# timeout. Retried like the review; a video that could not be classified is localized.
+CLASSIFY = dict(
+    task_queue=LLM_QUEUE,
+    start_to_close_timeout=timedelta(minutes=2),
+    retry_policy=RetryPolicy(
+        maximum_attempts=2,
+        initial_interval=timedelta(seconds=10),
+        non_retryable_error_types=_PERMANENT,
+    ),
+)
+# A download, a decode and a few seconds of the detector. A video that could not be checked
+# is localized.
+VOICE_CHECK = dict(
+    task_queue=VOICE_CHECK_QUEUE,
+    start_to_close_timeout=timedelta(minutes=10),
+    heartbeat_timeout=timedelta(minutes=2),
+    retry_policy=_retry(3, 5, 60),
+)
 PUBLISH = dict(
     task_queue=IO_QUEUE,
     start_to_close_timeout=timedelta(minutes=5),
@@ -318,7 +349,13 @@ class VideoLocalizationWorkflow:
             raise
 
     async def _pipeline(self, spec: LocalizationInput) -> LocalizationResult:
+        if self._checks_for_voice():
+            outcome = await self._unprepared_end(spec)
+            if outcome is not None:
+                return LocalizationResult(script=None, publish=await self._end(spec, outcome))
         prep = await self._prepare(spec)
+        if self._asks_about_ads() and await self._is_advertisement(spec, prep):
+            return LocalizationResult(prep=prep, script=None, publish=await self._skip_ad(spec))
         if not workflow.patched(LOCALIZE_PATCH):
             return LocalizationResult(prep=prep, script=None)
         prep, script = await self._localize(spec, prep)
@@ -331,6 +368,63 @@ class VideoLocalizationWorkflow:
             return LocalizationResult(prep=prep, script=script, dub=dub)
         script, dub, published = await self._review_and_publish(spec, prep, script, dub)
         return LocalizationResult(prep=prep, script=script, dub=dub, publish=published)
+
+    def _checks_for_voice(self) -> bool:
+        """True for a run that checks the source for a voice before preparing it."""
+        return workflow.patched(VOICE_CHECK_PATCH)
+
+    async def _unprepared_end(self, spec: LocalizationInput) -> PublishOutcome | None:
+        """How the run ends before anything is prepared, or None to go on. A file without a
+        video stream is skipped, whatever its audio holds: it is pictures with music laid
+        over them, and the ingest would only refuse it after the download. A video without a
+        voice has its original published as it is. A check that cannot be made (an
+        unreadable file, the retries spent) lets the video through: the check saves work, and
+        must never cost a video that is worth localizing."""
+        try:
+            check = await workflow.execute_activity(
+                "check_voice", spec, result_type=VoiceCheck, **VOICE_CHECK
+            )
+        except ActivityError as error:
+            workflow.logger.warning("voice not checked, localized as usual: %s", _describe(error))
+            return None
+        if not check.has_video:
+            return "skipped_no_video"
+        return "published_original" if check.no_voice else None
+
+    async def _end(self, spec: LocalizationInput, outcome: PublishOutcome) -> PublishResult:
+        """Leaves the end on the run: the original published, or the file skipped. No render,
+        no review."""
+        return await workflow.execute_activity(
+            "publish",
+            args=[spec, PublishRequest(outcome=outcome)],
+            result_type=PublishResult,
+            **PUBLISH,
+        )
+
+    def _asks_about_ads(self) -> bool:
+        """True for a run that asks, once prepared, whether the video is an advertisement."""
+        return workflow.patched(AD_GATE_PATCH)
+
+    async def _is_advertisement(self, spec: LocalizationInput, prep: PrepResult) -> bool:
+        """Whether the video's speech sells a product. A question that cannot be answered
+        (Jev down, its answers unusable, the retries spent) lets the video through: the
+        check saves work, and must never cost a video that is worth localizing."""
+        try:
+            return await workflow.execute_activity(
+                "classify_video", args=[spec, prep.transcript], result_type=bool, **CLASSIFY
+            )
+        except ActivityError as error:
+            workflow.logger.warning("not classified, localized as usual: %s", _describe(error))
+            return False
+
+    async def _skip_ad(self, spec: LocalizationInput) -> PublishResult:
+        """Leaves the skipped advertisement on the run: no render, no review."""
+        return await workflow.execute_activity(
+            "publish",
+            args=[spec, PublishRequest(outcome="skipped_ad")],
+            result_type=PublishResult,
+            **PUBLISH,
+        )
 
     async def _localize(
         self, spec: LocalizationInput, prep: PrepResult

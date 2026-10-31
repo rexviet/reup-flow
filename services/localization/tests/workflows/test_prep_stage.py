@@ -54,6 +54,7 @@ from localization.workflows.video_localization import VideoLocalizationWorkflow
 from tests.support.inputs import make_input
 from tests.support.prep_fakes import REGION, PrepFakes
 from tests.support.prep_worker import fake_activities, prep_workers, running
+from tests.support.voice_fakes import VoiceFakes
 
 BUCKET = "reup-media"
 
@@ -96,9 +97,11 @@ async def test_preparation_runs_each_stage_once_on_its_own_queue(temporal_client
     assert result.prep.subtitles.region == REGION
     assert result.prep.transcript.segment_count == 2
     assert dict(fakes.calls) == {"ingest": 1, "transcribe": 1, "detect_subtitles": 1}
-    # The preparation stages come first, in order, each on its own queue (the voice's
-    # rate is measured beside the ingest); what follows is the Localizer stage (tests/agents).
-    assert (await _scheduled(handle))[:4] == [
+    # The voice check comes first, then the preparation stages, in order, each on its own
+    # queue (the voice's rate is measured beside the ingest); what follows is the Localizer
+    # stage (tests/agents).
+    assert (await _scheduled(handle))[:5] == [
+        ("check_voice", "voice_check"),
         ("ingest", "media"),
         ("voice_rate", "tts"),
         ("transcribe", "stt"),
@@ -159,6 +162,10 @@ async def test_a_missing_source_video_is_not_regenerated(temporal_client: Client
         build_worker(temporal_client, QueueSpec("media", activities=[acts["ingest"]])),
         build_worker(temporal_client, QueueSpec("stt", activities=[acts["transcribe"]])),
         build_worker(temporal_client, QueueSpec("io", activities=[detect, record_outcome])),
+        # The voice check every run starts with hears a voice: the run goes on to its ingest.
+        build_worker(
+            temporal_client, QueueSpec("voice_check", activities=VoiceFakes().activities())
+        ),
     ]
     async with running(workers):
         handle = await temporal_client.start_workflow(
@@ -185,7 +192,15 @@ def test_the_workflow_names_only_activities_that_are_registered() -> None:
         for fn in spec.activities
     }
     source = Path("src/localization/workflows/video_localization.py").read_text()
-    for name in ("ingest", "transcribe", "detect_subtitles", "voice_rate", "assemble_script"):
+    for name in (
+        "ingest",
+        "transcribe",
+        "detect_subtitles",
+        "voice_rate",
+        "assemble_script",
+        "classify_video",
+        "check_voice",
+    ):
         assert f'"{name}"' in source
         assert name in registered
 
@@ -900,11 +915,19 @@ def test_queue_limits_come_from_settings() -> None:
         llm_concurrency=5,
         io_concurrency=2,
         render_concurrency=4,
+        voice_check_concurrency=6,
     )
     store = ObjectStore(object(), BUCKET)
     agents = {s.name: s.limit for s in queue_specs("agents", settings, store, _providers())}
     media = {s.name: s.limit for s in queue_specs("media", settings, store, _providers())}
-    assert agents == {"workflows": None, "llm": 5, "io": 2, "stt": 1, "tts": 2}
+    assert agents == {
+        "workflows": None,
+        "llm": 5,
+        "io": 2,
+        "stt": 1,
+        "tts": 2,
+        "voice_check": 6,
+    }
     assert media == {"media": 3, "render": 4}
     assert dataclasses.is_dataclass(QueueSpec)
 
@@ -1033,6 +1056,9 @@ async def test_a_failed_stage_cancels_the_sibling_instead_of_leaving_it_running(
         build_worker(temporal_client, QueueSpec("media", activities=[acts["ingest"]])),
         build_worker(temporal_client, QueueSpec("stt", activities=[slow_transcribe])),
         build_worker(temporal_client, QueueSpec("io", activities=[broken_detect, record_outcome])),
+        build_worker(
+            temporal_client, QueueSpec("voice_check", activities=VoiceFakes().activities())
+        ),
     ]
     async with running(workers):
         handle = await temporal_client.start_workflow(

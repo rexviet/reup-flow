@@ -474,7 +474,7 @@ services:
       temporal-namespace-init:
         condition: service_completed_successfully
 
-  # Queues: workflows, llm, io, stt, tts. The `workflows` queue needs nothing
+  # Queues: workflows, llm, io, stt, tts, voice_check. The `workflows` queue needs nothing
   # outside Temporal, so a VoiceStudio outage never stops a workflow task.
   worker-agents:
     build: *localization-build
@@ -502,8 +502,18 @@ services:
       # jev: checks in code plus one call to Jev through OpenRouter; llm: the vision agent.
       REVIEWER_MODE: ${REVIEWER_MODE:-jev}
       REVIEWER_JEV_MODEL: ${REVIEWER_JEV_MODEL:-typesafe/jev-1.13}
+      # Product advertisements are not localized: Jev reads the transcript after the
+      # preparation and a run at or over the threshold ends as `skipped_ad`.
+      AD_GATE_ENABLED: ${AD_GATE_ENABLED:-true}
+      AD_GATE_THRESHOLD: ${AD_GATE_THRESHOLD:-0.8}
+      # Before anything else the source is checked for a voice; under this share of speech
+      # its original is published as it is and the run ends as `published_original`.
+      VOICE_CHECK_ENABLED: ${VOICE_CHECK_ENABLED:-true}
+      VOICE_CHECK_MIN_SPEECH_SHARE: ${VOICE_CHECK_MIN_SPEECH_SHARE:-0.05}
       # Used when REVIEWER_MODE=llm: it looks at frames, so it needs a model that reads images.
       REVIEWER_MODEL: ${REVIEWER_MODEL:-}
+      # Prompts, answers, the Dubber's code and tool arguments in the agents' traces.
+      TRACE_AGENT_CONTENT: ${TRACE_AGENT_CONTENT:-true}
       OCR_MODEL: ${OCR_MODEL:-}
       OCR_BBOX_FORMAT: ${OCR_BBOX_FORMAT:-}
       VOICESTUDIO_URL: ${VOICESTUDIO_URL:-}
@@ -512,8 +522,6 @@ services:
       STT_MODEL: ${STT_MODEL:-}
       TTS_MODEL: ${TTS_MODEL:-}
       # Serves both pipelines; with LOCALIZATION_PIPELINE=vbee it refuses to start without
-      # Prompts, answers, the Dubber's code and tool arguments in the agents' traces.
-      TRACE_AGENT_CONTENT: ${TRACE_AGENT_CONTENT:-true}
       # the Vbee settings and needs no VoiceStudio.
       LOCALIZATION_PIPELINE: ${LOCALIZATION_PIPELINE:-voicestudio}
       VBEE_BASE_URL: ${VBEE_BASE_URL:-https://api.vbee.vn}
@@ -525,6 +533,7 @@ services:
       TTS_CONCURRENCY: ${TTS_CONCURRENCY:-2}
       LLM_CONCURRENCY: ${LLM_CONCURRENCY:-8}
       IO_CONCURRENCY: ${IO_CONCURRENCY:-2}
+      VOICE_CHECK_CONCURRENCY: ${VOICE_CHECK_CONCURRENCY:-2}
       LOUDNESS_LUFS: ${LOUDNESS_LUFS:--14}
       TRUE_PEAK_DBTP: ${TRUE_PEAK_DBTP:--1.5}
       # The Jev review measures captions with the font the render draws with.

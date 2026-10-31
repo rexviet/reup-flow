@@ -97,6 +97,16 @@ class Settings(BaseSettings):
     # OpenRouter ones. Pinned, so a model that moves under an alias cannot change what
     # a review means.
     reviewer_jev_model: str = "typesafe/jev-1.13"
+    # Once a video is prepared, Jev (the model above) is asked whether its speech promotes
+    # a product; at or over the threshold the video is not localized and its run is left
+    # as `skipped_ad`. Off, every video is localized.
+    ad_gate_enabled: bool = True
+    ad_gate_threshold: float = Field(default=0.8, ge=0.0, le=1.0)
+    # Before anything else, the source's audio is checked for a voice: when less than this
+    # share of it is speech, the video is not localized, its original is published as it is
+    # and its run is left as `published_original`. Off, every video is localized.
+    voice_check_enabled: bool = True
+    voice_check_min_speech_share: float = Field(default=0.05, ge=0.0, le=1.0)
     judge_model: str | None = None
     ocr_model: str | None = None
     ocr_bbox_format: BBoxFormat | None = None
@@ -114,12 +124,18 @@ class Settings(BaseSettings):
     render_concurrency: Concurrency = 1
     llm_concurrency: Concurrency = 8
     io_concurrency: Concurrency = 2
+    voice_check_concurrency: Concurrency = 2
     max_open_workflows: Concurrency = 10
     outbox_max_attempts: Concurrency = 5
 
     langfuse_host: str | None = None
     langfuse_public_key: SecretStr | None = None
     langfuse_secret_key: SecretStr | None = None
+    # Whether the agents' spans carry what they say and do: every prompt and answer, the
+    # code the Dubber writes, each tool call's arguments and result. Off, a trace keeps the
+    # shape of each run (which tool was called when), timings, token counts and costs, and
+    # none of that text.
+    trace_agent_content: bool = True
 
     # The one font file captions are measured with here and drawn with by the renderer.
     caption_font_path: str = str(DEFAULT_CAPTION_FONT)
@@ -131,11 +147,6 @@ class Settings(BaseSettings):
 
     demucs_bin: str = "demucs"
     provider_timeout_seconds: float = 120.0
-    # Whether the agents' spans carry what they say and do: every prompt and answer, the
-    # code the Dubber writes, each tool call's arguments and result. Off, a trace keeps the
-    # shape of each run (which tool was called when), timings, token counts and costs, and
-    # none of that text.
-    trace_agent_content: bool = True
 
     # Vbee speech (STT and batch TTS). The voice id names a cloned voice of the account
     # and is kept out of output like the credentials are.

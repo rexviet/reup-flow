@@ -3,12 +3,19 @@
 A run that passed review is copied (inside the bucket, no bytes through this process)
 to `output/{aweme_id}.mp4`. A run that needs a person keeps its render under
 `review/{aweme_id}-g{generation}.mp4`, which no lifecycle expires, and is never
-written to `output/`. A run that failed has no render at all. Each of the three also
-leaves one row in `localization.runs`, keyed by video and generation, so the same
-call made twice leaves the same state.
+written to `output/`. A run that failed has no render at all, and neither has one that
+skipped a product advertisement (`skipped_ad`: nothing past the preparation ran). A video
+without a voice (`published_original`) has no render either: its source is copied, the
+same way, to `output/{aweme_id}.mp4` as it is. A file without a video stream
+(`skipped_no_video`) is skipped before anything is prepared and has nothing at all. Each of
+the six also leaves one row in
+`localization.runs`, keyed by video and generation, so the same call made twice leaves the
+same state.
 
 Last, the run's scores go on its Langfuse trace (see `observability.scores`), best
-effort: a run is published, kept or failed whatever happens to its scores.
+effort: a run is published, kept or failed whatever happens to its scores. A skipped
+video has none, and neither has a published original: nothing of either was made, so
+there is no quality to measure.
 """
 
 import asyncio
@@ -107,9 +114,18 @@ class PublishActivity:
         tag_session(spec.aweme_id)
         output: str | None = None
         review: str | None = None
-        if request.outcome == "failed":
+        if request.outcome in ("failed", "skipped_ad", "skipped_no_video", "published_original"):
             if request.render_key is not None:
-                raise _refuse("a failed run has no render to keep")
+                raise _refuse(f"a {request.outcome} run has no render to keep")
+            if request.outcome == "published_original":
+                # Nothing was made, so nothing was reviewed: what goes out is the source the
+                # run was started on, untouched.
+                if request.verdict is not None or request.reasons or request.dub is not None:
+                    raise _refuse("an original is published only for a run that made nothing")
+                output = output_key(spec.aweme_id)
+                await asyncio.to_thread(
+                    self._store.copy, spec.video_key, output, produced_by="download"
+                )
         else:
             if request.render_key is None:
                 raise _refuse(f"a {request.outcome} run needs the render it is about")
@@ -157,6 +173,10 @@ class PublishActivity:
     async def _score(self, request: PublishRequest) -> None:
         trace_id = current_trace_id()
         if self._scores is None or trace_id is None:
+            return
+        if request.outcome in ("skipped_ad", "skipped_no_video", "published_original"):
+            # Its review rounds and its `needs_human` would read as a video that went out
+            # unreviewed; a video that was never localized is not one to score.
             return
         segments: DubSegmentsDocument | None = None
         script: LocalizedScript | None = None
