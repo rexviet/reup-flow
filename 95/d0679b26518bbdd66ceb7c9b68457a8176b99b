@@ -1,0 +1,31 @@
+services/localization/src/localization/activities/layout_captions.py
+  s_28788f0f453f24::t_11aa83592dd7a8 358,360-362
+services/downloader/src/parser/aweme.mapper.ts
+  s_c3c604cb551249::t_6e13664cfb60d5 1-181
+services/localization/tests/activities/test_layout_captions.py
+  s_28788f0f453f24::t_cb10b597ae0e72 283-291
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "95d0679b26518bbdd66ceb7c9b68457a8176b99b",
+  "prompts": {},
+  "sessions": {
+    "s_28788f0f453f24": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e44d7982-5bf6-4765-9acd-e47d92746115",
+        "model": "unknown"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    },
+    "s_c3c604cb551249": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "53f0b5a2-3113-436b-84bd-baae6dcc220b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
