@@ -1,0 +1,21 @@
+services/localization/src/localization/activities/layout_captions.py
+  s_28788f0f453f24::t_11aa83592dd7a8 358,360-362
+services/localization/tests/activities/test_layout_captions.py
+  s_28788f0f453f24::t_cb10b597ae0e72 283-291
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0c1d31daa5e1fda580f2cd51c4f85522792f746f",
+  "prompts": {},
+  "sessions": {
+    "s_28788f0f453f24": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e44d7982-5bf6-4765-9acd-e47d92746115",
+        "model": "unknown"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
