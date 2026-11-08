@@ -1,0 +1,28 @@
+scripts/bootstrap.sh
+  s_52d51976e3668e::t_30107249bd5793 1-175
+scripts/apply-migrations.sh
+  s_52d51976e3668e::t_2c29db5411e0e3 1-58
+scripts/e2e-smoke.sh
+  s_52d51976e3668e::t_0b8842728afafb 1-54
+scripts/state-pack.sh
+  s_52d51976e3668e::t_85def8a355b13e 1-83
+README.md
+  s_52d51976e3668e::t_67481b6ffcc12d 1-87,89-113
+  s_52d51976e3668e::t_82ec1933483606 88
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "28e06344e3d03e6bc9af2cbbc924175c86897b49",
+  "prompts": {},
+  "sessions": {
+    "s_52d51976e3668e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "99097134-405a-4088-813a-056d02854abe",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
