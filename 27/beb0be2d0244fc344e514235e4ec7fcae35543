@@ -1,0 +1,19 @@
+plans/handoffs/agent-workspace-20261101-1854.md
+  s_222aabf08fa2d7::t_85aa46c38529e8 1-135
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "27beb0be2d0244fc344e514235e4ec7fcae35543",
+  "prompts": {},
+  "sessions": {
+    "s_222aabf08fa2d7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f0f232bc-544f-40c8-a644-f31d9af8a8e2",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
