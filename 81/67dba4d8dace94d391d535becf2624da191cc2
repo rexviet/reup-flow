@@ -1,0 +1,34 @@
+services/localization/eval/README.md
+  h_43770622f8f2a6 1-136
+services/localization/eval/agent_experiment.py
+  h_43770622f8f2a6 1-493
+services/localization/eval/agent_scenarios.py
+  h_43770622f8f2a6 1-364
+services/localization/eval/build_agent_dataset.py
+  h_43770622f8f2a6 1-161
+services/localization/eval/human_agent_eval.py
+  h_43770622f8f2a6 1-121
+services/localization/eval/rescore_agent_eval.py
+  h_43770622f8f2a6 1-58
+services/localization/eval/results/.gitignore
+  h_43770622f8f2a6 1-2
+services/localization/eval/scenarios/dubber-length-v1.jsonl
+  h_43770622f8f2a6 1-2
+services/localization/eval/scenarios/dubber-synth-v1.jsonl
+  h_43770622f8f2a6 1-15
+services/localization/eval/scenarios/reviewer-synth-v1.jsonl
+  h_43770622f8f2a6 1-31
+services/localization/tests/eval/test_agent_experiment.py
+  h_43770622f8f2a6 1-202
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8167dba4d8dace94d391d535becf2624da191cc2",
+  "prompts": {},
+  "humans": {
+    "h_43770622f8f2a6": {
+      "author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
