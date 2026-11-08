@@ -5,7 +5,7 @@ import type { Job } from '../db/schema';
 import { ParserRejectedError } from '../parser/parser.errors';
 import { probeCookie, type ProbeSource } from '../parser/f4-probe';
 import type { UserPostPage } from '../parser/parser.client';
-import { toVideoUpsert } from './aweme.mapper';
+import { toVideoUpsert } from '../parser/aweme.mapper';
 import { LaneRunner, type LaneLogger, type TickOutcome } from './lane.runner';
 import { sleep } from './sleep';
 

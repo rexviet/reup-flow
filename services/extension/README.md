@@ -36,7 +36,29 @@ lib/push-cookie.js     Orchestration + the sessionid_ss guard (phase-09 §9.3).
 lib/options-view.js    Pure formatting for the "last push result" panel.
 ```
 
+content.js         Content script on douyin.com: a small round download
+                   button pinned to the top-right corner of the playing video on any
+                   video page
+                   (`/video/<id>` or `?modal_id=<id>`). A click messages
+                   sw.js, which calls the backend's `POST /api/videos`.
+lib/video-url.js, lib/button-view.js, lib/video-box.js, lib/enqueue-video.js
+                   Page-URL check, button wording per backend status, which
+                   <video> is the one being watched (and where it is drawn), and
+                   the enqueue call (settings come from storage in the
+                   service worker; the API key never reaches the page).
+
 No build step. Every file above is plain JS loaded directly by the browser.
+
+## Download button
+
+Open a Douyin video (`douyin.com/video/<id>`, or any page that shows one in
+a modal) and click the round button at the top-right. The video is queued in
+the downloader and the same download lane as profile jobs fetches it into
+storage. The button answers "Queued", "Already downloading", "Already
+downloaded", "Earlier download failed" or "Skipped (image post or
+cancelled)". It uses the backend URL and API key from the options page.
+Not covered: short links (`v.douyin.com/...`) and the main feed, whose URL
+does not carry the current video's id.
 
 ## Load unpacked (development)
 
@@ -92,7 +114,7 @@ prompt.
 
 ```
 cd services/extension
-pnpm test               # 48 unit tests, chrome.* APIs stubbed (no browser needed)
+pnpm test               # 89 unit tests, chrome.* APIs stubbed (no browser needed)
 pnpm test:mutations     # mutation harness — proves each guard is load-bearing
 ```
 

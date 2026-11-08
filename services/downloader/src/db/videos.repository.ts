@@ -169,6 +169,12 @@ export async function upsertMany(
   return inserted.length;
 }
 
+/** One row by primary key, or `null`. */
+export async function findByAwemeId(exec: Executor, awemeId: string): Promise<Video | null> {
+  const [row] = await exec.select().from(videos).where(eq(videos.awemeId, awemeId)).limit(1);
+  return row ?? null;
+}
+
 /**
  * Claims one video for download, oldest first.
  *

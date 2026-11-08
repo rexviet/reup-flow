@@ -207,6 +207,22 @@ export class ParserClient {
   }
 
   /**
+   * The whole `aweme_detail` of one video, exactly as Douyin sent it, or
+   * `null` when the answer carries none (a deleted or private video).
+   *
+   * Unlike {@link fetchOneVideo} this keeps every field, because a video
+   * queued from a single URL has no enumerate page to take its author,
+   * `create_time` and duration from.
+   */
+  async fetchAwemeDetail(awemeId: string): Promise<Aweme | null> {
+    const data = await this.get('fetch_one_video', { aweme_id: awemeId });
+    const detail = pick(data, 'aweme_detail');
+    return typeof detail === 'object' && detail !== null && !Array.isArray(detail)
+      ? (detail as Aweme)
+      : null;
+  }
+
+  /**
    * One GET, one request. No retries, ever.
    *
    * Retry policy belongs to the lane, which is the only layer that knows

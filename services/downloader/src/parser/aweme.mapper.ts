@@ -1,4 +1,4 @@
-import { playAddrUrls, type Aweme } from '../parser/parser.client';
+import { playAddrUrls, type Aweme } from './parser.client';
 import type { VideoUpsert } from '../db/videos.repository';
 
 /**

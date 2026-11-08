@@ -1,6 +1,6 @@
 'use strict';
 
-const { pushCookie, getCookieStatus, CookiePushApiError } = require('../lib/api-client');
+const { pushCookie, getCookieStatus, enqueueVideo, CookiePushApiError } = require('../lib/api-client');
 
 /** Minimal fetch Response stub -- only what the client reads. */
 function fakeResponse({ ok, status, jsonBody, textBody }) {
@@ -135,5 +135,35 @@ describe('getCookieStatus', () => {
     await expect(getCookieStatus({ baseUrl: 'http://x', apiKey: 'wrong', fetchImpl })).rejects.toThrow(
       CookiePushApiError,
     );
+  });
+});
+
+describe('enqueueVideo', () => {
+  test('POSTs {url} to {baseUrl}/api/videos with X-Api-Key and returns the parsed body', async () => {
+    const calls = [];
+    const fetchImpl = async (url, init) => {
+      calls.push({ url, init });
+      return fakeResponse({ ok: true, status: 202, jsonBody: { aweme_id: '1', status: 'pending' } });
+    };
+
+    const body = await enqueueVideo({
+      baseUrl: 'http://localhost:3000/',
+      apiKey: 'key',
+      url: 'https://www.douyin.com/video/1',
+      fetchImpl,
+    });
+
+    expect(body).toEqual({ aweme_id: '1', status: 'pending' });
+    expect(calls[0].url).toBe('http://localhost:3000/api/videos');
+    expect(calls[0].init.method).toBe('POST');
+    expect(calls[0].init.headers['X-Api-Key']).toBe('key');
+    expect(JSON.parse(calls[0].init.body)).toEqual({ url: 'https://www.douyin.com/video/1' });
+  });
+
+  test('throws CookiePushApiError carrying the status for a non-2xx reply', async () => {
+    const fetchImpl = async () => fakeResponse({ ok: false, status: 404, textBody: 'video not found' });
+    await expect(
+      enqueueVideo({ baseUrl: 'http://b', apiKey: 'k', url: 'https://www.douyin.com/video/1', fetchImpl }),
+    ).rejects.toMatchObject({ name: 'CookiePushApiError', status: 404 });
   });
 });

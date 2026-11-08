@@ -63,6 +63,7 @@ require('../lib/cookie-header');
 require('../lib/api-client');
 require('../lib/storage');
 require('../lib/push-cookie');
+require('../lib/enqueue-video');
 const sw = require('../sw.js');
 
 beforeEach(() => {
@@ -126,5 +127,30 @@ describe('sw.js wiring', () => {
     const keepOpen = onMessageListener({ type: 'something-else' }, {}, sendResponse);
     expect(sendResponse).not.toHaveBeenCalled();
     expect(keepOpen).toBeUndefined();
+  });
+
+  test('onMessage "download-video" queues the given page URL and responds with the outcome, keeping the channel open', async () => {
+    global.fetch = async (url, init) => {
+      lastFetchCall = { url, init };
+      return {
+        ok: true,
+        status: 202,
+        json: async () => ({ aweme_id: '1', status: 'pending' }),
+        text: async () => '',
+      };
+    };
+
+    const response = await new Promise((resolve) => {
+      const keepOpen = onMessageListener(
+        { type: 'download-video', url: 'https://www.douyin.com/video/1' },
+        {},
+        resolve,
+      );
+      expect(keepOpen).toBe(true);
+    });
+
+    expect(response).toEqual({ ok: true, status: 'pending', message: 'queued' });
+    expect(lastFetchCall.url).toBe('http://backend/api/videos');
+    expect(JSON.parse(lastFetchCall.init.body)).toEqual({ url: 'https://www.douyin.com/video/1' });
   });
 });

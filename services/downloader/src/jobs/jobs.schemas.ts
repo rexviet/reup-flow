@@ -39,7 +39,7 @@ function isAllowedJobUrlHost(host: string): boolean {
  * similar non-network schemes the underlying HTTP client might still act on
  * in some form.
  */
-function isAllowedJobUrl(value: string): boolean {
+export function isAllowedJobUrl(value: string): boolean {
   let url: URL;
   try {
     url = new URL(value);

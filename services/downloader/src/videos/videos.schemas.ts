@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { isAllowedJobUrl } from '../jobs/jobs.schemas';
+import { extractAwemeId } from './video-url';
 
 /**
  * Same `limit`/`offset` bounds as jobs.schemas.ts's `paginationSchema`
@@ -25,3 +27,19 @@ export const videoListQuerySchema = z.object({
   status: z.string().min(1, 'status must not be empty').optional(),
 });
 export type VideoListQueryDto = z.infer<typeof videoListQuerySchema>;
+
+/**
+ * `POST /api/videos`. Same host allowlist as `POST /api/jobs` (it is the same
+ * SSRF concern: the URL's id ends up in a request the parser makes), plus the
+ * requirement that the URL actually name one video.
+ */
+export const createVideoSchema = z.object({
+  url: z
+    .string()
+    .min(1, 'url is required')
+    .refine(isAllowedJobUrl, { message: 'url must be an http(s) douyin.com URL' })
+    .refine((value) => extractAwemeId(value) !== null, {
+      message: 'url must point at one video (/video/<id> or ?modal_id=<id>)',
+    }),
+});
+export type CreateVideoDto = z.infer<typeof createVideoSchema>;

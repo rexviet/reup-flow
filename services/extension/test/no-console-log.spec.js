@@ -26,6 +26,11 @@ const PRODUCTION_FILES = [
   'lib/push-cookie.js',
   'lib/options-view.js',
   'lib/backend-permission.js',
+  'lib/video-url.js',
+  'lib/button-view.js',
+  'lib/video-box.js',
+  'lib/enqueue-video.js',
+  'content.js',
 ];
 
 describe('no console.* call anywhere in production extension code', () => {

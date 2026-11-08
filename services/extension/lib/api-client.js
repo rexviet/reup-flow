@@ -5,6 +5,8 @@
  * services/downloader/src/cookie/{cookie.controller.ts,cookie.service.ts}:
  *   POST /internal/cookie        body {platform, cookie}  header X-Api-Key
  *   GET  /internal/cookie/status                          header X-Api-Key
+ * and services/downloader/src/videos/video-enqueue.controller.ts:
+ *   POST /api/videos             body {url}               header X-Api-Key
  *
  * Never logs the cookie value, the response body, or the API key anywhere --
  * see test/no-console-log.spec.js, which greps this file (and every other
@@ -106,6 +108,27 @@ async function getCookieStatus({ baseUrl, apiKey, fetchImpl }) {
   return response.json();
 }
 
+/**
+ * Queues ONE video by its page URL via `POST {baseUrl}/api/videos` and returns
+ * the parsed `{ aweme_id, status }` body. Throws CookiePushApiError otherwise.
+ */
+async function enqueueVideo({ baseUrl, apiKey, url, fetchImpl }) {
+  const response = await doRequest(
+    `${normalizeBaseUrl(baseUrl)}/api/videos`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Api-Key': apiKey,
+      },
+      body: JSON.stringify({ url }),
+    },
+    fetchImpl,
+  );
+  await assertOk(response);
+  return response.json();
+}
+
 // IIFE, not a bare `const root`: `importScripts` (sw.js) and classic
 // `<script>` tags (options.html) both evaluate every file into ONE shared
 // global scope, so a top-level `const root` here collides with the identical
@@ -119,7 +142,8 @@ async function getCookieStatus({ baseUrl, apiKey, fetchImpl }) {
   root.CookiePushApiError = CookiePushApiError;
   root.pushCookie = pushCookie;
   root.getCookieStatus = getCookieStatus;
+  root.enqueueVideo = enqueueVideo;
 })();
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { CookiePushApiError, pushCookie, getCookieStatus };
+  module.exports = { CookiePushApiError, pushCookie, getCookieStatus, enqueueVideo };
 }

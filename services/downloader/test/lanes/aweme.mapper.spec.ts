@@ -12,7 +12,7 @@
  * not computed here on purpose -- it comes from the DATABASE clock inside
  * `upsertMany` (see the note there).
  */
-import { toVideoUpsert } from '../../src/lanes/aweme.mapper';
+import { toVideoUpsert } from '../../src/parser/aweme.mapper';
 
 const PROFILE = 'MS4wLjABAAAA_mapper';
 

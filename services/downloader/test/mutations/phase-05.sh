@@ -49,7 +49,7 @@ LANE=src/lanes/enumerate.lane.ts
 LANES_MODULE=src/lanes/lanes.module.ts
 JOBS_REPO=src/db/jobs.repository.ts
 VIDEOS_REPO=src/db/videos.repository.ts
-MAPPER=src/lanes/aweme.mapper.ts
+MAPPER=src/parser/aweme.mapper.ts
 
 BACKUP_DIR=$(mktemp -d)
 fail=0
@@ -630,7 +630,7 @@ run_mutation "default a missing create_time to now() instead of dropping the ite
   "$MAPPER" "test/lanes/aweme.mapper" \
   py '
 import pathlib
-p = pathlib.Path("src/lanes/aweme.mapper.ts")
+p = pathlib.Path("src/parser/aweme.mapper.ts")
 s = p.read_text()
 old = """  const createTimeSeconds = numeric(aweme.create_time);
   if (createTimeSeconds === null || createTimeSeconds <= 0) return null;"""
@@ -643,7 +643,7 @@ run_mutation "read create_time as milliseconds instead of seconds" \
   "$MAPPER" "test/lanes/aweme.mapper" \
   py '
 import pathlib
-p = pathlib.Path("src/lanes/aweme.mapper.ts")
+p = pathlib.Path("src/parser/aweme.mapper.ts")
 s = p.read_text()
 old = """    createTime: new Date(createTimeSeconds * 1000),"""
 new = """    createTime: new Date(createTimeSeconds),"""
@@ -655,7 +655,7 @@ run_mutation "drop an item whose play_addr is missing, instead of nulling the co
   "$MAPPER" "test/lanes/aweme.mapper" \
   py '
 import pathlib
-p = pathlib.Path("src/lanes/aweme.mapper.ts")
+p = pathlib.Path("src/parser/aweme.mapper.ts")
 s = p.read_text()
 old = """  const urls = playAddrUrls(aweme);"""
 new = """  const urls = playAddrUrls(aweme);
@@ -880,7 +880,7 @@ run_mutation "treat an image post as a video again (the bug, exactly as it shipp
   "$MAPPER" "test/lanes/image-post-skip" \
   py '
 import pathlib
-p = pathlib.Path("src/lanes/aweme.mapper.ts")
+p = pathlib.Path("src/parser/aweme.mapper.ts")
 s = p.read_text()
 old = """function isImagePost(aweme: Record<string, unknown>): boolean {
   const images = aweme.images;
@@ -904,7 +904,7 @@ run_control "image posts treated as videos (the video path must not move)" \
   "$MAPPER" "test/lanes/aweme.mapper test/lanes/enumerate.lane test/db/videos.repository" \
   py '
 import pathlib
-p = pathlib.Path("src/lanes/aweme.mapper.ts")
+p = pathlib.Path("src/parser/aweme.mapper.ts")
 s = p.read_text()
 old = """function isImagePost(aweme: Record<string, unknown>): boolean {
   const images = aweme.images;
@@ -922,7 +922,7 @@ run_mutation "skip EVERY item (over-skipping loses the archive, just as quietly)
   "$MAPPER" "test/lanes/image-post-skip test/lanes/aweme.mapper" \
   py '
 import pathlib
-p = pathlib.Path("src/lanes/aweme.mapper.ts")
+p = pathlib.Path("src/parser/aweme.mapper.ts")
 s = p.read_text()
 old = """  return Array.isArray(images) && images.length > 0;"""
 new = """  void images;
@@ -940,7 +940,7 @@ run_mutation "demand the media_type enum as well as the images array" \
   "$MAPPER" "test/lanes/image-post-skip" \
   py '
 import pathlib
-p = pathlib.Path("src/lanes/aweme.mapper.ts")
+p = pathlib.Path("src/parser/aweme.mapper.ts")
 s = p.read_text()
 old = """  return Array.isArray(images) && images.length > 0;"""
 new = """  return Array.isArray(images) && images.length > 0 && aweme.media_type === 2;"""
@@ -974,7 +974,7 @@ run_control "reword the skip reason (the suite must measure the status, not the 
   "$MAPPER" "test/lanes/image-post-skip" \
   py '
 import pathlib
-p = pathlib.Path("src/lanes/aweme.mapper.ts")
+p = pathlib.Path("src/parser/aweme.mapper.ts")
 s = p.read_text()
 old = """const IMAGE_POST_REASON ="""
 new = """const IMAGE_POST_REASON: string = \x27nothing here to download\x27;
