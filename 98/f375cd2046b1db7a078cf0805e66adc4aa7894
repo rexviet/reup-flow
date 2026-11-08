@@ -1,0 +1,66 @@
+docker-compose.workspace-simulation.yml
+  h_43770622f8f2a6 1-20
+docs/agent-workspace.md
+  h_43770622f8f2a6 3-4,8-19,24-34,37-102
+services/downloader/src/workspace/workspace.catalog.ts
+  h_43770622f8f2a6 45,50,57,60-61
+services/downloader/src/workspace/workspace.schemas.ts
+  h_43770622f8f2a6 93-102
+services/downloader/src/workspace/workspace.service.ts
+  h_43770622f8f2a6 303-323,402
+services/downloader/src/workspace/workspace.temporal.ts
+  h_43770622f8f2a6 20,27,35,79,89,107,137-141,185-188,221
+services/downloader/test/workspace/workspace.catalog.spec.ts
+  h_43770622f8f2a6 16,38-43
+services/downloader/test/workspace/workspace.service.spec.ts
+  h_43770622f8f2a6 297-302,329-344
+services/localization/src/localization/simulation/__init__.py
+  h_43770622f8f2a6 1
+services/localization/src/localization/simulation/run.py
+  h_43770622f8f2a6 1-113
+services/localization/src/localization/simulation/workflow.py
+  h_43770622f8f2a6 1-64
+services/localization/tests/test_workspace_simulation.py
+  h_43770622f8f2a6 1-33
+services/web/nginx.conf
+  h_43770622f8f2a6 7-14
+services/web/src/App.test.tsx
+  h_43770622f8f2a6 115
+services/web/src/App.tsx
+  h_43770622f8f2a6 27-28,35
+services/web/src/api/types.ts
+  h_43770622f8f2a6 151-159
+services/web/src/workspace/Desk.tsx
+  h_43770622f8f2a6 71-72,81,87,96,106,124,133-134
+services/web/src/workspace/EventLog.tsx
+  h_43770622f8f2a6 10,26,29-32
+services/web/src/workspace/OfficeMap.test.tsx
+  h_43770622f8f2a6 5,10,12,18,30-42,84,87-88
+services/web/src/workspace/OfficeMap.tsx
+  h_43770622f8f2a6 2,6,13-14,23-33,35,37-51,56-60,63-65,69,72-73,75,80-81,91,93-94,104,114
+services/web/src/workspace/RunList.tsx
+  h_43770622f8f2a6 1-40
+services/web/src/workspace/RunPanel.tsx
+  h_43770622f8f2a6 1,3,7,95-96,100,103,106,112,117-121
+services/web/src/workspace/RunProgress.test.tsx
+  h_43770622f8f2a6 1-34
+services/web/src/workspace/RunProgress.tsx
+  h_43770622f8f2a6 1-78
+services/web/src/workspace/WorkspacePage.tsx
+  h_43770622f8f2a6 1-6,10-20,24-34,37-48,50
+services/web/src/workspace/fixtures.ts
+  h_43770622f8f2a6 36
+services/web/src/workspace/workspace.layout.ts
+  h_43770622f8f2a6 30-32,62-64,70-91,94-95
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "98f375cd2046b1db7a078cf0805e66adc4aa7894",
+  "prompts": {},
+  "humans": {
+    "h_43770622f8f2a6": {
+      "author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
