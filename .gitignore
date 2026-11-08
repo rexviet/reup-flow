@@ -25,4 +25,4 @@ services/downloader/test/spike-cookie-swap/data/
 services/localization/spikes/out/
 
 # Promo videos made with HyperFrames (motion-studio); renders and node_modules stay local.
-videos/
+/videos/
