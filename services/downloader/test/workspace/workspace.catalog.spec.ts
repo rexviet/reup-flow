@@ -13,7 +13,7 @@ const SEEN_IN_REAL_HISTORY = [
 /** `llm_calls.stage` values in the real table. */
 const STAGES = [
   'agent__localizer_repair__model_request', 'agent__localizer_single__model_request',
-  'agent__slot_shortener__model_request', 'review_jev', 'review_render', 'detect_subtitles',
+  'review_jev', 'review_render', 'detect_subtitles',
   'agent__dubber__model_request', 'agent__dubber_single__model_request',
   'agent__dubber_code__model_request', 'agent__localizer__model_request', 'classify_video',
 ];
@@ -35,4 +35,10 @@ describe('workspace catalog', () => {
     const ids = AGENTS.map((a) => a.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
+
+  it.each(['agent__slot_shortener__model_request', 'vbee_stt', 'plan_slots', 'write_slot_script', 'review_dub'])(
+    'does not assign the Vbee-only step %s to a standard-pipeline desk', (name) => {
+      expect(resolveAgent(name).id).toBe('unknown');
+    },
+  );
 });

@@ -33,6 +33,7 @@ export function detail(overrides: Partial<RunDetail> = {}): RunDetail {
     sources: { temporal: 'ok', postgres: 'ok' },
     status: 'published',
     phases: [],
+    steps: [],
     llmCostUsd: 0,
     costByStage: [],
     gpuSecondsEstimate: { stt: 0, tts: 0 },

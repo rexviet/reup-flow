@@ -148,6 +148,15 @@ export interface RunDetail {
   status?: string;
   outcome?: GateOutcome;
   phases: RunPhase[];
+  steps: Array<{
+    id: string;
+    activity: string;
+    agentId: string;
+    state: 'running' | 'retrying' | 'done' | 'failed' | 'cancelled';
+    startedAt: string;
+    endedAt?: string;
+    attempt?: number;
+  }>;
   llmCostUsd: number;
   costByStage: Array<{ stage: string; calls: number; costUsd: number }>;
   gpuSecondsEstimate: { stt: number; tts: number };

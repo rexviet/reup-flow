@@ -90,6 +90,16 @@ export const runDetailSchema = z.object({
   /** `runs.status`; absent while the run has no row yet. */
   status: z.string().optional(),
   outcome: z.enum(GATE_OUTCOMES).optional(),
+  /** Individual activities in scheduling order, preserving revisits to a desk. */
+  steps: z.array(z.object({
+    id: z.string(),
+    activity: z.string(),
+    agentId: z.string(),
+    state: z.enum(['running', 'retrying', 'done', 'failed', 'cancelled']),
+    startedAt: iso,
+    endedAt: iso.optional(),
+    attempt: z.number().int().optional(),
+  })),
   phases: z.array(
     z.object({
       agentId: z.string(),

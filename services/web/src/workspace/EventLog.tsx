@@ -7,7 +7,7 @@ const KIND_LABELS: Record<WorkspaceEventKind, string> = {
   activity_completed: 'xong',
   activity_failed: 'lỗi',
   llm_call_recorded: 'gọi LLM',
-  gate_decision: 'cổng',
+  gate_decision: 'kết quả',
   handoff: 'chuyển giao',
 };
 
@@ -23,13 +23,13 @@ export function EventLog({ events }: { events: WorkspaceEvent[] }) {
       {events.length === 0 ? (
         <p className="text-sm text-gray-500">Chưa có sự kiện nào.</p>
       ) : (
-        <ol className="flex flex-col gap-1 text-xs">
+        <ol className="flex max-h-96 flex-col gap-1 overflow-y-auto text-xs">
           {events.map((e) => (
             <li key={e.id} className="rounded border border-gray-100 bg-white px-2 py-1">
-              <span className="text-gray-400">{clock(e.at)}</span>{' '}
-              <span className="font-medium text-gray-700">{KIND_LABELS[e.kind]}</span>
-              {e.agentId && <span className="text-gray-500"> · {deskLabel(e.agentId)}</span>}
-              {e.awemeId && <span className="text-gray-400"> · …{e.awemeId.slice(-6)}</span>}
+              <span className="text-gray-600">{clock(e.at)}</span>{' '}
+              <span className="mr-1 font-medium text-gray-700">{KIND_LABELS[e.kind]}</span>
+              {e.agentId && <span className="mr-1 text-gray-600"> · {deskLabel(e.agentId)}</span>}
+              {e.awemeId && <span className="text-gray-600"> · …{e.awemeId.slice(-6)}</span>}
               <span className="block text-gray-600">{e.detail}</span>
             </li>
           ))}

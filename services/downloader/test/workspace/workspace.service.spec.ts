@@ -294,6 +294,12 @@ describe('run detail', () => {
     expect(d!.phases.map((p) => [p.agentId, p.state, p.activities])).toEqual([
       ['media', 'done', 1], ['stt', 'done', 1], ['tts', 'done', 3],
     ]);
+    // The timeline preserves both synthesis visits rather than flattening the desk.
+    expect(d!.steps.map((s) => [s.id, s.activity, s.state])).toEqual([
+      ['1', 'ingest', 'done'], ['2', 'transcribe', 'done'],
+      ['3', 'synthesize_segments', 'done'], ['4', 'plan_synthesis', 'done'],
+      ['5', 'synthesize_segments', 'done'],
+    ]);
     expect(d!.llmCostUsd).toBeCloseTo(0.2505, 10);
     expect(d!.costByStage).toHaveLength(2);
     expect(d!.gpuSecondsEstimate).toEqual({ stt: 10, tts: 29 });
@@ -318,6 +324,22 @@ describe('run detail', () => {
     };
     const d = await new WorkspaceService(temporal(bad), store(row), () => NOW).runDetail(key);
     expect(d!.phases[0].state).toBe('failed');
+  });
+
+  it('matches simultaneous same-name steps by activity id and stops unfinished steps on closure', async () => {
+    const live: WorkflowInspection = {
+      workflowId: WF,
+      pending: [{ activityId: 'batch-a', name: 'synthesize_segments', attempt: 3, atMs: NOW }],
+      activities: [
+        { eventId: 1, activityId: 'batch-a', name: 'synthesize_segments', queue: 'tts', scheduledAtMs: NOW - 5000 },
+        { eventId: 2, activityId: 'batch-b', name: 'synthesize_segments', queue: 'tts', scheduledAtMs: NOW - 4000 },
+      ],
+    };
+    const d = await new WorkspaceService(temporal(live), store(row), () => NOW).runDetail(key);
+    expect(d!.steps.map((s) => s.state)).toEqual(['retrying', 'running']);
+    const closed = { ...live, pending: [], closedAtMs: NOW };
+    const end = await new WorkspaceService(temporal(closed), store(row), () => NOW).runDetail(key);
+    expect(end!.steps.map((s) => s.state)).toEqual(['cancelled', 'cancelled']);
   });
 
   it('reports a gate outcome from the run row', async () => {

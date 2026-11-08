@@ -1,9 +1,10 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import { getRunDetail } from '../api/client';
-import type { RunDetail } from '../api/types';
+import type { RunDetail, WorkspaceEvent } from '../api/types';
 import { usePolling } from '../hooks/usePolling';
 import { phaseLabel } from './GateArea';
 import { deskLabel, outcomeLabel } from './workspace.layout';
+import { RunProgress } from './RunProgress';
 
 const PHASE_STATE_LABELS: Record<RunDetail['phases'][number]['state'], string> = {
   running: 'đang chạy',
@@ -91,26 +92,33 @@ export interface RunPanelProps {
   awemeId: string;
   generation: number;
   onClose: () => void;
+  onDetail?: (detail: RunDetail) => void;
+  handoff?: WorkspaceEvent;
 }
 
 /** Mount with `key={awemeId + generation}` so a new selection never shows the old run's numbers. */
-export function RunPanel({ awemeId, generation, onClose }: RunPanelProps) {
+export function RunPanel({ awemeId, generation, onClose, onDetail, handoff }: RunPanelProps) {
   const fetcher = useCallback(() => getRunDetail(awemeId, generation), [awemeId, generation]);
   const { data, error, loading } = usePolling(fetcher, 2000, { pauseWhenHidden: true });
+  useEffect(() => { if (data) onDetail?.(error ? { ...data, sources: { ...data.sources, temporal: 'down' } } : data); }, [data, error, onDetail]);
 
   return (
-    <aside aria-label="Chi tiết video" className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+    <aside aria-label="Chi tiết video" className="rounded-lg border border-gray-200 bg-white p-4">
       <div className="mb-3 flex items-start justify-between gap-2">
         <div>
           <h2 className="text-sm font-semibold text-gray-900">Video …{awemeId.slice(-8)}</h2>
           <p className="text-xs text-gray-500">lần chạy {generation}</p>
         </div>
-        <button type="button" onClick={onClose} className="rounded px-2 py-1 text-xs text-gray-600 hover:bg-gray-100">
+        <button type="button" onClick={onClose} className="min-h-11 rounded px-3 text-xs text-gray-600 hover:bg-gray-100 focus-visible:outline focus-visible:outline-2">
           Đóng
         </button>
       </div>
       {data ? (
-        <RunDetailView detail={data} />
+        <div className="flex flex-col gap-4">
+          {handoff && <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-700">Bàn giao gần nhất: <strong>{deskLabel(handoff.agentId ?? 'unknown')} → {deskLabel(handoff.toAgentId ?? 'unknown')}</strong></p>}
+          <RunProgress detail={data} stale={!!error} />
+          <details><summary className="cursor-pointer py-3 text-sm font-medium text-gray-700 focus-visible:outline focus-visible:outline-2">Kết quả, chi phí và thời gian GPU</summary><RunDetailView detail={data} /></details>
+        </div>
       ) : loading ? (
         <p className="text-sm text-gray-500">Đang tải…</p>
       ) : (

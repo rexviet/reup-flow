@@ -27,8 +27,9 @@ export interface ZoneSpec {
   desks: DeskSpec[];
 }
 
-export const OFFICE_SIZE = { w: 1000, h: 660 };
-export const STATION = { w: 130, h: 100 };
+export const OFFICE_SIZE = { w: 1000, h: 520 };
+// Includes the desk name, state and video tag below the furniture.
+export const STATION = { w: 130, h: 128 };
 
 export const ZONES: ZoneSpec[] = [
   {
@@ -58,25 +59,42 @@ export const ZONES: ZoneSpec[] = [
     desks: [
       { id: 'ad_classifier', label: 'Ad Classifier', x: 50, y: 250 },
       { id: 'subtitle_detector', label: 'Subtitle Detector', x: 290, y: 250 },
-      { id: 'localizer', label: 'Localizer', x: 530, y: 250 },
-      { id: 'dubber', label: 'Dubber', x: 770, y: 250 },
-      { id: 'slot_shortener', label: 'Slot Shortener', x: 170, y: 370 },
-      { id: 'reviewer', label: 'Reviewer', x: 410, y: 370 },
-      { id: 'review_jev', label: 'Review JEV', x: 650, y: 370 },
+      { id: 'localizer', label: 'Localizer Agent', x: 530, y: 250 },
+      { id: 'dubber', label: 'Dubber Agent', x: 770, y: 250 },
+      { id: 'reviewer', label: 'Reviewer Agent', x: 410, y: 370 },
     ],
   },
 ];
 
 export const UNKNOWN_DESK: DeskSpec = { id: 'unknown', label: 'Chưa rõ', x: 850, y: 370 };
+export const PORTRAIT_OFFICE_SIZE = { w: 560, h: 1120 };
+const PORTRAIT_POSITIONS: Record<string, { x: number; y: number }> = {
+  media: { x: 40, y: 170 }, render: { x: 200, y: 170 }, publish: { x: 360, y: 170 },
+  stt: { x: 40, y: 365 }, tts: { x: 200, y: 365 }, voice_check: { x: 360, y: 365 },
+  ad_classifier: { x: 60, y: 575 }, subtitle_detector: { x: 330, y: 575 },
+  localizer: { x: 60, y: 745 }, dubber: { x: 330, y: 745 }, reviewer: { x: 195, y: 925 },
+};
+const PORTRAIT_ROOMS: Record<Exclude<Zone, 'unknown'>, Rect> = {
+  media: { x: 20, y: 140, w: 520, h: 180 },
+  voice: { x: 20, y: 335, w: 520, h: 180 },
+  llm: { x: 20, y: 530, w: 520, h: 560 },
+};
 
-/** Where a desk's person sits, for drawing a handoff from one desk to another. */
-export function deskCenter(id: string): { x: number; y: number } | null {
-  const d = [...ALL_DESKS, UNKNOWN_DESK].find((s) => s.id === id);
-  return d ? { x: d.x + STATION.w / 2, y: d.y + 40 } : null;
+export function officeZones(portrait: boolean): ZoneSpec[] {
+  return portrait ? ZONES.map((z) => ({ ...z, room: PORTRAIT_ROOMS[z.zone],
+    desks: z.desks.map((d) => ({ ...d, ...PORTRAIT_POSITIONS[d.id] })),
+  })) : ZONES;
 }
 
-/** The gate bins along the bottom of the office. */
-export const GATE_ROOM: Rect = { x: 20, y: 520, w: 960, h: 130 };
+export function unknownDesk(portrait: boolean): DeskSpec {
+  return portrait ? { ...UNKNOWN_DESK, x: 365, y: 925 } : UNKNOWN_DESK;
+}
+
+/** Where a desk's person sits, for drawing a handoff from one desk to another. */
+export function deskCenter(id: string, portrait = false): { x: number; y: number } | null {
+  const d = [...officeZones(portrait).flatMap((z) => z.desks), unknownDesk(portrait)].find((s) => s.id === id);
+  return d ? { x: d.x + STATION.w / 2, y: d.y + 40 } : null;
+}
 
 export const ALL_DESKS: DeskSpec[] = ZONES.flatMap((z) => z.desks);
 

@@ -17,12 +17,14 @@ export interface PendingActivity {
 
 export interface ActivityRecord {
   eventId: number;
+  activityId?: string;
   name: string;
   /** Task queue the activity was scheduled on (`stt` and `tts` are the GPU ones). */
   queue: string;
   scheduledAtMs: number;
   completedAtMs?: number;
   failedAtMs?: number;
+  cancelledAtMs?: number;
   /** Error class, never the message. */
   failureType?: string;
 }
@@ -30,6 +32,7 @@ export interface ActivityRecord {
 export interface WorkflowInspection {
   workflowId: string;
   startedAtMs?: number;
+  closedAtMs?: number;
   pending: PendingActivity[];
   activities: ActivityRecord[];
 }
@@ -73,6 +76,7 @@ export interface HistoryEventLike {
   eventId?: unknown;
   eventTime?: Ts;
   activityTaskScheduledEventAttributes?: {
+    activityId?: string | null;
     activityType?: { name?: string | null } | null;
     taskQueue?: { name?: string | null } | null;
   } | null;
@@ -82,6 +86,7 @@ export interface HistoryEventLike {
     failure?: FailureLike | null;
   } | null;
   activityTaskTimedOutEventAttributes?: { scheduledEventId?: unknown } | null;
+  activityTaskCanceledEventAttributes?: { scheduledEventId?: unknown } | null;
 }
 
 /**
@@ -99,6 +104,7 @@ export function activitiesFromHistory(events: readonly HistoryEventLike[]): Acti
     if (scheduled && eventId !== undefined) {
       byScheduledId.set(eventId, {
         eventId,
+        ...(scheduled.activityId ? { activityId: scheduled.activityId } : {}),
         name: scheduled.activityType?.name ?? '',
         queue: scheduled.taskQueue?.name ?? '',
         scheduledAtMs: at,
@@ -127,6 +133,11 @@ export function activitiesFromHistory(events: readonly HistoryEventLike[]): Acti
         record.failedAtMs = at;
         record.failureType = 'TimeoutError';
       }
+    }
+    const cancelled = event.activityTaskCanceledEventAttributes;
+    if (cancelled) {
+      const record = byScheduledId.get(num(cancelled.scheduledEventId) ?? -1);
+      if (record) record.cancelledAtMs = at;
     }
   }
   return [...byScheduledId.values()].sort((a, b) => a.scheduledAtMs - b.scheduledAtMs);
@@ -171,7 +182,10 @@ export class TemporalWorkflowReader implements TemporalReader {
 
   async listOpen(limit: number): Promise<string[]> {
     const ids: string[] = [];
-    const open = this.client.workflow.list({ query: 'ExecutionStatus = "Running"' });
+    // Workspace follows the standard pipeline; the mock workflow uses its activity names.
+    const open = this.client.workflow.list({
+      query: 'ExecutionStatus = "Running" AND (WorkflowType = "VideoLocalizationWorkflow" OR WorkflowType = "WorkspaceSimulationWorkflow")',
+    });
     for await (const info of open) {
       ids.push(info.workflowId);
       if (ids.length >= limit) break;
@@ -204,6 +218,7 @@ export class TemporalWorkflowReader implements TemporalReader {
     return {
       workflowId,
       startedAtMs: description.startTime.getTime(),
+      closedAtMs: description.closeTime?.getTime(),
       pending: pendingFromDescribe(description.raw.pendingActivities as PendingActivityLike[]),
       activities: cached.activities,
     };

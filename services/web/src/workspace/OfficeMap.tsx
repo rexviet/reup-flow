@@ -1,16 +1,17 @@
 import type { Bubbles } from './useEventFeed';
-import type { WorkspaceAgent, WorkspaceEvent, WorkspaceSnapshot } from '../api/types';
+import type { RunDetail, WorkspaceAgent, WorkspaceEvent, WorkspaceSnapshot } from '../api/types';
 import { Desk, type DeskDisplayState } from './Desk';
-import { GateArea } from './GateArea';
 import { HandoffLine } from './HandoffLine';
 import { LINE_MS } from './useEventFeed';
-import { deskCenter, deskLabel, GATE_COLUMNS, GATE_ROOM, OFFICE_SIZE, UNKNOWN_DESK, ZONES } from './workspace.layout';
+import { deskCenter, deskLabel, OFFICE_SIZE, officeZones, PORTRAIT_OFFICE_SIZE, unknownDesk } from './workspace.layout';
 
 export interface OfficeMapProps {
   snapshot: WorkspaceSnapshot | null;
   bubbles: Record<string, Bubbles>;
   handoffs: WorkspaceEvent[];
   selected?: { awemeId: string; generation: number } | null;
+  detail?: RunDetail | null;
+  fullscreen?: boolean;
   onSelect: (awemeId: string, generation: number) => void;
 }
 
@@ -19,41 +20,65 @@ export interface OfficeMapProps {
  * read (or nothing has loaded yet) a desk says "không rõ" instead of "rảnh",
  * because an idle desk would be a claim.
  */
-export function OfficeMap({ snapshot, bubbles, handoffs, selected, onSelect }: OfficeMapProps) {
+export function OfficeMap({ snapshot, bubbles, handoffs, selected, detail, fullscreen = false, onSelect }: OfficeMapProps) {
+  const [portrait, setPortrait] = useState(false);
+  useEffect(() => {
+    if (!fullscreen || !window.matchMedia) return;
+    const query = window.matchMedia('(max-aspect-ratio: 1/1)');
+    const update = () => setPortrait(query.matches);
+    update();
+    query.addEventListener?.('change', update);
+    return () => query.removeEventListener?.('change', update);
+  }, [fullscreen]);
+  const size = portrait ? PORTRAIT_OFFICE_SIZE : OFFICE_SIZE;
   const forced: DeskDisplayState | undefined =
-    !snapshot || snapshot.sources.temporal === 'down' ? 'unknown' : undefined;
+    !snapshot || snapshot.sources.temporal === 'down' || detail?.sources.temporal === 'down' || (selected && !detail) ? 'unknown' : undefined;
   const agents = new Map<string, WorkspaceAgent>((snapshot?.agents ?? []).map((a) => [a.id, a]));
-  const runs = snapshot?.runs ?? [];
+  const steps = new Map<string, RunDetail['steps'][number]>();
+  for (const step of detail?.steps ?? []) {
+    const held = steps.get(step.agentId);
+    const active = step.state === 'running' || step.state === 'retrying';
+    const heldActive = held?.state === 'running' || held?.state === 'retrying';
+    if (heldActive && (!active || (held.state === 'retrying' && step.state === 'running'))) continue;
+    steps.set(step.agentId, step);
+  }
+  if (selected && detail) {
+    for (const [id, agent] of agents) {
+      const step = steps.get(id);
+      agents.set(id, { ...agent, state: step?.state === 'running' ? 'working' : step?.state === 'retrying' ? 'retrying' : step?.state === 'failed' ? 'failed' : 'idle',
+        awemeId: step ? selected.awemeId : undefined, generation: step ? selected.generation : undefined, attempt: step?.attempt });
+    }
+  }
 
   const deskProps = (id: string) => ({
     agent: agents.get(id),
     forcedState: forced,
-    bubble: bubbles[id],
-    selected: selected != null && agents.get(id)?.awemeId === selected.awemeId,
-    onSelect,
+    bubble: selected && bubbles[id]?.awemeId !== selected.awemeId ? undefined : bubbles[id],
+    selected: selected != null && agents.get(id)?.awemeId === selected.awemeId && agents.get(id)?.generation === selected.generation && (agents.get(id)?.state === 'working' || agents.get(id)?.state === 'retrying'),
+    onSelect: selected ? undefined : onSelect,
+    completed: !!detail && steps.get(id)?.state === 'done',
+    waiting: !!detail && !steps.has(id),
   });
 
-  const lines = handoffs.flatMap((h) => {
-    const from = h.agentId ? deskCenter(h.agentId) : null;
-    const to = h.toAgentId ? deskCenter(h.toAgentId) : null;
+  const lines = handoffs.filter((h) => !selected || (h.awemeId === selected.awemeId && h.generation === selected.generation)).sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).flatMap((h) => {
+    const from = h.agentId ? deskCenter(h.agentId, portrait) : null;
+    const to = h.toAgentId ? deskCenter(h.toAgentId, portrait) : null;
     return from && to
       ? [{ id: h.id, from, to, fromLabel: deskLabel(h.agentId as string), toLabel: deskLabel(h.toAgentId as string), awemeId: h.awemeId, durationMs: LINE_MS }]
       : [];
-  });
-
-  const count = (outcome: string) => runs.filter((r) => r.outcome === outcome).length;
-  const others = runs.filter((r) => r.outcome === undefined).length;
+  }).slice(0, 1);
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className={fullscreen ? 'h-full w-full' : 'flex flex-col gap-4'}>
+      {!fullscreen && <div><h2 className="text-sm font-semibold text-gray-900">Văn phòng{selected ? ` · video …${selected.awemeId.slice(-8)}` : ''}</h2><p className="text-xs text-gray-600">Bàn sáng đang làm · xong lượt gần nhất · bàn mờ chưa có hoạt động. Mũi tên chỉ hiện bàn giao mới nhất của video đang chọn.</p></div>}
       {snapshot?.sources.temporal === 'down' && (
-        <p role="alert" className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">
+        <p role="alert" className={`${fullscreen ? 'absolute bottom-14 left-3 right-3 z-10 ' : ''}rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800`}>
           Không đọc được Temporal, nên chưa biết bàn nào đang làm. Các bàn hiển thị “không rõ”.
         </p>
       )}
       <svg
-        viewBox={`0 0 ${OFFICE_SIZE.w} ${OFFICE_SIZE.h}`}
-        className="w-full rounded-lg border border-gray-300 bg-stone-100"
+        viewBox={`0 0 ${size.w} ${size.h}`}
+        className={fullscreen ? 'h-full w-full bg-stone-100' : 'w-full rounded-lg border border-gray-300 bg-stone-100'}
         role="group"
         aria-label="Văn phòng"
       >
@@ -63,10 +88,10 @@ export function OfficeMap({ snapshot, bubbles, handoffs, selected, onSelect }: O
             <path d="M40,0 H0 V40" fill="none" stroke="#d6d3d1" strokeWidth="1" />
           </pattern>
         </defs>
-        {ZONES.map((zone) => (
+        {officeZones(portrait).map((zone) => (
           <g key={zone.zone} role="region" aria-label={zone.title}>
-            <rect {...zone.room} rx={12} fill="url(#floor)" stroke="#78716c" strokeWidth={3} />
-            <text x={zone.room.x + 14} y={zone.room.y + zone.room.h - 10} fontSize={14} fontWeight={700} fill="#44403c">
+            <rect x={zone.room.x} y={zone.room.y} width={zone.room.w} height={zone.room.h} rx={12} fill="url(#floor)" stroke="#78716c" strokeWidth={3} />
+            <text x={zone.room.x + 14} y={zone.room.y + zone.room.h - 6} fontSize={12} fontWeight={700} fill="#44403c">
               {zone.title}
             </text>
             {zone.desks.map((spec) => (
@@ -76,27 +101,14 @@ export function OfficeMap({ snapshot, bubbles, handoffs, selected, onSelect }: O
         ))}
         {agents.has('unknown') && (
           <g role="region" aria-label="Chưa rõ">
-            <Desk spec={UNKNOWN_DESK} {...deskProps('unknown')} />
+            <Desk spec={unknownDesk(portrait)} {...deskProps('unknown')} />
           </g>
         )}
-        {/* The gate: a row of bins, one per decision. Counts only; the list below opens a video. */}
-        <g aria-hidden="true">
-          <rect {...GATE_ROOM} rx={12} fill="#fafaf9" stroke="#78716c" strokeWidth={3} />
-          <text x={GATE_ROOM.x + 14} y={GATE_ROOM.y + 22} fontSize={14} fontWeight={700} fill="#44403c">Cổng</text>
-          {[...GATE_COLUMNS.map((c) => ({ label: c.label, n: count(c.outcome) })), { label: 'Khác', n: others }].map((bin, i) => (
-            <g key={bin.label} transform={`translate(${40 + i * 188}, ${GATE_ROOM.y + 32})`}>
-              <rect width={170} height={86} rx={8} fill="#e7e5e4" stroke="#a8a29e" strokeWidth={2} />
-              <rect x={10} y={10} width={150} height={10} rx={3} fill="#a8a29e" />
-              <text x={85} y={52} textAnchor="middle" fontSize={26} fontWeight={700} fill="#292524">{bin.n}</text>
-              <text x={85} y={76} textAnchor="middle" fontSize={11} fill="#57534e">{bin.label}</text>
-            </g>
-          ))}
-        </g>
         {lines.map((l) => (
           <HandoffLine key={l.id} {...l} />
         ))}
       </svg>
-      <GateArea snapshot={snapshot} bubble={bubbles.gate} selected={selected} onSelect={onSelect} />
     </div>
   );
 }
+import { useEffect, useState } from 'react';

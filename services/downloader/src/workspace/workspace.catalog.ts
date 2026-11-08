@@ -33,9 +33,7 @@ export const AGENTS: readonly AgentRef[] = [
   { id: 'subtitle_detector', zone: 'llm' },
   { id: 'localizer', zone: 'llm' },
   { id: 'dubber', zone: 'llm' },
-  { id: 'slot_shortener', zone: 'llm' },
   { id: 'reviewer', zone: 'llm' },
-  { id: 'review_jev', zone: 'llm' },
 ];
 
 const BY_ID = new Map(AGENTS.map((agent) => [agent.id, agent]));
@@ -44,25 +42,23 @@ const BY_ID = new Map(AGENTS.map((agent) => [agent.id, agent]));
 const RULES: ReadonlyArray<readonly [RegExp, string]> = [
   [/^agent__localizer/, 'localizer'],
   [/^agent__dubber/, 'dubber'],
-  [/^agent__slot_shortener/, 'slot_shortener'],
-  [/^agent__review_jev/, 'review_jev'],
+  [/^agent__review_jev/, 'reviewer'],
   [/^agent__reviewer/, 'reviewer'],
   [/^(ingest|assemble_audio|layout_captions|caption_images|persist_json)$/, 'media'],
   [/^render$/, 'render'],
   [/^publish$/, 'publish'],
-  [/^(transcribe|vbee_stt)$/, 'stt'],
+  [/^transcribe$/, 'stt'],
   [/^(voice_rate|voice_profile|plan_synthesis|synthesize_segments)$/, 'tts'],
   [/^check_voice$/, 'voice_check'],
   [/^classify_video$/, 'ad_classifier'],
   [/^detect_subtitles$/, 'subtitle_detector'],
   [/^(localizer_context|assemble_script)$/, 'localizer'],
   [
-    /^(dubber_context|dubber_setup|measure_fit|clip_durations|segment_room|write_dubbed_script|commit_dub)$/,
+    /^(dubber_context|dubber_setup|measure_fit|segment_room|write_dubbed_script|commit_dub)$/,
     'dubber',
   ],
-  [/^(plan_slots|write_slot_script)$/, 'slot_shortener'],
-  [/^(review_render|review_before_render|review_dub)$/, 'reviewer'],
-  [/^review_jev$/, 'review_jev'],
+  [/^(review_render|review_before_render)$/, 'reviewer'],
+  [/^review_jev$/, 'reviewer'],
 ];
 
 export function resolveAgent(name: string): AgentRef {

@@ -300,6 +300,27 @@ export function phasesOf(inspection: WorkflowInspection | null): RunDetail['phas
   });
 }
 
+/** Individual steps rather than grouping all visits to the same desk together. */
+export function stepsOf(inspection: WorkflowInspection | null): RunDetail['steps'] {
+  return (inspection?.activities ?? []).map<RunDetail['steps'][number]>((a) => {
+    const pending = inspection?.pending.find((p) =>
+      a.activityId ? p.activityId === a.activityId : p.name === a.name,
+    );
+    const endedAtMs = a.completedAtMs ?? a.failedAtMs ?? a.cancelledAtMs ?? inspection?.closedAtMs;
+    return {
+      id: String(a.eventId),
+      activity: safe(a.name, 'unknown'),
+      agentId: resolveAgent(a.name).id,
+      state: a.completedAtMs !== undefined ? 'done' : a.failedAtMs !== undefined ? 'failed' :
+        endedAtMs !== undefined ? 'cancelled' :
+        (pending?.attempt ?? 1) > 1 ? 'retrying' : 'running',
+      startedAt: iso(a.scheduledAtMs),
+      endedAt: endedAtMs === undefined ? undefined : iso(endedAtMs),
+      attempt: endedAtMs === undefined ? pending?.attempt : undefined,
+    };
+  });
+}
+
 export function gpuSeconds(inspection: WorkflowInspection | null): RunDetail['gpuSecondsEstimate'] {
   const total = { stt: 0, tts: 0 };
   for (const a of inspection?.activities ?? []) {
@@ -378,6 +399,7 @@ export class WorkspaceService {
       status: row?.status,
       outcome: row && isGateOutcome(row.status) ? row.status : undefined,
       phases: phasesOf(inspection),
+      steps: stepsOf(inspection),
       llmCostUsd: roundUsd(costByStage.reduce((sum, s) => sum + s.costUsd, 0)),
       costByStage,
       gpuSecondsEstimate: gpuSeconds(inspection),

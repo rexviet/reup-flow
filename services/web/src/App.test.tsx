@@ -112,7 +112,7 @@ describe('App tabs', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Workspace' }));
     await flush();
     expect(client.getWorkspaceSnapshot).toHaveBeenCalled();
-    expect(screen.getByRole('region', { name: 'Cổng' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Video đang chạy' })).toBeInTheDocument();
     expect(screen.queryByTestId('cookie-badge')).toBeNull();
     expect(window.location.hash).toBe('#workspace');
   });

@@ -2,19 +2,20 @@ import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { OfficeMap } from './OfficeMap';
 import { ALL_DESKS } from './workspace.layout';
-import { agent, event, snapshot } from './fixtures';
+import { agent, detail, event, snapshot } from './fixtures';
 
 const noop = { bubbles: {}, handoffs: [], onSelect: vi.fn() };
 
 describe('OfficeMap', () => {
-  it('draws all four zones and every desk, even with an empty snapshot', () => {
+  it('draws all three zones and every desk, even with an empty snapshot', () => {
     render(<OfficeMap snapshot={snapshot()} {...noop} />);
-    for (const name of ['Media', 'Voice', 'LLM', 'Cổng']) {
+    for (const name of ['Media', 'Voice', 'LLM']) {
       expect(screen.getByRole('region', { name })).toBeInTheDocument();
     }
     for (const desk of ALL_DESKS) {
       expect(document.querySelector(`[data-desk="${desk.id}"]`)).not.toBeNull();
     }
+    expect(screen.queryByRole('region', { name: 'Cổng' })).toBeNull();
     expect(screen.queryByText('đang làm')).toBeNull();
     expect(screen.getAllByText('rảnh')).toHaveLength(ALL_DESKS.length);
   });
@@ -24,6 +25,19 @@ describe('OfficeMap', () => {
     render(<OfficeMap snapshot={s} {...noop} />);
     expect(screen.getAllByText('đang làm')).toHaveLength(1);
     expect(document.querySelector('[data-desk="stt"]')).toHaveAttribute('data-state', 'working');
+  });
+
+  it('keeps a selected video running on TTS when a newer TTS batch has finished', () => {
+    const s = snapshot({ agents: [agent({ id: 'tts', state: 'working', awemeId: '222', generation: 1 })] });
+    const d = detail({ awemeId: '111', generation: 1, steps: [
+      { id: '1', activity: 'synthesize_segments', agentId: 'tts', state: 'running', startedAt: '2026-11-01T12:00:00Z' },
+      { id: '2', activity: 'synthesize_segments', agentId: 'tts', state: 'done', startedAt: '2026-11-01T12:00:01Z', endedAt: '2026-11-01T12:00:02Z' },
+    ] });
+    const { rerender } = render(<OfficeMap snapshot={s} {...noop} selected={{ awemeId: '111', generation: 1 }} detail={d} />);
+    expect(document.querySelector('[data-desk="tts"]')).toHaveAttribute('data-state', 'working');
+    expect(screen.queryByText('…222')).toBeNull();
+    rerender(<OfficeMap snapshot={s} {...noop} selected={{ awemeId: '111', generation: 1 }} detail={null} />);
+    expect(document.querySelector('[data-desk="tts"]')).toHaveAttribute('data-state', 'unknown');
   });
 
   it('with Temporal down draws no desk as working or idle, and says why', () => {
@@ -41,30 +55,6 @@ describe('OfficeMap', () => {
     render(<OfficeMap snapshot={null} {...noop} />);
     expect(screen.queryByText('đang làm')).toBeNull();
     expect(screen.getAllByText('không rõ')).toHaveLength(ALL_DESKS.length);
-  });
-
-  it('files runs by gate outcome, with the other runs under "Khác" by phase', () => {
-    const s = snapshot({
-      runs: [
-        { awemeId: '1000000001', generation: 1, phase: 'skipped_ad', outcome: 'skipped_ad', llmCostUsd: 0 },
-        { awemeId: '1000000002', generation: 1, phase: 'skipped_no_video', outcome: 'skipped_no_video', llmCostUsd: 0 },
-        { awemeId: '1000000003', generation: 1, phase: 'published_original', outcome: 'published_original', llmCostUsd: 0 },
-        { awemeId: '1000000004', generation: 1, phase: 'needs_human', outcome: 'needs_human', llmCostUsd: 0 },
-        { awemeId: '1000000005', generation: 2, phase: 'published', llmCostUsd: 0.1 },
-        { awemeId: '1000000006', generation: 1, phase: 'dubber', llmCostUsd: 0 },
-      ],
-    });
-    render(<OfficeMap snapshot={s} {...noop} />);
-    const column = (outcome: string) => within(document.querySelector(`[data-outcome="${outcome}"]`) as HTMLElement);
-    expect(column('skipped_ad').getByRole('button')).toHaveAccessibleName(/1000000001/);
-    expect(column('skipped_no_video').getByRole('button')).toHaveAccessibleName(/1000000002/);
-    expect(column('published_original').getByRole('button')).toHaveAccessibleName(/1000000003/);
-    expect(column('needs_human').getByRole('button')).toHaveAccessibleName(/1000000004/);
-    const others = column('other').getAllByRole('button');
-    expect(others.map((b) => b.getAttribute('aria-label'))).toEqual([
-      expect.stringContaining('đã đăng'),
-      expect.stringContaining('Dubber'),
-    ]);
   });
 
   it('draws no handoff line, and no bubble, when there are no events', () => {
@@ -91,10 +81,11 @@ describe('OfficeMap', () => {
     expect(screen.queryByTestId('handoff-h2')).toBeNull();
   });
 
-  it('puts a bubble on the desk it is for and a gate bubble in the gate area', () => {
+  it('puts a bubble on its desk and does not render the removed gate', () => {
     render(<OfficeMap snapshot={snapshot()} {...noop} bubbles={{ dubber: { text: 'dubber done in 3.0s' }, gate: { text: 'skipped: advertisement' } }} />);
     expect(within(document.querySelector('[data-desk="dubber"]') as HTMLElement).getByRole('status')).toHaveTextContent('dubber done in 3.0s');
-    expect(within(screen.getByRole('region', { name: 'Cổng' })).getByRole('status')).toHaveTextContent('skipped: advertisement');
+    expect(screen.queryByRole('region', { name: 'Cổng' })).toBeNull();
+    expect(screen.queryByText('skipped: advertisement')).toBeNull();
   });
 
   it('lists an activity the server could not place under "Chưa rõ"', () => {

@@ -24,15 +24,15 @@ export default function App() {
   }
 
   return (
-    <div className={`mx-auto px-4 py-6 ${tab === 'workspace' ? 'max-w-6xl' : 'max-w-3xl'}`}>
-      <nav aria-label="Trang" className="mb-4 flex gap-1 border-b border-gray-200">
+    <div className={tab === 'workspace' ? 'fixed inset-0 overflow-hidden bg-stone-100' : 'mx-auto max-w-3xl px-4 py-6'}>
+      <nav aria-label="Trang" className={tab === 'workspace' ? 'absolute left-3 top-3 z-20 flex gap-1 rounded-lg border border-gray-300 bg-white px-1' : 'mb-4 flex gap-1 border-b border-gray-200'}>
         {(Object.keys(TAB_LABELS) as Tab[]).map((t) => (
           <button
             key={t}
             type="button"
             aria-current={tab === t ? 'page' : undefined}
             onClick={() => selectTab(t)}
-            className={`-mb-px border-b-2 px-3 py-2 text-sm ${
+            className={`min-h-11 -mb-px border-b-2 px-3 py-2 text-sm ${
               tab === t ? 'border-blue-600 font-medium text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-800'
             }`}
           >

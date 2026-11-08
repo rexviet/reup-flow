@@ -68,6 +68,8 @@ export interface DeskProps {
   forcedState?: DeskDisplayState;
   bubble?: { text: string; awemeId?: string };
   selected?: boolean;
+  completed?: boolean;
+  waiting?: boolean;
   onSelect?: (awemeId: string, generation: number) => void;
 }
 
@@ -76,12 +78,13 @@ export interface DeskProps {
  * monitor colour and the person's motion follow the agent's state, and the state
  * is also written under the name so nothing depends on colour alone.
  */
-export function Desk({ spec, agent, forcedState, bubble, selected, onSelect }: DeskProps) {
+export function Desk({ spec, agent, forcedState, bubble, selected, completed, waiting, onSelect }: DeskProps) {
   const state: DeskDisplayState = forcedState ?? agent?.state ?? 'idle';
   const awemeId = forcedState ? undefined : agent?.awemeId;
   const generation = agent?.generation;
   const canOpen = awemeId !== undefined && generation !== undefined && onSelect !== undefined;
   const active = state === 'working' || state === 'retrying';
+  const status = forcedState ? stateLabel(state) : completed ? 'xong lượt gần nhất' : waiting ? 'chưa có bước' : stateLabel(state, agent?.attempt);
   const shirt = shirtFor(spec.id);
 
   const personMotion =
@@ -90,7 +93,7 @@ export function Desk({ spec, agent, forcedState, bubble, selected, onSelect }: D
     ? {
         role: 'button',
         tabIndex: 0,
-        'aria-label': `${spec.label}: ${stateLabel(state, agent?.attempt)}`,
+        'aria-label': `${spec.label}: ${status}`,
         onClick: () => onSelect(awemeId, generation),
         onKeyDown: (e: { key: string }) => {
           if (e.key === 'Enter' || e.key === ' ') onSelect(awemeId, generation);
@@ -100,7 +103,7 @@ export function Desk({ spec, agent, forcedState, bubble, selected, onSelect }: D
     : {};
 
   return (
-    <g transform={`translate(${spec.x}, ${spec.y})`} data-desk={spec.id} data-state={state} {...interaction}>
+    <g transform={`translate(${spec.x}, ${spec.y})`} data-desk={spec.id} data-state={state} opacity={waiting && !forcedState ? 0.45 : 1} {...interaction}>
       {selected && <rect x={-4} y={-4} width={STATION.w + 8} height={STATION.h + 8} rx={10} fill="none" stroke="#3b82f6" strokeWidth={2} />}
       {/* chair */}
       <circle cx={65} cy={32} r={17} fill="#d1d5db" />
@@ -118,7 +121,7 @@ export function Desk({ spec, agent, forcedState, bubble, selected, onSelect }: D
       )}
       {/* desk with monitor */}
       <rect x={8} y={50} width={114} height={30} rx={5} fill="#c8a27a" stroke="#a37c52" />
-      <rect x={44} y={54} width={42} height={17} rx={2} fill={SCREEN[state]} className={active ? 'motion-safe:animate-glow' : ''} />
+      <rect x={44} y={54} width={42} height={17} rx={2} fill={completed && !forcedState ? '#bbf7d0' : SCREEN[state]} className={active ? 'motion-safe:animate-glow' : ''} />
       {awemeId && (
         <g>
           <rect x={96} y={56} width={16} height={20} rx={1.5} fill="#fff" stroke={videoColor(awemeId)} strokeWidth={2} />
@@ -127,8 +130,8 @@ export function Desk({ spec, agent, forcedState, bubble, selected, onSelect }: D
         </g>
       )}
       <text x={65} y={94} textAnchor="middle" fontSize={12} fontWeight={600} fill="#111827">{spec.label}</text>
-      <text x={65} y={108} textAnchor="middle" fontSize={11} fill={TEXT[state]}>{stateLabel(state, agent?.attempt)}</text>
-      {awemeId && <text x={65} y={121} textAnchor="middle" fontSize={10} fontWeight={700} fill={videoColor(awemeId)}>…{awemeId.slice(-8)}</text>}
+      <text x={65} y={108} textAnchor="middle" fontSize={11} fill={completed && !forcedState ? '#047857' : TEXT[state]}>{status}</text>
+      {awemeId && !completed && <text x={65} y={121} textAnchor="middle" fontSize={10} fontWeight={700} fill={videoColor(awemeId)}>…{awemeId.slice(-8)}</text>}
       {bubble && <SvgBubble text={bubble.text} awemeId={bubble.awemeId} />}
     </g>
   );
