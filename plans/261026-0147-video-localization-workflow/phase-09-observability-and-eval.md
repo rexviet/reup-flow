@@ -227,6 +227,15 @@ uv run python eval/ocr_eval.py run --labels labels.json --model <id> --bbox-form
 
 ## Ca tổng hợp và baseline của Localizer (2026-10-28)
 
+**Cập nhật 2026-11-01:** Dubber và Reviewer đã có quy trình tương ứng: lấy input thật,
+ca tổng hợp có đối chứng, baseline Langfuse, rescore không gọi model và phiếu nhãn người.
+Chi tiết, lệnh chạy, kết quả và các bước chưa hoàn tất ở
+[`services/localization/eval/README.md`](../../services/localization/eval/README.md).
+Dubber: 17 ca tổng hợp + 4 input thật, baseline dùng speech mô phỏng vì VoiceStudio
+không kết nối được. Reviewer: 31 ca có nhãn gieo sẵn (31/31 verdict/route đúng) + 5
+input thật chưa gán gold. Chưa hoàn tất hiệu chỉnh bằng nhãn người hoặc đo TTS thật;
+không đánh dấu các phần còn nợ của phase này là đã xong.
+
 Sinh bằng quy trình của skill `synthetic-scenarios`, script `eval/synth_scenarios.py`; ca nằm ở `eval/scenarios/localizer-synth-v1.jsonl`, trên Langfuse là dataset `localizer-synth-v1`. Người dùng duyệt sáu chiều: độ dài segment, độ chật của slot, tên riêng và glossary, số và chữ Latin, nội dung rủi ro, phụ đề cháy sẵn. Model chỉ viết lời thoại tiếng Trung theo yêu cầu, code kiểm lại và bỏ bản nháp sai. Slot, glossary và mọi kết quả mong đợi do code tính. Sinh được 41/55 ca (30 coverage, 11 challenge); 14 ca bị bỏ vì model viết sai yêu cầu ba lần. Hai lý do khó ("kiểu 7575" và "nhiều thuật ngữ, số, slot chật") chỉ còn 1 ca mỗi loại.
 
 **Baseline** (run `localizer-1 deepseek/deepseek-v4-pro reasoning-off 261028-2210`, 41 ca, $0,505; judge `deepseek-v4-pro`, trần 8.192 token):
