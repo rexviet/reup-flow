@@ -1,0 +1,73 @@
+services/downloader/src/db/videos.repository.ts
+  s_c3c604cb551249::t_3de27a08be7aef 172-177
+services/downloader/src/jobs/jobs.controller.ts
+  s_c3c604cb551249::t_812e552eba8629 18
+services/downloader/src/jobs/jobs.schemas.ts
+  s_c3c604cb551249::t_cf3a6ddc6bb7b3 42
+services/downloader/src/lanes/enumerate.lane.ts
+  s_c3c604cb551249::t_cdef6c2c373f8b 8
+services/downloader/src/parser/aweme.mapper.ts
+  s_c3c604cb551249::t_c660274d07da59 1
+services/downloader/src/parser/map-parser-error.ts
+  s_c3c604cb551249::t_65360ef0dcd542 1-42
+services/downloader/src/parser/parser.client.ts
+  s_c3c604cb551249::t_8aeba2c285ba64 209-224
+services/downloader/src/videos/videos.module.ts
+  s_c3c604cb551249::t_e951b8df3ba914 2,4,9-10
+services/downloader/src/videos/videos.schemas.ts
+  s_c3c604cb551249::t_c40dc467dfb277 2-3,30-45
+services/downloader/test/lanes/aweme.mapper.spec.ts
+  s_c3c604cb551249::t_44521a487d8093 15
+services/downloader/test/lanes/image-post-skip.spec.ts
+  s_c3c604cb551249::t_02874b1b30e556 36
+services/downloader/test/mutations/phase-05.sh
+  s_c3c604cb551249::t_02b7407346dbc9 52,633,646,658,883,907,925,943,977
+services/extension/README.md
+  s_c3c604cb551249::t_5ca8a62174829e 39-49,52-62,117
+services/extension/content.js
+  s_c3c604cb551249::t_3e1c3a7ecd875e 1-114
+services/extension/lib/api-client.js
+  s_c3c604cb551249::t_7e43afdab5a701 8-9,111-131,145,148
+services/extension/lib/button-view.js
+  s_c3c604cb551249::t_3ca53fa3592d22 1-29
+services/extension/lib/enqueue-video.js
+  s_c3c604cb551249::t_cc6bde71968f46 1-40
+services/extension/lib/video-box.js
+  s_c3c604cb551249::t_50c4b36d9eac8b 1-56
+services/extension/lib/video-url.js
+  s_c3c604cb551249::t_63d996ebe0603c 1-34
+services/extension/manifest.json
+  s_c3c604cb551249::t_9a2e7c1ecb80e9 4-5,10-16
+services/extension/sw.js
+  s_c3c604cb551249::t_a2b78f377e17dc 10-16,71-80
+services/extension/test/api-client.spec.js
+  s_c3c604cb551249::t_840292f740e606 3,140-169
+services/extension/test/button-view.spec.js
+  s_c3c604cb551249::t_f6f2fc2dc5ad77 1-33
+services/extension/test/enqueue-video.spec.js
+  s_c3c604cb551249::t_33bf9976da4482 1-89
+services/extension/test/no-console-log.spec.js
+  s_c3c604cb551249::t_8747e075dd13d1 29-33
+services/extension/test/sw.spec.js
+  s_c3c604cb551249::t_ff7523f34c098f 66,131-155
+services/extension/test/video-box.spec.js
+  s_c3c604cb551249::t_a1bbbf1d9ffa10 1-59
+services/extension/test/video-url.spec.js
+  s_c3c604cb551249::t_259d94bd248964 1-26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e5c9244b42f8c27f307d077aa6b232883bb71f3e",
+  "prompts": {},
+  "sessions": {
+    "s_c3c604cb551249": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "53f0b5a2-3113-436b-84bd-baae6dcc220b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
