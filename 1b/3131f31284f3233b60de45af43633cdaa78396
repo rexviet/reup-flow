@@ -1,0 +1,35 @@
+services/downloader/src/videos/video-enqueue.controller.ts
+  s_c3c604cb551249::t_56bf2da6457898 1-28
+services/downloader/src/videos/video-url.ts
+  s_c3c604cb551249::t_07607e916c1a9f 1-25
+services/downloader/src/videos/videos.service.ts
+  s_c3c604cb551249::t_d1ccb013bbe956 1-74
+services/downloader/test/videos/video-enqueue.controller.e2e-spec.ts
+  s_c3c604cb551249::t_e6ce0eace7e0cc 1-185
+.gitignore
+  s_52d51976e3668e::t_aa915557ff85ed 28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1b3131f31284f3233b60de45af43633cdaa78396",
+  "prompts": {},
+  "sessions": {
+    "s_52d51976e3668e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "99097134-405a-4088-813a-056d02854abe",
+        "model": "unknown"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    },
+    "s_c3c604cb551249": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "53f0b5a2-3113-436b-84bd-baae6dcc220b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
