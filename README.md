@@ -17,6 +17,14 @@ workflow nằm ở Temporal, trace và eval nằm ở Langfuse.
 | Langfuse (web, worker, ClickHouse) | compose, cổng 3100 | trace và eval |
 | **VoiceStudio** | **máy GPU riêng** | STT và TTS qua HTTP; **không nằm trong repo này** |
 
+## Nền phụ đề
+
+Bản layout mới chỉ hiện hộp nền trong đúng các frame có caption Việt; khoảng
+trống giữa caption giữ nguyên hình gốc. Quy tắc nằm trong
+[`contracts/edit-spec.schema.json`](contracts/edit-spec.schema.json):
+`cover.only_with_captions=true`. Spec cũ thiếu cờ này giữ cách render và hash cũ;
+layout mới tạo hash khác để không lấy nhầm video đã cache với hộp nền suốt video.
+
 ## Yêu cầu máy mới
 
 - Docker với Compose v2, `git`, `curl`, `openssl`.

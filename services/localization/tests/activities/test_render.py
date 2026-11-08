@@ -22,11 +22,12 @@ from localization.activities.render import (
     frame_at,
     frame_count,
     render_deadline_s,
+    render_file,
 )
 from localization.config import DEFAULT_CAPTION_FONT
 from localization.contracts import EditSpec, RenderInput, RenderResult
 from localization.contracts.fixtures import samples
-from localization.contracts.spec_hash import spec_sha256
+from localization.contracts.spec_hash import canonical_spec_json, spec_sha256
 from localization.storage.object_store import ObjectStore, render_key, work_key
 from tests.support.audio import decode, level
 
@@ -272,6 +273,44 @@ def test_the_cover_is_painted_in_its_colour_at_its_opacity(rendered) -> None:
     assert close(corner, expected, 10), (corner, expected)
     outside = image.getpixel((COVER["x"] + 6, COVER["y"] - 20))
     assert close(outside, (SOURCE_GREY,) * 3, 6), outside
+
+
+@pytest.mark.parametrize("with_captions", [True, False])
+def test_timed_cover_leaves_caption_gaps_uncovered(tmp_path, with_captions) -> None:
+    source, audio = make_media(tmp_path, source_s=3, audio_s=3)
+    captions = [
+        {**CAPTIONS[0], "start_ms": 500, "end_ms": 1000},
+        {**CAPTIONS[1], "start_ms": 1500, "end_ms": 2200},
+    ] if with_captions else []
+    spec = make_spec(
+        audio,
+        cover={"region": COVER, "color": COVER_HEX, "opacity_pct": COVER_PCT,
+               "only_with_captions": True},
+        captions=captions,
+    )
+    out = tmp_path / "timed-cover.mp4"
+    render_file(spec, source=source, audio=audio, font_path=FONT, out=out, work_dir=tmp_path)
+    point = (COVER["x"] + 6, COVER["y"] + 6)
+    for index in (0, 14, 30, 44, 66, 80):
+        pixel = frame(out, index).getpixel(point)
+        assert close(pixel, (SOURCE_GREY,) * 3, 6), (index, pixel)
+    if with_captions:
+        alpha = COVER_PCT / 100
+        expected = tuple(alpha * c + (1 - alpha) * SOURCE_GREY for c in COVER_RGB)
+        for index in (15, 29, 45, 65):
+            assert close(frame(out, index).getpixel(point), expected, 10), index
+
+
+def test_old_cover_specs_keep_their_hash_and_timed_covers_have_a_new_one(rendered) -> None:
+    spec = rendered["spec"]
+    original = spec.model_dump(mode="json")
+    original["cover"].pop("only_with_captions", None)
+    expected = json.dumps(original, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    assert canonical_spec_json(spec) == expected
+    timed = spec.model_copy(update={
+        "cover": spec.cover.model_copy(update={"only_with_captions": True}),
+    })
+    assert spec_sha256(timed) != spec_sha256(spec)
 
 
 def test_the_text_casts_a_soft_shadow(rendered) -> None:

@@ -265,6 +265,7 @@ async def test_the_drawn_cover_is_the_box_the_captions_are_laid_out_in(
     ref, subs, dub = await stage(store, ["Xin chào"])
     _, spec = await run(store, ref, subs, dub)
     assert spec.cover is not None
+    assert spec.cover.only_with_captions is True
     assert (spec.cover.color, spec.cover.opacity_pct) == ("#101010", 92)
     # The detected region plus the cover margin, made tall enough for two lines.
     expected = caption_box_for(grow_cover(subs.region, 1080, 1920), 1920)

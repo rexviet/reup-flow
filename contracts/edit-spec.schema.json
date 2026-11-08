@@ -82,6 +82,11 @@
           "title": "Color",
           "type": "string"
         },
+        "only_with_captions": {
+          "default": false,
+          "title": "Only With Captions",
+          "type": "boolean"
+        },
         "opacity_pct": {
           "maximum": 100,
           "minimum": 0,

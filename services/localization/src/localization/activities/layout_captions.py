@@ -366,7 +366,10 @@ def lay_out(
         )
         # The black box that is drawn is the box the captions are laid out in: a cover
         # shorter than two lines of caption would leave a caption's text outside it.
-        cover = Cover(region=box, color=cover_color, opacity_pct=round(cover_opacity * 100))
+        cover = Cover(
+            region=box, color=cover_color, opacity_pct=round(cover_opacity * 100),
+            only_with_captions=True,
+        )
     else:
         box = safe_zone(ingest.width, ingest.height)
     check_glyph_coverage(spans, meter)

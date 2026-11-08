@@ -35,6 +35,7 @@ from temporalio.exceptions import ApplicationError
 from localization.activities.caption_images import (
     Cancelled,
     CaptionPainter,
+    caption_frames,
     caption_track,
     frame_at,
     frame_count,
@@ -120,6 +121,21 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _cover_windows(spec: EditSpec) -> list[tuple[int, int]]:
+    """Merged half-open frame windows, using the caption track's rounding rules."""
+    frames = frame_count(spec.duration_ms, spec.fps)
+    windows: list[tuple[int, int]] = []
+    for first, end in sorted(caption_frames(c, spec.fps) for c in spec.captions):
+        first, end = max(0, first), min(frames, end)
+        if first >= end:
+            continue
+        if windows and first <= windows[-1][1]:
+            windows[-1] = (windows[-1][0], max(windows[-1][1], end))
+        else:
+            windows.append((first, end))
+    return windows
+
+
 def _filter_graph(spec: EditSpec, *, captions_at: tuple[int, int] | None) -> str:
     w, h, fps = spec.width, spec.height, spec.fps
     seconds = spec.duration_ms / 1000
@@ -130,11 +146,16 @@ def _filter_graph(spec: EditSpec, *, captions_at: tuple[int, int] | None) -> str
         f"tpad=stop_mode=add:stop_duration={seconds:.3f}:color=black"
     )
     if spec.cover is not None:
-        r = spec.cover.region
-        video += (
-            f",drawbox=x={r.x}:y={r.y}:w={r.w}:h={r.h}:"
-            f"color=0x{spec.cover.color[1:]}@{spec.cover.opacity_pct / 100:.2f}:t=fill"
-        )
+        windows = _cover_windows(spec) if spec.cover.only_with_captions else None
+        if windows is None or windows:
+            r = spec.cover.region
+            video += (
+                f",drawbox=x={r.x}:y={r.y}:w={r.w}:h={r.h}:"
+                f"color=0x{spec.cover.color[1:]}@{spec.cover.opacity_pct / 100:.2f}:t=fill"
+            )
+            if windows is not None:
+                enabled = "+".join(f"between(n,{first},{end - 1})" for first, end in windows)
+                video += f":enable='{enabled}'"
     if captions_at is None:
         video += "[v]"
     else:

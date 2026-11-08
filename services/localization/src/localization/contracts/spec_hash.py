@@ -13,8 +13,12 @@ from localization.contracts.models import EditSpec
 
 
 def canonical_spec_json(spec: EditSpec) -> str:
+    body = spec.model_dump(mode="json")
+    if body["cover"] is not None and not body["cover"]["only_with_captions"]:
+        # Preserve the canonical bytes of specs written before timed covers.
+        body["cover"].pop("only_with_captions")
     return json.dumps(
-        spec.model_dump(mode="json"), sort_keys=True, ensure_ascii=False, separators=(",", ":")
+        body, sort_keys=True, ensure_ascii=False, separators=(",", ":")
     )
 
 

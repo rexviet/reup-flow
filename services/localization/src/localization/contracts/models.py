@@ -303,6 +303,9 @@ class Cover(Contract):
     region: BBox
     color: HexColor
     opacity_pct: Annotated[int, Field(ge=0, le=100)]
+    # Old stored specs painted the cover throughout the video. New layouts tie it
+    # to caption frames; the explicit flag gives those renders a distinct hash.
+    only_with_captions: bool = False
 
 
 class Caption(Contract):
