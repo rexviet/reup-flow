@@ -1,0 +1,14 @@
+src/Douyin_TikTok_Download_API
+  h_43770622f8f2a6 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ca6fafc846c61c70d15b17ded09f8ba503ff9184",
+  "prompts": {},
+  "humans": {
+    "h_43770622f8f2a6": {
+      "author": "Viet Phung <vietphung@everfit.io>"
+    }
+  }
+}
