@@ -13,6 +13,7 @@ workflow nằm ở Temporal, trace và eval nằm ở Langfuse.
 | `localization-starter` | compose | biến hàng outbox thành workflow |
 | `worker-agents` | compose | Localizer, Dubber, Reviewer, OCR, gọi STT/TTS (queue `workflows`, `llm`, `io`, `voice_check`, `stt`, `tts`) |
 | `worker-media` | compose | Demucs và ffmpeg (queue `media`, `render`), nặng CPU, RAM, đĩa |
+| `review-bridge` | compose tùy chọn, loopback 3310 | companion sửa phụ đề/SRT và yêu cầu revoice; chưa rollout |
 | Temporal, Postgres, Redis, MinIO | compose | điều phối, dữ liệu, cache cookie, lưu media |
 | Langfuse (web, worker, ClickHouse) | compose, cổng 3100 | trace và eval |
 | **VoiceStudio** | **máy GPU riêng** | STT và TTS qua HTTP; **không nằm trong repo này** |
@@ -24,6 +25,48 @@ trống giữa caption giữ nguyên hình gốc. Quy tắc nằm trong
 [`contracts/edit-spec.schema.json`](contracts/edit-spec.schema.json):
 `cover.only_with_captions=true`. Spec cũ thiếu cờ này giữ cách render và hash cũ;
 layout mới tạo hash khác để không lấy nhầm video đã cache với hộp nền suốt video.
+
+## Ngôn ngữ nguồn
+
+Workflow VoiceStudio chia audio đã tách giọng theo Silero VAD thành các đoạn
+không chồng nhau, tối đa 12 giây, với 200 ms đệm ở biên. Mỗi đoạn gọi STT với
+`multilingual=true`, `temperature=0` và tự nhận ngôn ngữ; timestamp được ghép
+về timeline gốc trước khi dịch. Không có speech thì không gọi STT.
+
+Transcript lưu `segments[].language` theo kết quả nhận dạng của từng chunk.
+Nếu các chunk có nhiều ngôn ngữ, `language` của toàn file là `null`; đây là
+nhãn do model đoán, không phải ngôn ngữ đã được xác minh cho từng từ.
+Localizer ở cả chế độ single và tool nhận nhãn này, dịch nguồn nhiều ngôn ngữ
+sang Việt và không mặc định mọi đoạn là tiếng Trung. Transcript cũ thiếu nhãn
+vẫn đọc được. Các tên trường cũ như `src_zh` được giữ để tương thích dữ liệu.
+
+API VoiceStudio phải expose trường multipart `multilingual` trên
+`POST /v1/audio/transcriptions` và chuyển tới faster-whisper. Client kiểm tra
+`/openapi.json` trước mỗi đoạn; API chưa hỗ trợ sẽ làm bước STT báo lỗi rõ ràng,
+không âm thầm chạy theo cách cũ. Không dùng đồng thời với `language` cố định.
+Runtime local hiện đã có bản vá; source VoiceStudio sẽ được tích hợp riêng sau.
+Không cần thêm biến môi trường. Vbee và provider `openai_compat` giữ cách chạy cũ.
+
+Cách này áp dụng cho các bước STT chạy mới, không tự dựng lại output đã hoàn tất.
+Input `review_project` đã có Localizer theo ngữ cảnh; xem [runbook review](docs/hyperframes-review.md).
+STT vẫn có thể sai và bản dịch cần được kiểm tra.
+
+Chạy A/B với runtime đã vá, dùng thư mục kết quả mới:
+
+```bash
+python3 scripts/spike-voicestudio-multilingual.py \
+  --input data/diagnostics/multilingual-spike/vocals-16k.wav \
+  --output-dir data/diagnostics/multilingual-spike-new
+```
+
+Bản vá local và bản gốc nằm trong
+`backups/voicestudio-multilingual-spike-20261108-1944/` (không commit).
+VoiceStudio mở bình thường sẽ chép đè runtime. Để chạy lại spike, thoát app rồi
+chạy `python3 backups/voicestudio-multilingual-spike-20261108-1944/launch-runtime-spike.py`.
+Launcher kiểm tra checksum, dùng override `OMNIVOICE_BACKEND_CMD` với `--app-dir`
+tuyệt đối để app tự quản lý backend; `--check` chỉ kiểm tra trạng thái.
+Để hoàn tác, thoát app, khôi phục bốn file theo `manifest.json`, xóa test spike
+`backend/tests/test_openai_multilingual_spike.py` trong runtime và mở app bình thường.
 
 ## Yêu cầu máy mới
 
@@ -63,6 +106,41 @@ Ghi chú: `VOICESTUDIO_URL` dạng `https://….trycloudflare.com` đổi mỗi 
 URL, phải khởi động lại cả `localization-starter` và `worker-agents`
 (`docker compose up -d localization-starter worker-agents`), nếu không outbox sẽ đứng im mà không báo lỗi.
 
+### Cổng trên máy local này
+
+Máy này đã có GoClaw dùng cổng 3000 và 5432. Bản setup local dùng API
+`http://localhost:3300`, Postgres `localhost:5433`, và giữ web tại
+`http://localhost:5173`. Kết nối giữa các container vẫn dùng cổng gốc.
+Image nền worker lấy từ `docker.io/astral/uv` vì Docker trên máy này bị GHCR
+trả 403; SHA-256 giữ nguyên như bản ghim upstream.
+
+`PROBE_SEC_USER_ID` được lấy từ profile công khai trong fixture
+`services/downloader/test/fixtures/aweme/video-7481199234537033018.json` để API
+khởi động; probe trực tiếp và tải video chưa được xác minh. Cookie Douyin đã được
+đẩy thành công qua extension và endpoint trạng thái xác nhận `present: true`.
+Database được sao lưu trước migration vào `backups/pre-bootstrap-*.sql` (không commit).
+
+VoiceStudio đang chạy trên máy Mac ở cổng 3900. Các container truy cập qua
+`VOICESTUDIO_URL=http://192.168.65.2:3900`; IP này là địa chỉ
+`host.docker.internal` trong Docker Desktop hiện tại. Cấu hình
+`VOICESTUDIO_ALLOW_PRIVATE_HTTP_CIDRS` giữ dải Tailscale và thêm đúng
+`192.168.65.2/32` để cho phép HTTP tới máy host. Nếu Docker Desktop đổi địa chỉ
+host, phải xác định lại IP và cập nhật cả hai biến trước khi tạo lại service.
+
+Hạ tầng, web, API, starter và các worker đã chạy. STT/TTS model đã có trên
+VoiceStudio local. `VOICE_ID` đã chọn voice `ngoc-huyen` và được xác minh qua
+`/v1/audio/voices`. Sau khi thay đổi cấu hình provider, tạo lại hai service và
+chạy E2E:
+
+```bash
+cd ~/Data/reup-flow
+docker compose up -d localization-starter worker-agents
+scripts/e2e-smoke.sh "https://www.douyin.com/video/<id>"
+```
+
+`REVIEWER_MODE=jev` đang dùng mặc định nên `REVIEWER_MODEL` chỉ cần khi đổi sang
+`REVIEWER_MODE=llm`. `DUBBER_MODE=code` đã được bootstrap cấu hình.
+
 ## Cách 2: mang cả dữ liệu từ máy cũ
 
 Dùng khi muốn giữ lịch sử Temporal, video, và các lần chạy eval trên Langfuse.
@@ -90,8 +168,10 @@ scripts/e2e-smoke.sh "https://www.douyin.com/video/<id>"  [số-phút-tối-đa]
 ```
 
 Script đưa video vào qua `POST /api/videos`, rồi theo dõi `localization.runs` tới khi có trạng thái
-cuối. Thoát 0 chỉ khi video là `published`; `published_original`, `skipped_ad`, `skipped_no_video`,
-`needs_human`, `failed` đều thoát 1 và nói rõ trạng thái. Theo dõi trực quan ở:
+cuối. Mặc định mới đòi `ready_for_review`, bundle hợp lệ và không có output; `needs_human`
+có project hợp lệ thoát 4 để yêu cầu người sửa. Khi chạy pipeline legacy hiện tại, dùng
+`--mode legacy_render` để tiếp tục đòi `published`. [Runbook review](docs/hyperframes-review.md)
+ghi đầy đủ exit codes, canary, migration và rollback. Theo dõi trực quan ở:
 
 - Agent Workspace: `http://<host>:5173` (API key được đóng sẵn vào bản build của web)
 - Temporal UI: `http://localhost:8233`
@@ -119,3 +199,40 @@ sẵn script.
 | Build lần đầu rất lâu | image `worker-*` kéo theo Demucs và PyTorch; các lần sau dùng cache |
 
 Log từng service: `docker compose logs -f <service>`.
+
+## Thử nghiệm HyperFrames review
+
+Spike tương thích Studio, SRT và revoice chạy local được mô tả trong
+[HyperFrames compatibility spike](docs/hyperframes-review-spike.md). Host launcher
+đã có boundary guard và mở được full video canary; rollout mặc định vẫn chờ nghiệm thu.
+
+Localizer đã có chính sách ngữ cảnh cho input `delivery_mode: review_project`;
+run mới còn đối chiếu ASR với chữ gốc đọc từ frame theo timestamp, đưa cùng bằng
+chứng vào lượt dịch và lượt sửa; xem [runbook](docs/hyperframes-review.md).
+input cũ vẫn mặc định `legacy_render`; starter chưa bật mặc định chế độ mới. Câu `inferred`
+giữ bản dịch cùng lý do để review; câu `unresolved` giữ ID/timing/lý do nhưng không
+gọi TTS hoặc tạo caption. Audio dùng nhạc nền hoặc im lặng, không dùng giọng gốc.
+Các trường dữ liệu nằm trong [contracts](services/localization/src/localization/contracts/models.py).
+Backend review đã có bundle bền vững: `project_key` trỏ tới
+`review/{aweme}/g{generation}/head.json`; HEAD chọn manifest revision bất biến,
+kèm các asset có checksum trong cùng generation. Mỗi generation capture source
+trước prep và dùng work keys riêng. Bundle gồm video mute, một track audio mixed,
+cue clips, font, caption/SRT, script và thông tin voice/model/engine để review/revoice.
+`materialize_project` trong [review_project.py](services/localization/src/localization/activities/review_project.py)
+khôi phục đủ dependency từ HEAD thành folder tự chứa.
+
+Starter đọc `LOCALIZATION_DELIVERY_MODE` cho mỗi dispatch VoiceStudio mới; mặc định
+`legacy_render`. Input `review_project` cùng marker workflow mới kết thúc ở
+`ready_for_review` hoặc `needs_human`, giữ `project_key` và không render MP4 hay ghi
+`output/`. Reviewer cần frame hoặc không khả dụng sẽ chuyển sang `needs_human`.
+Vbee, input/history cũ và các early gate giữ hành vi trước đây. Rollback mode chỉ
+ảnh hưởng dispatch mới; phải giữ worker hiểu cả histories mới.
+
+Delivery review chưa bật cho dispatch mặc định. [Migration runner](scripts/apply-migrations.sh) đã có
+backup/restore verification và atomic ledger; nullable `project_key` đã được áp sau
+backup và thử restore. Worker/starter đã có binary hỗ trợ review, nhưng default dispatch
+vẫn là `legacy_render`; chỉ canary được chỉ định mới dùng `review_project`. [Runbook rollout](docs/hyperframes-review.md)
+sở hữu thứ tự upgrade, canary một generation, activation và rollback. Companion/launcher và revoice đã có
+implementation cùng kiểm tra local; [hướng dẫn companion](docs/review-companion.md)
+ghi cấu hình, phục hồi, gate live riêng và giới hạn hiện tại. Studio compatibility
+gates vẫn phải hoàn tất trước rollout.

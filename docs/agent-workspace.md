@@ -6,7 +6,7 @@ agent is working on which video, from real data. Vbee has no dedicated desks her
 **Open it:** the "Workspace" tab in `services/web`, or `http://localhost:5173/#workspace`.
 
 **Full-screen office:** Workspace fills the browser viewport with the desks. Only the
-Jobs/Workspace navigation, a compact video selector and connection indicator overlay
+Jobs/Workspace/Review navigation, a compact video selector and connection indicator overlay
 the canvas. There are no history, progress, costs, event-log or gate panels. Portrait
 screens stack the rooms vertically. Choose a video to focus its desks or choose all
 videos to see the aggregate office. Run detail is still polled internally to preserve
@@ -100,3 +100,11 @@ docker compose up -d localization-starter worker-agents worker-media
 While testing, avoid an untargeted `docker compose up -d`, which starts real workers
 and restores the downloader's default namespace. Stopping the mock worker pauses its
 work; the isolated Temporal executions remain available to resume later.
+
+## Review delivery
+
+`ready_for_review` là terminal bàn giao thủ công, không phải published hoặc failed.
+`needs_human` vẫn yêu cầu người sửa. Các activity capture/build project và revoice
+dùng desk deterministic hiện có trong [catalog](../services/downloader/src/workspace/workspace.catalog.ts),
+không thêm agent desk. [Review runbook](hyperframes-review.md) sở hữu discovery,
+local launch và rollout; Workspace tiếp tục quan sát read-only.

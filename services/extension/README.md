@@ -73,7 +73,8 @@ does not carry the current video's id.
      `docker compose` (see `docker-compose.yml`'s `nest.environment.API_KEY`).
 6. Click **Save** — Chrome will prompt for permission to access the backend
    host (see "CORS and host permissions" below); allow it.
-7. Click **Push now**.
+7. Click **Push now**. This also saves the URL and API key currently shown in the form
+   before asking the service worker to push; a separate Save click is optional.
 8. Log in to `douyin.com` in a normal tab first if you haven't — otherwise
    there is nothing for `chrome.cookies` to read yet.
 
@@ -114,7 +115,7 @@ prompt.
 
 ```
 cd services/extension
-pnpm test               # 89 unit tests, chrome.* APIs stubbed (no browser needed)
+pnpm test               # unit tests, chrome.* APIs stubbed (no browser needed)
 pnpm test:mutations     # mutation harness — proves each guard is load-bearing
 ```
 
@@ -126,11 +127,11 @@ test to go **red**, then restores the file from a pristine snapshot. A green
 mutation run means every guard was proven necessary, not just "the suite
 passed."
 
-`options.js` itself is DOM-only wiring with no independent logic (this
-workspace has no `jsdom` dependency) — it delegates every decision to
-`lib/storage.js` and `lib/options-view.js`, both fully unit tested. It is
-verified by hand via the checklist below (`// skip-tdd` comment at the top
-of the file explains this).
+`test/options.spec.js` exercises the real options-page click handlers with the
+storage and permission helpers in a VM-backed DOM harness. It checks that Push
+now uses the displayed settings, permission denial leaves saved settings
+untouched, and storage failure prevents a push with stale settings. The Chrome
+permission prompt and a real cookie push still need the manual checks below.
 
 ## Manual verification checklist (maps to phase-09 DoD — cannot be automated)
 
