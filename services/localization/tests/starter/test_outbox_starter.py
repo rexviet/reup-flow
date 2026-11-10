@@ -596,3 +596,91 @@ async def test_any_id_dispatches_for_a_provider_without_a_list(
     assert await default.run_once() == Outcome.DISPATCHED
     got = await started_input(temporal_client, workflow_id("7001", 1))
     assert (got["voice"]["provider"], got["voice"]["voice_id"]) == ("openai_compat", "alloy")
+
+
+@pytest.mark.parametrize("provider", ["voicestudio", "vbee", "openai_compat"])
+def test_delivery_selection_is_frozen_only_for_voice_studio(provider):
+    from localization.contracts import VoiceRef
+    from localization.starter.outbox_starter import Claimed
+
+    settings = Settings(localization_delivery_mode="review_project")
+    voice = VoiceRef.model_validate(dict(provider=provider, voice_id="voice", settings={}))
+    spec = OutboxStarter._start_input(
+        settings,
+        voice,
+        Claimed("7001", 2, 1),
+        dict(sec_user_id="channel", storage_path=f"s3://{settings.s3_bucket}/source/7001.mp4"),
+    )
+    assert spec.delivery_mode == (
+        "review_project" if provider == "voicestudio" else "legacy_render"
+    )
+    assert spec.source_snapshot is None
+    rollback = settings.model_copy(update={"localization_delivery_mode": "legacy_render"})
+    assert (
+        OutboxStarter._start_input(
+            rollback,
+            voice,
+            Claimed("7001", 3, 1),
+            dict(sec_user_id="channel", storage_path=f"s3://{settings.s3_bucket}/source/7001.mp4"),
+        ).delivery_mode
+        == "legacy_render"
+    )
+    assert spec.delivery_mode == (
+        "review_project" if provider == "voicestudio" else "legacy_render"
+    )
+
+
+async def test_canary_starts_only_new_generation_and_never_changes_outbox(db, temporal_client, env):
+    from pathlib import Path
+
+    from localization.starter.outbox_starter import Rejected
+
+    info, conn = db
+    # Canary reads the additive runs surface, never writes it.
+    conn.execute(
+        (Path(__file__).parents[2] / "migrations/261026-localization-core.sql").read_text()
+    )
+    add_video(conn, "7001", generation=1)
+    before = row(conn, "7001")
+    s = starter(info, temporal_client, env)
+    spec = await s.start_canary("7001", 2)
+    assert spec.delivery_mode == "review_project"
+    assert row(conn, "7001") == before
+    assert env.settings.localization_delivery_mode == "legacy_render"
+    got = await started_input(temporal_client, workflow_id("7001", 2))
+    assert got["delivery_mode"] == "review_project"
+    with pytest.raises(Rejected, match="newer"):
+        await s.start_canary("7001", 1)
+    from temporalio.exceptions import WorkflowAlreadyStartedError
+
+    with pytest.raises(WorkflowAlreadyStartedError):
+        await s.start_canary("7001", 2)
+    assert row(conn, "7001") == before
+    await temporal_client.get_workflow_handle(workflow_id("7001", 2)).terminate()
+
+
+async def test_canary_rejects_wrong_pipeline_before_touching_database(env):
+    env.settings = env.settings.model_copy(update={"localization_pipeline": "vbee"})
+    s = OutboxStarter("unused", object(), load=lambda: env.settings)
+    with pytest.raises(ConfigError, match="VoiceStudio pipeline"):
+        await s.start_canary("7001", 2)
+
+
+@pytest.mark.parametrize(
+    "aweme,generation",
+    [
+        ("not-a-video", 2),
+        ("7001", -1),
+        ("7001", 1_000_001),
+        ("7001", True),
+    ],
+)
+async def test_canary_rejects_invalid_identity_before_loading_settings(aweme, generation):
+    from localization.starter.outbox_starter import Rejected
+
+    def must_not_load():
+        raise AssertionError("invalid identity must not reach settings/provider/database")
+
+    s = OutboxStarter("unused", object(), load=must_not_load)
+    with pytest.raises(Rejected):
+        await s.start_canary(aweme, generation)

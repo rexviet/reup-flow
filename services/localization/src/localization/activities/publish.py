@@ -27,6 +27,7 @@ from psycopg.types.json import Jsonb
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from localization.activities.review_project import resolve_project
 from localization.activities.script_document import read_script
 from localization.contracts import (
     DubSegmentsDocument,
@@ -37,7 +38,7 @@ from localization.contracts import (
 )
 from localization.observability.scores import LangfuseScores, current_trace_id, run_scores
 from localization.observability.tracing import tag_session
-from localization.storage.object_store import ObjectStore, output_key, review_key
+from localization.storage.object_store import ObjectStore, output_key, project_head_key, review_key
 
 log = logging.getLogger(__name__)
 
@@ -61,6 +62,19 @@ ON CONFLICT (aweme_id, generation) DO UPDATE SET
 """
 
 
+UPSERT_PROJECT_SQL = (
+    UPSERT_SQL.replace("review_key, verdict,", "review_key, project_key, verdict,")
+    .replace(
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,",
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,",
+    )
+    .replace(
+        "  verdict = EXCLUDED.verdict,",
+        "  project_key = EXCLUDED.project_key,\n  verdict = EXCLUDED.verdict,",
+    )
+)
+
+
 class RunStore:
     def __init__(self, conninfo: str) -> None:
         self._conninfo = conninfo
@@ -77,10 +91,11 @@ class RunStore:
         record: dict,
         review_rounds: int,
         needs_human: bool,
+        project: str | None = None,
     ) -> None:
         async with await psycopg.AsyncConnection.connect(self._conninfo, autocommit=True) as conn:
             await conn.execute(
-                UPSERT_SQL,
+                (UPSERT_SQL if project is None else UPSERT_PROJECT_SQL),
                 (
                     aweme_id,
                     generation,
@@ -88,6 +103,7 @@ class RunStore:
                     status,
                     output,
                     review,
+                    *((project,) if project is not None else ()),
                     Jsonb(record),
                     review_rounds,
                     needs_human,
@@ -114,7 +130,35 @@ class PublishActivity:
         tag_session(spec.aweme_id)
         output: str | None = None
         review: str | None = None
-        if request.outcome in ("failed", "skipped_ad", "skipped_no_video", "published_original"):
+        if request.project_key is not None:
+            if (
+                spec.delivery_mode != "review_project"
+                or spec.voice.provider != "voicestudio"
+                or request.outcome not in ("ready_for_review", "needs_human")
+                or request.render_key is not None
+                or request.project_key != project_head_key(spec.aweme_id, spec.generation)
+            ):
+                raise _refuse("invalid review project publication")
+            if request.outcome == "ready_for_review" and (
+                request.verdict is None
+                or not request.verdict.passed
+                or request.reasons
+                or request.safety_flag
+            ):
+                raise _refuse("ready_for_review requires a clean data review")
+            _, manifest, _ = await asyncio.to_thread(
+                resolve_project, self._store, request.project_key
+            )
+            if manifest.source != spec.source_snapshot or manifest.voice != spec.voice:
+                raise _refuse("project provenance differs from workflow input")
+            if request.outcome == "ready_for_review" and (
+                any(c.status != "translated" or c.overflow_unresolved for c in manifest.cues)
+                or request.verdict.issues
+            ):
+                raise _refuse("flagged project requires human review")
+        elif request.outcome == "ready_for_review":
+            raise _refuse("ready_for_review needs a durable project HEAD")
+        elif request.outcome in ("failed", "skipped_ad", "skipped_no_video", "published_original"):
             if request.render_key is not None:
                 raise _refuse(f"a {request.outcome} run has no render to keep")
             if request.outcome == "published_original":
@@ -163,12 +207,18 @@ class PublishActivity:
             record=record,
             review_rounds=request.review_rounds,
             needs_human=request.outcome == "needs_human",
+            **({"project": request.project_key} if request.project_key is not None else {}),
         )
         try:
             await self._score(request)
         except Exception as exc:  # noqa: BLE001 - a run is never failed for its scores
             log.warning("run scores not sent: %s", type(exc).__name__)
-        return PublishResult(outcome=request.outcome, output_key=output, review_key=review)
+        return PublishResult(
+            outcome=request.outcome,
+            output_key=output,
+            review_key=review,
+            project_key=request.project_key,
+        )
 
     async def _score(self, request: PublishRequest) -> None:
         trace_id = current_trace_id()

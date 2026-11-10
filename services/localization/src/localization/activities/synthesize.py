@@ -262,6 +262,8 @@ def segment_hashes(
     """Hash -> text for every distinct text in `script`, in order of first use."""
     texts: dict[str, str] = {}
     for segment in script.segments:
+        if segment.status == "unresolved":
+            continue
         texts.setdefault(synth.hash_of(voice, engine, segment.text_vi), segment.text_vi)
     return texts
 
@@ -294,7 +296,7 @@ class SynthesizeActivities:
         self, spec: LocalizationInput, script_key: str, engine: str | None
     ) -> SynthesisPlan:
         tag_session(spec.aweme_id)
-        script = await asyncio.to_thread(read_script, self._store, script_key)
+        script = await asyncio.to_thread(read_script, self._store, script_key, spec)
         # One hash is one provider call, so a text said twice is planned once.
         hashes = segment_hashes(self._synth, spec.voice, engine, script)
         return SynthesisPlan(hashes=tuple(hashes))
@@ -308,7 +310,7 @@ class SynthesizeActivities:
         hashes: list[str],
     ) -> list[SynthClip]:
         tag_session(spec.aweme_id)
-        script = await asyncio.to_thread(read_script, self._store, script_key)
+        script = await asyncio.to_thread(read_script, self._store, script_key, spec)
         texts = segment_hashes(self._synth, spec.voice, engine, script)
         clips: list[SynthClip] = []
         async with background_heartbeat():

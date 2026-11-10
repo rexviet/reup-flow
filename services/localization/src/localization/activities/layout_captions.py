@@ -46,7 +46,11 @@ from localization.contracts.models import (
 )
 from localization.contracts.spec_hash import spec_sha256
 from localization.observability.tracing import tag_session
-from localization.storage.object_store import ObjectStore, work_key
+from localization.storage.object_store import (
+    ObjectStore,
+    require_work_key,
+    work_key_for,
+)
 
 # Largest first: a caption is drawn as large as it can be and still fit in two lines.
 FONT_SIZES = (48, 44, 40, 36, 32)
@@ -176,6 +180,29 @@ def fit(text: str, meter: FontMeter, max_width: float) -> Fitted | None:
         if lines is not None:
             return Fitted(tuple(lines), size)
     return None
+
+
+def fit_at_size(text: str, meter: FontMeter, width: float, size: int = 20) -> Fitted:
+    """Wrap literal words without shrinking the requested font size."""
+    words = text.split()
+    if not words or width <= 0:
+        raise ValueError("caption requires text and a positive box")
+    lines = _wrap(words, meter, size, width)
+    if lines is not None:
+        return Fitted(tuple(lines), size)
+    lines, current = [], ""
+    for word in words:
+        if meter.width(word, size) > width:
+            raise ValueError("caption word exceeds the available frame width")
+        candidate = f"{current} {word}".strip()
+        if current and meter.width(candidate, size) > width:
+            lines.append(current)
+            current = word
+        else:
+            current = candidate
+    if current:
+        lines.append(current)
+    return Fitted(tuple(lines), size)
 
 
 def split_to_fit(text: str, meter: FontMeter, max_width: float) -> list[Fitted]:
@@ -443,6 +470,9 @@ class LayoutCaptionsActivity:
         round: int,
     ) -> EditSpecRef:
         tag_session(spec.aweme_id)
+        require_work_key(spec, subtitles.subtitle_key)
+        require_work_key(spec, dub.segments_key)
+        require_work_key(spec, dub.audio_key)
         return await asyncio.to_thread(self._build, spec, script, subtitles, ingest, dub, round)
 
     def _build(
@@ -454,7 +484,7 @@ class LayoutCaptionsActivity:
         dub: DubbedAudio,
         round: int,
     ) -> EditSpecRef:
-        script = read_script(self._store, ref.script_key)
+        script = read_script(self._store, ref.script_key, spec, ref.version)
         doc = DubSegmentsDocument.model_validate_json(
             self._store.get_bytes(dub.segments_key, produced_by="dub_script")
         )
@@ -463,8 +493,9 @@ class LayoutCaptionsActivity:
         # The render reads only under this video's `work/` folder, so the source video it draws
         # is copied there (inside the store, no bytes through this process). Always
         # copied: a source downloaded again for the same id must not be rendered stale.
-        source_key = work_key(spec.aweme_id, 0, "source.mp4")
-        self._store.copy(spec.video_key, source_key, produced_by="ingest")
+        source_key = work_key_for(spec, 0, "source.mp4")
+        if spec.source_snapshot is None:
+            self._store.copy(spec.video_key, source_key, produced_by="ingest")
         try:
             edit_spec = lay_out(
                 script=script,
@@ -484,7 +515,7 @@ class LayoutCaptionsActivity:
                 type="InvalidEditSpec",
                 non_retryable=True,
             ) from None
-        spec_key = work_key(spec.aweme_id, round, "edit-spec.json")
+        spec_key = work_key_for(spec, round, "edit-spec.json")
         self._store.put_bytes(
             spec_key, edit_spec.model_dump_json().encode(), content_type="application/json"
         )

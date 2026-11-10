@@ -18,6 +18,7 @@ from localization.providers.vbee import VbeeStt, VbeeTts
 from localization.storage.object_store import ObjectStore
 from localization.workers.run import queue_specs, runnable
 from localization.workflows import vbee_dubbing
+from localization.workflows.revoice_caption import RevoiceCaptionWorkflow
 from localization.workflows.vbee_dubbing import VbeeDubbingWorkflow
 from localization.workflows.video_localization import VideoLocalizationWorkflow
 from tests.support.tts_fakes import FakeTts
@@ -91,13 +92,17 @@ def test_the_shortener_agents_are_registered_on_the_workflow_and_served_on_llm()
     } <= queues["llm"]
 
 
-def test_both_workflows_are_served_on_the_workflows_queue() -> None:
+def test_all_workflows_are_served_on_the_workflows_queue() -> None:
     (spec,) = [
         s
         for s in queue_specs("agents", Settings(), STORE, providers())
         if s.name == "workflows"  # type: ignore[arg-type]
     ]
-    assert list(spec.workflows) == [VideoLocalizationWorkflow, VbeeDubbingWorkflow]
+    assert list(spec.workflows) == [
+        VideoLocalizationWorkflow,
+        VbeeDubbingWorkflow,
+        RevoiceCaptionWorkflow,
+    ]
 
 
 def _activity(specs, name: str):  # noqa: ANN001, ANN202

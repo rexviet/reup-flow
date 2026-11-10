@@ -371,3 +371,9 @@ describe('run detail', () => {
     expect(d!.llmCostUsd).toBeCloseTo(0.2505, 10);
   });
 });
+
+it('reports ready_for_review in the gate and terminal event', () => {
+  const s = buildSnapshot({ ...base, runs: [{ awemeId: '7001', generation: 2, status: 'ready_for_review', updatedAtMs: NOW }] });
+  expect(snapshotSchema.parse(s).runs[0].outcome).toBe('ready_for_review');
+  expect(s.events).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'gate_decision', detail: expect.stringContaining('ready for manual review') })]));
+});

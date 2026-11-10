@@ -436,3 +436,31 @@ def test_both_modes_are_the_same_activity_to_the_workflow(store: ObjectStore) ->
     assert inspect.signature(ReviewRenderActivity.review_render).return_annotation.__name__ == (
         "ReviewVerdict"
     )
+
+
+@pytest.mark.parametrize("all_unresolved", [False, True])
+async def test_intentional_omissions_are_not_sent_to_jev(store, target_lufs, all_unresolved):
+    ids = (0, 1, 2) if all_unresolved else (1,)
+    for ident in ids:
+        rewrite_script(
+            store,
+            **{str(ident): {"text_vi": "", "status": "unresolved", "reason": "No source evidence"}},
+        )
+        rewrite_dub(
+            store,
+            ident,
+            text_vi="",
+            status="unresolved",
+            reason="No source evidence",
+            tts_key=None,
+            duration_ms=0,
+            stretch_ratio=1.0,
+            overflow_unresolved=False,
+        )
+    jev = FakeJev()
+    verdict = await review(activity(store, jev, target_lufs))
+    assert verdict.passed and not verdict.issues
+    if all_unresolved:
+        assert not jev.calls
+    else:
+        assert [s["id"] for s in jev.calls[0][0]["segments"]] == [0, 2]

@@ -47,7 +47,7 @@ class StorePorts:
         doc = await asyncio.to_thread(read_transcript_document, self._store, transcript_key)
         slots = transcript_slots(doc)
         return [
-            SegmentView(s.id, s.start_ms, s.end_ms, s.text, slot)
+            SegmentView(s.id, s.start_ms, s.end_ms, s.text, slot, s.language)
             for s, slot in zip(doc.segments, slots, strict=True)
         ]
 

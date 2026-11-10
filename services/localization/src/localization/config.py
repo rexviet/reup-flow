@@ -92,6 +92,7 @@ class Settings(BaseSettings):
     localizer_reasoning: ReasoningMode = "off"
     dubber_reasoning: ReasoningMode = "off"
     reviewer_model: str | None = None
+    localization_delivery_mode: Literal["legacy_render", "review_project"] = "legacy_render"
     reviewer_mode: ReviewerMode = "jev"
     # Jev is reached through OpenRouter's `/systemone`; the key and base URL are the
     # OpenRouter ones. Pinned, so a model that moves under an alias cannot change what
@@ -147,6 +148,9 @@ class Settings(BaseSettings):
 
     demucs_bin: str = "demucs"
     provider_timeout_seconds: float = 120.0
+    # Local TTS includes waiting for the shared inference engine. Keep its deadline
+    # separate from STT/OCR and below the synthesis activity's 30-minute budget.
+    tts_timeout_seconds: float = Field(default=1200.0, gt=0, le=1500)
 
     # Vbee speech (STT and batch TTS). The voice id names a cloned voice of the account
     # and is kept out of output like the credentials are.

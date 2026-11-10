@@ -56,6 +56,14 @@ write_policy localization <<JSON
 ]}
 JSON
 
+# companion: Get/Put only in review/. No Delete or access to worker prefixes.
+write_policy review-bridge <<JSON
+{"Version":"2012-10-17","Statement":[
+ {"Effect":"Allow","Action":["s3:GetObject","s3:PutObject"],"Resource":["$BUCKET_ARN/review/*"]},
+ {"Effect":"Allow","Action":["s3:ListBucket"],"Resource":["$BUCKET_ARN"],"Condition":{"StringLike":{"s3:prefix":["review/*","review/"]}}}
+]}
+JSON
+
 # langfuse: its own bucket, nothing in reup-media
 write_policy langfuse <<JSON
 {"Version":"2012-10-17","Statement":[
@@ -74,6 +82,19 @@ ensure_user() {
 ensure_user "$S3_ACCESS_KEY_ID"          "$S3_SECRET_ACCESS_KEY"          downloader
 ensure_user "$LOC_S3_ACCESS_KEY_ID"      "$LOC_S3_SECRET_ACCESS_KEY"      localization
 ensure_user "$LANGFUSE_S3_ACCESS_KEY_ID" "$LANGFUSE_S3_SECRET_ACCESS_KEY" langfuse
+
+# Optional until rollout; refuse half-configured or shared identities.
+if [ -n "${REVIEW_S3_ACCESS_KEY_ID:-}" ] || [ -n "${REVIEW_S3_SECRET_ACCESS_KEY:-}" ]; then
+  : "${REVIEW_S3_ACCESS_KEY_ID:?}" "${REVIEW_S3_SECRET_ACCESS_KEY:?}"
+  if [ "$REVIEW_S3_ACCESS_KEY_ID" = "$LOC_S3_ACCESS_KEY_ID" ] ||
+     [ "$REVIEW_S3_ACCESS_KEY_ID" = "$S3_ACCESS_KEY_ID" ] ||
+     [ "$REVIEW_S3_ACCESS_KEY_ID" = "$MINIO_ROOT_USER" ] ||
+     [ "$REVIEW_S3_ACCESS_KEY_ID" = "$LANGFUSE_S3_ACCESS_KEY_ID" ]; then
+    echo "minio-init: review bridge needs a distinct identity" >&2
+    exit 1
+  fi
+  ensure_user "$REVIEW_S3_ACCESS_KEY_ID" "$REVIEW_S3_SECRET_ACCESS_KEY" review-bridge
+fi
 
 # work/ expires after 30 days (a workflow may outlive a week while backfill
 # queues behind one GPU). cache/, review/ and output/ get NO lifecycle: the TTS

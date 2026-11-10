@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-zBd9X9EsKdT8OjiafGPupzUcZUHEwr05V3VHJ9RoJOY=' 'sha256-zcLdksF+4QBI6fkxZlhQ1MYhJBdseOJQ0RvIBMFDeh4=' 'sha256-xKHOrX/qi+sdXQhEmwncwWmJE9QoFBcSNaP6wHm/pWQ=' 'sha256-wtEn1rpV5DbEVJ/gCdI8hx5LwJqDV8xii8bCgjbnHO8=' 'sha256-m/Ec/hWgpgEFw7vdX1OqVjN4hYw91Db05P5gkOtgNdw='; style-src 'self' 'unsafe-inline'; media-src 'self'; img-src 'self' data:; connect-src 'self' ws://127.0.0.1:*; object-src 'none'; base-uri 'none'">
+<link rel="stylesheet" href="styles.css">
+<script src="captions.js" defer></script>
+<title>Stable cue review fixture</title>
+</head>
+<body>
+<main id="review" data-composition-id="review" data-start="0" data-duration="{{duration_ms}}" data-width="{{width}}" data-height="{{height}}" data-no-timeline style="width:{{width}}px;height:{{height}}px">
+<video id="source" src="source.mp4" data-start="0" data-duration="{{duration_ms}}" data-track-index="0" muted playsinline></video>
+<audio id="mix" src="mixed.wav" data-start="0" data-duration="{{duration_ms}}" data-track-index="3"></audio>
+{{ELEMENTS}}
+</main>
+</body>
+</html>

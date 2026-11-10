@@ -27,6 +27,7 @@ def _settings(stub: StubServer, monkeypatch: pytest.MonkeyPatch) -> Settings:
     monkeypatch.setenv("STT_MODEL", "stt-model")
     monkeypatch.setenv("TTS_MODEL", "tts-model")
     monkeypatch.setenv("PROVIDER_TIMEOUT_SECONDS", "0.5")
+    monkeypatch.setenv("TTS_TIMEOUT_SECONDS", "0.5")
     return Settings()
 
 
@@ -95,6 +96,21 @@ async def test_timeout_is_transient(stub: StubServer, monkeypatch: pytest.Monkey
     tts = OpenAICompatTts.from_settings(_settings(stub, monkeypatch))
     with pytest.raises(TransientProviderError, match="timeout"):
         await tts.synthesize("x", VOICE)
+
+
+async def test_tts_can_wait_for_audio_longer_than_stt_without_retrying(stub, monkeypatch):
+    settings = _settings(stub, monkeypatch).model_copy(
+        update={
+            "provider_timeout_seconds": 0.05,
+            "tts_timeout_seconds": 0.8,
+        }
+    )
+    stub.scenario = Scenario(delay_seconds=0.2, raw_body=WAV)
+    assert await OpenAICompatTts.from_settings(settings).synthesize("xin chào", VOICE) == WAV
+    assert len(stub.requests) == 1
+    stub.scenario = Scenario(delay_seconds=0.2, json_body=STT_BODY)
+    with pytest.raises(TransientProviderError, match="timeout"):
+        await OpenAICompatStt.from_settings(settings).transcribe(b"audio")
 
 
 async def test_connection_failure_is_transient(monkeypatch: pytest.MonkeyPatch) -> None:

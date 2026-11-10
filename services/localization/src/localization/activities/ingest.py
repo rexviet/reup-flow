@@ -13,7 +13,7 @@ from localization.contracts import IngestResult, LocalizationInput
 from localization.observability.tracing import tag_session
 from localization.providers.base import StemSeparator
 from localization.providers.errors import PermanentProviderError
-from localization.storage.object_store import ObjectStore, work_key
+from localization.storage.object_store import ObjectStore, source_video_key, work_key_for
 
 # The round every preparation artifact belongs to; review rounds start after it.
 PREP_ROUND = 0
@@ -30,7 +30,7 @@ class IngestActivity:
         with provider_errors(), tempfile.TemporaryDirectory(prefix="ingest-") as tmp:
             root = Path(tmp)
             video = root / "source.mp4"
-            await run_blocking(download_source, self._store, spec.video_key, video)
+            await run_blocking(download_source, self._store, source_video_key(spec), video)
             info = await run_blocking(probe_video, video)
             if not info.has_audio:
                 raise PermanentProviderError("no_audio_track")
@@ -44,8 +44,8 @@ class IngestActivity:
                 for path in (vocals, background):
                     if path.suffix != ".wav":
                         raise PermanentProviderError("demucs: stems are not WAV files")
-                vocals_key = work_key(spec.aweme_id, PREP_ROUND, "vocals.wav")
-                bgm_key = work_key(spec.aweme_id, PREP_ROUND, "bgm.wav")
+                vocals_key = work_key_for(spec, PREP_ROUND, "vocals.wav")
+                bgm_key = work_key_for(spec, PREP_ROUND, "bgm.wav")
                 # Heartbeating: two stems of a long video over a slow link can take
                 # longer than the heartbeat timeout.
                 for key, path in ((vocals_key, vocals), (bgm_key, background)):

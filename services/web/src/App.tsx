@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { cancelJob, createJob, getCookieStatus, listJobs, retryJob } from './api/client';
 import { CookieBadge } from './components/CookieBadge';
 import { JobCard } from './components/JobCard';
@@ -6,21 +6,29 @@ import { JobForm } from './components/JobForm';
 import { usePolling } from './hooks/usePolling';
 import { WorkspacePage } from './workspace/WorkspacePage';
 
+import { ReviewProjectsPage } from './reviews/ReviewProjectsPage';
+
 const POLL_INTERVAL_MS = 1000; // §8.1: "Polling 1s"
 
-type Tab = 'jobs' | 'workspace';
-const TAB_LABELS: Record<Tab, string> = { jobs: 'Jobs', workspace: 'Workspace' };
+type Tab = 'jobs' | 'workspace' | 'reviews';
+const TAB_LABELS: Record<Tab, string> = { jobs: 'Jobs', workspace: 'Workspace', reviews: 'Review' };
 
 function tabFromHash(): Tab {
-  return window.location.hash === '#workspace' ? 'workspace' : 'jobs';
+  return window.location.hash === '#reviews' ? 'reviews' : window.location.hash === '#workspace' ? 'workspace' : 'jobs';
 }
 
 export default function App() {
   const [tab, setTab] = useState<Tab>(tabFromHash);
 
+  useEffect(() => {
+    const onHash = () => setTab(tabFromHash());
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+
   function selectTab(next: Tab) {
     setTab(next);
-    window.location.hash = next === 'workspace' ? 'workspace' : '';
+    window.location.hash = next === 'jobs' ? '' : next;
   }
 
   return (
@@ -40,7 +48,7 @@ export default function App() {
           </button>
         ))}
       </nav>
-      {tab === 'workspace' ? <WorkspacePage /> : <JobsPage />}
+      {tab === 'workspace' ? <WorkspacePage /> : tab === 'reviews' ? <ReviewProjectsPage /> : <JobsPage />}
     </div>
   );
 }

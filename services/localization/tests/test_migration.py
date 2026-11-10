@@ -21,12 +21,15 @@ DOWN = (SERVICE / "migrations" / "261026-localization-core.down.sql").read_text(
 
 
 def _admin_conninfo() -> str | None:
-    env = {**dotenv_values(SERVICE.parents[1] / ".env"), **os.environ}
+    env = dict(os.environ)
+    if not env.get("POSTGRES_USER") or not env.get("POSTGRES_PASSWORD"):
+        env = {**dotenv_values(SERVICE.parents[1] / ".env"), **env}
     user, password = env.get("POSTGRES_USER"), env.get("POSTGRES_PASSWORD")
     if not user or not password:
         return None
     host = env.get("LOCALIZATION_TEST_PG_HOST", "localhost")
-    return f"host={host} port=5432 user={user} password={password} dbname=postgres"
+    port = env.get("LOCALIZATION_TEST_PG_PORT", "5432")
+    return f"host={host} port={port} user={user} password={password} dbname=postgres"
 
 
 def _unavailable(reason: str) -> None:
@@ -45,7 +48,7 @@ def scratch_db() -> Iterator[psycopg.Connection]:
     try:
         admin = psycopg.connect(admin_info, autocommit=True, connect_timeout=3)
     except psycopg.OperationalError:
-        _unavailable("Postgres is not reachable on localhost:5432")
+        _unavailable("Postgres is not reachable on configured test host/port")
     # The compose stack's db-init creates this role; a bare CI Postgres does not.
     admin.execute(
         "DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'localization') "
@@ -150,3 +153,19 @@ def test_down_leaves_other_schemas_alone(scratch_db: psycopg.Connection) -> None
     scratch_db.execute(UP)
     scratch_db.execute(DOWN)
     assert list(_tables(scratch_db, "other")) == ["keepme"]
+
+
+def test_review_project_column_is_additive_and_down_preserves_legacy(scratch_db):
+    scratch_db.execute(UP)
+    scratch_db.execute(
+        "INSERT INTO localization.runs(aweme_id,generation,workflow_id,status,review_key) "
+        "VALUES ('7001',1,'legacy','needs_human','review/7001-g1.mp4')"
+    )
+    scratch_db.execute((SERVICE / "migrations/261108-review-project-key.sql").read_text())
+    assert scratch_db.execute(
+        "SELECT project_key,review_key FROM localization.runs"
+    ).fetchone() == (None, "review/7001-g1.mp4")
+    scratch_db.execute((SERVICE / "migrations/261108-review-project-key.down.sql").read_text())
+    assert scratch_db.execute("SELECT review_key FROM localization.runs").fetchone() == (
+        "review/7001-g1.mp4",
+    )

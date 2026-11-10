@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 from localization.contracts.models import EditSpec
+from localization.contracts.review_project import ReviewHead, ReviewProjectManifest
 
 # <repo>/services/localization/src/localization/contracts/export.py
 REPO_ROOT = Path(__file__).resolve().parents[5]
@@ -20,15 +21,23 @@ def render_edit_spec_schema() -> str:
 
 
 def main(argv: list[str]) -> int:
-    expected = render_edit_spec_schema()
-    if "--check" in argv:
-        actual = EDIT_SPEC_SCHEMA_PATH.read_text() if EDIT_SPEC_SCHEMA_PATH.exists() else None
-        if actual != expected:
-            print(f"{EDIT_SPEC_SCHEMA_PATH} is stale; run python -m localization.contracts.export")
-            return 1
-        return 0
-    EDIT_SPEC_SCHEMA_PATH.parent.mkdir(parents=True, exist_ok=True)
-    EDIT_SPEC_SCHEMA_PATH.write_text(expected)
+    schemas = {
+        EDIT_SPEC_SCHEMA_PATH: render_edit_spec_schema(),
+        REPO_ROOT / "contracts" / "review-project.schema.json": json.dumps(
+            ReviewProjectManifest.model_json_schema(), indent=2, sort_keys=True
+        ) + "\n",
+        REPO_ROOT / "contracts" / "review-head.schema.json": json.dumps(
+            ReviewHead.model_json_schema(), indent=2, sort_keys=True
+        ) + "\n",
+    }
+    for path, expected in schemas.items():
+        if "--check" in argv:
+            if not path.exists() or path.read_text() != expected:
+                print(f"{path} is stale; run python -m localization.contracts.export")
+                return 1
+        else:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(expected)
     return 0
 
 

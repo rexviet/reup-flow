@@ -149,3 +149,17 @@ describe('App (fake timers -- polling cadence)', () => {
     expect(client.getCookieStatus).toHaveBeenCalledTimes(2);
   });
 });
+
+it('opens review discovery through the actual app navigation', async () => {
+  window.history.replaceState(null, '', '/');
+  vi.mocked(client.listReviews).mockResolvedValue({
+    items: [{ awemeId: '7001', generation: 2, status: 'ready_for_review',
+      projectKey: 'review/7001/g2/head.json', updatedAt: '2026-11-10T00:00:00Z' }],
+    total: 1, limit: 20, offset: 0,
+  });
+  render(<App />);
+  await userEvent.click(screen.getByRole('button', { name: 'Review' }));
+  expect(await screen.findByText('Sẵn sàng review')).toBeInTheDocument();
+  expect(window.location.hash).toBe('#reviews');
+  window.history.replaceState(null, '', '/');
+});

@@ -28,7 +28,7 @@ from localization.contracts import (
     ScriptResult,
 )
 from localization.observability.tracing import tag_session
-from localization.storage.object_store import ObjectStore, work_key
+from localization.storage.object_store import ObjectStore, require_work_key, work_key_for
 from localization.text.safety import contacts_missing_from_source
 
 SCRIPT_VERSION = 1
@@ -44,7 +44,7 @@ def build_script(
     """The script and the ids of the lines that need a person. Raises a
     non-retryable error when the lines do not cover the transcript exactly: the
     workflow validates this too, and a mismatch here means a bug, not a retry."""
-    by_id = {line.id: line.text_vi.strip() for line in lines.lines}
+    by_id = {line.id: line for line in lines.lines}
     if len(by_id) != len(lines.lines):
         raise ApplicationError(
             "a segment was translated twice", type="IncompleteScript", non_retryable=True
@@ -60,8 +60,12 @@ def build_script(
     segments: list[LocalizedSegment] = []
     flagged: list[int] = []
     for seg, slot in zip(transcript.segments, transcript_slots(transcript), strict=True):
-        text = by_id[seg.id]
-        if not text:
+        line = by_id[seg.id]
+        text = line.text_vi.strip()
+        contextual = spec.delivery_mode == "review_project"
+        if (not contextual and line.status != "translated") or (
+            not text and not (contextual and line.status == "unresolved")
+        ):
             raise ApplicationError(
                 f"segment {seg.id} has no translation", type="IncompleteScript", non_retryable=True
             )
@@ -75,6 +79,8 @@ def build_script(
                 slot_ms=slot,
                 src_zh=seg.text,
                 text_vi=text,
+                status=line.status,
+                reason=line.reason,
                 on_screen=any(a < seg.end_ms and seg.start_ms < b for a, b in spans),
             )
         )
@@ -105,13 +111,19 @@ class AssembleScriptActivity:
         it is written into that round's folder as the next version, and the earlier
         scripts stay as they were."""
         tag_session(spec.aweme_id)
+        require_work_key(spec, transcript_key)
+        require_work_key(spec, subtitle_key)
         transcript = await asyncio.to_thread(read_transcript_document, self._store, transcript_key)
         subtitles = await asyncio.to_thread(read_subtitle_document, self._store, subtitle_key)
         script, flagged = build_script(spec, transcript, subtitles.cues, lines, version)
-        key = work_key(spec.aweme_id, round, f"script.v{version}.json")
+        key = work_key_for(spec, round, f"script.v{version}.json")
         await asyncio.to_thread(put_json, self._store, key, script)
+        inferred = tuple(s.id for s in script.segments if s.status == "inferred")
+        unresolved = tuple(s.id for s in script.segments if s.status == "unresolved")
         return ScriptResult(
             script=LocalizedScriptRef(script_key=key, version=version),
-            needs_human=bool(flagged),
+            needs_human=bool(flagged or inferred or unresolved),
             flagged_segment_ids=tuple(flagged),
+            inferred_segment_ids=inferred,
+            unresolved_segment_ids=unresolved,
         )

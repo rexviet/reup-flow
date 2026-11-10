@@ -1,5 +1,7 @@
 """S3 object store. The key functions below are the only place a key is built."""
 
+import hashlib
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +44,43 @@ def review_key(aweme_id: str, generation: int) -> str:
 
 def output_key(aweme_id: str) -> str:
     return f"output/{validate_aweme_id(aweme_id)}.mp4"
+
+
+def work_key_for(spec, round: int, name: str) -> str:
+    if spec.source_snapshot is None:
+        return work_key(spec.aweme_id, round, name)
+    return (
+        f"work/{validate_aweme_id(spec.aweme_id)}/"
+        f"g{validate_non_negative(spec.generation, 'generation')}/"
+        f"r{validate_non_negative(round, 'round')}/{validate_key_name(name)}"
+    )
+
+
+def require_work_key(spec, key: str) -> None:
+    validate_storage_key(key)
+    if spec.source_snapshot is None:
+        return
+    prefix = f"work/{spec.aweme_id}/g{spec.generation}/"
+    if not key.startswith(prefix):
+        raise ValueError("artifact belongs to another generation")
+
+
+def source_video_key(spec) -> str:
+    if spec.source_snapshot is None:
+        return spec.video_key
+    require_work_key(spec, spec.source_snapshot.snapshot_key)
+    return spec.source_snapshot.snapshot_key
+
+
+def project_head_key(aweme_id: str, generation: int) -> str:
+    return (
+        f"review/{validate_aweme_id(aweme_id)}/"
+        f"g{validate_non_negative(generation, 'generation')}/head.json"
+    )
+
+
+class StorageConflictError(Exception):
+    """A conditional write lost; no published bytes were changed."""
 
 
 # --- errors -----------------------------------------------------------------
@@ -180,3 +219,155 @@ class ObjectStore:
             if _is_missing_on_head(exc):
                 return False
             raise
+
+    def read_version(self, key: str) -> tuple[bytes, str]:
+        """Body and ETag from one GET, never two independently racing reads."""
+        validate_storage_key(key)
+        try:
+            response = self._client.get_object(Bucket=self._bucket, Key=key)
+        except ClientError as exc:
+            if _is_missing(exc):
+                raise ArtifactMissingError(key, "review_project") from None
+            raise
+        with response["Body"] as body:
+            return body.read(), response["ETag"]
+
+    def compare_and_swap(self, key: str, data: bytes, etag: str | None) -> str:
+        validate_storage_key(key)
+        condition = {"IfMatch": etag} if etag is not None else {"IfNoneMatch": "*"}
+        try:
+            result = self._client.put_object(
+                Bucket=self._bucket,
+                Key=key,
+                Body=data,
+                ContentType="application/json",
+                **condition,
+            )
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") in (
+                "409",
+                "412",
+                "PreconditionFailed",
+                "ConditionalRequestConflict",
+            ):
+                raise StorageConflictError(key) from None
+            raise
+        return result["ETag"]
+
+    def capture_source(self, source: str, destination: str):
+        """Pin a source version before preparation. Conditional GET detects replacement."""
+        from localization.contracts.review_project import SourceSnapshot
+
+        validate_storage_key(source)
+        validate_storage_key(destination)
+        identity_key = destination + ".json"
+        try:
+            stored, _ = self.read_version(identity_key)
+        except ArtifactMissingError:
+            pass
+        else:
+            snapshot = SourceSnapshot.model_validate_json(stored)
+            if snapshot.source_key != source or snapshot.snapshot_key != destination:
+                raise ValueError("source snapshot identity mismatch")
+            self.verify_file(destination, snapshot.sha256)
+            return snapshot
+        head = self._client.head_object(Bucket=self._bucket, Key=source)
+        version = head.get("VersionId")
+        condition = {"IfMatch": head["ETag"]}
+        if version is not None:
+            condition["VersionId"] = version
+        response = self._client.get_object(Bucket=self._bucket, Key=source, **condition)
+        with tempfile.TemporaryDirectory(prefix="snapshot-") as tmp:
+            path = Path(tmp) / "source.mp4"
+            with response["Body"] as body, path.open("wb") as out:
+                while block := body.read(8 * 1024 * 1024):
+                    out.write(block)
+            digest = self.put_immutable_file(destination, path, content_type="video/mp4")
+        snapshot = SourceSnapshot(
+            source_key=source,
+            etag=head["ETag"],
+            version_id=version,
+            snapshot_key=destination,
+            sha256=digest,
+        )
+        self.put_immutable_bytes(identity_key, snapshot.model_dump_json().encode())
+        return snapshot
+
+    def verify_file(self, key: str, digest: str) -> None:
+        validate_storage_key(key)
+        response = self._client.get_object(Bucket=self._bucket, Key=key)
+        check = hashlib.sha256()
+        with response["Body"] as body:
+            while block := body.read(8 * 1024 * 1024):
+                check.update(block)
+        if check.hexdigest() != digest:
+            raise ValueError(f"immutable checksum mismatch: {key}")
+
+    def put_immutable_bytes(self, key: str, data: bytes) -> str:
+        digest = hashlib.sha256(data).hexdigest()
+        try:
+            self.compare_and_swap(key, data, None)
+        except StorageConflictError:
+            self.verify_file(key, digest)
+        return digest
+
+    def put_immutable_file(
+        self, key: str, path: Path, *, content_type: str = "application/octet-stream"
+    ) -> str:
+        """Conditional PUT or conditional multipart completion; never destination COPY."""
+        validate_storage_key(key)
+        with path.open("rb") as src:
+            digest = hashlib.file_digest(src, "sha256").hexdigest()
+        upload_id = None
+        try:
+            size = path.stat().st_size
+            if size <= 8 * 1024 * 1024:
+                with path.open("rb") as src:
+                    self._client.put_object(
+                        Bucket=self._bucket,
+                        Key=key,
+                        Body=src,
+                        IfNoneMatch="*",
+                        ContentType=content_type,
+                    )
+            else:
+                upload = self._client.create_multipart_upload(
+                    Bucket=self._bucket,
+                    Key=key,
+                    ContentType=content_type,
+                )
+                upload_id = upload["UploadId"]
+                parts = []
+                chunk_size = max(8 * 1024 * 1024, (size + 9998) // 9999)
+                with path.open("rb") as src:
+                    while block := src.read(chunk_size):
+                        number = len(parts) + 1
+                        part = self._client.upload_part(
+                            Bucket=self._bucket,
+                            Key=key,
+                            UploadId=upload_id,
+                            PartNumber=number,
+                            Body=block,
+                        )
+                        parts.append({"ETag": part["ETag"], "PartNumber": number})
+                self._client.complete_multipart_upload(
+                    Bucket=self._bucket,
+                    Key=key,
+                    UploadId=upload_id,
+                    MultipartUpload={"Parts": parts},
+                    IfNoneMatch="*",
+                )
+                upload_id = None
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") in ("412", "PreconditionFailed"):
+                self.verify_file(key, digest)
+            else:
+                raise
+        finally:
+            if upload_id is not None:
+                self._client.abort_multipart_upload(
+                    Bucket=self._bucket,
+                    Key=key,
+                    UploadId=upload_id,
+                )
+        return digest

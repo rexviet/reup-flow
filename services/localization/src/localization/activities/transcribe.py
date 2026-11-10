@@ -1,8 +1,10 @@
 """Step 2a: speech to text on the isolated vocals, regrouped by silence."""
 
 import asyncio
+import io
 import re
 import tempfile
+import wave
 from pathlib import Path
 
 from temporalio import activity
@@ -19,7 +21,7 @@ from localization.contracts import (
 )
 from localization.observability.tracing import tag_session
 from localization.providers.base import SttProvider
-from localization.storage.object_store import ObjectStore, work_key
+from localization.storage.object_store import ObjectStore, require_work_key, work_key_for
 
 # A pause longer than this ends a segment.
 SILENCE_GAP_MS = 400
@@ -240,18 +242,60 @@ def _for_stt(stem: bytes) -> bytes:
 
 
 class TranscribeActivity:
-    def __init__(self, store: ObjectStore, stt: SttProvider) -> None:
+    def __init__(
+        self, store: ObjectStore, stt: SttProvider, *, chunked: bool = False
+    ) -> None:
         self._store = store
         self._stt = stt
+        self._chunked = chunked
 
     @activity.defn(name="transcribe")
     async def transcribe(self, spec: LocalizationInput, vocals_key: str) -> Transcript:
         tag_session(spec.aweme_id)
+        require_work_key(spec, vocals_key)
         # `ingest` produced the vocals; if they are gone the workflow re-runs it.
         stem = await asyncio.to_thread(self._store.get_bytes, vocals_key, produced_by="ingest")
         with provider_errors():
             audio = await run_blocking(_for_stt, stem)
-            doc = regroup(await self._stt.transcribe(audio, filename="vocals.wav"))
-        key = work_key(spec.aweme_id, 0, "transcript.json")
+            doc = (
+                await self._transcribe_chunks(audio) if self._chunked
+                else regroup(await self._stt.transcribe(audio, filename="vocals.wav"))
+            )
+        key = work_key_for(spec, 0, "transcript.json")
         await asyncio.to_thread(put_json, self._store, key, doc)
         return Transcript(transcript_key=key, segment_count=len(doc.segments))
+
+    async def _transcribe_chunks(self, audio: bytes) -> TranscriptDocument:
+        from localization.activities.speech_chunks import split_speech
+
+        chunks = await run_blocking(split_speech, audio)
+        with wave.open(io.BytesIO(audio)) as wav:
+            duration = round(wav.getnframes() / wav.getframerate() * 1000)
+        segments, words, languages = [], [], set()
+        for index, chunk in enumerate(chunks):
+            doc = regroup(await self._stt.transcribe(chunk.audio, filename=f"chunk-{index}.wav"))
+            if doc.language:
+                languages.add(doc.language)
+            for segment in doc.segments:
+                start = chunk.start_ms + segment.start_ms
+                end = min(chunk.end_ms, chunk.start_ms + segment.end_ms)
+                if start < end and segment.text.strip():
+                    segments.append(
+                        segment.model_copy(
+                            update={
+                                "id": len(segments),
+                                "start_ms": start,
+                                "end_ms": end,
+                                "language": doc.language,
+                            }
+                        )
+                    )
+            for word in doc.words:
+                start = chunk.start_ms + word.start_ms
+                end = min(chunk.end_ms, chunk.start_ms + word.end_ms)
+                if start < end:
+                    words.append(word.model_copy(update={"start_ms": start, "end_ms": end}))
+        return TranscriptDocument(
+            language=next(iter(languages)) if len(languages) == 1 else None,
+            duration_ms=duration, segments=tuple(segments), words=tuple(words),
+        )

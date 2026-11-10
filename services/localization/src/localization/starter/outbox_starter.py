@@ -8,6 +8,7 @@ claimed in a short transaction (no lock is held across a network call), checked,
 started, then settled. One bad row never blocks the rows behind it.
 """
 
+import argparse
 import asyncio
 import enum
 import logging
@@ -31,7 +32,7 @@ from temporalio.service import RPCError, RPCStatusCode
 
 from localization.config import ConfigError, Settings, load_settings, voice_ref_from_settings
 from localization.contracts import LocalizationInput, VoiceRef
-from localization.contracts.ids import validate_channel_id, validate_source_key
+from localization.contracts.ids import validate_aweme_id, validate_channel_id, validate_source_key
 from localization.contracts.vbee_flow import VBEE_CONFIGURED_VOICE
 from localization.contracts.voice import VbeeSettings
 from localization.observability.tracing import init_tracing, tag_session
@@ -242,6 +243,11 @@ class OutboxStarter:
     ) -> LocalizationInput:
         try:
             return LocalizationInput(
+                delivery_mode=(
+                    settings.localization_delivery_mode
+                    if voice.provider == "voicestudio"
+                    else "legacy_render"
+                ),
                 aweme_id=claimed.aweme_id,
                 channel_id=validate_channel_id(row["sec_user_id"]),
                 generation=claimed.generation,
@@ -251,6 +257,50 @@ class OutboxStarter:
             )
         except (ValueError, ValidationError):
             raise Rejected("the row does not form a valid workflow input") from None
+
+    async def start_canary(self, aweme_id: str, generation: int) -> LocalizationInput:
+        """Start exactly one new review generation without claiming/changing the outbox."""
+        try:
+            validate_aweme_id(aweme_id)
+        except ValueError as exc:
+            raise Rejected(str(exc)) from None
+        if (
+            isinstance(generation, bool)
+            or not isinstance(generation, int)
+            or not 0 <= generation <= 1_000_000
+        ):
+            raise Rejected("generation must be an integer from 0 to 1000000")
+
+        settings = self._load()
+        if settings.localization_pipeline != "voicestudio":
+            raise ConfigError("review canary requires the VoiceStudio pipeline")
+        settings = settings.model_copy(update={"localization_delivery_mode": "review_project"})
+        voice = run_voice(settings)
+        if voice.provider != "voicestudio":
+            raise ConfigError("review canary requires a VoiceStudio voice")
+        if await self._open_workflows() >= settings.max_open_workflows:
+            raise ConfigError("workflow capacity reached; retry canary later")
+        catalog = self._voices(settings)
+        if catalog is not None:
+            await catalog.ensure_exists(voice.voice_id)
+        async with await self._connect() as conn:
+            video = await (await conn.execute(VIDEO_SQL, (aweme_id,))).fetchone()
+            if video is None:
+                raise Rejected("the video row does not exist")
+            spec = self._start_input(settings, voice, Claimed(aweme_id, generation, 0), video)
+            cursor = await conn.execute(
+                "SELECT EXISTS (SELECT FROM localization_outbox WHERE aweme_id = %s "
+                "AND generation >= %s UNION ALL SELECT FROM localization.runs "
+                "WHERE aweme_id = %s AND generation >= %s) AS used",
+                (aweme_id, generation, aweme_id, generation),
+            )
+            used = await cursor.fetchone()
+            if used["used"]:
+                raise Rejected("canary generation must be newer than all recorded generations")
+            # REJECT_DUPLICATE covers races/Temporal histories missing from the DB.
+            # Unlike outbox retry, an existing canary is an operator error.
+            await self._start(spec, workflow_id(aweme_id, generation), ignore_duplicate=False)
+        return spec
 
     async def run_once(self) -> Outcome:
         if await self._open_workflows() >= self._load().max_open_workflows:
@@ -328,7 +378,12 @@ class OutboxStarter:
         return Outcome.DISPATCHED
 
     async def _start(
-        self, spec: LocalizationInput, id_: str, workflow_type: str = WORKFLOW_TYPE
+        self,
+        spec: LocalizationInput,
+        id_: str,
+        workflow_type: str = WORKFLOW_TYPE,
+        *,
+        ignore_duplicate: bool = True,
     ) -> None:
         tracer = trace.get_tracer("localization.starter")
         with tracer.start_as_current_span("localization.start"):
@@ -343,6 +398,8 @@ class OutboxStarter:
                     execution_timeout=timedelta(days=EXECUTION_TIMEOUT_DAYS),
                 )
             except WorkflowAlreadyStartedError:
+                if not ignore_duplicate:
+                    raise
                 # The id carries the generation, so the same id is the same
                 # dispatch: a previous attempt got as far as starting it.
                 return
@@ -369,13 +426,21 @@ class OutboxStarter:
                     pass
 
 
-async def serve() -> None:
+async def serve(canary_identity: tuple[str, int] | None = None) -> None:
     settings = load_settings()
     if settings.loc_database_url is None:
         raise ConfigError("LOC_DATABASE_URL is not set")
     init_tracing(settings, "localization-starter")
     client = await connect(settings.temporal_address, settings.temporal_namespace)
     starter = OutboxStarter(settings.loc_database_url.get_secret_value(), client)
+    if canary_identity is not None:
+        spec = await starter.start_canary(*canary_identity)
+        log.info(
+            "started canary %s with delivery_mode=%s",
+            workflow_id(*canary_identity),
+            spec.delivery_mode,
+        )
+        return
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
@@ -385,7 +450,16 @@ async def serve() -> None:
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO)
-    asyncio.run(serve())
+    parser = argparse.ArgumentParser(description=__doc__)
+    commands = parser.add_subparsers(dest="command")
+    canary = commands.add_parser(
+        "canary", help="start one new review generation; no outbox mutation"
+    )
+    canary.add_argument("aweme_id")
+    canary.add_argument("generation", type=int)
+    args = parser.parse_args()
+    canary_identity = (args.aweme_id, args.generation) if args.command == "canary" else None
+    asyncio.run(serve(canary_identity))
     return 0
 
 

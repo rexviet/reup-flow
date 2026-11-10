@@ -410,3 +410,24 @@ async def test_two_generations_of_a_video_are_two_rows(
     await ActivityEnvironment().run(act.publish, make_input("7001", 4), PASSED)
     rows = conn.execute("SELECT generation FROM localization.runs ORDER BY 1").fetchall()
     assert rows == [(3,), (4,)]
+
+
+@pytest.mark.parametrize("outcome", ["ready_for_review", "needs_human"])
+async def test_review_project_pointer_is_stored_in_the_real_table(
+    review_store, tmp_path, db, outcome
+):
+    from tests.support.review_project import project_inputs
+
+    info, conn = db
+    migration = Path(__file__).resolve().parents[2] / "migrations/261108-review-project-key.sql"
+    conn.execute(migration.read_text())
+    builder, spec, dub, ingest_, subs = project_inputs(review_store, tmp_path)
+    ref = builder._build(spec, dub, ingest_, subs, None)
+    act = PublishActivity(review_store, RunStore(info))
+    request = PublishRequest(outcome=outcome, project_key=ref.project_key, verdict=verdict())
+    for _ in range(2):
+        result = await ActivityEnvironment().run(act.publish, spec, request)
+    assert result.project_key == ref.project_key and result.output_key is None
+    assert conn.execute(
+        "SELECT status,project_key,output_key,review_key FROM localization.runs"
+    ).fetchall() == [(outcome, ref.project_key, None, None)]

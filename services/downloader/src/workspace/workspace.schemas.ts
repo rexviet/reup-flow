@@ -17,6 +17,7 @@ export const GATE_OUTCOMES = [
   'skipped_no_video',
   'published_original',
   'needs_human',
+  'ready_for_review',
 ] as const;
 export type GateOutcome = (typeof GATE_OUTCOMES)[number];
 

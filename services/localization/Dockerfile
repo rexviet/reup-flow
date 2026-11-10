@@ -1,4 +1,4 @@
-# Image for the localization workers and the outbox starter. One image, three
+# Image for the localization workers and the outbox starter. One image, worker and companion
 # commands (see docker-compose.yml): the role is chosen by the command.
 #
 # Build context: services/localization.
@@ -8,7 +8,7 @@
 # the file's sha256 matches the one recorded here, so a swapped upstream file
 # never reaches a running container. Demucs then loads them through
 # `demucs_safe`, which forces `torch.load(weights_only=True)`.
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58
+FROM docker.io/astral/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ffmpeg ca-certificates curl \

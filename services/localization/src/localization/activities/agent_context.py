@@ -28,7 +28,7 @@ class AgentContextActivities:
 
     @activity.defn(name="localizer_context")
     async def localizer_context(self, deps: LocalizerDeps) -> LocalizerContext | None:
-        if self._localizer_mode == "tools":
+        if self._localizer_mode == "tools" and not deps.contextual:
             return None
         return await localizer_single.load_context(deps, bound_ports())
 

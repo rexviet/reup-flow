@@ -174,6 +174,7 @@ describe("docker-compose.yml localization infra", () => {
       "LOC_S3_SECRET_ACCESS_KEY",
       "LANGFUSE_S3_ACCESS_KEY_ID",
       "LANGFUSE_S3_SECRET_ACCESS_KEY",
+      "REVIEW_S3_ACCESS_KEY_ID", "REVIEW_S3_SECRET_ACCESS_KEY",
     ],
     clickhouse: ["CLICKHOUSE_USER", "CLICKHOUSE_PASSWORD", "TZ"],
     "langfuse-web": [
@@ -192,6 +193,10 @@ describe("docker-compose.yml localization infra", () => {
       "LANGFUSE_INIT_USER_PASSWORD",
     ],
     "langfuse-worker": LANGFUSE_SHARED,
+    "review-bridge": [
+      "REVIEW_S3_ENDPOINT", "REVIEW_S3_BUCKET", "REVIEW_S3_ACCESS_KEY_ID", "REVIEW_S3_SECRET_ACCESS_KEY",
+      "REVIEW_TEMPORAL_ADDRESS", "REVIEW_TEMPORAL_NAMESPACE", "REVIEW_PROJECT_ROOT", "REVIEW_RUNTIME_ROOT",
+    ],
     "localization-starter": [
       ...LOCALIZATION_COMMON,
       "LOC_DATABASE_URL",
@@ -210,6 +215,7 @@ describe("docker-compose.yml localization infra", () => {
       "VBEE_VOICE_ID",
       "MAX_OPEN_WORKFLOWS",
       "OUTBOX_MAX_ATTEMPTS",
+      "LOCALIZATION_DELIVERY_MODE",
     ],
     "worker-agents": [
       ...LOCALIZATION_COMMON,
@@ -246,6 +252,8 @@ describe("docker-compose.yml localization infra", () => {
       "LOUDNESS_LUFS",
       "TRUE_PEAK_DBTP",
       "CAPTION_FONT_PATH",
+      "VOICE_CHECK_ENABLED", "VOICE_CHECK_MIN_SPEECH_SHARE", "VOICE_CHECK_CONCURRENCY",
+      "AD_GATE_ENABLED", "AD_GATE_THRESHOLD", "TRACE_AGENT_CONTENT",
     ],
     "worker-media": [
       ...LOCALIZATION_COMMON,
@@ -266,9 +274,9 @@ describe("docker-compose.yml localization infra", () => {
     expect(added.sort()).toEqual(Object.keys(ENV_ALLOWLIST).sort());
   });
 
-  it("only temporal-ui, langfuse-web and the MinIO console publish a port", () => {
+  it("only the named UI, MinIO console and opt-in review bridge publish a port", () => {
     const publishers = added.filter((n) => (services[n].ports ?? []).length > 0).sort();
-    expect(publishers).toEqual(["langfuse-web", "minio", "temporal-ui"]);
+    expect(publishers).toEqual(["langfuse-web", "minio", "review-bridge", "temporal-ui"]);
   });
 
   it("no new service binds 0.0.0.0: every published port is pinned to 127.0.0.1", () => {
@@ -417,5 +425,24 @@ describe("docker-compose.yml localization infra", () => {
 
   it("clickhouse has a memory ceiling", () => {
     expect(services.clickhouse.mem_limit).toBeDefined();
+  });
+});
+
+describe('review deployment stays opt-in and isolated', () => {
+  const compose = parse(readFileSync(path.resolve(__dirname, '../../../docker-compose.yml'), 'utf8'), { merge: true });
+  const bridge = compose.services['review-bridge'];
+  it('keeps legacy dispatch as the starter default and records mode only at dispatch', () => {
+    expect(compose.services['localization-starter'].environment.LOCALIZATION_DELIVERY_MODE).toBe('${LOCALIZATION_DELIVERY_MODE:-legacy_render}');
+    expect(compose.services['worker-agents'].environment.LOCALIZATION_DELIVERY_MODE).toBeUndefined();
+  });
+  it('publishes only the fixed loopback bridge port and has a liveness probe', () => {
+    expect(bridge.profiles).toEqual(['review']);
+    expect(bridge.ports).toEqual(['127.0.0.1:3310:3310']);
+    expect(bridge.healthcheck.test.join(' ')).toContain('http://127.0.0.1:3310/');
+    expect(bridge.read_only).toBe(true);
+    expect(bridge.cap_drop).toEqual(['ALL']);
+    expect(JSON.stringify(bridge.volumes)).not.toMatch(/docker.sock/);
+    expect(bridge.env_file).toBeUndefined();
+    expect(Object.keys(bridge.environment).some((key) => /^(LOC_|VBEE_|OPENROUTER_|VOICESTUDIO_|MINIO_ROOT|DATABASE)/.test(key))).toBe(false);
   });
 });

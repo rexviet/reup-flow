@@ -41,7 +41,7 @@ class OpenAICompatTts:
             settings.voicestudio_url,
             key.get_secret_value() if key else None,
             settings.tts_model,
-            timeout_seconds=settings.provider_timeout_seconds,
+            timeout_seconds=settings.tts_timeout_seconds,
             http=http,
             provider=settings.voice_provider,
         )

@@ -4,6 +4,8 @@ import { deskLabel, GATE_COLUMNS } from './workspace.layout';
 
 const PHASE_LABELS: Record<string, string> = {
   published: 'đã đăng',
+  ready_for_review: 'Sẵn sàng review',
+  needs_human: 'Cần người xem',
   failed: 'lỗi',
   starting: 'đang khởi động',
 };
@@ -49,7 +51,7 @@ function RunChip({
 }
 
 /**
- * Videos are grouped by what happened to them, not placed at a desk: the four
+ * Videos are grouped by what happened to them, not placed at a desk: the
  * gate decisions each get a column, and every other run (finished, failed, or
  * still moving through the desks) is listed under "Khác" with its phase.
  */

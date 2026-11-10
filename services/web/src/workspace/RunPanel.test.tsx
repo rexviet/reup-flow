@@ -13,6 +13,7 @@ describe('RunDetailView', () => {
     ['skipped_ad', 'Quảng cáo'],
     ['skipped_no_video', 'Không có tiếng hoặc hình'],
     ['published_original', 'Đăng bản gốc'],
+    ['ready_for_review', 'Sẵn sàng review'],
     ['needs_human', 'Cần người xem'],
   ])('labels the gate outcome %s', (outcome, label) => {
     render(<RunDetailView detail={detail({ status: outcome, outcome })} />);

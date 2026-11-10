@@ -2,6 +2,7 @@ from localization.contracts.geometry import BBox
 from localization.contracts.models import (
     Caption,
     Cover,
+    DeliveryMode,
     DubbedAudio,
     DubbedScriptRef,
     DubDecision,
@@ -12,6 +13,8 @@ from localization.contracts.models import (
     EditSpecRef,
     FitReport,
     IngestResult,
+    LineReason,
+    LineStatus,
     LocalizationInput,
     LocalizationResult,
     LocalizedLine,
@@ -46,6 +49,9 @@ from localization.contracts.voice import ProviderSettings, VoiceRef, VoiceStudio
 __all__ = [
     "BBox",
     "Caption",
+    "DeliveryMode",
+    "LineStatus",
+    "LineReason",
     "Cover",
     "DubDecision",
     "DubDecisions",
@@ -88,4 +94,18 @@ __all__ = [
     "VoiceProfile",
     "VoiceRef",
     "VoiceStudioSettings",
+]
+
+from localization.contracts.review_project import (
+    ProjectRef,
+    ReviewAsset,
+    ReviewCue,
+    ReviewHead,
+    ReviewProjectManifest,
+    SourceSnapshot,
+)
+
+__all__ += [
+    "ProjectRef", "ReviewAsset", "ReviewCue", "ReviewHead",
+    "ReviewProjectManifest", "SourceSnapshot",
 ]

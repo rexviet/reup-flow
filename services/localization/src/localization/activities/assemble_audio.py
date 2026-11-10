@@ -31,7 +31,12 @@ from localization.contracts import (
 )
 from localization.observability.tracing import tag_session
 from localization.providers.errors import PermanentProviderError
-from localization.storage.object_store import ObjectStore, work_key
+from localization.storage.object_store import (
+    ArtifactMissingError,
+    ObjectStore,
+    require_work_key,
+    work_key_for,
+)
 
 SAMPLE_RATE = 44100
 # The track and the video may differ by this much and no more.
@@ -112,6 +117,7 @@ def render(
     work: Path,
     target: float,
     peak: float,
+    allow_silence: bool = False,
 ) -> None:
     graph = work / "graph.txt"
     graph.write_text(build_filter_graph(placements, duration_ms))
@@ -133,6 +139,9 @@ def render(
     )
     measured = measure_loudness(mixed, target, peak)
     if measured["input_i"] in ("-inf", "inf") or measured["input_thresh"] in ("-inf", "inf"):
+        if allow_silence:
+            run_ffmpeg(["-i", str(mixed), "-ar", str(SAMPLE_RATE), "-c:a", "pcm_s16le", str(out)])
+            return
         raise ApplicationError("the mixed track is silent", type="SilentAudio", non_retryable=True)
     normalise = (
         f"{_loudnorm(target, peak)}:measured_I={measured['input_i']}"
@@ -171,20 +180,31 @@ class AssembleAudioActivity:
         round: int,
     ) -> DubbedAudio:
         tag_session(spec.aweme_id)
+        require_work_key(spec, segments_key)
+        require_work_key(spec, ingest.bgm_key)
         # The script is what the track is built from; the segments document says how
         # each clip is fitted. They must be the same version.
         doc = DubSegmentsDocument.model_validate_json(
             self._store.get_bytes(segments_key, produced_by="dub_script")
         )
-        script_doc = read_script(self._store, script.script_key)
+        script_doc = read_script(self._store, script.script_key, spec, script.version)
         if doc.script_version != script.version:
             raise ApplicationError(
                 "the segments document was made for a different script version",
                 type="ScriptVersionMismatch",
                 non_retryable=True,
             )
+        if spec.source_snapshot is not None:
+            spoken = {s.id: (s.text_vi, s.status, s.reason) for s in doc.segments}
+            captions = {s.id: (s.text_vi, s.status, s.reason) for s in script_doc.segments}
+            if doc.aweme_id != spec.aweme_id or spoken != captions:
+                raise ApplicationError(
+                    "dub provenance differs from script",
+                    type="ScriptVersionMismatch",
+                    non_retryable=True,
+                )
         starts = {s.id: s.start_ms for s in script_doc.segments}
-        out_key = work_key(spec.aweme_id, round, "dubbed.wav")
+        out_key = work_key_for(spec, round, "dubbed.wav")
         root = Path(tempfile.mkdtemp(prefix="assemble-"))
         try:
             digest = await run_blocking(self._build, root, doc, starts, ingest, out_key)
@@ -207,11 +227,32 @@ class AssembleAudioActivity:
         out_key: str,
     ) -> str:
         bgm = root / "bgm.wav"
-        self._store.download_file(ingest.bgm_key, bgm, produced_by="ingest")
+        omitted = any(s.status == "unresolved" for s in doc.segments)
+        try:
+            self._store.download_file(ingest.bgm_key, bgm, produced_by="ingest")
+        except ArtifactMissingError:
+            if not omitted:
+                raise
+            run_ffmpeg(
+                [
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    f"anullsrc=r={SAMPLE_RATE}:cl=stereo",
+                    "-t",
+                    f"{ingest.duration_ms / 1000:.3f}",
+                    "-c:a",
+                    "pcm_s16le",
+                    str(bgm),
+                ]
+            )
         clips: list[Path] = []
         placements: list[tuple[int, float]] = []
         fetched: dict[str, Path] = {}
         for seg in doc.segments:
+            if seg.status == "unresolved":
+                continue
+            assert seg.tts_key is not None
             path = fetched.get(seg.tts_key)
             if path is None:
                 path = root / f"clip-{len(fetched)}.wav"
@@ -229,6 +270,8 @@ class AssembleAudioActivity:
             work=root,
             target=self._target,
             peak=self._peak,
+            allow_silence=bool(doc.segments)
+            and all(s.status == "unresolved" for s in doc.segments),
         )
         check_length(out, ingest.duration_ms)
         digest = hashlib.sha256(out.read_bytes()).hexdigest()

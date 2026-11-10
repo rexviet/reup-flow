@@ -73,6 +73,38 @@ async def test_vision_ocr_posts_the_frame_and_returns_a_pixel_box(
     )
 
 
+async def test_source_ocr_returns_literal_timestamped_words_without_asr(stub, monkeypatch):
+    stub.scenario = Scenario(
+        json_body=_chat(
+            '{"readings":[{"time_ms":25000,"text":"人分三六九等"},'
+            '{"time_ms":27000,"text":"肉分五花三层"}]}'
+        )
+    )
+    ocr = VisionOcr.from_settings(_ocr_settings(stub, monkeypatch, "xyxy_px"))
+    result = await ocr.read_subtitles([(25000, b"frame1"), (27000, b"frame2")])
+    assert result.readings[0].text == "人分三六九等"
+    body = json.loads(stub.requests[0].body)
+    assert sum(x["type"] == "image_url" for x in body["messages"][0]["content"]) == 2
+    assert "ASR" not in body["messages"][0]["content"][0]["text"]
+
+
+@pytest.mark.parametrize(
+    "readings",
+    [
+        [],
+        [{"time_ms": 999, "text": "words"}],
+        [{"time_ms": 25, "text": "words", "translation": "invented"}],
+    ],
+)
+async def test_source_ocr_rejects_missing_invented_timestamps_and_extra_fields(
+    stub, monkeypatch, readings
+):
+    stub.scenario = Scenario(json_body=_chat(json.dumps({"readings": readings})))
+    ocr = VisionOcr.from_settings(_ocr_settings(stub, monkeypatch, "xyxy_px"))
+    with pytest.raises(TransientProviderError):
+        await ocr.read_subtitles([(25, b"frame")])
+
+
 async def test_vision_ocr_null_bbox_means_no_burned_in_subtitles(
     stub: StubServer, monkeypatch: pytest.MonkeyPatch
 ) -> None:

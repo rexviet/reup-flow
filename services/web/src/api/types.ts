@@ -80,7 +80,7 @@ export interface CookieStatus {
 export type SourceState = 'ok' | 'down';
 export type AgentState = 'idle' | 'working' | 'retrying' | 'failed';
 export type Zone = 'media' | 'voice' | 'llm' | 'unknown';
-export type GateOutcome = 'skipped_ad' | 'skipped_no_video' | 'published_original' | 'needs_human';
+export type GateOutcome = 'skipped_ad' | 'skipped_no_video' | 'published_original' | 'needs_human' | 'ready_for_review';
 export type WorkspaceEventKind =
   | 'activity_started'
   | 'activity_retrying'
@@ -160,4 +160,18 @@ export interface RunDetail {
   llmCostUsd: number;
   costByStage: Array<{ stage: string; calls: number; costUsd: number }>;
   gpuSecondsEstimate: { stt: number; tts: number };
+}
+
+export interface ReviewProject {
+  awemeId: string;
+  generation: number;
+  status: 'ready_for_review' | 'needs_human';
+  projectKey: string;
+  updatedAt: string;
+}
+export interface ReviewList {
+  items: ReviewProject[];
+  total: number;
+  limit: number;
+  offset: number;
 }

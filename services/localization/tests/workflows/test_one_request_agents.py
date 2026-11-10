@@ -11,7 +11,9 @@ from temporalio.api.enums.v1 import EventType
 from temporalio.client import Client
 
 from localization.agents.localizer import UNTRUSTED_CLOSE, UNTRUSTED_OPEN
-from localization.contracts import LocalizationResult
+from localization.contracts import LocalizationInput, LocalizationResult
+from localization.workflows.video_localization import VideoLocalizationWorkflow
+from tests.support.before_review_projects_flow import BeforeReviewProjectsWorkflow
 from tests.support.dub_fakes import DubFakes
 from tests.support.inputs import make_input
 from tests.support.localizer_fakes import (
@@ -33,11 +35,20 @@ def fits(prompt: str) -> list[dict]:
     return [{"id": i, "text_vi": SHORT} for i in segment_ids_in(prompt)]
 
 
-async def run(client: Client, localizing: LocalizerFakes, dubbing: DubFakes | None = None):
-    async with prep_workers(client, PrepFakes(), localizing, dubbing=dubbing):
+async def run(
+    client: Client,
+    localizing: LocalizerFakes,
+    dubbing: DubFakes | None = None,
+    *,
+    spec=None,
+    workflow_type=VideoLocalizationWorkflow,
+):
+    async with prep_workers(
+        client, PrepFakes(), localizing, dubbing=dubbing, workflow=workflow_type
+    ):
         handle = await client.start_workflow(
             "VideoLocalizationWorkflow",
-            make_input(),
+            make_input() if spec is None else spec,
             id=f"video-7001-g1-{uuid.uuid4()}",
             task_queue="workflows",
             result_type=LocalizationResult,
@@ -380,3 +391,81 @@ async def test_the_tool_calling_agents_send_the_plain_request(temporal_client: C
     assert model.settings and dubbing.dubber.settings
     for settings in (*model.settings, *dubbing.dubber.settings):
         assert "max_tokens" not in (settings or {}) and "extra_body" not in (settings or {})
+
+
+async def test_recorded_review_policy_uses_single_context_and_replays(temporal_client):
+    from temporalio import activity
+
+    from localization.contracts import (
+        LocalizedLines,
+        LocalizedScriptRef,
+        ScriptResult,
+    )
+    from localization.workflows.video_localization import VideoLocalizationWorkflow
+    from tests.replay.test_replay import _replayer
+
+    @activity.defn(name="assemble_script")
+    async def assemble(
+        spec: LocalizationInput,
+        transcript_key: str,
+        subtitle_key: str,
+        lines: LocalizedLines,
+        round: int = 0,
+        version: int = 1,
+    ) -> ScriptResult:
+        assert [line.status for line in lines.lines] == ["inferred", "unresolved"]
+        assert lines.lines[0].reason == "Context supports greeting"
+        assert lines.lines[1].reason == "No source evidence"
+        return ScriptResult(
+            script=LocalizedScriptRef(script_key="work/7001/r0/script.v1.json", version=version),
+            needs_human=True,
+            flagged_segment_ids=(),
+            inferred_segment_ids=(0,),
+            unresolved_segment_ids=(1,),
+        )
+
+    model = OneRequestModel(
+        answers=(
+            lambda _: [
+                {
+                    "id": 0,
+                    "text_vi": LONG,
+                    "status": "inferred",
+                    "reason": "Context supports greeting",
+                },
+                {"id": 1, "text_vi": "", "status": "unresolved", "reason": "No source evidence"},
+            ],
+            lambda _: [{"id": 0, "text_vi": SHORT}],
+        )
+    )
+    # Review policy explicitly selects contextual single mode even on a tools worker.
+    localizing = LocalizerFakes(mode="tools", model=model, assemble=assemble)
+    handle, result = await run(
+        temporal_client,
+        localizing,
+        spec=make_input().model_copy(update={"delivery_mode": "review_project"}),
+        workflow_type=BeforeReviewProjectsWorkflow,
+    )
+    assert isinstance(result, LocalizationResult), result
+    assert model.requests == 2 and not model.tools_offered
+    assert result.publish.outcome == "needs_human"
+    names = await scheduled(handle)
+    assert names.count("localizer_context") == 1
+    assert not any(n.startswith("agent__localizer__") for n in names)
+    history = await handle.fetch_history()
+    assert any(b"contextual-localizer-unresolved" in e.SerializeToString() for e in history.events)
+    await _replayer(VideoLocalizationWorkflow).replay_workflow(history)
+
+
+async def test_contextual_missing_id_cannot_become_an_implicit_omission(temporal_client):
+    model = OneRequestModel(answers=(lambda _: [{"id": 0, "text_vi": SHORT}],))
+    localizing = LocalizerFakes(mode="single", model=model)
+    _, result = await run(
+        temporal_client,
+        localizing,
+        spec=make_input().model_copy(update={"delivery_mode": "review_project"}),
+        workflow_type=BeforeReviewProjectsWorkflow,
+    )
+    assert not isinstance(result, LocalizationResult)
+    assert localizing.calls["assemble_script"] == 0
+    assert model.requests == 2

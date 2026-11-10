@@ -429,3 +429,27 @@ def test_nothing_is_checked_without_a_cover_or_without_frame_boxes() -> None:
         update={"frame_interval_ms": None, "frame_boxes": (), "unusable_frames": ()}
     )
     assert checks.residual_findings(portrait_spec(), older) == []
+
+
+def test_intentional_omission_is_not_a_fidelity_timing_or_silence_retry():
+    omitted = seg(0, zh="[unintelligible]", vi="").model_copy(
+        update={"status": "unresolved", "reason": "No source evidence"}
+    )
+    doc = DubSegmentsDocument(
+        aweme_id="7001",
+        script_version=1,
+        segments=(
+            DubSegment(
+                id=0,
+                text_vi="",
+                status="unresolved",
+                reason=omitted.reason,
+                duration_ms=0,
+                stretch_ratio=1.0,
+                overflow_unresolved=False,
+            ),
+        ),
+    )
+    assert checks.line_findings([omitted]) == []
+    assert timing([omitted], doc, audio=Loudness(float("-inf"), float("-inf"))) == []
+    assert timing([seg(1), omitted], doc, audio=Loudness(float("-inf"), float("-inf")))

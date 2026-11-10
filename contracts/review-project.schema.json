@@ -1,0 +1,501 @@
+{
+  "$defs": {
+    "BBox": {
+      "additionalProperties": false,
+      "description": "Pixel box, `[x, y, w, h]` in the source frame.",
+      "properties": {
+        "h": {
+          "exclusiveMinimum": 0,
+          "title": "H",
+          "type": "integer"
+        },
+        "w": {
+          "exclusiveMinimum": 0,
+          "title": "W",
+          "type": "integer"
+        },
+        "x": {
+          "minimum": 0,
+          "title": "X",
+          "type": "integer"
+        },
+        "y": {
+          "minimum": 0,
+          "title": "Y",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "w",
+        "h"
+      ],
+      "title": "BBox",
+      "type": "object"
+    },
+    "OpenAICompatSettings": {
+      "additionalProperties": false,
+      "properties": {
+        "speed": {
+          "default": 1.0,
+          "maximum": 4.0,
+          "minimum": 0.25,
+          "title": "Speed",
+          "type": "number"
+        }
+      },
+      "title": "OpenAICompatSettings",
+      "type": "object"
+    },
+    "ReviewAsset": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Key",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "sha256"
+      ],
+      "title": "ReviewAsset",
+      "type": "object"
+    },
+    "ReviewCue": {
+      "additionalProperties": false,
+      "properties": {
+        "audio_duration_ms": {
+          "minimum": 0,
+          "title": "Audio Duration Ms",
+          "type": "integer"
+        },
+        "audio_start_ms": {
+          "minimum": 0,
+          "title": "Audio Start Ms",
+          "type": "integer"
+        },
+        "clip": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReviewAsset"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "end_ms": {
+          "minimum": 0,
+          "title": "End Ms",
+          "type": "integer"
+        },
+        "id": {
+          "minimum": 0,
+          "title": "Id",
+          "type": "integer"
+        },
+        "overflow_unresolved": {
+          "title": "Overflow Unresolved",
+          "type": "boolean"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "source_segment_ids": {
+          "items": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "title": "Source Segment Ids",
+          "type": "array"
+        },
+        "spoken_text": {
+          "title": "Spoken Text",
+          "type": "string"
+        },
+        "start_ms": {
+          "minimum": 0,
+          "title": "Start Ms",
+          "type": "integer"
+        },
+        "status": {
+          "enum": [
+            "translated",
+            "inferred",
+            "unresolved"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "stretch_ratio": {
+          "exclusiveMinimum": 0,
+          "title": "Stretch Ratio",
+          "type": "number"
+        },
+        "text_vi": {
+          "maxLength": 4000,
+          "title": "Text Vi",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "source_segment_ids",
+        "start_ms",
+        "end_ms",
+        "text_vi",
+        "status",
+        "spoken_text",
+        "audio_start_ms",
+        "audio_duration_ms",
+        "stretch_ratio",
+        "overflow_unresolved"
+      ],
+      "title": "ReviewCue",
+      "type": "object"
+    },
+    "SourceSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "etag": {
+          "title": "Etag",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "snapshot_key": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Snapshot Key",
+          "type": "string"
+        },
+        "source_key": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Source Key",
+          "type": "string"
+        },
+        "version_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version Id"
+        }
+      },
+      "required": [
+        "source_key",
+        "etag",
+        "snapshot_key",
+        "sha256"
+      ],
+      "title": "SourceSnapshot",
+      "type": "object"
+    },
+    "VbeeSettings": {
+      "additionalProperties": false,
+      "properties": {
+        "speed": {
+          "default": 1.0,
+          "maximum": 1.9,
+          "minimum": 0.25,
+          "title": "Speed",
+          "type": "number"
+        }
+      },
+      "title": "VbeeSettings",
+      "type": "object"
+    },
+    "VoiceRef": {
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "enum": [
+            "voicestudio",
+            "openai_compat",
+            "vbee"
+          ],
+          "title": "Provider",
+          "type": "string"
+        },
+        "settings": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VoiceStudioSettings"
+            },
+            {
+              "$ref": "#/$defs/OpenAICompatSettings"
+            },
+            {
+              "$ref": "#/$defs/VbeeSettings"
+            }
+          ],
+          "title": "Settings"
+        },
+        "voice_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Voice Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider",
+        "voice_id",
+        "settings"
+      ],
+      "title": "VoiceRef",
+      "type": "object"
+    },
+    "VoiceStudioSettings": {
+      "additionalProperties": false,
+      "properties": {
+        "instructions": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Instructions"
+        },
+        "speed": {
+          "default": 1.0,
+          "maximum": 4.0,
+          "minimum": 0.25,
+          "title": "Speed",
+          "type": "number"
+        }
+      },
+      "title": "VoiceStudioSettings",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "aweme_id": {
+      "title": "Aweme Id",
+      "type": "string"
+    },
+    "bgm": {
+      "$ref": "#/$defs/ReviewAsset"
+    },
+    "cues": {
+      "items": {
+        "$ref": "#/$defs/ReviewCue"
+      },
+      "title": "Cues",
+      "type": "array"
+    },
+    "dub": {
+      "$ref": "#/$defs/ReviewAsset"
+    },
+    "duration_ms": {
+      "exclusiveMinimum": 0,
+      "title": "Duration Ms",
+      "type": "integer"
+    },
+    "engine": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Engine"
+    },
+    "font": {
+      "$ref": "#/$defs/ReviewAsset"
+    },
+    "fps": {
+      "exclusiveMinimum": 0,
+      "title": "Fps",
+      "type": "integer"
+    },
+    "generation": {
+      "minimum": 0,
+      "title": "Generation",
+      "type": "integer"
+    },
+    "height": {
+      "exclusiveMinimum": 0,
+      "title": "Height",
+      "type": "integer"
+    },
+    "html": {
+      "$ref": "#/$defs/ReviewAsset"
+    },
+    "mixed_audio": {
+      "$ref": "#/$defs/ReviewAsset"
+    },
+    "model": {
+      "minLength": 1,
+      "title": "Model",
+      "type": "string"
+    },
+    "operation_id": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Operation Id"
+    },
+    "parent_revision_id": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{32}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Revision Id"
+    },
+    "revision_id": {
+      "pattern": "^[0-9a-f]{32}$",
+      "title": "Revision Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "script": {
+      "$ref": "#/$defs/ReviewAsset"
+    },
+    "script_version": {
+      "minimum": 0,
+      "title": "Script Version",
+      "type": "integer"
+    },
+    "source": {
+      "$ref": "#/$defs/SourceSnapshot"
+    },
+    "source_cues": {
+      "items": {
+        "maxItems": 2,
+        "minItems": 2,
+        "prefixItems": [
+          {
+            "minimum": 0,
+            "type": "integer"
+          },
+          {
+            "minimum": 0,
+            "type": "integer"
+          }
+        ],
+        "type": "array"
+      },
+      "title": "Source Cues",
+      "type": "array"
+    },
+    "source_region": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/BBox"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "srt": {
+      "$ref": "#/$defs/ReviewAsset"
+    },
+    "studio_files": {
+      "additionalProperties": {
+        "$ref": "#/$defs/ReviewAsset"
+      },
+      "title": "Studio Files",
+      "type": "object"
+    },
+    "subtitles": {
+      "$ref": "#/$defs/ReviewAsset"
+    },
+    "video": {
+      "$ref": "#/$defs/ReviewAsset"
+    },
+    "voice": {
+      "$ref": "#/$defs/VoiceRef"
+    },
+    "width": {
+      "exclusiveMinimum": 0,
+      "title": "Width",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "aweme_id",
+    "generation",
+    "revision_id",
+    "source",
+    "script_version",
+    "voice",
+    "model",
+    "engine",
+    "duration_ms",
+    "width",
+    "height",
+    "fps",
+    "video",
+    "mixed_audio",
+    "bgm",
+    "font",
+    "script",
+    "dub",
+    "subtitles",
+    "html",
+    "srt",
+    "cues",
+    "source_region",
+    "source_cues"
+  ],
+  "title": "ReviewProjectManifest",
+  "type": "object"
+}

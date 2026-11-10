@@ -1,0 +1,5 @@
+project/source.mp4
+project/mixed.wav
+project/.hyperframes/
+project/.waveform-cache/
+__pycache__/

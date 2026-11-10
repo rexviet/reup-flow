@@ -32,3 +32,10 @@ describe('RunProgress', () => {
     expect(screen.queryByText('Đang chờ workflow quyết định')).toBeNull();
   });
 });
+
+it('shows ready_for_review as terminal manual delivery', () => {
+  render(<RunProgress detail={detail({ status: 'ready_for_review', outcome: 'ready_for_review' })} />);
+  expect(screen.getByText('Sẵn sàng review')).toBeInTheDocument();
+  expect(screen.getByText('Không còn bước tiếp theo trong lượt chạy này.')).toBeInTheDocument();
+  expect(screen.queryByText('Đã xuất bản')).toBeNull();
+});

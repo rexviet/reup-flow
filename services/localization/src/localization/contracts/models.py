@@ -11,19 +11,59 @@ from pydantic import ConfigDict, Field, model_validator
 from localization.contracts.base import Contract
 from localization.contracts.geometry import BBox, NonNegativeInt, PositiveInt
 from localization.contracts.ids import AwemeId, ChannelId, Sha256, SourceKey, StorageKey
+from localization.contracts.review_project import SourceSnapshot
 from localization.contracts.voice import VoiceRef
 
 Key = StorageKey
 Text = Annotated[str, Field(max_length=4000)]
+LineStatus = Literal["translated", "inferred", "unresolved"]
+LineReason = Annotated[str, Field(min_length=1, max_length=500)]
+DeliveryMode = Literal["legacy_render", "review_project"]
+
+
+class LineMetadata(Contract):
+    text_vi: Text
+    status: LineStatus = "translated"
+    reason: LineReason | None = None
+
+    @model_validator(mode="after")
+    def _consistent_line(self) -> "LineMetadata":
+        text = self.text_vi.strip()
+        if self.status == "translated":
+            if self.reason is not None:
+                raise ValueError("translated lines must not carry a reason")
+            # Old blank JSON still decodes, but remains unusable in the Localizer
+            # and script assembler. Only explicit unresolved permits omission.
+        elif self.reason is None or not self.reason.strip():
+            raise ValueError("inferred/unresolved lines require a reason")
+        elif self.status == "unresolved" and self.text_vi != "":
+            raise ValueError("unresolved lines must have exactly empty text")
+        elif self.status == "inferred" and not text:
+            raise ValueError("inferred lines require spoken text")
+        return self
 
 
 class LocalizationInput(Contract):
+    delivery_mode: DeliveryMode = "legacy_render"
+    source_snapshot: SourceSnapshot | None = None
     aweme_id: AwemeId
     channel_id: ChannelId
     generation: NonNegativeInt
     video_key: SourceKey
     target_lang: Annotated[str, Field(pattern=r"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?$")]
     voice: VoiceRef
+
+    @model_validator(mode="after")
+    def _captured_source_matches_input(self) -> "LocalizationInput":
+        snapshot = self.source_snapshot
+        if snapshot is not None and (
+            self.delivery_mode != "review_project"
+            or self.voice.provider != "voicestudio"
+            or snapshot.source_key != self.video_key
+            or snapshot.snapshot_key != f"work/{self.aweme_id}/g{self.generation}/r0/source.mp4"
+        ):
+            raise ValueError("source snapshot differs from workflow input")
+        return self
 
 
 # --- Transcript -------------------------------------------------------------
@@ -42,6 +82,8 @@ class SttWord(Contract):
 
 
 class SttSegment(Contract):
+    # Detected for the independent speech chunk; not verified language per word.
+    language: str | None = None
     id: NonNegativeInt
     start_ms: NonNegativeInt
     end_ms: NonNegativeInt
@@ -142,13 +184,12 @@ class VoiceCheck(Contract):
 # --- Localization -----------------------------------------------------------
 
 
-class LocalizedSegment(Contract):
+class LocalizedSegment(LineMetadata):
     id: NonNegativeInt
     start_ms: NonNegativeInt
     end_ms: NonNegativeInt
     slot_ms: NonNegativeInt
     src_zh: Text
-    text_vi: Text
     on_screen: bool
 
     @model_validator(mode="after")
@@ -181,12 +222,11 @@ class DubbedScriptRef(LocalizedScriptRef):
     refused_ids: tuple[NonNegativeInt, ...] = ()
 
 
-class LocalizedLine(Contract):
-    """One translated line as the Localizer returns it: the text only. Timing,
+class LocalizedLine(LineMetadata):
+    """One line with optional review status/reason. Timing,
     slot and source text come from the transcript, never from the model."""
 
     id: NonNegativeInt
-    text_vi: Text
 
 
 class LocalizedLines(Contract):
@@ -201,6 +241,8 @@ class ScriptResult(Contract):
     script: LocalizedScriptRef
     needs_human: bool
     flagged_segment_ids: tuple[NonNegativeInt, ...]
+    inferred_segment_ids: tuple[NonNegativeInt, ...] = ()
+    unresolved_segment_ids: tuple[NonNegativeInt, ...] = ()
 
 
 # --- Dubbing ----------------------------------------------------------------
@@ -209,13 +251,27 @@ STRETCH_MIN = 0.85
 STRETCH_MAX = 1.15
 
 
-class DubSegment(Contract):
+class DubSegment(LineMetadata):
     id: NonNegativeInt
-    text_vi: Text
-    tts_key: Key
+    tts_key: Key | None = None
     duration_ms: NonNegativeInt
     stretch_ratio: Annotated[float, Field(ge=STRETCH_MIN, le=STRETCH_MAX)]
     overflow_unresolved: bool
+
+    @model_validator(mode="after")
+    def _omitted_has_no_clip(self) -> "DubSegment":
+        if self.status != "unresolved":
+            if self.tts_key is None:
+                raise ValueError("spoken segments require a TTS clip")
+            return self
+        if (
+            self.tts_key is not None
+            or self.duration_ms != 0
+            or self.stretch_ratio != 1.0
+            or self.overflow_unresolved
+        ):
+            raise ValueError("unresolved speech must be omitted without a clip or overflow")
+        return self
 
 
 class DubSegmentsDocument(Contract):
@@ -432,7 +488,13 @@ class RenderResult(Contract):
 # `skipped_no_video`: the file has no video stream (pictures with music laid over them, as an
 # image post is), so there is no video to localize or publish; nothing was prepared.
 PublishOutcome = Literal[
-    "published", "needs_human", "failed", "skipped_ad", "published_original", "skipped_no_video"
+    "published",
+    "needs_human",
+    "ready_for_review",
+    "failed",
+    "skipped_ad",
+    "published_original",
+    "skipped_no_video",
 ]
 
 
@@ -448,6 +510,7 @@ class PublishRequest(Contract):
     recorded before they existed has neither."""
 
     outcome: PublishOutcome
+    project_key: Key | None = None
     render_key: Key | None = None
     reasons: Annotated[tuple[Annotated[str, Field(max_length=500)], ...], Field(max_length=20)] = ()
     review_rounds: NonNegativeInt = 0
@@ -458,6 +521,7 @@ class PublishRequest(Contract):
 
 class PublishResult(Contract):
     outcome: PublishOutcome
+    project_key: Key | None = None
     output_key: Key | None = None
     review_key: Key | None = None
 

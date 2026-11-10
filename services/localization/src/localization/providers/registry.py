@@ -49,7 +49,11 @@ def build_providers(
     voicestudio = not vbee or bool(settings.voicestudio_url)
     with_vbee = vbee_configured(settings)
     return Providers(
-        stt=OpenAICompatStt.from_settings(settings, http) if voicestudio else None,
+        stt=OpenAICompatStt.from_settings(
+            settings, http, multilingual=settings.voice_provider == "voicestudio"
+        )
+        if voicestudio
+        else None,
         tts=OpenAICompatTts.from_settings(settings, http) if voicestudio else None,
         ocr=VisionOcr.from_settings(settings, llm_http or http),
         demucs=DemucsSeparator(settings.demucs_bin),

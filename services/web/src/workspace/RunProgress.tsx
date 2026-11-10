@@ -10,6 +10,9 @@ const LABELS: Record<string, string> = {
   write_dubbed_script: 'Lưu lời thoại đã chỉnh', commit_dub: 'Chốt các đoạn thoại',
   assemble_audio: 'Ghép âm thanh', layout_captions: 'Dàn phụ đề',
   review_before_render: 'Kiểm duyệt trước render · gồm JEV', review_render: 'Kiểm duyệt video',
+  capture_review_source: 'Cố định nguồn video', build_review_project: 'Lưu project review',
+  revoice_synthesize: 'Tạo lại giọng một câu', revoice_failed: 'Giữ giọng cũ sau lỗi',
+  revoice_mix: 'Ghép lại âm thanh', revoice_commit: 'Lưu giọng mới',
   render: 'Render video', publish: 'Xuất bản',
 };
 export function activityLabel(activity: string): string {
@@ -34,16 +37,17 @@ function nextStep(step: Step | undefined): string {
   if (name.startsWith('agent__dubber') || name === 'write_dubbed_script') return 'Tạo lại giọng cho các câu đã sửa';
   if (name === 'commit_dub' || name === 'assemble_audio') return 'Dàn phụ đề → Reviewer Agent';
   if (name === 'layout_captions') return 'Reviewer Agent';
-  if (name === 'review_before_render') return 'Render nếu đạt; có thể quay lại sửa hoặc cần người xem';
+  if (name === 'review_before_render') return 'Bàn giao project hoặc render theo chế độ đã ghi; có thể cần người xem';
   if (name === 'review_render') return 'Xuất bản nếu đạt; có thể quay lại sửa hoặc cần người xem';
   if (name === 'render') return 'Xuất bản hoặc chuyển người xem theo kết quả review';
+  if (name === 'build_review_project') return 'Bàn giao để review thủ công';
   if (name === 'publish') return 'Chờ kết quả kết thúc workflow';
   return 'Workflow quyết định theo kết quả bước hiện tại';
 }
 
 const STATES = { done: 'Đã xong', running: 'Đang chạy', retrying: 'Đang thử lại', failed: 'Lỗi', cancelled: 'Đã dừng' };
 const RESULTS: Record<string, string> = {
-  published: 'Đã xuất bản', published_original: 'Đã đăng bản gốc',
+  ready_for_review: 'Sẵn sàng review', published: 'Đã xuất bản', published_original: 'Đã đăng bản gốc',
   needs_human: 'Cần người xem', needs_review: 'Cần người xem', failed: 'Workflow đã lỗi',
   skipped_ad: 'Đã bỏ qua quảng cáo', skipped_no_video: 'Đã bỏ qua do không có video',
   cancelled: 'Workflow đã dừng',

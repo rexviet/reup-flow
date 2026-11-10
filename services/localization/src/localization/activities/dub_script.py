@@ -30,7 +30,7 @@ from localization.contracts import (
 from localization.contracts.vbee_flow import ClipDuration, ClipDurations
 from localization.contracts.voice import VoiceRef
 from localization.observability.tracing import tag_session
-from localization.storage.object_store import ObjectStore, work_key
+from localization.storage.object_store import ObjectStore, work_key_for
 from localization.text.glyphs import foreign_chars
 from localization.text.safety import contacts_missing_from_source
 
@@ -66,7 +66,7 @@ def apply_decisions(
     for seg in script.segments:
         decision = chosen.get(seg.id)
         text = seg.text_vi
-        if decision is not None and decision.text_vi.strip():
+        if seg.status != "unresolved" and decision is not None and decision.text_vi.strip():
             if contacts_missing_from_source(decision.text_vi, seg.src_zh):
                 refused.append(seg.id)
             elif foreign_chars(decision.text_vi):
@@ -98,9 +98,11 @@ class DubScriptActivities:
         self, spec: LocalizationInput, script_key: str, engine: str | None
     ) -> FitReport:
         tag_session(spec.aweme_id)
-        script = await asyncio.to_thread(read_script, self._store, script_key)
+        script = await asyncio.to_thread(read_script, self._store, script_key, spec)
         unfit: list[int] = []
         for seg in script.segments:
+            if seg.status == "unresolved":
+                continue
             duration = await self._duration(spec.voice, engine, seg.text_vi)
             if stretch_for(duration, seg.slot_ms) is None:
                 unfit.append(seg.id)
@@ -113,12 +115,13 @@ class DubScriptActivities:
         """How long each line's clip really is: what the voice's real speaking rate is
         measured from."""
         tag_session(spec.aweme_id)
-        script = await asyncio.to_thread(read_script, self._store, script_key)
+        script = await asyncio.to_thread(read_script, self._store, script_key, spec)
         items = [
             ClipDuration(
                 id=seg.id, duration_ms=await self._duration(spec.voice, engine, seg.text_vi)
             )
             for seg in script.segments
+            if seg.status != "unresolved"
         ]
         return ClipDurations(items=tuple(items))
 
@@ -129,7 +132,9 @@ class DubScriptActivities:
         """How much time each line has before the video ends, next to its slot: what a
         review that failed needs to tell a line a rerun can fix from one it cannot."""
         tag_session(spec.aweme_id)
-        read = await asyncio.to_thread(read_script, self._store, script.script_key)
+        read = await asyncio.to_thread(
+            read_script, self._store, script.script_key, spec, script.version
+        )
         return SegmentRooms(
             items=tuple(
                 SegmentRoom(
@@ -150,12 +155,14 @@ class DubScriptActivities:
         round: int = 0,
     ) -> DubbedScriptRef:
         tag_session(spec.aweme_id)
-        before = await asyncio.to_thread(read_script, self._store, script.script_key)
+        before = await asyncio.to_thread(
+            read_script, self._store, script.script_key, spec, script.version
+        )
         after, refused = apply_decisions(before, decisions)
         if refused:
             # A rewrite that tried to add a contact is a sign of an injection: say so.
             activity.logger.warning("rewrites refused for segments %s", refused)
-        written = await asyncio.to_thread(write_script, self._store, after, round)
+        written = await asyncio.to_thread(write_script, self._store, after, round, spec)
         return DubbedScriptRef(
             script_key=written.script_key, version=written.version, refused_ids=tuple(refused)
         )
@@ -172,10 +179,26 @@ class DubScriptActivities:
         """Writes `dub-segments.json` (into the folder of `round`): for every segment,
         its clip, its length and the stretch it is played at. Returns the key."""
         tag_session(spec.aweme_id)
-        doc = await asyncio.to_thread(read_script, self._store, script.script_key)
+        doc = await asyncio.to_thread(
+            read_script, self._store, script.script_key, spec, script.version
+        )
         chosen = {d.id: d.stretch_ratio for d in decisions.items}
         segments: list[DubSegment] = []
         for seg in doc.segments:
+            if seg.status == "unresolved":
+                segments.append(
+                    DubSegment(
+                        id=seg.id,
+                        text_vi="",
+                        status=seg.status,
+                        reason=seg.reason,
+                        tts_key=None,
+                        duration_ms=0,
+                        stretch_ratio=1.0,
+                        overflow_unresolved=False,
+                    )
+                )
+                continue
             clip = await self._synth.cached(spec.voice, engine, seg.text_vi)
             if clip is None:
                 raise _missing_clip(self._synth.hash_of(spec.voice, engine, seg.text_vi))
@@ -184,6 +207,8 @@ class DubScriptActivities:
                 DubSegment(
                     id=seg.id,
                     text_vi=seg.text_vi,
+                    status=seg.status,
+                    reason=seg.reason,
                     tts_key=clip.key,
                     duration_ms=clip.duration_ms,
                     stretch_ratio=ratio,
@@ -193,6 +218,6 @@ class DubScriptActivities:
         document = DubSegmentsDocument(
             aweme_id=spec.aweme_id, script_version=doc.version, segments=tuple(segments)
         )
-        key = work_key(spec.aweme_id, round, "dub-segments.json")
+        key = work_key_for(spec, round, "dub-segments.json")
         await asyncio.to_thread(put_json, self._store, key, document)
         return key

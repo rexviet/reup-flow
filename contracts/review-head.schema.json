@@ -1,0 +1,91 @@
+{
+  "$defs": {
+    "SourceSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "etag": {
+          "title": "Etag",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "snapshot_key": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Snapshot Key",
+          "type": "string"
+        },
+        "source_key": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Source Key",
+          "type": "string"
+        },
+        "version_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version Id"
+        }
+      },
+      "required": [
+        "source_key",
+        "etag",
+        "snapshot_key",
+        "sha256"
+      ],
+      "title": "SourceSnapshot",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "aweme_id": {
+      "title": "Aweme Id",
+      "type": "string"
+    },
+    "generation": {
+      "minimum": 0,
+      "title": "Generation",
+      "type": "integer"
+    },
+    "manifest_key": {
+      "maxLength": 1024,
+      "minLength": 1,
+      "title": "Manifest Key",
+      "type": "string"
+    },
+    "manifest_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Manifest Sha256",
+      "type": "string"
+    },
+    "revision_id": {
+      "pattern": "^[0-9a-f]{32}$",
+      "title": "Revision Id",
+      "type": "string"
+    },
+    "source": {
+      "$ref": "#/$defs/SourceSnapshot"
+    }
+  },
+  "required": [
+    "aweme_id",
+    "generation",
+    "revision_id",
+    "manifest_key",
+    "manifest_sha256",
+    "source"
+  ],
+  "title": "ReviewHead",
+  "type": "object"
+}

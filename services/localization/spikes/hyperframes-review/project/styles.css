@@ -1,0 +1,5 @@
+body { margin: 0; background: #151515; }
+#review { position: relative; overflow: hidden; isolation: isolate; }
+#source { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.source-mask { position: absolute; left: 0; width: 100%; z-index: 1; background: rgba(16,16,16,.70); backdrop-filter: blur(8px); }
+.caption { position: absolute; left: 4%; width: 92%; top: 79%; z-index: 2; color: #ffff00; font: italic 700 24px/1.2 Georgia, serif; -webkit-text-stroke: 2px #000000; paint-order: stroke fill; text-align: center; white-space: pre-wrap; }

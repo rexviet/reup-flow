@@ -200,3 +200,43 @@ async def test_the_slot_the_model_is_shown_is_the_slot_the_script_stores(
         store.get_bytes(result.script.script_key, produced_by="x")
     )
     assert shown == [s.slot_ms for s in script.segments] == [2500, 3000, 2000]
+
+
+async def test_review_script_keeps_timing_source_and_review_flags(store):
+    from localization.activities.assemble_script import build_script
+    from tests.agents.test_one_request_agents import contextual_fixture
+
+    data = contextual_fixture()
+    transcript = TranscriptDocument(
+        language="en",
+        duration_ms=6000,
+        words=(),
+        segments=tuple(SttSegment(**s) for s in data["source"]),
+    )
+    given = LocalizedLines.model_validate({"lines": data["lines"]})
+    policy = make_input().model_copy(update={"delivery_mode": "review_project"})
+    script, flagged = build_script(policy, transcript, (), given)
+    assert not flagged
+    assert [s.status for s in script.segments] == ["translated", "inferred", "unresolved"]
+    for source, row in zip(data["source"], script.segments, strict=True):
+        assert (row.id, row.start_ms, row.end_ms, row.src_zh) == (
+            source["id"],
+            source["start_ms"],
+            source["end_ms"],
+            source["text"],
+        )
+    put_video(store, list(transcript.segments))
+    result = await ActivityEnvironment().run(
+        AssembleScriptActivity(store).assemble_script,
+        policy,
+        TRANSCRIPT_KEY,
+        SUBTITLE_KEY,
+        given,
+    )
+    assert result.needs_human
+    assert result.inferred_segment_ids == (1,)
+    assert result.unresolved_segment_ids == (2,)
+    with pytest.raises(ApplicationError, match="no translation"):
+        build_script(make_input(), transcript, (), given)
+    assert make_input().delivery_mode == "legacy_render"
+    assert LocalizedLine.model_validate({"id": 0, "text_vi": "xin chào"}).status == "translated"

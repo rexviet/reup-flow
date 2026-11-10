@@ -48,6 +48,7 @@ def test_each_part_of_the_stage_is_served_on_the_queue_the_workflow_sends_it_to(
     served = _registered(Settings())
     assert "voice_rate" in served["tts"]
     assert "assemble_script" in served["io"]
+    assert "localizer_source_evidence" in served["io"]
     assert "agent__localizer__model_request" in served["llm"]
     assert "agent__localizer__toolset__<agent>__call_tool" in served["io"]
 
@@ -484,3 +485,15 @@ def test_the_agents_answer_in_one_request_unless_the_setting_says_otherwise(
     monkeypatch.setenv("DUBBER_MODE", "both")
     with pytest.raises(ValueError):
         Settings()
+
+
+@pytest.mark.parametrize('provider,chunked',[('voicestudio',True),('openai_compat',False)])
+def test_voice_studio_worker_enables_speech_chunking(provider,chunked):
+    specs=queue_specs('agents',Settings(voice_provider=provider),ObjectStore(object(),'b'),PROVIDERS)
+    transcribe=next(fn for spec in specs for fn in spec.activities
+                    if fn.__temporal_activity_definition.name=='transcribe')
+    assert transcribe.__self__._chunked is chunked
+
+
+def test_review_project_activities_are_served_on_io():
+    assert {"capture_review_source", "build_review_project"} <= _registered(Settings())["io"]

@@ -1,12 +1,7 @@
 'use strict';
 
-// skip-tdd: pure DOM wiring only, no independent logic -- this workspace has
-// no jsdom dependency (see test/sw.spec.js's header comment for why Jest's
-// default "node" environment was kept rather than adding one). Every actual
-// decision this file makes (how to read/write settings, how to format the
-// last-push panel) is delegated to lib/storage.js and lib/options-view.js,
-// both under full unit test. This file is verified by hand: see README.md's
-// "Manual verification" checklist, which maps 1:1 to phase-09's DoD.
+// The options-page click handlers are exercised with their real storage and
+// permission helpers in test/options.spec.js, without a jsdom dependency.
 //
 // Never reads or renders the cookie value -- this page has no `cookies`
 // permission use anywhere; it only ever sees {at, ok, skipped, message} via
@@ -79,6 +74,19 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!granted) {
       pushNowButton.disabled = false;
       pushNowButton.textContent = 'Push now';
+      return;
+    }
+    // The service worker reads storage, so save the same settings for which
+    // this click just obtained permission before asking it to push.
+    try {
+      await setSettings(chrome.storage.local, {
+        backendUrl: backendUrlInput.value.trim(),
+        apiKey: apiKeyInput.value.trim(),
+      });
+    } catch (err) {
+      pushNowButton.disabled = false;
+      pushNowButton.textContent = 'Push now';
+      renderResult({ at: new Date().toISOString(), ok: false, message: err.message });
       return;
     }
     chrome.runtime.sendMessage({ type: 'push-now' }, (result) => {

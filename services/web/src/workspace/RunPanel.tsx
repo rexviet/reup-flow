@@ -34,6 +34,8 @@ export function RunDetailView({ detail }: { detail: RunDetail }) {
         </p>
       </section>
 
+      {(detail.status === 'ready_for_review' || detail.status === 'needs_human') && <a href="#reviews" className="text-blue-700 underline">Xem project trong tab Review</a>}
+
       <section aria-label="Tiến độ">
         <h3 className="mb-1 font-semibold text-gray-900">Tiến độ</h3>
         {detail.phases.length === 0 ? (

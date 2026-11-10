@@ -66,7 +66,7 @@ from localization.observability.tracing import tag_session
 from localization.providers.base import OcrProvider
 from localization.providers.errors import UnusableAnswer
 from localization.providers.jev import Jev
-from localization.storage.object_store import ObjectStore
+from localization.storage.object_store import ObjectStore, require_work_key
 
 log = logging.getLogger(__name__)
 
@@ -233,7 +233,14 @@ class ReviewRenderActivity:
             agent = build_reviewer(self._model())
             run = asyncio.ensure_future(
                 agent.run(
-                    f"Review the dubbed video ({PROMPT_VERSION}, round {round}).",
+                    f"Review the dubbed video ({PROMPT_VERSION}, round {round})."
+                    + (
+                        " Unresolved lines are intentionally silent and captionless; their reasons "
+                        "are review metadata, not fidelity or timing defects. Do not request "
+                        "translation or dubbing retries for those omissions."
+                        if any(s.status == "unresolved" for s in script_doc.segments)
+                        else ""
+                    ),
                     deps=deps,
                     usage_limits=USAGE,
                 )
@@ -269,7 +276,11 @@ class ReviewRenderActivity:
         tag_session(spec.aweme_id)
         if self._mode != "jev":
             return None
-        script_doc = await asyncio.to_thread(read_script, self._store, script.script_key)
+        for key in (script.script_key, dub.segments_key, dub.audio_key, spec_ref.spec_key):
+            require_work_key(spec, key)
+        script_doc = await asyncio.to_thread(
+            read_script, self._store, script.script_key, spec, script.version
+        )
         segments = DubSegmentsDocument.model_validate_json(
             await asyncio.to_thread(
                 self._store.get_bytes, dub.segments_key, produced_by="dub_script"
@@ -337,7 +348,7 @@ class ReviewRenderActivity:
         found = await self._checks(aweme_id, script, segments, spec, loudness)
         # Lines that failed the cheap checks are already issues: Jev is asked about the rest.
         broken = {f.issue.segment_id for f in found if f.dimension == "fidelity"}
-        asked = [s for s in script.segments if s.id not in broken]
+        asked = [s for s in script.segments if s.id not in broken and s.status != "unresolved"]
         for part in review_jev.chunks(asked):
             result = await jev.ask(
                 review_jev.build_state(part), review_jev.build_questions(part), self._record
@@ -380,7 +391,11 @@ class ReviewRenderActivity:
             subtitles = SubtitleDocument.model_validate_json(
                 await asyncio.to_thread(
                     self._store.get_bytes,
-                    subtitles_key(aweme_id),
+                    (
+                        spec.source_key.rsplit("/", 1)[0] + "/subtitles.json"
+                        if f"work/{aweme_id}/g" in spec.source_key
+                        else subtitles_key(aweme_id)
+                    ),
                     produced_by="detect_subtitles",
                 )
             )

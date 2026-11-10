@@ -102,11 +102,12 @@ export function deskLabel(id: string): string {
   return [...ALL_DESKS, UNKNOWN_DESK].find((d) => d.id === id)?.label ?? id;
 }
 
-/** The four decisions that send a video to the gate area, with their labels. */
+/** The decisions that send a video to the gate area, with their labels. */
 export const GATE_COLUMNS: Array<{ outcome: GateOutcome; label: string }> = [
   { outcome: 'skipped_ad', label: 'Quảng cáo' },
   { outcome: 'skipped_no_video', label: 'Không có tiếng hoặc hình' },
   { outcome: 'published_original', label: 'Đăng bản gốc' },
+  { outcome: 'ready_for_review', label: 'Sẵn sàng review' },
   { outcome: 'needs_human', label: 'Cần người xem' },
 ];
 

@@ -54,8 +54,9 @@ from localization.agents.localizer import (
 )
 from localization.agents.localizer_single import LocalizerContext
 from localization.contracts.base import Contract
-from localization.contracts.limits import MAX_PAYLOAD_BYTES, payload_size
+from localization.contracts.limits import MAX_PAYLOAD_BYTES, ensure_payload_fits, payload_size
 from localization.contracts.models import DubDecisions, LocalizedLines
+from localization.contracts.source_evidence import SourceEvidenceDocument
 from localization.contracts.vbee_flow import SlotPlan
 from localization.observability.model_cost import CostOnRequestSpan
 
@@ -317,7 +318,23 @@ async def run_localizer(deps: LocalizerDeps, feedback: Sequence[str] = ()) -> Lo
             **CONTEXT_ACTIVITY,
         )
         if context is not None:
-            return await _localize_in_one_request(deps, context, feedback)
+            # Policy comes from the recorded activity result, never worker environment
+            # during replay. Older contexts decode to strict legacy semantics.
+            policy = deps.model_copy(update={"contextual": context.contextual})
+            if policy.contextual and workflow.patched("localizer-source-evidence"):
+                source = await workflow.execute_activity(
+                    "localizer_source_evidence", policy,
+                    result_type=SourceEvidenceDocument,
+                    task_queue=IO_QUEUE,
+                    start_to_close_timeout=timedelta(minutes=10),
+                    heartbeat_timeout=timedelta(seconds=30),
+                    retry_policy=RetryPolicy(
+                        maximum_attempts=3, non_retryable_error_types=_PERMANENT
+                    ),
+                )
+                context = context.model_copy(update={"source_evidence": source.evidence})
+                ensure_payload_fits(context, "Localizer source context")
+            return await _localize_in_one_request(policy, context, feedback)
     last = deps.segment_count - 1
     prompt = f"Localize this video's transcript into Vietnamese. The segment ids are 0 to {last}."
     if feedback:

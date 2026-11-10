@@ -23,6 +23,7 @@ from localization.activities.layout_captions import (
     LayoutCaptionsActivity,
     caption_box_for,
     fit,
+    fit_at_size,
     grow_cover,
     safe_zone,
     split_to_fit,
@@ -89,6 +90,17 @@ def test_a_short_line_is_one_line_at_the_largest_size() -> None:
     assert fitted is not None
     assert fitted.lines == ("Xin chào các bạn",)
     assert fitted.size == FONT_SIZES[0]
+
+
+@pytest.mark.parametrize("width", [496, 304, 920])
+def test_fixed_font_wraps_long_vietnamese_without_shrinking(width):
+    text = (
+        "Vai người chẳng có bao nhiêu thịt, ba lớp mỡ bụng thì có thừa. Cậu cứ yên tâm."
+    )
+    fitted = fit_at_size(text, meter, width)
+    assert " ".join(fitted.lines) == text
+    assert fitted.size == 20
+    assert all(meter.width(line, fitted.size) <= width for line in fitted.lines)
 
 
 def test_a_longer_line_takes_two_lines_and_the_largest_size_that_fits() -> None:
@@ -589,3 +601,39 @@ def test_the_layout_stage_refuses_to_start_without_raqm(
     monkeypatch.setattr(layout_module.features, "check", lambda name: False)
     with pytest.raises(RuntimeError, match="raqm"):
         layout(store)
+
+
+def test_explicit_unresolved_keeps_identity_but_has_no_caption_or_srt():
+    from localization.activities.layout_captions import caption_spans
+    from localization.contracts import LocalizedScript
+
+    omitted = segment(1, "", start_ms=3000).model_copy(
+        update={"status": "unresolved", "reason": "No source evidence"}
+    )
+    script = LocalizedScript(
+        aweme_id="7001",
+        version=1,
+        prompt_version="test",
+        segments=(
+            segment(0, "xin chào", start_ms=0),
+            omitted,
+        ),
+    )
+    doc = DubSegmentsDocument(
+        aweme_id="7001",
+        script_version=1,
+        segments=(
+            DubSegment(
+                id=1,
+                text_vi="",
+                status="unresolved",
+                reason=omitted.reason,
+                duration_ms=0,
+                stretch_ratio=1.0,
+                overflow_unresolved=False,
+            ),
+        ),
+    )
+    spans = caption_spans(script, doc, VIDEO_MS)
+    assert [s[0] for s in spans] == [0]
+    assert script.segments[1].id == 1 and script.segments[1].reason

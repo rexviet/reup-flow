@@ -91,6 +91,8 @@ def line_findings(segments: Sequence[LocalizedSegment]) -> list[Finding]:
     numbers and Latin names its source has (spelled as digits or as words)."""
     found: list[Finding] = []
     for seg in segments:
+        if seg.status == "unresolved":
+            continue
         text = unicodedata.normalize("NFKC", seg.text_vi)
         src = unicodedata.normalize("NFKC", seg.src_zh)
         if sum(c.isalnum() for c in text) < 2:
@@ -144,6 +146,8 @@ def timing_findings(
         slot = slots.get(seg.id)
         if slot is None:
             continue
+        if slot.status == "unresolved" and seg.status == "unresolved":
+            continue
         spoken = (
             f"spoken {seg.duration_ms} ms in a {slot.slot_ms} ms slot, at x{seg.stretch_ratio:.2f}"
         )
@@ -166,9 +170,10 @@ def timing_findings(
             found.append(_found("timing", "dub", f"the line is read too fast: {spoken}", seg.id))
         elif seg.stretch_ratio <= SLOW_RATIO:
             found.append(_found("timing", "dub", f"the line is read too slow: {spoken}", seg.id))
-    if not math.isfinite(loudness.lufs):
+    intentional_silence = bool(script) and all(s.status == "unresolved" for s in script)
+    if not math.isfinite(loudness.lufs) and not intentional_silence:
         found.append(_found("timing", "render", "the audio of the video is silent"))
-    elif abs(loudness.lufs - target_lufs) > LUFS_TOLERANCE:
+    elif math.isfinite(loudness.lufs) and abs(loudness.lufs - target_lufs) > LUFS_TOLERANCE:
         found.append(
             _found(
                 "timing",

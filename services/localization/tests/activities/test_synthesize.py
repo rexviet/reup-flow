@@ -560,3 +560,18 @@ async def test_a_script_read_back_is_the_one_that_was_written(store: ObjectStore
 
 def test_the_input_is_the_one_every_test_here_shares() -> None:
     assert isinstance(SPEC, LocalizationInput)
+
+
+@pytest.mark.parametrize("all_unresolved", [False, True])
+async def test_unresolved_is_not_planned_or_sent_to_tts(store, all_unresolved):
+    tts = FakeTts()
+    acts = activities(store, tts)
+    omitted = segment(0, "").model_copy(
+        update={"status": "unresolved", "reason": "No recoverable speech"}
+    )
+    segments = [omitted] if all_unresolved else [omitted, segment(1, "xin chào")]
+    key = put_script(store, segments)
+    needed = await plan(acts, key)
+    assert len(needed.hashes) == (0 if all_unresolved else 1)
+    await run_batch(acts, key, list(needed.hashes))
+    assert tts.total == (0 if all_unresolved else 1)

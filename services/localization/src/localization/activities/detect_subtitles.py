@@ -24,7 +24,7 @@ from localization.contracts import (
 from localization.observability.tracing import tag_session
 from localization.providers.base import OcrProvider
 from localization.providers.errors import PermanentProviderError, UnusableAnswer
-from localization.storage.object_store import ObjectStore, work_key
+from localization.storage.object_store import ObjectStore, source_video_key, work_key, work_key_for
 
 SAMPLE_FPS = 2
 BATCH_SIZE = 8
@@ -194,7 +194,7 @@ class DetectSubtitlesActivity:
         ):
             root = Path(tmp)
             video = root / "source.mp4"
-            await run_blocking(download_source, self._store, spec.video_key, video)
+            await run_blocking(download_source, self._store, source_video_key(spec), video)
             info = await run_blocking(probe_video, video)
             source = (info.width, info.height)
             scaled = ocr_size(*source)
@@ -245,6 +245,6 @@ class DetectSubtitlesActivity:
             frame_boxes=tuple(boxes),
             unusable_frames=tuple(unusable),
         )
-        key = subtitles_key(spec.aweme_id)
+        key = work_key_for(spec, 0, "subtitles.json")
         await asyncio.to_thread(put_json, self._store, key, document)
         return SubtitleTrack(subtitle_key=key, region=region)

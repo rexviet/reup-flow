@@ -1,11 +1,14 @@
 from collections.abc import AsyncIterator, Iterator
 
+import boto3
 import pytest
 import pytest_asyncio
+from moto import mock_aws
 from temporalio.client import Client
 from temporalio.testing import WorkflowEnvironment
 
 from localization.config import Settings
+from localization.storage.object_store import ObjectStore
 from localization.temporal.client import connect
 from tests.support.stub_server import StubServer
 
@@ -33,3 +36,11 @@ async def temporal_client() -> AsyncIterator[Client]:
         yield await connect(env.client.service_client.config.target_host)
     finally:
         await env.shutdown()
+
+
+@pytest.fixture
+def review_store():
+    with mock_aws():
+        client = boto3.client("s3", region_name="us-east-1")
+        client.create_bucket(Bucket="review-test")
+        yield ObjectStore(client, "review-test")

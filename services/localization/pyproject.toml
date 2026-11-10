@@ -22,6 +22,8 @@ dependencies = [
   # the CPU build of torch, the version the image's Demucs is installed with.
   "silero-vad==6.2.3",
   "torch==2.5.1",
+  "starlette==0.52.1",
+  "uvicorn==0.40.0",
 ]
 
 [dependency-groups]

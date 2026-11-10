@@ -105,13 +105,15 @@ else
 fi
 # What a browser elsewhere uses; harmless for localhost.
 set_kv CORS_ALLOWED_ORIGINS "http://localhost:5173,http://${HOST}:5173"
-set_kv VITE_API_BASE_URL "http://${HOST}:3000"
+set_kv VITE_API_BASE_URL "http://${HOST}:3300"
 
 # --- 4. database -----------------------------------------------------------------
 say "starting Postgres, creating roles, applying migrations"
 docker compose up -d postgres
 docker compose run --rm db-init
 scripts/apply-migrations.sh
+echo "Review schema is additive; starter delivery defaults to legacy_render."
+echo "Review profile/canary activation requires docs/hyperframes-review.md gates; bootstrap does not enable it."
 
 # --- 5. everything ---------------------------------------------------------------
 say "building and starting the stack (the first build downloads a lot)"
@@ -148,9 +150,9 @@ check() { # label, expected, curl args...
   code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$@" || true)
   if [ "$code" = "$expect" ]; then echo "ok    $label ($code)"; else echo "FAIL  $label (got $code, want $expect)" >&2; failed=1; fi
 }
-check "API health"              200 http://localhost:3000/health
-check "API rejects no key"      401 http://localhost:3000/api/workspace/snapshot
-check "API with key"            200 -H "X-Api-Key: ${api_key}" http://localhost:3000/api/workspace/snapshot
+check "API health"              200 http://localhost:3300/health
+check "API rejects no key"      401 http://localhost:3300/api/workspace/snapshot
+check "API with key"            200 -H "X-Api-Key: ${api_key}" http://localhost:3300/api/workspace/snapshot
 check "web UI"                  200 http://localhost:5173/
 check "Langfuse"                200 http://localhost:3100/api/public/health
 check "Temporal UI"             200 http://localhost:8233/

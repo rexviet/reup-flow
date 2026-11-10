@@ -1,4 +1,4 @@
-import type { CookieStatus, JobListResponse, JobResponse, RunDetail, WorkspaceSnapshot } from './types';
+import type { ReviewList, CookieStatus, JobListResponse, JobResponse, RunDetail, WorkspaceSnapshot } from './types';
 
 /**
  * Thin fetch wrapper for the downloader API (services/downloader).
@@ -84,4 +84,8 @@ export async function getWorkspaceSnapshot(): Promise<WorkspaceSnapshot> {
 
 export async function getRunDetail(awemeId: string, generation: number): Promise<RunDetail> {
   return request<RunDetail>(`/api/workspace/runs/${encodeURIComponent(awemeId)}/${generation}`);
+}
+
+export async function listReviews(limit = 20, offset = 0): Promise<ReviewList> {
+  return request<ReviewList>(`/api/reviews?limit=${limit}&offset=${offset}`);
 }

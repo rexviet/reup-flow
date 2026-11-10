@@ -39,8 +39,11 @@ from localization.activities.persist import PersistActivity
 from localization.activities.plan_slots import PlanSlotsActivity
 from localization.activities.publish import PublishActivity, RunStore
 from localization.activities.render import RenderActivity
+from localization.activities.review_project import ReviewProjectActivity
 from localization.activities.review_render import ReviewRenderActivity
+from localization.activities.revoice_caption import RevoiceActivities
 from localization.activities.slot_script import SlotScriptActivity
+from localization.activities.source_evidence import SourceEvidenceActivity
 from localization.activities.synthesize import SynthesizeActivities, Synthesizer
 from localization.activities.transcribe import TranscribeActivity
 from localization.activities.vbee_stt import VbeeSttActivity
@@ -76,6 +79,7 @@ from localization.providers.tts_router import ConfiguredVoices, TtsByProvider
 from localization.storage.object_store import ObjectStore
 from localization.temporal.client import connect
 from localization.workers.health import VoiceStudioHealth
+from localization.workflows.revoice_caption import RevoiceCaptionWorkflow
 from localization.workflows.vbee_dubbing import VbeeDubbingWorkflow
 from localization.workflows.video_localization import (
     RENDER_QUEUE,
@@ -143,18 +147,28 @@ def queue_specs(
             cover_opacity=settings.cover_opacity,
         )
         render = RenderActivity(store, font_path=settings.caption_font_path)
+        revoice = RevoiceActivities(
+            store, target=settings.loudness_lufs, peak=settings.true_peak_dbtp
+        )
         return [
             QueueSpec(
                 "media",
                 settings.media_concurrency,
-                activities=[ingest.ingest, assemble_audio.assemble_audio, layout.layout_captions],
+                activities=[
+                    ingest.ingest,
+                    assemble_audio.assemble_audio,
+                    layout.layout_captions,
+                    revoice.mix,
+                ],
             ),
             # Its own queue and limit: a render does not wait behind separations, and
             # RENDER_CONCURRENCY bounds the encoders running at once.
             QueueSpec(RENDER_QUEUE, settings.render_concurrency, activities=[render.render]),
         ]
     if role == "agents":
-        transcribe = TranscribeActivity(store, providers.stt)
+        transcribe = TranscribeActivity(
+            store, providers.stt, chunked=settings.voice_provider == "voicestudio"
+        )
         detect = DetectSubtitlesActivity(store, providers.ocr)
         database_url = _database_url(settings)
         assemble = AssembleScriptActivity(store)
@@ -174,6 +188,7 @@ def queue_specs(
             store, tts, model=settings.tts_model, engine=engine, resolve=resolve
         )
         dub = DubScriptActivities(store, synthesis.synthesizer)
+        revoice = RevoiceActivities(store, synthesis.synthesizer)
         # One Jev client for the process, built on first use: the ad check and the review
         # share it.
         jev = functools.cache(lambda: jev_for(settings))
@@ -198,6 +213,9 @@ def queue_specs(
         publish = PublishActivity(
             store, RunStore(database_url), LangfuseScores.from_settings(settings)
         )
+        project = ReviewProjectActivity(
+            store, font_path=settings.caption_font_path, model=settings.tts_model
+        )
         # The agents' model requests (`llm`) and tools (`io`, and the Dubber's
         # `synthesize` on `tts`) are activities of the agents; their plugins register
         # them on each queue's worker.
@@ -219,6 +237,7 @@ def queue_specs(
             )
         ]
         agent_context = AgentContextActivities(settings.localizer_mode, settings.dubber_mode)
+        source_evidence = SourceEvidenceActivity(store, providers.ocr)
         check_voice = CheckVoiceActivity(
             store,
             SileroSpeechDetector(),
@@ -227,7 +246,10 @@ def queue_specs(
         )
         hear = VbeeSttActivity(store, providers.vbee_stt)
         return [
-            QueueSpec("workflows", workflows=[VideoLocalizationWorkflow, VbeeDubbingWorkflow]),
+            QueueSpec(
+                "workflows",
+                workflows=[VideoLocalizationWorkflow, VbeeDubbingWorkflow, RevoiceCaptionWorkflow],
+            ),
             # The Reviewer's model requests are made inside `review_before_render` and
             # `review_render`, which is why they live here and not on a queue of their own;
             # so is the ad check's one Jev call.
@@ -249,6 +271,7 @@ def queue_specs(
                     PersistActivity(store).persist_json,
                     assemble.assemble_script,
                     agent_context.localizer_context,
+                    source_evidence.collect,
                     agent_context.dubber_context,
                     agent_context.dubber_setup,
                     synthesis.voice_profile,
@@ -258,6 +281,10 @@ def queue_specs(
                     dub.write_dubbed_script,
                     dub.commit_dub,
                     publish.publish,
+                    project.capture_review_source,
+                    project.build_review_project,
+                    revoice.commit,
+                    revoice.failed,
                     # The Vbee dubbing workflow's steps that are not shared with the other.
                     PlanSlotsActivity(store).plan_slots,
                     SlotScriptActivity(store).write_slot_script,
@@ -282,7 +309,11 @@ def queue_specs(
             QueueSpec(
                 "tts",
                 settings.tts_concurrency,
-                activities=[voice_rate.voice_rate, synthesis.synthesize_segments],
+                activities=[
+                    voice_rate.voice_rate,
+                    synthesis.synthesize_segments,
+                    revoice.synthesize,
+                ],
                 plugins=agents,
             ),
         ]

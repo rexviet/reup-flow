@@ -42,3 +42,11 @@ describe('workspace catalog', () => {
     },
   );
 });
+
+it.each([
+  ['capture_review_source', 'media'], ['build_review_project', 'media'],
+  ['revoice_synthesize', 'tts'], ['revoice_mix', 'media'],
+  ['revoice_commit', 'publish'], ['revoice_failed', 'publish'],
+])('maps deterministic review activity %s to existing desk %s', (name, desk) => {
+  expect(resolveAgent(name).id).toBe(desk);
+});

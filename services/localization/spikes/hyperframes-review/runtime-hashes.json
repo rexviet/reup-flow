@@ -1,0 +1,11 @@
+{
+  "version": "0.8.77",
+  "scripts": {
+    "project/captions.js (inlined by compiler)": "sha256-zBd9X9EsKdT8OjiafGPupzUcZUHEwr05V3VHJ9RoJOY=",
+    "bundled RUNTIME_IIFE in cli.js": "sha256-zcLdksF+4QBI6fkxZlhQ1MYhJBdseOJQ0RvIBMFDeh4=",
+    "commands/layout-audit.browser.js": "sha256-xKHOrX/qi+sdXQhEmwncwWmJE9QoFBcSNaP6wHm/pWQ=",
+    "commands/motion-sample.browser.js": "sha256-wtEn1rpV5DbEVJ/gCdI8hx5LwJqDV8xii8bCgjbnHO8=",
+    "commands/contrast-audit.browser.js": "sha256-m/Ec/hWgpgEFw7vdX1OqVjN4hYw91Db05P5gkOtgNdw="
+  },
+  "verification": "Compared exact file bytes and bundled JavaScript string literal against the registry tarball recorded in provenance.json. No arbitrary Studio script is trusted. Re-run hyperframes check after regeneration or any pin change."
+}

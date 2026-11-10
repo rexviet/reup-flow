@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createServer } from "node:net";
 import * as path from "node:path";
 
 /**
@@ -118,16 +119,19 @@ describe("bootstrap succeeds (real process, positive control)", () => {
  * and turns this test red.
  */
 describe("bootstrap catch-all redacts secrets on non-config errors (D-3, real process)", () => {
-  it("redacts the DATABASE_URL password from a genuine Postgres connection failure", () => {
+  it("redacts the DATABASE_URL password from a genuine Postgres connection failure", async () => {
     const entry = path.join(__dirname, "..", "src", "main.ts");
     const cwd = path.join(__dirname, "..");
     // Obviously fake + low entropy on purpose: this string lands in git
     // history, and a realistic-looking one trips gitleaks' generic-api-key.
     // It only has to be unique enough to search stderr for.
     const password = "fake-placeholder-password-unique";
-    // Port 5433: nothing listens there in the compose stack (postgres is on
-    // 5432), so this is a genuine ECONNREFUSED, not a mocked failure.
-    const databaseUrl = `postgres://reup:${password}@localhost:5433/reup`;
+    // Discover an unused port: developer stacks may publish Postgres on 5433.
+    const probe = createServer();
+    await new Promise<void>((resolve) => probe.listen(0, '127.0.0.1', resolve));
+    const port = (probe.address() as { port: number }).port;
+    await new Promise<void>((resolve, reject) => probe.close((error) => error ? reject(error) : resolve()));
+    const databaseUrl = `postgres://reup:${password}@127.0.0.1:${port}/reup`;
 
     const result = spawnSync(
       process.execPath,

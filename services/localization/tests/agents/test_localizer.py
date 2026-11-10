@@ -241,10 +241,11 @@ async def test_a_tool_called_on_a_worker_without_ports_fails_loudly() -> None:
 def test_deps_carry_keys_and_numbers_never_video_content() -> None:
     body = deps(40).model_dump()
     assert all(isinstance(v, str | int | float | dict | None) for v in body.values())
+    assert body["contextual"] is False
     assert len(json.dumps(body)) < 600
     assert set(body) == {
         "aweme_id", "workflow_id", "channel_id", "transcript_key", "subtitle_key",
-        "syllables_per_sec", "segment_count", "window",
+        "syllables_per_sec", "segment_count", "window", "contextual",
     }  # fmt: skip
 
 

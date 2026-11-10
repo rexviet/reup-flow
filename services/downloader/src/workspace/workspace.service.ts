@@ -48,6 +48,7 @@ const GATE_LABEL: Record<string, string> = {
   skipped_no_video: 'skipped: no voice or no video stream',
   published_original: 'published the original',
   needs_human: 'needs a human',
+  ready_for_review: 'ready for manual review',
 };
 
 function parseWorkflowId(workflowId: string): { awemeId?: string; generation?: number } {

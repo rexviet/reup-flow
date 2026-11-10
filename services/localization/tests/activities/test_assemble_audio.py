@@ -17,6 +17,7 @@ from localization.activities.assemble_audio import (
     check_length,
     parse_loudnorm,
 )
+from localization.activities.script_document import read_script
 from localization.contracts import (
     DubSegment,
     DubSegmentsDocument,
@@ -289,3 +290,49 @@ async def test_the_round_names_the_folder_the_track_is_written_to(store: ObjectS
     )
     assert result.audio_key == work_key("7001", 2, "dubbed.wav")
     assert store.exists(result.audio_key)
+
+
+@pytest.mark.parametrize("background", ["music", "silent", "missing"])
+@pytest.mark.parametrize("mixed", [False, True])
+async def test_intentional_omissions_use_only_music_or_silence(store, background, mixed, tmp_path):
+    # Give the original vocal a loud tone: reading it would be audible and detected.
+    ref, key, prep = build(store, [(1000, 1.0, 1.0)] if mixed else [])
+    script = read_script(store, ref.script_key)
+    omitted = segment(9, "", start_ms=4000).model_copy(
+        update={"status": "unresolved", "reason": "No recoverable speech"}
+    )
+    put_script(store, [*script.segments, omitted], version=ref.version)
+    doc = DubSegmentsDocument.model_validate_json(store.get_bytes(key, produced_by="test"))
+    doc = doc.model_copy(
+        update={
+            "segments": (
+                *doc.segments,
+                DubSegment(
+                    id=9,
+                    text_vi="",
+                    status="unresolved",
+                    reason=omitted.reason,
+                    duration_ms=0,
+                    stretch_ratio=1.0,
+                    overflow_unresolved=False,
+                ),
+            )
+        }
+    )
+    store.put_bytes(key, doc.model_dump_json().encode())
+    if background == "silent":
+        store.put_bytes(prep.bgm_key, make_wav(VIDEO_MS / 1000, amplitude=0))
+    elif background == "missing":
+        prep = prep.model_copy(update={"bgm_key": work_key("7001", 0, "missing-bgm.wav")})
+    store.put_bytes(prep.vocals_key, make_wav(VIDEO_MS / 1000, frequency=2100, amplitude=0.8))
+    result = await ActivityEnvironment().run(
+        activity(store).assemble_audio, SPEC, ref, key, prep, 0
+    )
+    path = tmp_path / "out.wav"
+    store.download_file(result.audio_key, path, produced_by="test")
+    check_length(path, VIDEO_MS)
+    samples = decode(path)
+    # At the omitted slot there must be no vocal tone, regardless of BGM availability.
+    assert level(samples, 4000, 5000, 2100) < 0.001
+    if background != "music" and not mixed:
+        assert max(abs(v) for v in samples) == 0

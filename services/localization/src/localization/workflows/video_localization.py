@@ -37,6 +37,7 @@ from localization.contracts import (
     LocalizationResult,
     LocalizedScriptRef,
     PrepResult,
+    ProjectRef,
     PublishRequest,
     PublishResult,
     RenderInput,
@@ -44,6 +45,7 @@ from localization.contracts import (
     ReviewVerdict,
     ScriptResult,
     SegmentRooms,
+    SourceSnapshot,
     SubtitleTrack,
     SynthesisPlan,
     Transcript,
@@ -98,6 +100,8 @@ AD_GATE_PATCH = "skip-advertisements"
 # a file without a video stream is skipped, a video without a voice has its original
 # published as it is. A run recorded before began with the ingest.
 VOICE_CHECK_PATCH = "publish-originals-without-voice"
+REVIEW_PROJECT_PATCH = "durable-review-project"
+CONTEXTUAL_LOCALIZER_PATCH = "contextual-localizer-unresolved"
 
 # Reviews of one run: the first looks at the first layout, the second at the one made after
 # the one rerun a failed review sends the run back for.
@@ -316,6 +320,8 @@ class VideoLocalizationWorkflow:
     ]
 
     def __init__(self) -> None:
+        self._project = False
+        self._contextual = False
         self._regenerated: set[str] = set()
         # What the dubbing stage needs from the Localizer stage, kept so a script
         # that is lost and made again replaces the one the stage works from.
@@ -349,10 +355,19 @@ class VideoLocalizationWorkflow:
             raise
 
     async def _pipeline(self, spec: LocalizationInput) -> LocalizationResult:
+        self._contextual = spec.delivery_mode == "review_project" and workflow.patched(
+            CONTEXTUAL_LOCALIZER_PATCH
+        )
         if self._checks_for_voice():
             outcome = await self._unprepared_end(spec)
             if outcome is not None:
                 return LocalizationResult(script=None, publish=await self._end(spec, outcome))
+        self._project = self._delivers_project(spec)
+        if self._project:
+            snapshot = await workflow.execute_activity(
+                "capture_review_source", spec, result_type=SourceSnapshot, **ASSEMBLE_SCRIPT
+            )
+            spec = spec.model_copy(update={"source_snapshot": snapshot})
         prep = await self._prepare(spec)
         if self._asks_about_ads() and await self._is_advertisement(spec, prep):
             return LocalizationResult(prep=prep, script=None, publish=await self._skip_ad(spec))
@@ -368,6 +383,13 @@ class VideoLocalizationWorkflow:
             return LocalizationResult(prep=prep, script=script, dub=dub)
         script, dub, published = await self._review_and_publish(spec, prep, script, dub)
         return LocalizationResult(prep=prep, script=script, dub=dub, publish=published)
+
+    def _delivers_project(self, spec: LocalizationInput) -> bool:
+        return (
+            spec.delivery_mode == "review_project"
+            and spec.voice.provider == "voicestudio"
+            and workflow.patched(REVIEW_PROJECT_PATCH)
+        )
 
     def _checks_for_voice(self) -> bool:
         """True for a run that checks the source for a voice before preparing it."""
@@ -481,8 +503,12 @@ class VideoLocalizationWorkflow:
                 channel_id=spec.channel_id,
                 transcript_key=transcript_key,
                 subtitle_key=subtitle_key,
+                source_video_key=(
+                    spec.source_snapshot.snapshot_key if spec.source_snapshot else None
+                ),
                 syllables_per_sec=rate,
                 segment_count=prep.transcript.segment_count,
+                contextual=self._contextual,
             )
         )
         return await workflow.execute_activity(
@@ -716,7 +742,62 @@ class VideoLocalizationWorkflow:
         self, spec: LocalizationInput, prep: PrepResult, script: ScriptResult, dub: DubbedAudio
     ) -> tuple[ScriptResult, DubbedAudio, PublishResult]:
         self._reviews = 0
+        if self._project:
+            return script, dub, await self._deliver_project(spec, prep, script, dub)
         return await self._rounds(spec, prep, script, dub)
+
+    async def _deliver_project(self, spec, prep, script, dub) -> PublishResult:
+        final = LocalizedScriptRef(script_key=dub.script_key, version=dub.script_version)
+        layout = await workflow.execute_activity(
+            "layout_captions",
+            args=[spec, final, prep.subtitles, prep.ingest, dub, 0],
+            result_type=EditSpecRef,
+            **LAYOUT,
+        )
+        reasons = self._flags(script)
+        verdict = None
+        try:
+            verdict = await workflow.execute_activity(
+                "review_before_render",
+                args=[spec, final, dub, layout, 0],
+                result_type=ReviewVerdict | None,
+                **REVIEW,
+            )
+        except ActivityError as error:
+            reasons.append(f"the review could not be made: {_describe(error)}")
+        if verdict is None:
+            reasons.append("data-only reviewer unavailable; manual review required")
+        else:
+            self._reviews = 1
+            if not verdict.passed or verdict.issues:
+                reasons.extend(f"{i.stage}: {i.reason}" for i in verdict.issues)
+                if not verdict.issues:
+                    reasons.append("the automatic review did not pass")
+        project = await workflow.execute_activity(
+            "build_review_project",
+            args=[spec, dub, prep.ingest, prep.subtitles, self._engine],
+            result_type=ProjectRef,
+            task_queue=IO_QUEUE,
+            start_to_close_timeout=timedelta(minutes=45),
+            retry_policy=_retry(3, 10, 120),
+        )
+        return await workflow.execute_activity(
+            "publish",
+            args=[
+                spec,
+                PublishRequest(
+                    outcome="needs_human" if reasons else "ready_for_review",
+                    project_key=project.project_key,
+                    reasons=tuple(r[:500] for r in reasons[:20]),
+                    review_rounds=self._reviews,
+                    verdict=verdict,
+                    dub=dub,
+                    safety_flag=bool(self._flags(script)),
+                ),
+            ],
+            result_type=PublishResult,
+            **PUBLISH,
+        )
 
     async def _record_failure(
         self, spec: LocalizationInput, error: ActivityError | ApplicationError
@@ -742,11 +823,21 @@ class VideoLocalizationWorkflow:
     def _flags(self, script: ScriptResult) -> list[str]:
         """What stops a run from being published without a person looking."""
         flags = []
-        if script.needs_human:
+        if script.needs_human and (script.flagged_segment_ids or not self._contextual):
             ids = list(script.flagged_segment_ids)
             flags.append(
                 f"the Localizer flagged segments {ids}: a line has a contact its source lacks"
             )
+        if self._contextual:
+            if script.inferred_segment_ids:
+                flags.append(
+                    f"inferred segments require review: {list(script.inferred_segment_ids)}"
+                )
+            if script.unresolved_segment_ids:
+                flags.append(
+                    "unresolved speech intentionally omitted: "
+                    f"{list(script.unresolved_segment_ids)}"
+                )
         if self._refused:
             flags.append(
                 f"the Dubber's rewrite of segments {list(self._refused)} was refused "
@@ -916,8 +1007,12 @@ class VideoLocalizationWorkflow:
                     channel_id=spec.channel_id,
                     transcript_key=prep.transcript.transcript_key,
                     subtitle_key=prep.subtitles.subtitle_key,
+                    source_video_key=(
+                        spec.source_snapshot.snapshot_key if spec.source_snapshot else None
+                    ),
                     syllables_per_sec=self._rate,
                     segment_count=prep.transcript.segment_count,
+                    contextual=self._contextual,
                 ),
                 route.notes,
             )

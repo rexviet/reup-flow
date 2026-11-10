@@ -69,7 +69,7 @@ const PUBLIC_PATHS = new Set(["/health"]);
 /** Routes known to exist as of phase 3: 5 jobs + 1 videos browse + 2 cookie
  * + 1 health. If enumeration returns fewer than this, it is broken, not
  * lucky. */
-const EXPECTED_MINIMUM_ROUTES = 9;
+const EXPECTED_MINIMUM_ROUTES = 13;
 
 /** Concrete values for path parameters, so requests reach the guard rather
  * than 404ing in the router. The guard runs before the handler either way,
@@ -93,7 +93,7 @@ describe("every route requires X-Api-Key (real AppModule)", () => {
     // parser reads.
     Object.assign(process.env, {
       API_KEY: "sweep-test-key-not-real",
-      DATABASE_URL: "postgres://reup:reup@localhost:5432/reup",
+      DATABASE_URL: process.env.TEST_DATABASE_URL ?? "postgres://reup:reup@localhost:5432/reup",
       REDIS_URL: "redis://localhost:6379/9",
       PARSER_BASE_URL: "http://parser:80",
       PROBE_SEC_USER_ID: "probe-sec-user-id",
@@ -116,6 +116,7 @@ describe("every route requires X-Api-Key (real AppModule)", () => {
   });
 
   it("discovered the application's routes", () => {
+    expect(routes).toContainEqual({ method: "GET", path: "/api/reviews" });
     expect(routes.length).toBeGreaterThanOrEqual(EXPECTED_MINIMUM_ROUTES);
     // The sweep is only meaningful if it actually reached /internal, which is
     // the half most likely to be assumed safe because "only the extension

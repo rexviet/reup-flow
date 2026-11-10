@@ -3,10 +3,12 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from pydantic_ai.durable_exec.temporal import AgentPlugin
+from temporalio import activity
 from temporalio.client import Client
 from temporalio.worker import Worker
 
 from localization.activities.agent_context import AgentContextActivities
+from localization.agents.localizer import LocalizerDeps
 from localization.agents.temporal import (
     dubber,
     dubber_code,
@@ -16,6 +18,7 @@ from localization.agents.temporal import (
     localizer_repair_agent,
     localizer_single_agent,
 )
+from localization.contracts.source_evidence import SourceEvidenceDocument
 from localization.workers.run import QueueSpec, build_worker
 from localization.workflows.video_localization import VideoLocalizationWorkflow
 from tests.support.ad_fakes import AdFakes
@@ -53,6 +56,7 @@ async def prep_workers(
     workflow: type = VideoLocalizationWorkflow,
     classifying: AdFakes | None = None,
     voicing: VoiceFakes | None = None,
+    project_activities=(),
 ) -> AsyncIterator[None]:
     """The real workflow on the `workflows` queue, fake activities on the others.
     The Localizer stage runs for real (agent, validator, durable activities) on a
@@ -89,6 +93,11 @@ async def prep_workers(
         )
     ]
     context = AgentContextActivities(localizing.mode, dubbing.mode)
+
+    @activity.defn(name="localizer_source_evidence")
+    async def source_evidence(deps: LocalizerDeps) -> SourceEvidenceDocument:
+        assert deps.contextual and deps.source_video_key is not None
+        return SourceEvidenceDocument(evidence=())
     with bound_localizer(localizing), dubbing.bound():
         async with running(
             [
@@ -110,9 +119,11 @@ async def prep_workers(
                     QueueSpec(
                         "io",
                         activities=[
+                            *project_activities,
                             acts["detect_subtitles"],  # type: ignore[list-item]
                             stage["assemble_script"],  # type: ignore[list-item]
                             context.localizer_context,
+                            source_evidence,
                             context.dubber_context,
                             context.dubber_setup,
                             review["publish"],  # type: ignore[list-item]

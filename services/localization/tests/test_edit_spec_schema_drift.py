@@ -19,6 +19,9 @@ def test_check_mode_reports_a_stale_file(tmp_path, monkeypatch) -> None:
     stale = tmp_path / "edit-spec.schema.json"
     stale.write_text("{}\n")
     monkeypatch.setattr("localization.contracts.export.EDIT_SPEC_SCHEMA_PATH", stale)
+    monkeypatch.setattr("localization.contracts.export.REPO_ROOT", tmp_path)
     assert main(["--check"]) == 1
     assert main([]) == 0
+    assert (tmp_path / "contracts/review-project.schema.json").is_file()
+    assert (tmp_path / "contracts/review-head.schema.json").is_file()
     assert main(["--check"]) == 0

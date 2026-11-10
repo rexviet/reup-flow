@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Bàn duyệt phụ đề</title>
+    <link rel="icon" href="/favicon.ico" />
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <header>
+      <div>
+        <p class="eyebrow">LOCALIZATION · REVIEW</p>
+        <h1>Bàn duyệt phụ đề</h1>
+        <p id="identity">Đang kết nối phiên duyệt…</p>
+      </div>
+      <nav aria-label="Công cụ">
+        <a href="http://127.0.0.1:3002" target="_blank" rel="noreferrer"
+          >Mở Studio</a
+        ><a href="/api/srt" download="captions.srt">Xuất SRT</a
+        ><button id="reload">Tải bản mới</button>
+      </nav>
+    </header>
+    <p id="notice" role="status" aria-live="polite">
+      Mở bằng scripts/review-studio.mjs để bắt đầu.
+    </p>
+    <main>
+      <section class="preview" aria-label="Xem trước">
+        <iframe
+          id="preview"
+          title="Video với phụ đề đã lưu"
+          sandbox="allow-scripts allow-same-origin"
+        ></iframe>
+        <p>
+          Phụ đề thay đổi sau khi lưu. Giọng chỉ thay đổi khi bạn tạo lại giọng.
+        </p>
+      </section>
+      <section aria-label="Chỉnh từng câu">
+        <h2>Phụ đề &amp; giọng đọc</h2>
+        <div id="cues"><p>Chưa có phiên duyệt.</p></div>
+      </section>
+    </main>
+    <noscript
+      >Bật JavaScript để chỉnh phụ đề. Phiên duyệt được tạo bằng launcher trên
+      máy Mac này.</noscript
+    >
+  </body>
+</html>

@@ -134,6 +134,7 @@ async def read_script(ctx: RunContext[ReviewDeps]) -> str:
     Vietnamese that is spoken and shown."""
     rows = [
         f"[{s.id}] {s.start_ms}-{s.end_ms} ms\n  zh: {s.src_zh}\n  vi: {s.text_vi}"
+        + (f"\n  status: {s.status}; reason: {s.reason}" if s.status != "translated" else "")
         for s in ctx.deps.script.segments
     ]
     return wrap_untrusted("\n".join(rows))

@@ -341,3 +341,31 @@ async def test_the_document_is_written_once_under_the_run_folder(
 ) -> None:
     await committed(store, tts, [("x" * 5, 2000)])
     assert store.exists(work_key("7001", 0, "dub-segments.json"))
+
+
+async def test_omission_skips_fit_and_commit_cache_and_preserves_metadata(store, tts):
+    omitted = segment(0, "").model_copy(
+        update={"status": "unresolved", "reason": "No recoverable speech"}
+    )
+    inferred = segment(1, "xin chào", slot_ms=3000).model_copy(
+        update={"status": "inferred", "reason": "Supported by preceding greeting"}
+    )
+    key = put_script(store, [omitted, inferred])
+    acts, synth = make(store, tts)
+    await synth.clip(SPEC.voice, ENGINE, inferred.text_vi)
+    env = ActivityEnvironment()
+    assert not (await env.run(acts.measure_fit, SPEC, key, ENGINE)).unfit_ids
+    rewritten = await env.run(
+        acts.write_dubbed_script, SPEC, REF1, decisions((0, "invented", 1.0), (1, "chào", 1.0))
+    )
+    doc = read_script(store, rewritten.script_key)
+    assert doc.segments[0] == omitted
+    assert doc.segments[1].status == "inferred" and doc.segments[1].reason == inferred.reason
+    await synth.clip(SPEC.voice, ENGINE, "chào")
+    result = await env.run(acts.commit_dub, SPEC, rewritten, ENGINE, decisions())
+    committed = DubSegmentsDocument.model_validate_json(store.get_bytes(result, produced_by="test"))
+    row = committed.segments[0]
+    assert row.status == "unresolved" and row.reason == omitted.reason
+    assert row.tts_key is None and row.duration_ms == 0 and not row.overflow_unresolved
+    assert committed.segments[1].reason == inferred.reason
+    assert tts.total == 2

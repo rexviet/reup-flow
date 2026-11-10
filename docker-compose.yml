@@ -93,7 +93,7 @@ services:
     ports:
       # The orchestrator API is the only thing meant to be reachable from the
       # host. Contrast with `parser` below, which deliberately has none.
-      - "3000:3000"
+      - "3300:3000"
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:3000/health"]
       interval: 5s
@@ -157,7 +157,7 @@ services:
     ports:
       # Exposed for host-run integration tests (the SKIP LOCKED spike drives two
       # real concurrent transactions from jest on the host).
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -214,7 +214,7 @@ services:
         # trusted network (plan §8 risk register). If this UI is ever put
         # anywhere reachable, the fix is a BFF that holds the key
         # server-side -- not a cleverer way to hide it in the bundle.
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:3000}
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:3300}
         VITE_API_KEY: ${API_KEY}
     ports:
       - "5173:80"
@@ -356,6 +356,8 @@ services:
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
       LOC_S3_ACCESS_KEY_ID: ${LOC_S3_ACCESS_KEY_ID}
       LOC_S3_SECRET_ACCESS_KEY: ${LOC_S3_SECRET_ACCESS_KEY}
+      REVIEW_S3_ACCESS_KEY_ID: ${REVIEW_S3_ACCESS_KEY_ID:-}
+      REVIEW_S3_SECRET_ACCESS_KEY: ${REVIEW_S3_SECRET_ACCESS_KEY:-}
       LANGFUSE_S3_ACCESS_KEY_ID: ${LANGFUSE_S3_ACCESS_KEY_ID}
       LANGFUSE_S3_SECRET_ACCESS_KEY: ${LANGFUSE_S3_SECRET_ACCESS_KEY}
     depends_on:
@@ -465,6 +467,7 @@ services:
       # starter only checks that the three Vbee settings are set (it calls neither Vbee nor
       # VoiceStudio), and names the voice by a marker: the voice id never enters a history.
       LOCALIZATION_PIPELINE: ${LOCALIZATION_PIPELINE:-voicestudio}
+      LOCALIZATION_DELIVERY_MODE: ${LOCALIZATION_DELIVERY_MODE:-legacy_render}
       VBEE_APP_ID: ${VBEE_APP_ID:-}
       VBEE_API_TOKEN: ${VBEE_API_TOKEN:-}
       VBEE_VOICE_ID: ${VBEE_VOICE_ID:-}
@@ -523,6 +526,7 @@ services:
       VOICESTUDIO_ALLOW_PRIVATE_HTTP_CIDRS: ${VOICESTUDIO_ALLOW_PRIVATE_HTTP_CIDRS:-100.64.0.0/10}
       STT_MODEL: ${STT_MODEL:-}
       TTS_MODEL: ${TTS_MODEL:-}
+      TTS_TIMEOUT_SECONDS: ${TTS_TIMEOUT_SECONDS:-1200}
       # Serves both pipelines; with LOCALIZATION_PIPELINE=vbee it refuses to start without
       # the Vbee settings and needs no VoiceStudio.
       LOCALIZATION_PIPELINE: ${LOCALIZATION_PIPELINE:-voicestudio}
@@ -576,6 +580,43 @@ services:
       temporal-namespace-init:
         condition: service_completed_successfully
       minio-init:
+        condition: service_completed_successfully
+
+  # Explicitly opt in after the Studio boundary gate passes.
+  review-bridge:
+    profiles: [review]
+    build: *localization-build
+    restart: unless-stopped
+    command: ["python", "-m", "localization.review_bridge.server"]
+    ports:
+      - "127.0.0.1:3310:3310"
+    environment:
+      REVIEW_S3_ENDPOINT: http://minio:9000
+      REVIEW_S3_BUCKET: ${S3_BUCKET:-reup-media}
+      REVIEW_S3_ACCESS_KEY_ID: ${REVIEW_S3_ACCESS_KEY_ID:-}
+      REVIEW_S3_SECRET_ACCESS_KEY: ${REVIEW_S3_SECRET_ACCESS_KEY:-}
+      REVIEW_TEMPORAL_ADDRESS: temporal:7233
+      REVIEW_TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
+      REVIEW_PROJECT_ROOT: /review
+      REVIEW_RUNTIME_ROOT: /run/review-bridge
+    volumes:
+      - ./data/review:/review
+    tmpfs:
+      - /run/review-bridge:uid=10001,gid=10001,mode=0700,size=16m
+      - /tmp:uid=10001,gid=10001,mode=0700,size=256m
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3310/', timeout=3).close()"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+      temporal-namespace-init:
         condition: service_completed_successfully
 
 volumes:

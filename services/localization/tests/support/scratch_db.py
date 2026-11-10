@@ -18,12 +18,15 @@ OUTBOX = (MIGRATIONS / "261026-localization-outbox.sql").read_text()
 
 
 def admin_conninfo() -> str | None:
-    env = {**dotenv_values(REPO / ".env"), **os.environ}
+    env = dict(os.environ)
+    if not env.get("POSTGRES_USER") or not env.get("POSTGRES_PASSWORD"):
+        env = {**dotenv_values(REPO / ".env"), **env}
     user, password = env.get("POSTGRES_USER"), env.get("POSTGRES_PASSWORD")
     if not user or not password:
         return None
     host = env.get("LOCALIZATION_TEST_PG_HOST", "localhost")
-    return f"host={host} port=5432 user={user} password={password} dbname=postgres"
+    port = env.get("LOCALIZATION_TEST_PG_PORT", "5432")
+    return f"host={host} port={port} user={user} password={password} dbname=postgres"
 
 
 def unavailable(reason: str) -> None:
@@ -42,7 +45,7 @@ def scratch_database(*scripts: str) -> Iterator[tuple[str, psycopg.Connection]]:
     try:
         admin = psycopg.connect(admin_info, autocommit=True, connect_timeout=3)
     except psycopg.OperationalError:
-        unavailable("Postgres is not reachable on localhost:5432")
+        unavailable("Postgres is not reachable on configured test host/port")
     name = f"loc_starter_{uuid.uuid4().hex[:12]}"
     assert name != "reup"
     admin.execute(

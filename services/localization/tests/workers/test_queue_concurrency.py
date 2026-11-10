@@ -108,4 +108,5 @@ async def test_the_workflows_queue_has_no_limit_and_no_activities() -> None:
     assert [w.__name__ for w in spec.workflows] == [
         "VideoLocalizationWorkflow",
         "VbeeDubbingWorkflow",
+        "RevoiceCaptionWorkflow",
     ]
