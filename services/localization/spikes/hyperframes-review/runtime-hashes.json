@@ -5,7 +5,12 @@
     "bundled RUNTIME_IIFE in cli.js": "sha256-zcLdksF+4QBI6fkxZlhQ1MYhJBdseOJQ0RvIBMFDeh4=",
     "commands/layout-audit.browser.js": "sha256-xKHOrX/qi+sdXQhEmwncwWmJE9QoFBcSNaP6wHm/pWQ=",
     "commands/motion-sample.browser.js": "sha256-wtEn1rpV5DbEVJ/gCdI8hx5LwJqDV8xii8bCgjbnHO8=",
-    "commands/contrast-audit.browser.js": "sha256-m/Ec/hWgpgEFw7vdX1OqVjN4hYw91Db05P5gkOtgNdw="
+    "commands/contrast-audit.browser.js": "sha256-m/Ec/hWgpgEFw7vdX1OqVjN4hYw91Db05P5gkOtgNdw=",
+    "producer runtime with injection newline": "sha256-1NaPMYUKTBJf+EQgmLuxFb4NpExL2fwEdu4pe1DrbGA=",
+    "producer HF_BRIDGE_SCRIPT": "sha256-jWP5kfKnx6ah1IBs1eA0aMsgqiW+80c8qS3ElzlxnZs=",
+    "producer buildRenderModeScript, 24fps defaults": "sha256-CZ/tma7JM9fri7GfVcXTRStvyaNY9SQN0ALiUzFUCSg=",
+    "producer buildRenderModeScript, 30fps defaults": "sha256-PZN9mqWvTzonpe3Dnxgp5KAwQt1+SgaUor5MEXQvTIg=",
+    "producer buildRenderModeScript, 60fps defaults": "sha256-AOXLZmVllgeJaLs7s+DAgn/WRA0VmjpvZwew+1yDrNk="
   },
-  "verification": "Compared exact file bytes and bundled JavaScript string literal against the registry tarball recorded in provenance.json. No arbitrary Studio script is trusted. Re-run hyperframes check after regeneration or any pin change."
+  "verification": "Compared exact file bytes and bundled JavaScript string literal against the registry tarball recorded in provenance.json. No arbitrary Studio script is trusted. Re-run hyperframes check after regeneration or any pin change. Producer hashes verified against exact scripts served by the pinned 0.8.77 CLI and fileServer.ts at provenance gitHead; runtime differs from preview only by one injection newline. Render-mode variants cover Studio FPS options 24/30/60 with default seek configuration."
 }

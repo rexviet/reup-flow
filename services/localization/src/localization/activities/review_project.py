@@ -1,7 +1,6 @@
 """Commit a closed, immutable review revision and resolve it only through durable HEAD."""
 
 import asyncio
-import base64
 import hashlib
 import html
 import json
@@ -13,9 +12,12 @@ from temporalio import activity
 
 from localization.activities.layout_captions import (
     FontMeter,
+    caption_px,
     caption_spans,
     check_one_translation,
     fit_at_size,
+    line_gap_px,
+    stroke_px,
 )
 from localization.activities.script_document import read_script
 from localization.activities.srt_document import srt_document
@@ -42,9 +44,14 @@ from localization.storage.object_store import (
     require_work_key,
 )
 
-# Exact preview/audit script bytes for the hyperframes@0.8.77 pin,
+# Exact preview/export/audit script bytes for the hyperframes@0.8.77 pin,
 # verified in spikes/hyperframes-review/runtime-hashes.json. Pin changes require revalidation.
 STUDIO_SCRIPT_HASHES = (
+    'sha256-1NaPMYUKTBJf+EQgmLuxFb4NpExL2fwEdu4pe1DrbGA=',
+    'sha256-jWP5kfKnx6ah1IBs1eA0aMsgqiW+80c8qS3ElzlxnZs=',
+    'sha256-CZ/tma7JM9fri7GfVcXTRStvyaNY9SQN0ALiUzFUCSg=',
+    'sha256-PZN9mqWvTzonpe3Dnxgp5KAwQt1+SgaUor5MEXQvTIg=',
+    'sha256-AOXLZmVllgeJaLs7s+DAgn/WRA0VmjpvZwew+1yDrNk=',
     "sha256-zcLdksF+4QBI6fkxZlhQ1MYhJBdseOJQ0RvIBMFDeh4=",
     "sha256-Ev6N67HGBwff9zraXAs7JeL3vnlbes4/itGiifbJZcg=",
     "sha256-xKHOrX/qi+sdXQhEmwncwWmJE9QoFBcSNaP6wHm/pWQ=",
@@ -66,6 +73,8 @@ def project_html(cues, video, mixed, font, subtitles, ingest, *, font_path) -> b
     top = subtitles.region.y if subtitles.region is not None else round(ingest.height * 0.8)
     height = subtitles.region.h if subtitles.region is not None else round(ingest.height * 0.14)
     meter = FontMeter(str(font_path))
+    px = caption_px(ingest.height)
+    gap, stroke = line_gap_px(px), stroke_px(px)
     bottom = min(ingest.height, top + height)
 
     def box_style(width, box_height):
@@ -79,16 +88,16 @@ def project_html(cues, video, mixed, font, subtitles, ingest, *, font_path) -> b
     fitted, boxes = {}, {}
     visible = sorted((c for c in cues if c.text_vi.strip()), key=lambda c: c.start_ms)
     for c in visible:
-        longest = max(meter.width(word, 20) for word in c.text_vi.split())
+        longest = max(meter.width(word, px) for word in c.text_vi.split())
         width = max(ingest.width * 0.6, min(ingest.width * 0.9, longest + 16))
         while True:
-            fit = fit_at_size(c.text_vi, meter, width - 16)
+            fit = fit_at_size(c.text_vi, meter, width - 16, px)
             if len(fit.lines) <= 2 or width >= ingest.width * 0.9:
                 break
             width = min(ingest.width * 0.9, width + 16)
-        box_height = max(height, len(fit.lines) * 28 + 8)
+        box_height = max(height, len(fit.lines) * gap + 8)
         if box_height > ingest.height:
-            raise ValueError("caption box exceeds the frame at fixed 20px")
+            raise ValueError(f"caption box exceeds the frame at {px}px")
         fitted[c.id], boxes[c.id] = fit, box_style(width, box_height)
     geometry = "".join(f"#cue-{identity}{{{box}}}" for identity, box in boxes.items())
     style = f"""
@@ -98,8 +107,8 @@ width:{ingest.width}px;height:{ingest.height}px}}video{{width:100%;height:100%}}
 .caption,.source-mask{{position:absolute;left:20%;width:60%;
 box-sizing:border-box}}
 .caption{{top:{top}px;height:{height}px;padding:4px 8px;
-display:flex;align-items:center;justify-content:center;font:20px/28px Review,sans-serif;
-color:#ffff00;text-align:center;white-space:pre;-webkit-text-stroke:4px #000;
+display:flex;align-items:center;justify-content:center;font:{px}px/{gap}px Review,sans-serif;
+color:#ffff00;text-align:center;white-space:pre;-webkit-text-stroke:{stroke}px #000;
 paint-order:stroke fill}}
 .source-mask{{background:rgba(255,255,255,.25);backdrop-filter:blur(12px)}}
 {geometry}
@@ -135,29 +144,15 @@ paint-order:stroke fill}}
         for c in cues
         if c.text_vi.strip()
     ]
-    # The controls use only the mixed track. Cue clips are dependencies for rebuilding,
-    # never extra audio elements. Studio owns playback inside its preview iframe.
-    script = """const video=document.querySelector('video'),mix=document.querySelector('audio');
-video.muted=true;
-video.addEventListener('volumechange',()=>{if(!video.muted)video.muted=true;});
-if(window.parent===window){
-function sync(){mix.currentTime=video.currentTime;}
-video.addEventListener('play',()=>{sync();mix.play().catch(()=>{});});
-video.addEventListener('pause',()=>mix.pause());video.addEventListener('seeked',sync);
-video.addEventListener('ratechange',()=>{mix.playbackRate=video.playbackRate;});
-function tick(){for(const el of document.querySelectorAll('.clip')){
-const start=Number(el.dataset.start),end=start+Number(el.dataset.duration);
-el.style.visibility=video.currentTime>=start&&video.currentTime<end?'visible':'hidden';}
-requestAnimationFrame(tick);}tick();}"""
-    script_hash = base64.b64encode(hashlib.sha256(script.encode()).digest()).decode()
+    # HyperFrames owns media timing in preview and deterministic frame capture.
     studio_scripts = " ".join(f"'{digest}'" for digest in STUDIO_SCRIPT_HASHES)
     data = json.dumps([c.model_dump(mode="json") for c in cues], ensure_ascii=False)
     data = data.replace("&", "\\u0026").replace("<", "\\u003c").replace(">", "\\u003e")
     return f'''<!doctype html><html lang="vi"><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self';
-script-src 'sha256-{script_hash}' {studio_scripts}
+script-src {studio_scripts}
 http://127.0.0.1:3002/api/runtime.js; style-src 'unsafe-inline';
-font-src 'self'; media-src 'self';
+font-src 'self' data:; img-src 'self' data:; media-src 'self';
 object-src 'none'; base-uri 'none'">
 <title>Review project</title><style>{style}</style></head><body>
 <main data-hf-id="hf-review" id="review" data-composition-id="review" data-start="0"
@@ -165,11 +160,11 @@ data-duration="{duration}" data-width="{ingest.width}" data-height="{ingest.heig
 data-no-timeline>
 <video data-hf-id="hf-source" id="source" src="{video_name}"
 data-start="0" data-duration="{duration}"
-data-track-index="0" muted playsinline controls></video>
+data-track-index="0" muted playsinline></video>
 <audio data-hf-id="hf-mix" id="mix" src="{mix_name}" data-start="0" data-duration="{duration}"
 data-track-index="3"></audio>
 {"".join(masks)}{"".join(captions)}</main>
-<script type="application/json" id="cue-data">{data}</script><script>{script}</script>
+<script type="application/json" id="cue-data">{data}</script>
 </body></html>'''.encode()
 
 
@@ -385,6 +380,25 @@ def resolve_project(store: ObjectStore, head_key: str):
     return head, manifest, etag
 
 
+def asset_filename(asset: ReviewAsset) -> str:
+    # Immutable HTML bytes are dependencies, not additional root compositions.
+    name = Path(asset.key).name
+    return name + ".blob" if name.endswith(".html") else name
+
+
+def archive_html_dependencies(folder: Path) -> None:
+    """Retain exact old machine-owned copies without exposing extra entry points."""
+    for path in folder.glob("*.html"):
+        if len(path.stem) != 64 or any(c not in "0123456789abcdef" for c in path.stem):
+            continue
+        if path.is_symlink() or checksum(path.read_bytes()) != path.stem:
+            raise ValueError("modified HTML dependency; preserve it for inspection")
+        archive = path.with_name(path.name + ".blob")
+        if archive.is_symlink() or (archive.exists() and archive.read_bytes() != path.read_bytes()):
+            raise ValueError("HTML dependency archive differs")
+        path.rename(archive)
+
+
 def materialize_project(store: ObjectStore, head_key: str, folder: Path):
     """Cold-open from HEAD; gather every dependency, verifying its bytes."""
     head, manifest, etag = resolve_project(store, head_key)
@@ -408,7 +422,7 @@ def materialize_project(store: ObjectStore, head_key: str, folder: Path):
         + list(manifest.studio_files.values())
     )
     for asset in assets:
-        path = folder / Path(asset.key).name
+        path = folder / asset_filename(asset)
         store.download_file(asset.key, path, produced_by="review_project")
         with path.open("rb") as src:
             if hashlib.file_digest(src, "sha256").hexdigest() != asset.sha256:
@@ -420,8 +434,9 @@ def materialize_project(store: ObjectStore, head_key: str, folder: Path):
         ):
             raise ValueError("unsafe Studio projection path")
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes((folder / Path(asset.key).name).read_bytes())
-    (folder / "index.html").write_bytes((folder / Path(manifest.html.key).name).read_bytes())
+        path.write_bytes((folder / asset_filename(asset)).read_bytes())
+    (folder / "index.html").write_bytes((folder / asset_filename(manifest.html)).read_bytes())
+    archive_html_dependencies(folder)
     (folder / "captions.srt").write_bytes((folder / Path(manifest.srt.key).name).read_bytes())
     (folder / "manifest.json").write_text(manifest.model_dump_json())
     (folder / "head.json").write_text(head.model_dump_json())

@@ -28,6 +28,8 @@ from localization.activities.assemble_audio import AssembleAudioActivity
 from localization.activities.assemble_script import AssembleScriptActivity
 from localization.activities.check_voice import CheckVoiceActivity, SileroSpeechDetector
 from localization.activities.classify_video import ClassifyVideoActivity
+from localization.activities.complete_transcript import CompleteTranscriptActivity
+from localization.activities.detect_singing import DetectSingingActivity
 from localization.activities.detect_subtitles import DetectSubtitlesActivity
 from localization.activities.dub_script import DubScriptActivities
 from localization.activities.dubber_ports import StoreDubberPorts
@@ -139,6 +141,7 @@ def queue_specs(
             store,
             loudness_lufs=settings.loudness_lufs,
             true_peak_dbtp=settings.true_peak_dbtp,
+            original_voice_gain=settings.original_voice_gain,
         )
         layout = LayoutCaptionsActivity(
             store,
@@ -238,6 +241,8 @@ def queue_specs(
         ]
         agent_context = AgentContextActivities(settings.localizer_mode, settings.dubber_mode)
         source_evidence = SourceEvidenceActivity(store, providers.ocr)
+        complete = CompleteTranscriptActivity(store, providers.ocr)
+        singing = DetectSingingActivity(store, providers.singing)
         check_voice = CheckVoiceActivity(
             store,
             SileroSpeechDetector(),
@@ -268,6 +273,8 @@ def queue_specs(
                 settings.io_concurrency,
                 activities=[
                     detect.detect_subtitles,
+                    complete.complete_transcript,
+                    singing.detect_singing,
                     PersistActivity(store).persist_json,
                     assemble.assemble_script,
                     agent_context.localizer_context,
@@ -386,34 +393,54 @@ def bind_agent_runtime(
         dubber_module.bind_ports(StoreDubberPorts(store, synthesizer))
 
 
+# The queues whose activities call VoiceStudio (speech to text and text to speech).
+VOICE_QUEUES = frozenset({"stt", "tts"})
+
+
+def split_voice_queues(
+    role: str, specs: Sequence[QueueSpec], voice_queues_on_host: bool
+) -> list[QueueSpec]:
+    """Which of the agents' queues this process serves. The `voice` role serves only the
+    speech queues. The `agents` role serves all of them, except the speech queues when a
+    `voice` worker is run on the host (`VOICE_QUEUES_ON_HOST`)."""
+    if role == "voice":
+        return [s for s in specs if s.name in VOICE_QUEUES]
+    if role == "agents" and voice_queues_on_host:
+        return [s for s in specs if s.name not in VOICE_QUEUES]
+    return list(specs)
+
+
 async def serve(role: str) -> int:
     settings = load_settings()
     provider = init_tracing(settings, f"localization-worker-{role}")
     if provider is not None:
         instrument_agents(provider, include_content=settings.trace_agent_content)
     client = await connect(settings.temporal_address, settings.temporal_namespace)
-    if role not in ("agents", "media"):
-        raise ConfigError(f"unknown worker role {role!r}; expected 'agents' or 'media'")
+    if role not in ("agents", "media", "voice"):
+        raise ConfigError(f"unknown worker role {role!r}; expected 'agents', 'media' or 'voice'")
+    # `voice` is the agents' process restricted to the speech queues: it builds the same
+    # providers and runtime, and serves only `stt` and `tts`.
+    agents_process = role in ("agents", "voice")
     # One HTTP client for every OpenRouter request of this process: its response hook
     # records what each request cost, on its span and in `localization.llm_calls`.
     recorder = (
         LlmCallRecorder(_database_url(settings))
-        if role == "agents" and settings.loc_database_url
+        if agents_process and settings.loc_database_url
         else None
     )
-    llm_http = openrouter_client(recorder) if role == "agents" else None
+    llm_http = openrouter_client(recorder) if agents_process else None
     providers = (
         build_providers(settings, llm_http=llm_http)
-        if role == "agents"
+        if agents_process
         else build_media_providers(settings)
     )
     store = ObjectStore.from_settings(settings)
-    health = VoiceStudioHealth.from_settings(settings) if role == "agents" else None
-    if role == "agents":
+    health = VoiceStudioHealth.from_settings(settings) if agents_process else None
+    if agents_process:
         bind_agent_runtime(settings, store, speech_provider(providers), llm_http)
     specs = runnable(
         queue_specs(
-            role,
+            "agents" if role == "voice" else role,
             settings,
             store,
             providers,
@@ -422,6 +449,7 @@ async def serve(role: str) -> int:
             recorder=recorder,
         )
     )
+    specs = split_voice_queues(role, specs, settings.voice_queues_on_host)
     workers = [build_worker(client, spec) for spec in specs]
     log.info("worker %s serving queues %s", role, [s.name for s in specs])
 

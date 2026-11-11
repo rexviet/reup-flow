@@ -9,7 +9,13 @@ import uuid
 from pathlib import Path
 from types import SimpleNamespace
 
-from localization.activities.review_project import checksum, project_html, resolve_project
+from localization.activities.review_project import (
+    archive_html_dependencies,
+    asset_filename,
+    checksum,
+    project_html,
+    resolve_project,
+)
 from localization.activities.srt_document import srt_document
 from localization.contracts import ReviewAsset, ReviewHead, ReviewProjectManifest
 from localization.storage.object_store import (
@@ -90,7 +96,7 @@ class Repository:
     def prepare(
         self, base, cues, visual, *, revision=None, operation=None, mixed=None, studio_files=None
     ):
-        # Source masks and playback script stay generated, while visual edits use cue IDs.
+        # Source masks and native timing stay generated, while visual edits use cue IDs.
         from localization.review_bridge.visual import apply_visual
 
         mixed = mixed or base.mixed_audio
@@ -246,7 +252,7 @@ class Repository:
                 + list(project.studio_files.values())
             )
             # Read dependencies before mutating the projection, then check for a Studio race.
-            staged = {Path(a.key).name: self.read_asset(a) for a in assets}
+            staged = {asset_filename(a): self.read_asset(a) for a in assets}
             staged.update({name: self.read_asset(a) for name, a in project.studio_files.items()})
             staged.update(
                 {
@@ -277,6 +283,7 @@ class Repository:
                             "Studio changed before projection write",
                         )
                 atomic_write(safe_path(folder, name), data)
+            archive_html_dependencies(folder)
             if self.projection(folder) != after:
                 raise Conflict(project.revision_id, "Studio changed after projection write")
             atomic_write(

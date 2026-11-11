@@ -1,0 +1,26 @@
+# Current Mac: automatically dispatch new downloads to human review, and run the speech
+# queues (stt, tts) in a worker on the host instead of the agents container.
+# Recorded workflows retain their original delivery mode.
+#
+# Why the host: VoiceStudio listens on 127.0.0.1 of this Mac. From a container the only way
+# to it is Docker Desktop's host gateway, which drops about 45% of new connections (measured
+# over 12 minutes: 111 of 240 probes failed, against 0 of 240 from the host). A worker on the
+# host reaches it directly. `scripts/stack.sh start` runs that worker under pm2.
+services:
+  localization-starter:
+    environment:
+      LOCALIZATION_DELIVERY_MODE: review_project
+      # The Vietnamese voice reads 25% faster than its own pace. Set here because the .env
+      # holds secrets and is not edited by tools; an entry in it is overridden by this one.
+      VOICE_SETTINGS_JSON: '{"speed":1.25}'
+  worker-agents:
+    environment:
+      VOICE_QUEUES_ON_HOST: "true"
+  # The host worker needs Temporal and the object store. Loopback only: nothing else on the
+  # network can reach them.
+  temporal:
+    ports:
+      - "127.0.0.1:7233:7233"
+  minio:
+    ports:
+      - "127.0.0.1:9000:9000"

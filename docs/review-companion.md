@@ -56,6 +56,40 @@ trước rồi reload tab hiện tại; các thay đổi source đã lưu vẫn 
 Không đóng tab đang có nội dung chưa lưu. Lần kiểm tra thực tế được ghi trong
 [báo cáo preview](../plans/reports/fix-261110-2042-studio-preview-stall.md).
 
+## Tự mở trên Mac hiện tại
+
+[Compose override](../docker-compose.override.yml) đặt starter thành `review_project`.
+Video mới tải qua extension được dispatch theo mode này; run đã ghi input giữ mode cũ.
+Không sửa hoặc chạy lại video cũ khi bật watcher.
+
+```sh
+# Sau khi worker/bridge và canary đã sẵn sàng:
+docker compose build localization-starter
+docker compose up -d --no-deps --force-recreate localization-starter
+docker compose --profile review up -d --no-deps review-bridge
+python3 scripts/install-review-auto-open.py install
+```
+
+`scripts/start-all.sh` thay cho bước cài LaunchAgent: nó chạy watcher dưới pm2
+(`reup-review-auto-open`) và tự dừng LaunchAgent nếu còn, để không có hai watcher cùng mở
+một project. State và log tự mở vẫn nằm trong `data/review-launcher/`.
+
+Installer cần Node 22.13+ và Docker trên PATH. Nó cài LaunchAgent
+`com.reup-flow.review-auto-open` cho tài khoản Mac đang đăng nhập, tự chạy khi login.
+Watcher mỗi 5 giây đọc danh tính project hoàn tất qua CLI read-only trong starter;
+không mang credential DB/API ra host. Cả `ready_for_review` và `needs_human` có HEAD
+đúng generation đều được mở bằng launcher có boundary gate hiện tại.
+
+Chỉ nhận kết quả từ lần bật đầu tiên. Mốc thời gian, danh sách đã mở và log nằm
+trong `data/review-launcher/auto-open*`, giữ qua restart. Khi Studio đang mở project
+khác, project mới chờ; không ngắt review hoặc ghi đè local edits. Review xong, chạy
+`node scripts/review-studio.mjs stop` để nhường Studio cho project tiếp theo.
+Đóng tab browser không dừng server Studio. Launch lỗi sẽ retry, không đánh dấu đã mở.
+
+Dừng tự mở: `python3 scripts/install-review-auto-open.py stop`. Lệnh này giữ state
+và các file review. Rollback dispatch bằng cách đặt mode trong Compose override về
+`legacy_render`, rồi recreate riêng starter; run đã start vẫn giữ mode đã ghi.
+
 ## Lưu và phục hồi
 
 Native preview dùng runtime tại origin Studio cố định trong CSP. Element có
@@ -63,11 +97,11 @@ editor ID ổn định; preview, waveform, thumbnail cache và stamp metadata kh
 được tính là source edits. HTML/CSS/JSON nguồn và overrides vẫn được theo dõi.
 
 Box mặc định trắng ở alpha 0.25, hiện suốt video, rộng 60% và căn giữa (20% mỗi
-bên). Font giữ 20px. Generator đo bằng font đi kèm, xuống dòng và nới box khi
+bên). Font là 20px cho khung cao 576px và tỉ lệ theo chiều cao khung (khung 1080px: 38px), để chữ trông cùng độ lớn ở mọi video. Generator đo bằng font đi kèm, xuống dòng và nới box khi
 câu dài; không tự thu nhỏ chữ. Box chỉ nới trong thời gian câu dài, rồi về 60%; các
 khoảng không có sub vẫn có box, không fade hoặc biến mất.
-Line-height là 28px (tăng 3px giữa các dòng so với trước).
-Viền chữ là `-webkit-text-stroke: 4px #000` trong `.caption` ở Code → `index.html`.
+Line-height là 28px và viền chữ 4px ở font 20px, cùng tỉ lệ 1,4 và 0,2 lần cỡ chữ ở khung khác (1080px: 53px và 8px).
+Viền chữ là `-webkit-text-stroke` (đơn vị px theo tỉ lệ trên, 4px ở font 20px) trong `.caption` ở Code → `index.html`.
 Stroke width trong panel Style của Studio là viền element, không phải viền glyph.
 
 - Chỉnh text/timing rồi chọn **Lưu phụ đề**. Timing phải nằm trong video và không
@@ -104,6 +138,28 @@ Rollback: dừng nhận request mới ở bridge; giữ worker xử lý job đã
 về manifest đã chọn bằng **ETag hiện tại**, rồi rematerialize cache sạch. Giữ
 revision, clip và request outcomes để điều tra; không rollback bằng local pointer.
 
+## Export MP4 trong Studio
+
+Mở tab **Renders**, chọn MP4, độ phân giải, FPS và chất lượng rồi bấm **Export**.
+Bản review dùng runtime HyperFrames quản lý media và caption theo timeline;
+không có player tự chạy song song bằng requestAnimationFrame. Font, box và các
+visual edits đã lưu trong project được dùng khi export. File xuất local không tự
+publish và không thay đổi trạng thái workflow.
+
+CSP chỉ cho phép các hash runtime/bridge export của HyperFrames 0.8.77 đã xác minh,
+bao gồm FPS 24/30/60 của Studio. Runtime export có một newline cuối khác runtime
+preview; không dùng hash của preview để suy đoán export đã được phép. Hash và
+nguồn kiểm chứng nằm trong [runtime-hashes.json](../services/localization/spikes/hyperframes-review/runtime-hashes.json).
+Compiler có thể nhúng font/ảnh dạng data URI; CSP cho phép đúng hai loại tài nguyên
+đó, không cho phép script tùy ý hoặc CDN. Khi đổi pin/runtime/config render seek,
+phải xác minh lại các byte script trước khi cập nhật hash.
+
+Projection chỉ có một root `index.html`. Bản HTML asset bất biến được giữ bằng
+đuôi `.html.blob` để Studio không nhận nhầm thành composition khác. Các bản cũ
+chỉ được đổi tên khi checksum khớp tên asset; file bị sửa tay được giữ và báo lỗi.
+History trong object store vẫn nguyên. Dùng launcher để mở project; không mở
+các bản HTML asset như một composition độc lập.
+
 ## Kiểm tra
 
 ```sh
@@ -137,4 +193,5 @@ uv run pytest -q tests/integration/test_review_roundtrip.py -m live
 
 Thiếu prerequisite thì test skip; skip và suite dùng provider giả không phải bằng
 chứng live. Migration/canary/activation và rollback theo [runbook triển khai](hyperframes-review.md);
-rollout vẫn phải chờ native Studio và live provider gates.
+Mac hiện tại được bật theo yêu cầu rõ ràng của người dùng; các gate native Studio
+và live provider còn lại vẫn phải được nghiệm thu riêng.

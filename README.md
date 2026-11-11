@@ -138,6 +138,36 @@ docker compose up -d localization-starter worker-agents
 scripts/e2e-smoke.sh "https://www.douyin.com/video/<id>"
 ```
 
+### Chạy cả stack (Docker + tiến trình host qua pm2)
+
+```bash
+scripts/start-all.sh            # start: Docker, rồi các tiến trình host dưới pm2
+scripts/start-all.sh status     # Docker, pm2 và VoiceStudio có trả lời không
+scripts/start-all.sh reload     # reload các tiến trình host sau khi đổi code worker
+scripts/start-all.sh stop
+```
+
+Hai tiến trình host chạy dưới pm2 ([ecosystem.config.cjs](ecosystem.config.cjs)):
+`reup-voice-worker` (hàng đợi `stt` và `tts`) và `reup-review-auto-open` (tự mở Studio).
+Xem log và điều khiển từng cái: `pm2 logs reup-voice-worker`, `pm2 reload <tên>`,
+`pm2 stop <tên>`. Muốn tự chạy lại sau khi khởi động máy: `pm2 save` rồi `pm2 startup`.
+
+Xem Studio từ ngoài LAN khi router không forward cổng: `scripts/remote-studio.sh start --key "<public key>"`
+chạy một sshd riêng (không cần root, cổng 2222 trên loopback) và một tunnel `ngrok tcp`. sshd này chỉ
+nhận khóa công khai bạn đưa, không có shell, và chỉ chuyển được tới Studio (`3002`) và trang review
+(`3310`); sshd hệ thống ở cổng 22 không bị lộ. `scripts/remote-studio.sh url` in lệnh `ssh -N -L`
+và cách lấy link review (một `ssh` không có `-N` in link với grant mới). Xong việc thì
+`scripts/remote-studio.sh stop`. Địa chỉ ngrok miễn phí đổi mỗi lần start, và đừng `pm2 save` khi tunnel đang chạy.
+
+Worker `voice` chạy trên host vì VoiceStudio chỉ nghe ở `127.0.0.1`, còn từ container
+chỉ vào được qua cổng host của Docker Desktop, và đường đó làm rớt khoảng 45% kết nối mới
+(đo 12 phút: 111/240 lần lỗi từ container, 0/240 từ host). Compose override đặt
+`VOICE_QUEUES_ON_HOST=true` cho `worker-agents` và mở Temporal (`127.0.0.1:7233`) và MinIO
+(`127.0.0.1:9000`) chỉ trên loopback cho worker host. Worker host lấy cấu hình từ
+`docker compose config` của `worker-agents`, chỉ đổi các địa chỉ nội bộ Docker sang loopback;
+không chép khóa vào file. Khi `VOICE_QUEUES_ON_HOST=true` mà worker host không chạy, tác vụ
+STT/TTS nằm chờ trong Temporal đến khi nó chạy lại.
+
 `REVIEWER_MODE=jev` đang dùng mặc định nên `REVIEWER_MODEL` chỉ cần khi đổi sang
 `REVIEWER_MODE=llm`. `DUBBER_MODE=code` đã được bootstrap cấu hình.
 
@@ -204,12 +234,12 @@ Log từng service: `docker compose logs -f <service>`.
 
 Spike tương thích Studio, SRT và revoice chạy local được mô tả trong
 [HyperFrames compatibility spike](docs/hyperframes-review-spike.md). Host launcher
-đã có boundary guard và mở được full video canary; rollout mặc định vẫn chờ nghiệm thu.
+đã có boundary guard và mở được full video canary; các gate round-trip còn lại vẫn được theo dõi.
 
 Localizer đã có chính sách ngữ cảnh cho input `delivery_mode: review_project`;
 run mới còn đối chiếu ASR với chữ gốc đọc từ frame theo timestamp, đưa cùng bằng
 chứng vào lượt dịch và lượt sửa; xem [runbook](docs/hyperframes-review.md).
-input cũ vẫn mặc định `legacy_render`; starter chưa bật mặc định chế độ mới. Câu `inferred`
+Input cũ vẫn mặc định `legacy_render`; Mac hiện tại bật review bằng Compose override. Câu `inferred`
 giữ bản dịch cùng lý do để review; câu `unresolved` giữ ID/timing/lý do nhưng không
 gọi TTS hoặc tạo caption. Audio dùng nhạc nền hoặc im lặng, không dùng giọng gốc.
 Các trường dữ liệu nằm trong [contracts](services/localization/src/localization/contracts/models.py).
@@ -221,18 +251,20 @@ cue clips, font, caption/SRT, script và thông tin voice/model/engine để rev
 `materialize_project` trong [review_project.py](services/localization/src/localization/activities/review_project.py)
 khôi phục đủ dependency từ HEAD thành folder tự chứa.
 
-Starter đọc `LOCALIZATION_DELIVERY_MODE` cho mỗi dispatch VoiceStudio mới; mặc định
-`legacy_render`. Input `review_project` cùng marker workflow mới kết thúc ở
+Starter đọc `LOCALIZATION_DELIVERY_MODE` cho mỗi dispatch VoiceStudio mới. Base Compose
+giữ `legacy_render`; [override trên Mac hiện tại](docker-compose.override.yml) chọn
+`review_project`. Input `review_project` cùng marker workflow mới kết thúc ở
 `ready_for_review` hoặc `needs_human`, giữ `project_key` và không render MP4 hay ghi
 `output/`. Reviewer cần frame hoặc không khả dụng sẽ chuyển sang `needs_human`.
 Vbee, input/history cũ và các early gate giữ hành vi trước đây. Rollback mode chỉ
 ảnh hưởng dispatch mới; phải giữ worker hiểu cả histories mới.
 
-Delivery review chưa bật cho dispatch mặc định. [Migration runner](scripts/apply-migrations.sh) đã có
+Delivery review đã bật cho dispatch mới trên Mac hiện tại theo yêu cầu người dùng. [Migration runner](scripts/apply-migrations.sh) đã có
 backup/restore verification và atomic ledger; nullable `project_key` đã được áp sau
-backup và thử restore. Worker/starter đã có binary hỗ trợ review, nhưng default dispatch
-vẫn là `legacy_render`; chỉ canary được chỉ định mới dùng `review_project`. [Runbook rollout](docs/hyperframes-review.md)
+backup và thử restore. Worker/starter đang hỗ trợ review; run đã start giữ mode đã ghi. LaunchAgent tự mở
+Studio/companion cho project mới ở `ready_for_review` hoặc `needs_human`, chờ khi
+Studio đang review project khác. [Runbook rollout](docs/hyperframes-review.md)
 sở hữu thứ tự upgrade, canary một generation, activation và rollback. Companion/launcher và revoice đã có
 implementation cùng kiểm tra local; [hướng dẫn companion](docs/review-companion.md)
 ghi cấu hình, phục hồi, gate live riêng và giới hạn hiện tại. Studio compatibility
-gates vẫn phải hoàn tất trước rollout.
+gates còn lại chưa được coi là đã nghiệm thu khi bật cấu hình local này.

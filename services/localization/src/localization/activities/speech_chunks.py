@@ -9,6 +9,9 @@ from localization.providers.errors import PermanentProviderError
 SAMPLE_RATE = 16000
 MAX_CHUNK_SAMPLES = 12 * SAMPLE_RATE
 PADDING_SAMPLES = SAMPLE_RATE // 5
+# Expressive/brief dialogue on a separated stem can fall below Silero's 0.5 default.
+# Keep it eligible for ASR; its language/text still require downstream evidence.
+VAD_SPEECH_THRESHOLD = 0.25
 
 
 @dataclass(frozen=True)
@@ -27,6 +30,7 @@ def speech_spans(pcm: bytes) -> list[dict[str, int]]:
         samples,
         load_silero_vad(),
         sampling_rate=SAMPLE_RATE,
+        threshold=VAD_SPEECH_THRESHOLD,
         max_speech_duration_s=10,
         min_silence_duration_ms=350,
     )

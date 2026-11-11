@@ -111,6 +111,10 @@ class Settings(BaseSettings):
     judge_model: str | None = None
     ocr_model: str | None = None
     ocr_bbox_format: BBoxFormat | None = None
+    # An audio-capable model (through OpenRouter) asked whether each transcript segment's
+    # vocals are sung; a sung segment keeps its original sound and is not dubbed. Unset,
+    # nothing is asked and every segment is dubbed as speech.
+    singing_model: str | None = None
 
     s3_endpoint: str | None = None
     s3_region: str = "us-east-1"
@@ -144,6 +148,9 @@ class Settings(BaseSettings):
     cover_opacity: float = Field(default=0.92, ge=0.0, le=1.0)
 
     loudness_lufs: float = Field(default=-14.0, le=0.0, ge=-40.0)
+    # The original voice under the dubbed one, as a fraction of its own level (0.3 is 70%
+    # quieter, about -10 dB); 0 leaves it out. Sung spans keep it at full level regardless.
+    original_voice_gain: float = Field(default=0.3, ge=0.0, le=1.0)
     true_peak_dbtp: float = Field(default=-1.5, le=0.0, ge=-9.0)
 
     demucs_bin: str = "demucs"
@@ -151,6 +158,10 @@ class Settings(BaseSettings):
     # Local TTS includes waiting for the shared inference engine. Keep its deadline
     # separate from STT/OCR and below the synthesis activity's 30-minute budget.
     tts_timeout_seconds: float = Field(default=1200.0, gt=0, le=1500)
+    # True when a separate `voice` worker (run on the host) serves the `stt` and `tts` queues:
+    # the `agents` worker then leaves them alone, so no speech task is picked up by a process
+    # that has to reach VoiceStudio through the container network.
+    voice_queues_on_host: bool = False
 
     # Vbee speech (STT and batch TTS). The voice id names a cloned voice of the account
     # and is kept out of output like the credentials are.

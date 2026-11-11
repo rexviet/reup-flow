@@ -277,3 +277,16 @@ def test_env_example_carries_no_real_values_for_secrets() -> None:
     text = (REPO_ROOT / ".env.example").read_text()
     for name in ("OPENROUTER_API_KEY", "VOICESTUDIO_API_KEY", "LOC_DATABASE_URL"):
         assert re.search(rf"^{name}=$", text, flags=re.M), name
+
+
+def test_a_sung_segment_has_no_clip_and_a_spoken_one_needs_one() -> None:
+    from localization.contracts import DubSegment
+
+    base = {"id": 0, "text_vi": "lời", "duration_ms": 0, "stretch_ratio": 1.0}
+    DubSegment(**base, overflow_unresolved=False, keep_original=True)
+    with pytest.raises(ValidationError):
+        DubSegment(**base, overflow_unresolved=False)
+    with pytest.raises(ValidationError):
+        DubSegment(
+            **base, overflow_unresolved=False, keep_original=True, tts_key="cache/tts/a.wav"
+        )

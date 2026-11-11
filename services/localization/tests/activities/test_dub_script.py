@@ -369,3 +369,23 @@ async def test_omission_skips_fit_and_commit_cache_and_preserves_metadata(store,
     assert row.tts_key is None and row.duration_ms == 0 and not row.overflow_unresolved
     assert committed.segments[1].reason == inferred.reason
     assert tts.total == 2
+
+
+async def test_a_sung_line_is_never_spoken_but_keeps_its_text_for_the_caption(store, tts):
+    sung = segment(0, "x" * 40, slot_ms=1000).model_copy(update={"keep_original": True})
+    spoken = segment(1, "x" * 5, slot_ms=2000)
+    key = put_script(store, [sung, spoken])
+    acts, synth = make(store, tts)
+    await synth.clip(SPEC.voice, ENGINE, spoken.text_vi)
+    env = ActivityEnvironment()
+    # Far too long for its slot, yet not the Dubber's to shorten: it is not read.
+    assert (await env.run(acts.measure_fit, SPEC, key, ENGINE)).unfit_ids == ()
+    durations = await env.run(acts.clip_durations, SPEC, key, ENGINE)
+    assert [d.id for d in durations.items] == [1]
+    out = await env.run(acts.commit_dub, SPEC, REF1, ENGINE, decisions())
+    doc = DubSegmentsDocument.model_validate_json(store.get_bytes(out, produced_by="test"))
+    row = doc.segments[0]
+    assert row.keep_original and row.text_vi == "x" * 40 and row.status == "translated"
+    assert row.tts_key is None and row.duration_ms == 0 and row.stretch_ratio == 1.0
+    assert doc.segments[1].tts_key is not None and not doc.segments[1].keep_original
+    assert tts.total == 1

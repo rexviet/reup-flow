@@ -45,6 +45,7 @@ from localization.contracts import (
     ReviewVerdict,
     ScriptResult,
     SegmentRooms,
+    SingingCheck,
     SourceSnapshot,
     SubtitleTrack,
     SynthesisPlan,
@@ -102,6 +103,13 @@ AD_GATE_PATCH = "skip-advertisements"
 VOICE_CHECK_PATCH = "publish-originals-without-voice"
 REVIEW_PROJECT_PATCH = "durable-review-project"
 CONTEXTUAL_LOCALIZER_PATCH = "contextual-localizer-unresolved"
+# Marks a run that, once prepared, adds to the transcript the burned-in subtitle lines shown
+# where no speech was heard, so they are dubbed too. A run recorded before went from the
+# preparation straight to the Localizer with the transcript as heard.
+SUBTITLE_SPEECH_PATCH = "dub-unspoken-subtitles"
+# Marks a run that asks which transcript segments are sung, to keep their original sound.
+# A run recorded before dubbed every segment.
+SINGING_PATCH = "keep-original-singing"
 
 # Reviews of one run: the first looks at the first layout, the second at the one made after
 # the one rerun a failed review sends the run back for.
@@ -157,6 +165,21 @@ DETECT_SUBTITLES = dict(
     start_to_close_timeout=timedelta(minutes=45),
     heartbeat_timeout=timedelta(minutes=2),
     retry_policy=_retry(5, 5, 300),
+)
+# One vision request per stretch of subtitle with no speech under it, each read cached.
+COMPLETE_TRANSCRIPT = dict(
+    task_queue=IO_QUEUE,
+    start_to_close_timeout=timedelta(minutes=30),
+    heartbeat_timeout=timedelta(minutes=2),
+    retry_policy=_retry(5, 5, 300),
+)
+# One audio request per segment long enough to be sung, each answer cached. A run whose
+# segments could not be checked is dubbed as speech.
+DETECT_SINGING = dict(
+    task_queue=IO_QUEUE,
+    start_to_close_timeout=timedelta(minutes=30),
+    heartbeat_timeout=timedelta(minutes=2),
+    retry_policy=_retry(3, 5, 120),
 )
 VOICE_RATE = dict(
     # The voice reads one sample sentence the first time it is used; the TTS queue's
@@ -373,6 +396,7 @@ class VideoLocalizationWorkflow:
             return LocalizationResult(prep=prep, script=None, publish=await self._skip_ad(spec))
         if not workflow.patched(LOCALIZE_PATCH):
             return LocalizationResult(prep=prep, script=None)
+        prep = await self._complete(spec, prep)
         prep, script = await self._localize(spec, prep)
         if not workflow.patched(DUB_PATCH):
             return LocalizationResult(prep=prep, script=script)
@@ -464,7 +488,43 @@ class VideoLocalizationWorkflow:
                 self._regenerated.add(stage)
                 prep = await self._rerun_input_stage(stage, spec, prep)
 
+    async def _complete(self, spec: LocalizationInput, prep: PrepResult) -> PrepResult:
+        """The transcript the Localizer works from: with the subtitle lines nobody was heard
+        saying, and with the sung segments marked. A run recorded before either step
+        replays without it."""
+        if workflow.patched(SUBTITLE_SPEECH_PATCH):
+            transcript = await workflow.execute_activity(
+                "complete_transcript",
+                args=[spec, prep.transcript, prep.subtitles],
+                result_type=Transcript,
+                **COMPLETE_TRANSCRIPT,
+            )
+            prep = prep.model_copy(update={"transcript": transcript})
+        if workflow.patched(SINGING_PATCH):
+            # A check that cannot be made (the model down, the retries spent) leaves every
+            # segment speech: it changes how a line sounds, never whether the run finishes.
+            try:
+                check = await workflow.execute_activity(
+                    "detect_singing",
+                    args=[spec, prep.transcript, prep.ingest.vocals_key],
+                    result_type=SingingCheck,
+                    **DETECT_SINGING,
+                )
+            except ActivityError as error:
+                workflow.logger.warning("singing not checked, all dubbed: %s", _describe(error))
+                return prep
+            if not check.checked:
+                workflow.logger.info("singing not checked: no model is configured")
+            prep = prep.model_copy(update={"transcript": check.transcript})
+        return prep
+
     async def _rerun_input_stage(
+        self, stage: str, spec: LocalizationInput, prep: PrepResult
+    ) -> PrepResult:
+        """The stage made again, and the transcript completed again from what it made."""
+        return await self._complete(spec, await self._rerun_stage(stage, spec, prep))
+
+    async def _rerun_stage(
         self, stage: str, spec: LocalizationInput, prep: PrepResult
     ) -> PrepResult:
         if stage == "transcribe":

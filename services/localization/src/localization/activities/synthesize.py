@@ -50,6 +50,22 @@ BeforePut = Callable[[str], Awaitable[None] | None]
 # must not stand in for the new ones.
 CLIP_METHOD = "pieces-1"
 
+# A clip read faster than this many characters a second lost most of its words (a 25
+# character line came back as 287 ms, 87 a second; lines are read at about 20). It is
+# asked for again, and never cached.
+MAX_CHARS_PER_SECOND = 45
+# A line this short can be said quickly; it is not judged.
+MIN_JUDGED_CHARS = 8
+# Requests for one line before a clip still too short fails the activity (which Temporal
+# retries); a short clip is never stored.
+SHORT_CLIP_ATTEMPTS = 3
+
+
+def too_short(text_vi: str, duration_ms: int) -> bool:
+    """Whether a clip of `duration_ms` is far shorter than `text_vi` can be read in."""
+    chars = sum(not c.isspace() for c in text_vi)
+    return chars >= MIN_JUDGED_CHARS and chars * 1000 > MAX_CHARS_PER_SECOND * duration_ms
+
 
 def _canonical(value: object) -> str:
     return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
@@ -214,7 +230,8 @@ class Synthesizer:
 
     async def _clip(self, digest: str, voice: VoiceRef, engine: str | None, text_vi: str) -> Clip:
         known = await self._cached(digest)
-        if known is not None:
+        # A clip cached before short ones were refused is spoken again, and replaced.
+        if known is not None and not too_short(text_vi, known.duration_ms):
             return known
         encoded = base64.b64encode(text_vi.encode()).decode()
         if len(encoded) > MAX_METADATA_TEXT_BYTES:
@@ -223,8 +240,23 @@ class Synthesizer:
                 type="TextTooLong",
                 non_retryable=True,
             )
-        wav = await self._speak(voice, text_vi)
-        duration_ms = await run_blocking(wav_duration_ms, wav)
+        for attempt in range(1, SHORT_CLIP_ATTEMPTS + 1):
+            wav = await self._speak(voice, text_vi)
+            duration_ms = await run_blocking(wav_duration_ms, wav)
+            if not too_short(text_vi, duration_ms):
+                break
+            activity.logger.warning(
+                "clip %s is %d ms for %d characters (attempt %d): refused",
+                digest[:12],
+                duration_ms,
+                len(text_vi),
+                attempt,
+            )
+        else:
+            raise ApplicationError(
+                f"the voice returned clips too short for the line {SHORT_CLIP_ATTEMPTS} times",
+                type="ShortClip",
+            )
         if self._before_put is not None:
             outcome = self._before_put(digest)
             if outcome is not None:
@@ -256,13 +288,19 @@ class Synthesizer:
             return await run_blocking(join_pieces, wavs, [p.pause_after_ms for p in pieces[:-1]])
 
 
+def spoken(segment) -> bool:
+    """Whether a script segment is read by the voice: not omitted, not sung."""
+    return segment.status != "unresolved" and not segment.keep_original
+
+
 def segment_hashes(
     synth: Synthesizer, voice: VoiceRef, engine: str | None, script
 ) -> dict[str, str]:
-    """Hash -> text for every distinct text in `script`, in order of first use."""
+    """Hash -> text for every distinct text in `script` that is spoken, in order of first
+    use. An omitted line and a sung one (its original sound is kept) are not spoken."""
     texts: dict[str, str] = {}
     for segment in script.segments:
-        if segment.status == "unresolved":
+        if not spoken(segment):
             continue
         texts.setdefault(synth.hash_of(voice, engine, segment.text_vi), segment.text_vi)
     return texts

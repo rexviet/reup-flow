@@ -9,7 +9,11 @@ from typing import Any
 import httpx
 
 from localization.config import ConfigError, Settings
-from localization.providers.base import OpenAICompatClient
+from localization.providers.base import (
+    LOCAL_CONNECT_TIMEOUT_SECONDS,
+    OpenAICompatClient,
+    local_server_http,
+)
 from localization.providers.errors import PermanentProviderError, TransientProviderError
 
 
@@ -44,7 +48,12 @@ class VoiceCatalog:
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._client = OpenAICompatClient(
-            "voices", base_url, api_key, timeout_seconds=timeout_seconds, http=http
+            "voices",
+            base_url,
+            api_key,
+            timeout_seconds=timeout_seconds,
+            http=http or local_server_http(),
+            connect_timeout=LOCAL_CONNECT_TIMEOUT_SECONDS,
         )
         self._ttl = ttl_seconds
         self._clock = clock

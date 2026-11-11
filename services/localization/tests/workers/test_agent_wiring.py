@@ -16,7 +16,13 @@ from localization.storage.object_store import ObjectStore
 from localization.workers.run import bind_agent_runtime, queue_specs, runnable
 
 PROVIDERS = SimpleNamespace(
-    stt=object(), ocr=object(), tts=object(), demucs=object(), vbee_stt=None, vbee_tts=None
+    stt=object(),
+    ocr=object(),
+    tts=object(),
+    demucs=object(),
+    vbee_stt=None,
+    vbee_tts=None,
+    singing=None,
 )
 
 
@@ -497,3 +503,35 @@ def test_voice_studio_worker_enables_speech_chunking(provider,chunked):
 
 def test_review_project_activities_are_served_on_io():
     assert {"capture_review_source", "build_review_project"} <= _registered(Settings())["io"]
+
+
+def test_the_voice_role_serves_only_the_speech_queues() -> None:
+    from localization.workers.run import VOICE_QUEUES, split_voice_queues
+
+    specs = runnable(queue_specs("agents", Settings(), STORE, PROVIDERS))  # type: ignore[arg-type]
+    voice = split_voice_queues("voice", specs, True)
+    assert {s.name for s in voice} == VOICE_QUEUES
+    assert {s.name for s in voice} == {"stt", "tts"}
+
+
+def test_the_agents_role_leaves_the_speech_queues_to_the_host_worker_only_when_told_to() -> None:
+    from localization.workers.run import split_voice_queues
+
+    specs = runnable(queue_specs("agents", Settings(), STORE, PROVIDERS))  # type: ignore[arg-type]
+    everything = {s.name for s in specs}
+    assert {"stt", "tts"} <= everything
+    assert {s.name for s in split_voice_queues("agents", specs, False)} == everything
+    kept = {s.name for s in split_voice_queues("agents", specs, True)}
+    assert kept == everything - {"stt", "tts"}
+    # Every queue is served by exactly one of the two processes.
+    both = [s.name for s in split_voice_queues("agents", specs, True)] + [
+        s.name for s in split_voice_queues("voice", specs, True)
+    ]
+    assert sorted(both) == sorted(everything)
+
+
+def test_the_media_role_is_never_split() -> None:
+    from localization.workers.run import QueueSpec, split_voice_queues
+
+    specs = [QueueSpec("media", 1), QueueSpec("render", 1)]
+    assert split_voice_queues("media", specs, True) == specs

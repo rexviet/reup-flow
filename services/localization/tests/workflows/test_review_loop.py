@@ -59,6 +59,16 @@ class Run:
         ]
 
 
+# The preparation and the transcript's completion, each made once: a rerun never repeats them.
+PREPARED_ONCE = {
+    "ingest": 1,
+    "transcribe": 1,
+    "detect_subtitles": 1,
+    "complete_transcript": 1,
+    "detect_singing": 1,
+}
+
+
 async def run_workflow(
     client: Client, run: Run, *, timeout: float = 60, workflow: type = VideoLocalizationWorkflow
 ) -> Run:
@@ -169,7 +179,7 @@ async def test_a_line_read_badly_runs_only_the_dubber_for_that_line_and_what_fol
     await run_workflow(temporal_client, run)
     assert run.result.publish.outcome == "published"
     # Nothing before the dubbing was done again.
-    assert run.prep.calls == {"ingest": 1, "transcribe": 1, "detect_subtitles": 1}
+    assert run.prep.calls == PREPARED_ONCE
     assert run.localizing.calls["assemble_script"] == 1
     assert run.localizing.model.answer_attempts == 1
     # The Dubber spoke only the line the review named, and nothing was spoken before it
@@ -229,7 +239,7 @@ async def test_a_wrong_translation_runs_the_localizer_again_with_the_notes_and_w
     assert run.result.publish.outcome == "published"
     # Transcript and subtitles are not made again; the Localizer is, once more, as the
     # next version in round 1.
-    assert run.prep.calls == {"ingest": 1, "transcribe": 1, "detect_subtitles": 1}
+    assert run.prep.calls == PREPARED_ONCE
     assert run.localizing.assembled == [(0, 1), (1, 3)]
     assert run.localizing.model.answer_attempts == 2
     prompt = str(run.localizing.model.seen_messages[-1])
@@ -250,7 +260,7 @@ async def test_a_layout_problem_runs_only_the_layout_again(
     )
     await run_workflow(temporal_client, run)
     assert run.result.publish.outcome == "published"
-    assert run.prep.calls == {"ingest": 1, "transcribe": 1, "detect_subtitles": 1}
+    assert run.prep.calls == PREPARED_ONCE
     assert run.localizing.calls["assemble_script"] == 1
     assert run.dubbing.calls["write_dubbed_script"] == 1
     assert run.dubbing.calls["assemble_audio"] == 1

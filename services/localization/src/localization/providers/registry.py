@@ -7,6 +7,7 @@ from localization.providers.base import OcrProvider, StemSeparator, SttProvider,
 from localization.providers.demucs import DemucsSeparator
 from localization.providers.openai_stt import OpenAICompatStt
 from localization.providers.openai_tts import OpenAICompatTts
+from localization.providers.singing import SingingDetector
 from localization.providers.vbee import VbeeStt, VbeeTts
 from localization.providers.vision_ocr import VisionOcr
 
@@ -23,6 +24,8 @@ class Providers:
     # Vbee's speech, for the Vbee dubbing workflow; None on a worker without its credentials.
     vbee_stt: VbeeStt | None = None
     vbee_tts: VbeeTts | None = None
+    # Whether a segment is sung; None when no `SINGING_MODEL` is set.
+    singing: SingingDetector | None = None
 
 
 def vbee_configured(settings: Settings) -> bool:
@@ -59,6 +62,7 @@ def build_providers(
         demucs=DemucsSeparator(settings.demucs_bin),
         vbee_stt=VbeeStt.from_settings(settings, http) if with_vbee else None,
         vbee_tts=VbeeTts.from_settings(settings, http) if with_vbee else None,
+        singing=SingingDetector.from_settings(settings, llm_http or http),
     )
 
 

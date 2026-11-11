@@ -336,3 +336,87 @@ async def test_intentional_omissions_use_only_music_or_silence(store, background
     assert level(samples, 4000, 5000, 2100) < 0.001
     if background != "music" and not mixed:
         assert max(abs(v) for v in samples) == 0
+
+
+# --- sung segments keep the original sound ------------------------------------------------
+
+SINGING_HZ = 2100
+
+
+def test_the_graph_lays_the_original_vocals_over_each_kept_span_unducked() -> None:
+    graph = build_filter_graph([(500, 1.0)], 8000, [(2000, 4000), (6000, 7000)])
+    lines = graph.splitlines()
+    # The vocals are the input after the clips, cut to each span, faded in and out there.
+    assert any(line.startswith("[2:a]") and "asplit=2[o0][o1]" in line for line in lines)
+    first = next(line for line in lines if line.startswith("[o0]"))
+    assert "atrim=start=2.000:end=4.000" in first and "adelay=2000:all=1" in first
+    assert "afade=t=in:d=0.060" in first and "afade=t=out:st=1.940:d=0.060" in first
+    # Only the dub keys the ducker; the kept vocals join the final mix.
+    duck = next(line for line in lines if "sidechaincompress" in line)
+    assert duck.startswith("[bgm][vkey]")
+    final = next(line for line in lines if line.rstrip(";").endswith("[mix]"))
+    assert final.startswith("[ducked][vmix][keep]amix=inputs=3")
+
+
+def test_a_track_of_only_sung_segments_is_the_music_and_the_vocals() -> None:
+    graph = build_filter_graph([], 4000, [(0, 4000)])
+    assert "sidechaincompress" not in graph
+    final = next(line for line in graph.splitlines() if line.rstrip(";").endswith("[mix]"))
+    assert final.startswith("[bgm][keep]amix=inputs=2")
+
+
+def test_without_kept_spans_the_graph_is_what_it_was() -> None:
+    assert build_filter_graph([(2000, 1.0)], 8000, []) == build_filter_graph([(2000, 1.0)], 8000)
+
+
+async def test_a_sung_segment_keeps_the_original_vocals_and_the_music_unducked(store) -> None:
+    ref, key, prep = build(store, [(500, 1.0, 1.0)])
+    script = read_script(store, ref.script_key)
+    sung = segment(5, "lời bài hát", start_ms=3000, slot_ms=3000).model_copy(
+        update={"keep_original": True}
+    )
+    put_script(store, [*script.segments, sung], version=ref.version)
+    doc = DubSegmentsDocument.model_validate_json(store.get_bytes(key, produced_by="test"))
+    kept = DubSegment(
+        id=5,
+        text_vi="lời bài hát",
+        duration_ms=0,
+        stretch_ratio=1.0,
+        overflow_unresolved=False,
+        keep_original=True,
+    )
+    store.put_bytes(
+        key, doc.model_copy(update={"segments": (*doc.segments, kept)}).model_dump_json().encode()
+    )
+    store.put_bytes(prep.vocals_key, make_wav(VIDEO_MS / 1000, frequency=SINGING_HZ, amplitude=0.5))
+    result = await ActivityEnvironment().run(
+        activity(store).assemble_audio, SPEC, ref, key, prep, 0
+    )
+    path = Path(tempfile.mkdtemp()) / "out.wav"
+    store.download_file(result.audio_key, path, produced_by="test")
+    check_length(path, VIDEO_MS)
+    samples = decode(path)
+    # The original vocals sound over the sung span, and only there.
+    span = tone_span_ms(samples, SINGING_HZ)
+    assert span is not None
+    assert span[0] == pytest.approx(3000, abs=80) and span[1] == pytest.approx(6000, abs=80)
+    # Nothing ducks the music under the singing: it is as loud as where nobody speaks.
+    assert abs(db(level(samples, 3300, 5700, MUSIC_HZ) / level(samples, 6300, 7900, MUSIC_HZ))) < 2
+
+
+def test_original_voice_runs_quietly_under_the_dub_and_not_over_sung_spans():
+    graph = build_filter_graph([(1000, 1.0)], 10_000, [(4000, 6000)], under=0.3)
+    # One decoded vocals stream feeds both the sung spans and the quiet layer.
+    assert "[2:a]" in graph and "asplit=2[vk][vu]" in graph
+    assert "[vu]volume=0.3000,volume=0:enable='between(t,4.000,6.000)'[under]" in graph
+    # The quiet layer is mixed after the ducker: it neither keys it nor is ducked.
+    assert "[ducked][vmix][keep][under]amix=inputs=4" in graph
+    assert "[under]" not in graph.split("sidechaincompress")[0].split("[voice]")[-1]
+
+
+def test_quiet_original_voice_without_sung_spans_or_clips():
+    only_dub = build_filter_graph([(0, 1.0)], 5_000, None, under=0.3)
+    assert "[2:a]" in only_dub and "[ducked][vmix][under]amix=inputs=3" in only_dub
+    none_spoken = build_filter_graph([], 5_000, None, under=0.3)
+    assert "[bgm][under]amix=inputs=2" in none_spoken
+    assert "under" not in build_filter_graph([(0, 1.0)], 5_000, None)

@@ -121,6 +121,8 @@ async def prep_workers(
                         activities=[
                             *project_activities,
                             acts["detect_subtitles"],  # type: ignore[list-item]
+                            acts["complete_transcript"],  # type: ignore[list-item]
+                            acts["detect_singing"],  # type: ignore[list-item]
                             stage["assemble_script"],  # type: ignore[list-item]
                             context.localizer_context,
                             source_evidence,

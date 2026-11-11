@@ -64,7 +64,13 @@ async def _measure(client: Client, spec: QueueSpec) -> int:
 
 def _specs(settings: Settings) -> dict[str, QueueSpec]:
     providers = SimpleNamespace(
-        stt=object(), ocr=object(), tts=object(), demucs=object(), vbee_stt=None, vbee_tts=None
+        stt=object(),
+        ocr=object(),
+        tts=object(),
+        demucs=object(),
+        vbee_stt=None,
+        vbee_tts=None,
+        singing=None,
     )
     store = ObjectStore(object(), "b")
     specs = queue_specs("agents", settings, store, providers) + queue_specs(  # type: ignore[arg-type]

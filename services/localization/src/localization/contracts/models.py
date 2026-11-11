@@ -81,6 +81,10 @@ class SttWord(Contract):
         return self
 
 
+SegmentSource = Literal["speech", "subtitle"]
+SegmentKind = Literal["speech", "singing"]
+
+
 class SttSegment(Contract):
     # Detected for the independent speech chunk; not verified language per word.
     language: str | None = None
@@ -88,6 +92,10 @@ class SttSegment(Contract):
     start_ms: NonNegativeInt
     end_ms: NonNegativeInt
     text: Text
+    # `subtitle`: no speech was heard here, the text was read from the burned-in subtitle
+    # on screen. `singing`: the voice sings, so the dub keeps the original sound there.
+    source: SegmentSource = "speech"
+    kind: SegmentKind = "speech"
 
     @model_validator(mode="after")
     def _ends_after_it_starts(self) -> "SttSegment":
@@ -108,6 +116,16 @@ class TranscriptDocument(Contract):
 class Transcript(Contract):
     transcript_key: Key
     segment_count: NonNegativeInt
+
+
+class SingingCheck(Contract):
+    """What the singing check left: the transcript with each segment's kind, whether a
+    model was asked at all (`checked` False: no model is configured, every segment stays
+    speech), and the segments found sung."""
+
+    transcript: Transcript
+    checked: bool
+    singing_ids: tuple[NonNegativeInt, ...] = ()
 
 
 class SubtitleTrack(Contract):
@@ -191,6 +209,8 @@ class LocalizedSegment(LineMetadata):
     slot_ms: NonNegativeInt
     src_zh: Text
     on_screen: bool
+    # A sung line: captioned, never spoken; the mix keeps the original vocals there.
+    keep_original: bool = False
 
     @model_validator(mode="after")
     def _ends_after_it_starts(self) -> "LocalizedSegment":
@@ -257,10 +277,12 @@ class DubSegment(LineMetadata):
     duration_ms: NonNegativeInt
     stretch_ratio: Annotated[float, Field(ge=STRETCH_MIN, le=STRETCH_MAX)]
     overflow_unresolved: bool
+    # The original sound is kept over this segment (it is sung): it has no clip.
+    keep_original: bool = False
 
     @model_validator(mode="after")
     def _omitted_has_no_clip(self) -> "DubSegment":
-        if self.status != "unresolved":
+        if self.status != "unresolved" and not self.keep_original:
             if self.tts_key is None:
                 raise ValueError("spoken segments require a TTS clip")
             return self
@@ -270,7 +292,7 @@ class DubSegment(LineMetadata):
             or self.stretch_ratio != 1.0
             or self.overflow_unresolved
         ):
-            raise ValueError("unresolved speech must be omitted without a clip or overflow")
+            raise ValueError("unspoken segments must be omitted without a clip or overflow")
         return self
 
 

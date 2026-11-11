@@ -2,7 +2,9 @@
 
 Review delivery dừng ở bàn giao cho người review, không tự xuất bản. [Companion](review-companion.md)
 sở hữu hướng dẫn sửa phụ đề/style/revoice; [compatibility spike](hyperframes-review-spike.md)
-sở hữu gate native Studio. **Chưa được flip default:** các acceptance còn lại vẫn mở.
+sở hữu gate native Studio. Người dùng đã yêu cầu bật review delivery trên Mac hiện tại;
+[Compose override](../docker-compose.override.yml) giữ lựa chọn này qua restart.
+Các acceptance native round-trip còn lại vẫn được ghi riêng, chưa coi là đã pass.
 Launcher có boundary preload và đã mở/phát full canary với timeline 03:09;
 [bằng chứng](../plans/reports/ops-261110-1916-native-studio-full-video.md). Không bỏ probe.
 
@@ -16,6 +18,11 @@ câu để lấp chỗ trống. Cache có namespace generation/model/prompt, và
 giữ đường replay cũ. Cần deploy worker hiểu activity mới trước khi chạy canary;
 legacy delivery không gọi bước này. Source của behavior nằm ở
 [`source_evidence.py`](../services/localization/src/localization/activities/source_evidence.py).
+
+VoiceStudio STT chia audio theo Silero VAD trước khi nhận dạng từng chunk. Ngưỡng
+speech hiện là 0.25 thay cho mặc định 0.5 để giữ lời thoại ngắn/biểu cảm trên stem
+đã tách giọng. Đây là ngưỡng chọn audio, không phải xác nhận lời nói đã hiểu đúng;
+Localizer vẫn cần source evidence và giữ `inferred`/`unresolved` khi chưa đủ rõ.
 
 `TTS_TIMEOUT_SECONDS` mặc định 1200 giây, tách khỏi timeout provider 120 giây của
 STT/OCR. VoiceStudio có queue và budget inference riêng; client cắt ở 120 giây
@@ -84,7 +91,7 @@ SRT, style và revoice thật đạt contract. `needs_human` vẫn cần ngườ
 đã xuất bản. `output_key` phải rỗng; với video đã có output từ legacy, kiểm tra object
 cũ không bị thay đổi thay vì xóa nó để làm test pass.
 
-Chỉ sau khi đủ bằng chứng mới lưu `LOCALIZATION_DELIVERY_MODE=review_project` vào
+Với deployment mới, sau khi đủ bằng chứng hãy lưu `LOCALIZATION_DELIVERY_MODE=review_project` vào
 cấu hình starter và recreate **riêng starter**:
 
 ```sh

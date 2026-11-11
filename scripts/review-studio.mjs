@@ -369,6 +369,7 @@ export async function main(args) {
         command,
         port: PORT,
         project: folder,
+        pagesOpened: false,
         aweme,
         generation,
       }),
@@ -378,6 +379,8 @@ export async function main(args) {
       `http://127.0.0.1:${PORT}`,
       `http://127.0.0.1:3310/#${grant}`,
     ]);
+    const openedRecord = JSON.parse(await readFile(recordPath, 'utf8'));
+    await writeFile(recordPath, JSON.stringify({ ...openedRecord, pagesOpened: true }), { mode: 0o600 });
     console.log(
       `Review Studio on 127.0.0.1:${PORT}; PID ${child.pid}. Ctrl+C stops this Studio.`,
     );

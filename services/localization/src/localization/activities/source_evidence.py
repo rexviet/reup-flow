@@ -17,6 +17,7 @@ from localization.activities.ffmpeg import run_blocking, run_ffmpeg
 from localization.activities.localizer_ports import read_subtitle_document, read_transcript_document
 from localization.activities.synthesize import background_heartbeat
 from localization.agents.localizer import LocalizerDeps
+from localization.contracts import SubtitleDocument
 from localization.contracts.limits import ensure_payload_fits
 from localization.contracts.source_evidence import SourceEvidence, SourceEvidenceDocument
 from localization.storage.object_store import ArtifactMissingError
@@ -35,6 +36,18 @@ def sample_times(start_ms: int, end_ms: int) -> tuple[int, ...]:
     return tuple(
         dict.fromkeys(first + round((last - first) * index / (count - 1)) for index in range(count))
     )
+
+
+def subtitle_band(subtitles: SubtitleDocument) -> tuple[int, int] | None:
+    """(top, height) of the frame strip read for subtitles: the detected region with half
+    its height (at least 16 px) above and below; None when no region was found."""
+    region = subtitles.region
+    if region is None:
+        return None
+    padding = max(16, region.h // 2)
+    top = max(0, region.y - padding)
+    bottom = min(subtitles.height, region.y + region.h + padding)
+    return (top, bottom - top)
 
 
 def source_frame(video: Path, time_ms: int, output: Path, band=None) -> bytes:
@@ -97,13 +110,7 @@ class SourceEvidenceActivity:
             subtitles = await asyncio.to_thread(
                 read_subtitle_document, self.store, deps.subtitle_key
             )
-            band = None
-            if subtitles.region is not None:
-                region = subtitles.region
-                padding = max(16, region.h // 2)
-                top = max(0, region.y - padding)
-                bottom = min(subtitles.height, region.y + region.h + padding)
-                band = (top, bottom - top)
+            band = subtitle_band(subtitles)
             semaphore = asyncio.Semaphore(4)
 
             async def read(segment):

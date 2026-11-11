@@ -13,7 +13,7 @@ from temporalio.exceptions import ApplicationError
 
 from localization.activities.persist import put_json
 from localization.activities.script_document import read_script, write_script
-from localization.activities.synthesize import Synthesizer, final_stretch, stretch_for
+from localization.activities.synthesize import Synthesizer, final_stretch, spoken, stretch_for
 from localization.contracts import (
     DubbedScriptRef,
     DubDecisions,
@@ -101,7 +101,7 @@ class DubScriptActivities:
         script = await asyncio.to_thread(read_script, self._store, script_key, spec)
         unfit: list[int] = []
         for seg in script.segments:
-            if seg.status == "unresolved":
+            if not spoken(seg):
                 continue
             duration = await self._duration(spec.voice, engine, seg.text_vi)
             if stretch_for(duration, seg.slot_ms) is None:
@@ -121,7 +121,7 @@ class DubScriptActivities:
                 id=seg.id, duration_ms=await self._duration(spec.voice, engine, seg.text_vi)
             )
             for seg in script.segments
-            if seg.status != "unresolved"
+            if spoken(seg)
         ]
         return ClipDurations(items=tuple(items))
 
@@ -185,17 +185,19 @@ class DubScriptActivities:
         chosen = {d.id: d.stretch_ratio for d in decisions.items}
         segments: list[DubSegment] = []
         for seg in doc.segments:
-            if seg.status == "unresolved":
+            if not spoken(seg):
+                # Omitted (its text is empty), or sung: the original sound is kept there.
                 segments.append(
                     DubSegment(
                         id=seg.id,
-                        text_vi="",
+                        text_vi=seg.text_vi,
                         status=seg.status,
                         reason=seg.reason,
                         tts_key=None,
                         duration_ms=0,
                         stretch_ratio=1.0,
                         overflow_unresolved=False,
+                        keep_original=seg.keep_original,
                     )
                 )
                 continue

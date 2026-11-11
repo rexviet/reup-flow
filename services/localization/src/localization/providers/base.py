@@ -41,6 +41,28 @@ class StemSeparator(Protocol):
     ) -> tuple[Path, Path, Path]: ...
 
 
+# The local voice server (VoiceStudio) is reached through Docker Desktop's host gateway, which
+# drops about 40% of NEW connections to it (measured: 34 of 60 succeeded) while a connection that
+# is already open keeps working. So a connection that does not open within a second is
+# abandoned and opened again (httpx retries connection errors only, before any request is
+# sent, so a speech or transcription request is never sent twice), and open connections stay
+# in the pool for reuse. Measured with these settings: 60 of 60 succeeded, p95 2 ms.
+LOCAL_CONNECT_TIMEOUT_SECONDS = 1.0
+LOCAL_CONNECT_RETRIES = 5
+LOCAL_KEEPALIVE_SECONDS = 120.0
+
+
+def local_server_http() -> httpx.AsyncClient:
+    """An HTTP client for a server on this machine: connection retries and a pool that
+    keeps connections open between requests."""
+    return httpx.AsyncClient(
+        transport=httpx.AsyncHTTPTransport(
+            retries=LOCAL_CONNECT_RETRIES,
+            limits=httpx.Limits(keepalive_expiry=LOCAL_KEEPALIVE_SECONDS),
+        )
+    )
+
+
 class OpenAICompatClient:
     """POSTs to `{base_url}{path}` with a bearer key and maps every failure to a
     transient or permanent provider error. Each request runs in a `provider.{name}`
@@ -56,13 +78,20 @@ class OpenAICompatClient:
         http: httpx.AsyncClient | None = None,
         provider: str = "openai-compatible",
         model: str | None = None,
+        connect_timeout: float | None = None,
     ) -> None:
         self._name = name
         self._provider = provider
         self._model = model
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
-        self._timeout = timeout_seconds
+        # `timeout_seconds` bounds reading the answer; `connect_timeout`, when given, bounds
+        # opening the connection on its own, so a dropped connect is retried quickly.
+        self._timeout = (
+            httpx.Timeout(timeout_seconds, connect=connect_timeout)
+            if connect_timeout is not None
+            else timeout_seconds
+        )
         self._http = http or httpx.AsyncClient()
 
     async def post(self, path: str, *, units: float | None = None, **kwargs: Any) -> httpx.Response:

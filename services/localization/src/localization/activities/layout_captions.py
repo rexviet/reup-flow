@@ -52,8 +52,15 @@ from localization.storage.object_store import (
     work_key_for,
 )
 
-# Largest first: a caption is drawn as large as it can be and still fit in two lines.
-FONT_SIZES = (48, 44, 40, 36, 32)
+# Captions are drawn at one fixed size for a video: 20 px with a 4 px black outline and
+# 28 px from one line to the next on a frame 576 px tall, and the same proportions on a
+# taller or shorter one, so the text looks as large on every video. A caption that does
+# not fit in two lines is split over time.
+BASE_FRAME_HEIGHT = 576
+CAPTION_PX = 20
+LINE_GAP_PX = 28
+STROKE_PX = 4
+FONT_SIZES = (CAPTION_PX,)
 MAX_LINES = 2
 # The cover is the text's own box (already including its outline) plus this margin on
 # each side, as a fraction of the frame's width: 5 px at 1080, on top of the text
@@ -71,10 +78,34 @@ SAFE_ZONE = (0.05, 0.78, 0.90, 0.14)
 
 # Line height as a multiple of the font size. The render draws captions with it too
 # (caption_images).
-LINE_HEIGHT = 1.25
+LINE_HEIGHT = LINE_GAP_PX / CAPTION_PX
 # A caption box is at least two lines of the largest size tall, so text that wraps to two
 # lines never overflows a thin cover.
 MIN_BOX_HEIGHT = math.ceil(MAX_LINES * FONT_SIZES[0] * LINE_HEIGHT)
+STROKE_RATIO = STROKE_PX / CAPTION_PX
+
+
+def _round(value: float) -> int:
+    return max(1, math.floor(value + 0.5))
+
+
+def caption_px(frame_h: int) -> int:
+    """The font size for a frame `frame_h` tall: 20 px at 576 px, in proportion."""
+    return _round(CAPTION_PX * frame_h / BASE_FRAME_HEIGHT)
+
+
+def stroke_px(px: int) -> int:
+    """The outline width for a font size: 4 px at 20 px."""
+    return _round(px * STROKE_RATIO)
+
+
+def line_gap_px(px: int) -> int:
+    """The distance from one line to the next for a font size: 28 px at 20 px."""
+    return _round(px * LINE_HEIGHT)
+
+
+def min_box_height(px: int) -> int:
+    return math.ceil(MAX_LINES * px * LINE_HEIGHT)
 # A burned-in subtitle is a band near an edge. A detected region taller than this
 # fraction of the frame, or covering more than the area fraction, is a stray detection,
 # not a subtitle; painting it over the picture at 92% opacity would hide the video.
@@ -170,16 +201,13 @@ def _wrap(words: list[str], meter: FontMeter, size: int, max_width: float) -> li
     return best[1] if best else None
 
 
-def fit(text: str, meter: FontMeter, max_width: float) -> Fitted | None:
-    """The largest size at which `text` fits in at most two lines, or None."""
+def fit(text: str, meter: FontMeter, max_width: float, px: int = CAPTION_PX) -> Fitted | None:
+    """`text` in at most two lines at the font size `px`, or None when it does not fit."""
     words = text.split()
     if not words:
         return None
-    for size in FONT_SIZES:
-        lines = _wrap(words, meter, size, max_width)
-        if lines is not None:
-            return Fitted(tuple(lines), size)
-    return None
+    lines = _wrap(words, meter, px, max_width)
+    return Fitted(tuple(lines), px) if lines is not None else None
 
 
 def fit_at_size(text: str, meter: FontMeter, width: float, size: int = 20) -> Fitted:
@@ -205,7 +233,9 @@ def fit_at_size(text: str, meter: FontMeter, width: float, size: int = 20) -> Fi
     return Fitted(tuple(lines), size)
 
 
-def split_to_fit(text: str, meter: FontMeter, max_width: float) -> list[Fitted]:
+def split_to_fit(
+    text: str, meter: FontMeter, max_width: float, px: int = CAPTION_PX
+) -> list[Fitted]:
     """`text` as the fewest consecutive pieces that each fit. A single word wider than
     the box cannot be helped by splitting; it is placed alone at the smallest size and
     will overflow the box on both sides."""
@@ -213,13 +243,13 @@ def split_to_fit(text: str, meter: FontMeter, max_width: float) -> list[Fitted]:
     pieces: list[Fitted] = []
     index = 0
     while index < len(words):
-        end, best = index + 1, fit(words[index], meter, max_width)
+        end, best = index + 1, fit(words[index], meter, max_width, px)
         while end < len(words):
-            wider = fit(" ".join(words[index : end + 1]), meter, max_width)
+            wider = fit(" ".join(words[index : end + 1]), meter, max_width, px)
             if wider is None:
                 break
             end, best = end + 1, wider
-        pieces.append(best or Fitted((words[index],), FONT_SIZES[-1]))
+        pieces.append(best or Fitted((words[index],), px))
         index = end
     return pieces
 
@@ -267,12 +297,13 @@ def check_cover_plausible(region: BBox, frame_w: int, frame_h: int) -> None:
 
 
 def caption_box_for(cover: BBox, frame_h: int) -> BBox:
-    """The cover, made tall enough for two lines of the largest size."""
-    if cover.h >= MIN_BOX_HEIGHT:
+    """The cover, made tall enough for two lines at the frame's caption size."""
+    least = min_box_height(caption_px(frame_h))
+    if cover.h >= least:
         return cover
-    top = cover.y - (MIN_BOX_HEIGHT - cover.h) // 2
-    top = max(0, min(top, frame_h - MIN_BOX_HEIGHT))
-    return BBox(x=cover.x, y=top, w=cover.w, h=min(MIN_BOX_HEIGHT, frame_h))
+    top = cover.y - (least - cover.h) // 2
+    top = max(0, min(top, frame_h - least))
+    return BBox(x=cover.x, y=top, w=cover.w, h=min(least, frame_h))
 
 
 def safe_zone(frame_w: int, frame_h: int) -> BBox:
@@ -349,13 +380,13 @@ def check_renderable(ingest: IngestResult) -> None:
 
 
 def build_captions(
-    spans: list[tuple[int, int, int, str]], meter: FontMeter, box: BBox
+    spans: list[tuple[int, int, int, str]], meter: FontMeter, box: BBox, px: int = CAPTION_PX
 ) -> tuple[Caption, ...]:
     max_width = box.w * (1 - 2 * BOX_PADDING)
     captions: list[Caption] = []
     for segment_id, start, end, text in spans:
-        whole = fit(text, meter, max_width)
-        pieces = [whole] if whole else split_to_fit(text, meter, max_width)
+        whole = fit(text, meter, max_width, px)
+        pieces = [whole] if whole else split_to_fit(text, meter, max_width, px)
         weights = [max(1, len(" ".join(p.lines))) for p in pieces]
         for piece, (a, b) in zip(pieces, _spread(start, end, weights), strict=True):
             captions.append(
@@ -411,7 +442,7 @@ def lay_out(
         duration_ms=ingest.duration_ms,
         cover=cover,
         caption_box=box,
-        captions=build_captions(spans, meter, box),
+        captions=build_captions(spans, meter, box, caption_px(ingest.height)),
         font=Path(meter.path).name,
         font_sha256=meter.sha256,
     )

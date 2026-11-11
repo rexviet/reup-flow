@@ -240,3 +240,34 @@ async def test_review_script_keeps_timing_source_and_review_flags(store):
         build_script(make_input(), transcript, (), given)
     assert make_input().delivery_mode == "legacy_render"
     assert LocalizedLine.model_validate({"id": 0, "text_vi": "xin chào"}).status == "translated"
+
+
+def test_a_sung_segment_keeps_its_original_sound_in_the_script() -> None:
+    from localization.activities.assemble_script import build_script
+
+    sung = seg(0).model_copy(update={"kind": "singing"})
+    transcript = TranscriptDocument(
+        language="zh", duration_ms=10_000, words=(), segments=(sung, seg(1))
+    )
+    script, _ = build_script(make_input(), transcript, (), lines((0, "hát"), (1, "nói")))
+    assert [s.keep_original for s in script.segments] == [True, False]
+    assert script.segments[0].text_vi == "hát"
+
+
+def test_a_line_read_from_the_screen_is_flagged_for_review_in_a_review_project() -> None:
+    from localization.activities.assemble_script import SUBTITLE_REASON, build_script
+
+    read = seg(1).model_copy(update={"source": "subtitle"})
+    transcript = TranscriptDocument(
+        language="zh", duration_ms=10_000, words=(), segments=(seg(0), read)
+    )
+    given = lines((0, "một"), (1, "hai"))
+    review = make_input().model_copy(update={"delivery_mode": "review_project"})
+    script, _ = build_script(review, transcript, (), given)
+    assert [(s.status, s.reason) for s in script.segments] == [
+        ("translated", None),
+        ("inferred", SUBTITLE_REASON),
+    ]
+    # A run published without a person keeps the line as translated: dubbed like the rest.
+    legacy, _ = build_script(make_input(), transcript, (), given)
+    assert [s.status for s in legacy.segments] == ["translated", "translated"]

@@ -64,7 +64,13 @@ class ProviderPrep(PrepFakes):
             await self._ocr.detect_region(b"\x89PNG", 1080, 1920)
             return await inner_d(spec)
 
-        return [acts["ingest"], transcribe, detect_subtitles]
+        return [
+            acts["ingest"],
+            transcribe,
+            detect_subtitles,
+            acts["complete_transcript"],
+            acts["detect_singing"],
+        ]
 
 
 class ProviderDub(DubFakes):

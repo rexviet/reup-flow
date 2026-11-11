@@ -17,6 +17,7 @@ from localization.contracts import (
     BBox,
     IngestResult,
     LocalizationInput,
+    SingingCheck,
     SubtitleTrack,
     Transcript,
 )
@@ -33,6 +34,8 @@ class PrepFakes:
     region: BBox | None = REGION
     delay_seconds: float = 0.0
     segment_count: int = 2
+    # What the singing check answers with, as the transcript marked; None: not checked.
+    sung: Transcript | None = None
     # Ingest only finishes once the other sides of this rendezvous are in flight too.
     meeting: Rendezvous | None = None
     # Ingest runs for this long (heartbeating, so a cancel reaches it) before it answers.
@@ -101,4 +104,29 @@ class PrepFakes:
                 subtitle_key=work_key(spec.aweme_id, 0, "subtitles.json"), region=fakes.region
             )
 
-        return [ingest, transcribe, detect_subtitles]
+        completion = completion_activities(fakes.calls, fakes.sung)
+        return [ingest, transcribe, detect_subtitles, *completion]
+
+
+def completion_activities(
+    calls: Counter | None = None, sung: Transcript | None = None
+) -> list[Callable]:
+    """The steps after the preparation that complete the transcript: no subtitle is shown
+    without speech, and the singing check answers `sung` (not checked when None)."""
+    calls = Counter() if calls is None else calls
+
+    @activity.defn(name="complete_transcript")
+    async def complete_transcript(
+        spec: LocalizationInput, transcript: Transcript, subtitles: SubtitleTrack
+    ) -> Transcript:
+        calls["complete_transcript"] += 1
+        return transcript
+
+    @activity.defn(name="detect_singing")
+    async def detect_singing(
+        spec: LocalizationInput, transcript: Transcript, vocals_key: str
+    ) -> SingingCheck:
+        calls["detect_singing"] += 1
+        return SingingCheck(transcript=sung or transcript, checked=sung is not None)
+
+    return [complete_transcript, detect_singing]

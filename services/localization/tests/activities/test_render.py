@@ -261,8 +261,8 @@ def test_the_two_lines_are_drawn_as_laid_out_and_never_rewrapped(rendered) -> No
     # Each line is centred on its own, so the two have the same middle.
     mid = lambda rs: (min(r[1] for r in rs) + max(r[2] for r in rs)) / 2  # noqa: E731
     assert abs(mid(first) - mid(second)) <= 3
-    # line-height 1.25 at 40 px: the second line is 50 px below the first.
-    assert 40 <= rows[-1][0] - rows[0][0] <= 90
+    # line-height 1.4 (28 px at 20 px) at 40 px: the second line is 56 px below the first.
+    assert 40 <= rows[-1][0] - rows[0][0] <= 110
 
 
 def test_the_cover_is_painted_in_its_colour_at_its_opacity(rendered) -> None:

@@ -32,6 +32,9 @@ from localization.storage.object_store import ObjectStore, require_work_key, wor
 from localization.text.safety import contacts_missing_from_source
 
 SCRIPT_VERSION = 1
+# Why a line read from the screen is marked for review: nobody was heard saying it, so the
+# text is the OCR's, which can be wrong.
+SUBTITLE_REASON = "read from the on-screen subtitle where no speech was heard; check the text"
 
 
 def build_script(
@@ -71,6 +74,10 @@ def build_script(
             )
         if contacts_missing_from_source(text, seg.text):
             flagged.append(seg.id)
+        status, reason = line.status, line.reason
+        if contextual and seg.source == "subtitle" and status == "translated":
+            # The Studio flags inferred lines for a person to check.
+            status, reason = "inferred", SUBTITLE_REASON
         segments.append(
             LocalizedSegment(
                 id=seg.id,
@@ -79,9 +86,10 @@ def build_script(
                 slot_ms=slot,
                 src_zh=seg.text,
                 text_vi=text,
-                status=line.status,
-                reason=line.reason,
+                status=status,
+                reason=reason,
                 on_screen=any(a < seg.end_ms and seg.start_ms < b for a, b in spans),
+                keep_original=seg.kind == "singing",
             )
         )
     script = LocalizedScript(

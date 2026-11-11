@@ -6,6 +6,7 @@ import base64
 import io
 import time
 import wave
+from dataclasses import dataclass
 
 import boto3
 import pytest
@@ -575,3 +576,69 @@ async def test_unresolved_is_not_planned_or_sent_to_tts(store, all_unresolved):
     assert len(needed.hashes) == (0 if all_unresolved else 1)
     await run_batch(acts, key, list(needed.hashes))
     assert tts.total == (0 if all_unresolved else 1)
+
+
+# --- a clip far too short for its line --------------------------------------------------
+
+SHORT_LINE = "Tiếc là người Trung Quốc."
+
+
+@dataclass
+class ShortFirst(FakeTts):
+    """Answers `short` clips of 287 ms (87 characters a second for the line) first."""
+
+    short: int = 1
+
+    def length_of(self, text: str) -> float:
+        if self.calls[text] <= self.short:
+            return 0.287
+        return super().length_of(text)
+
+
+def test_a_clip_is_too_short_when_it_is_read_far_faster_than_speech() -> None:
+    assert synthesize_module.too_short(SHORT_LINE, 287)
+    assert not synthesize_module.too_short(SHORT_LINE, 1250)  # 20 characters a second
+    # A line of a word or two can be said quickly.
+    assert not synthesize_module.too_short("Vâng.", 100)
+
+
+async def test_a_short_clip_is_asked_for_again_and_only_the_good_one_is_cached(store) -> None:
+    tts = ShortFirst(short=1)
+    synth = Synthesizer(store, tts, model="tts-1")
+    clip = await synth.clip(VOICE, None, SHORT_LINE)
+    assert tts.calls[SHORT_LINE] == 2
+    assert clip.duration_ms == pytest.approx(len(SHORT_LINE) * 50, abs=5)
+    cached = await synth.cached(VOICE, None, SHORT_LINE)
+    assert cached is not None and cached.duration_ms == clip.duration_ms
+
+
+async def test_a_voice_that_keeps_answering_short_fails_and_caches_nothing(store) -> None:
+    tts = ShortFirst(short=synthesize_module.SHORT_CLIP_ATTEMPTS)
+    synth = Synthesizer(store, tts, model="tts-1")
+    with pytest.raises(ApplicationError) as failure:
+        await synth.clip(VOICE, None, SHORT_LINE)
+    assert failure.value.type == "ShortClip" and not failure.value.non_retryable
+    assert tts.calls[SHORT_LINE] == synthesize_module.SHORT_CLIP_ATTEMPTS
+    assert await synth.cached(VOICE, None, SHORT_LINE) is None
+
+
+async def test_a_short_clip_cached_before_is_spoken_again_and_replaced(store) -> None:
+    digest = tts_hash(VOICE, model="tts-1", engine=None, text_vi=SHORT_LINE)
+    store.put_bytes(tts_cache_key(digest), make_wav(0.287), metadata={META_DURATION: "287"})
+    tts = FakeTts()
+    synth = Synthesizer(store, tts, model="tts-1")
+    clip = await synth.clip(VOICE, None, SHORT_LINE)
+    assert tts.calls[SHORT_LINE] == 1 and clip.duration_ms > 1000
+    assert (await synth.cached(VOICE, None, SHORT_LINE)).duration_ms == clip.duration_ms
+
+
+# --- lines that are not spoken ------------------------------------------------------------
+
+
+async def test_a_sung_line_is_not_planned_for_synthesis(store) -> None:
+    sung = segment(1, "lời bài hát").model_copy(update={"keep_original": True})
+    key = put_script(store, [segment(0, "xin chào"), sung])
+    acts = activities(store, FakeTts())
+    synthesis = await plan(acts, key)
+    synth = acts.synthesizer
+    assert synthesis.hashes == (synth.hash_of(VOICE, None, "xin chào"),)

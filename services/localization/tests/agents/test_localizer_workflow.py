@@ -23,6 +23,7 @@ from localization.contracts import (
     LocalizedScript,
     SubtitleCue,
     SubtitleDocument,
+    Transcript,
     TranscriptDocument,
 )
 from localization.contracts.models import SttSegment
@@ -240,6 +241,9 @@ async def test_a_transcript_lost_before_the_localizer_reads_it_is_made_again_onc
     assert result.script is not None
     assert prep.calls["transcribe"] == 2
     assert prep.calls["detect_subtitles"] == 1
+    # The transcript made again is completed again before the Localizer reads it.
+    assert prep.calls["complete_transcript"] == 2
+    assert prep.calls["detect_singing"] == 2
 
 
 async def test_a_second_loss_of_the_transcript_fails_the_run_instead_of_looping(
@@ -497,3 +501,21 @@ async def test_a_transcript_with_impossible_slots_still_yields_a_script_for_ever
     # floor because the video ends at 11.2 s.
     assert [s.slot_ms for s in script.segments] == [2986, 1540, 1000]
     assert stubborn.requests <= FITTING_REQUEST_BUDGET + 1
+
+
+# --- the transcript completed before the Localizer ------------------------------------
+
+
+async def test_the_localizer_works_from_the_completed_transcript(temporal_client: Client) -> None:
+    sung = Transcript(
+        transcript_key=work_key("7001", 0, "transcript.singing.json"), segment_count=2
+    )
+    prep = PrepFakes(sung=sung)
+    handle, result = await run_workflow(temporal_client, prep, LocalizerFakes())
+    assert isinstance(result, LocalizationResult), result
+    assert result.prep is not None and result.prep.transcript == sung
+    names = [name for name, _ in await scheduled(handle)]
+    assert names.index("complete_transcript") < names.index("detect_singing")
+    assert names.index("detect_singing") < names.index("assemble_script")
+    assert ("complete_transcript", "io") in await scheduled(handle)
+    assert prep.calls["complete_transcript"] == 1 and prep.calls["detect_singing"] == 1

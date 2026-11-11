@@ -1,10 +1,10 @@
 """Captions as images, for the render to lay over the video.
 
-Each caption is drawn once, as the browser composition used to draw it: the lines exactly
-as the layout split them ("\\n", never rewrapped), each centred on its own, the block
-centred in the caption box, `font_px` with a line height of 1.25, white, with the CSS
-shadow `0 2px 6px rgba(0, 0, 0, 0.75)`. Line widths come from the layout's own
-`FontMeter`, so a line is centred on the width it was fitted with.
+Each caption is drawn once, as the review project draws it: the lines exactly as the
+layout split them ("\\n", never rewrapped), each centred on its own, the block centred in
+the caption box, `font_px` with the layout's line height (28 px at 20 px) and outline (4 px
+at 20 px), in proportion to the font size, white, with a black outline. Line widths come from
+the layout's own `FontMeter`, so a line is centred on the width it was fitted with.
 
 The captions are then turned into one image stream: one picture per stretch of frames in
 which the same captions are shown, all of one size and position, with a transparent picture
@@ -17,18 +17,14 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageDraw, ImageFont
 
-from localization.activities.layout_captions import LINE_HEIGHT, FontMeter
+from localization.activities.layout_captions import LINE_HEIGHT, FontMeter, stroke_px
 from localization.contracts import BBox, Caption
 
 # Text is drawn at this many times its size and reduced, so glyphs land at fractional
 # positions and are smoothed the way the browser smoothed them.
 SUPERSAMPLE = 4
-SHADOW_OFFSET_Y = 2
-# The CSS blur radius; the Gaussian it stands for has half of it as standard deviation.
-SHADOW_BLUR = 6
-SHADOW_ALPHA = 0.75
 
 
 class Cancelled(Exception):
@@ -58,6 +54,7 @@ class CaptionPainter:
 
     def paint(self, caption: Caption, box: BBox) -> Placed:
         px = caption.font_px
+        stroke = stroke_px(px)
         lines = caption.text.split("\n")
         widths = [self._meter.width(line, px) for line in lines]
         block_w = max(widths)
@@ -67,16 +64,19 @@ class CaptionPainter:
         left = box.x + (box.w - block_w) / 2
         top = box.y + (box.h - block_h) / 2
         # Room for ink that leaves the line box (stacked Vietnamese marks, overhanging
-        # glyphs) and for the shadow.
-        margin = math.ceil(px / 2 + SHADOW_OFFSET_Y + SHADOW_BLUR)
+        # glyphs) and for the outline.
+        margin = math.ceil(px / 2 + stroke)
         x0, y0 = math.floor(left) - margin, math.floor(top) - margin
         width = math.ceil(left + block_w) + margin - x0
         height = math.ceil(top + block_h) + margin - y0
 
         font = self._font(px)
         ascent, descent = font.getmetrics()
-        big = Image.new("L", (width * SUPERSAMPLE, height * SUPERSAMPLE), 0)
-        draw = ImageDraw.Draw(big)
+        size = (width * SUPERSAMPLE, height * SUPERSAMPLE)
+        # The glyphs, and the glyphs grown by the outline: the outline is what the second
+        # covers that the first does not, as `paint-order: stroke fill` draws it.
+        fill, outline = Image.new("L", size, 0), Image.new("L", size, 0)
+        draws = (ImageDraw.Draw(fill), ImageDraw.Draw(outline))
         for index, (line, line_w) in enumerate(zip(lines, widths, strict=True)):
             if not line:
                 continue
@@ -84,15 +84,19 @@ class CaptionPainter:
             line_top = (top + index * line_h - y0) * SUPERSAMPLE
             # The glyphs' ascent and descent are centred in the line box, as CSS does.
             baseline = line_top + (line_h * SUPERSAMPLE - (ascent + descent)) / 2 + ascent
-            draw.text((x, baseline), line, font=font, fill=255, anchor="ls")
-        text = big.reduce(SUPERSAMPLE)
-
-        shadow = Image.new("L", text.size, 0)
-        shadow.paste(text, (0, SHADOW_OFFSET_Y))
-        shadow = shadow.filter(ImageFilter.GaussianBlur(SHADOW_BLUR / 2))
-        shadow = shadow.point(lambda v: round(v * SHADOW_ALPHA))
+            draws[0].text((x, baseline), line, font=font, fill=255, anchor="ls")
+            draws[1].text(
+                (x, baseline),
+                line,
+                font=font,
+                fill=255,
+                anchor="ls",
+                stroke_width=stroke * SUPERSAMPLE,
+                stroke_fill=255,
+            )
+        text, ring = fill.reduce(SUPERSAMPLE), outline.reduce(SUPERSAMPLE)
         image = Image.new("RGBA", text.size, (0, 0, 0, 0))
-        image.putalpha(shadow)
+        image.putalpha(ring)
         white = Image.new("RGBA", text.size, (255, 255, 255, 0))
         white.putalpha(text)
         return Placed(Image.alpha_composite(image, white), x0, y0)

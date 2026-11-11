@@ -96,7 +96,13 @@ async def test_preparation_runs_each_stage_once_on_its_own_queue(temporal_client
     assert isinstance(result, LocalizationResult), result
     assert result.prep.subtitles.region == REGION
     assert result.prep.transcript.segment_count == 2
-    assert dict(fakes.calls) == {"ingest": 1, "transcribe": 1, "detect_subtitles": 1}
+    assert dict(fakes.calls) == {
+        "ingest": 1,
+        "transcribe": 1,
+        "detect_subtitles": 1,
+        "complete_transcript": 1,
+        "detect_singing": 1,
+    }
     # The voice check comes first, then the preparation stages, in order, each on its own
     # queue (the voice's rate is measured beside the ingest); what follows is the Localizer
     # stage (tests/agents).
@@ -196,6 +202,8 @@ def test_the_workflow_names_only_activities_that_are_registered() -> None:
         "ingest",
         "transcribe",
         "detect_subtitles",
+        "complete_transcript",
+        "detect_singing",
         "voice_rate",
         "assemble_script",
         "classify_video",
@@ -209,7 +217,13 @@ def _providers():  # noqa: ANN202
     from types import SimpleNamespace
 
     return SimpleNamespace(
-        stt=object(), ocr=object(), tts=object(), demucs=object(), vbee_stt=None, vbee_tts=None
+        stt=object(),
+        ocr=object(),
+        tts=object(),
+        demucs=object(),
+        vbee_stt=None,
+        vbee_tts=None,
+        singing=None,
     )
 
 

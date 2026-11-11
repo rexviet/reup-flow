@@ -36,6 +36,7 @@ def providers(**vbee: object) -> SimpleNamespace:
         demucs=object(),
         vbee_stt=vbee.get("stt"),
         vbee_tts=vbee.get("tts"),
+        singing=None,
     )
 
 

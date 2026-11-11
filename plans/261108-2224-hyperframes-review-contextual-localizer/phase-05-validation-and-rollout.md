@@ -125,3 +125,14 @@ width are verified. TTS HTTP deadline is now separate from STT/OCR. See
 [current execution evidence](../reports/fix-261110-2003-source-grounded-localizer.md).
 This supersedes the earlier native-boundary blocker; remaining round-trip/rollout
 acceptance stays open.
+
+## Explicit local activation — 2026-11-10 evening
+
+The user subsequently requested project delivery for extension downloads and automatic
+local Studio opening for both `ready_for_review` and `needs_human`. This authorizes the
+current Mac activation independently of the incomplete broader acceptance checklist.
+The Compose override now pins `review_project` for newly dispatched runs; recorded
+inputs retain their original mode. A host LaunchAgent polls read-only completed
+project identities and uses the guarded launcher, with persistent deduplication and
+queueing while another project is open. See [local auto-open operations](../../docs/review-companion.md#tự-mở-trên-mac-hiện-tại).
+Remaining native/provider acceptance items above have not been marked passed.

@@ -103,32 +103,37 @@ def test_fixed_font_wraps_long_vietnamese_without_shrinking(width):
     assert all(meter.width(line, fitted.size) <= width for line in fitted.lines)
 
 
-def test_a_longer_line_takes_two_lines_and_the_largest_size_that_fits() -> None:
-    text = "Hôm nay chúng ta sẽ cùng nhau học cách nấu một nồi phở bò thật ngon tại nhà"
-    fitted = fit(text, meter, MAX_W)
+LONG_LINE = (
+    "Hôm nay chúng ta sẽ cùng nhau học cách nấu một nồi phở bò thật ngon tại nhà "
+    "cho cả gia đình cùng thưởng thức vào bữa tối cuối tuần"
+)
+
+
+def test_captions_have_one_fixed_size_and_line_gap() -> None:
+    assert FONT_SIZES == (20,)
+    assert layout_module.LINE_HEIGHT * 20 == 28
+    assert layout_module.STROKE_PX == 4
+
+
+def test_a_longer_line_takes_two_lines_at_the_fixed_size() -> None:
+    assert meter.width(LONG_LINE, 20) > MAX_W
+    fitted = fit(LONG_LINE, meter, MAX_W)
     assert fitted is not None
     assert len(fitted.lines) == 2
-    assert " ".join(fitted.lines) == text
+    assert fitted.size == 20
+    assert " ".join(fitted.lines) == LONG_LINE
     assert lines_fit(fitted.lines, fitted.size)
-    # Nothing larger would have fitted: not on one line, and not on two.
-    larger = [s for s in FONT_SIZES if s > fitted.size]
-    assert all(meter.width(text, s) > MAX_W for s in larger)
-    for size in larger:
-        words = text.split()
-        splits = ((" ".join(words[:i]), " ".join(words[i:])) for i in range(1, len(words)))
-        assert not any(lines_fit(pair, size) for pair in splits)
 
 
 def test_the_two_lines_are_balanced() -> None:
-    text = "Hôm nay chúng ta sẽ cùng nhau học cách nấu một nồi phở bò thật ngon tại nhà"
-    fitted = fit(text, meter, MAX_W)
+    fitted = fit(LONG_LINE, meter, MAX_W)
     assert fitted is not None
     first, second = (meter.width(line, fitted.size) for line in fitted.lines)
     assert abs(first - second) < 0.35 * max(first, second)
 
 
-def test_a_line_that_fits_in_no_size_in_two_lines_is_not_fitted_at_all() -> None:
-    assert fit("từ " * 60, meter, MAX_W) is None
+def test_a_line_that_does_not_fit_in_two_lines_is_not_fitted_at_all() -> None:
+    assert fit("từ " * 200, meter, MAX_W) is None
 
 
 def test_a_long_line_becomes_cues_that_each_fit_and_say_it_all_in_order() -> None:
@@ -637,3 +642,23 @@ def test_explicit_unresolved_keeps_identity_but_has_no_caption_or_srt():
     spans = caption_spans(script, doc, VIDEO_MS)
     assert [s[0] for s in spans] == [0]
     assert script.segments[1].id == 1 and script.segments[1].reason
+
+
+@pytest.mark.parametrize(
+    ("frame_h", "px", "gap", "stroke"),
+    [(576, 20, 28, 4), (1080, 38, 53, 8), (720, 25, 35, 5), (1920, 67, 94, 13)],
+)
+def test_caption_style_scales_with_the_frame_height_from_20_28_4_at_576(frame_h, px, gap, stroke):
+    assert layout_module.caption_px(frame_h) == px
+    assert layout_module.line_gap_px(px) == gap
+    assert layout_module.stroke_px(px) == stroke
+
+
+def test_a_taller_frame_gets_larger_captions_and_a_taller_minimum_box():
+    small, large = layout_module.caption_px(576), layout_module.caption_px(1080)
+    assert large > small
+    fitted = fit("Xin chào các bạn", meter, MAX_W, large)
+    assert fitted is not None and fitted.size == large
+    thin = BBox(x=0, y=900, w=800, h=10)
+    assert layout_module.caption_box_for(thin, 1080).h == layout_module.min_box_height(large)
+    assert layout_module.caption_box_for(thin, 576).h == MIN_BOX_HEIGHT

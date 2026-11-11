@@ -521,6 +521,10 @@ services:
       TRACE_AGENT_CONTENT: ${TRACE_AGENT_CONTENT:-true}
       OCR_MODEL: ${OCR_MODEL:-}
       OCR_BBOX_FORMAT: ${OCR_BBOX_FORMAT:-}
+      # Audio-capable model that tells singing from speech; empty keeps every line speech.
+      SINGING_MODEL: ${SINGING_MODEL:-}
+      # true: the stt and tts queues belong to the host `voice` worker (see docker-compose.override.yml).
+      VOICE_QUEUES_ON_HOST: ${VOICE_QUEUES_ON_HOST:-false}
       VOICESTUDIO_URL: ${VOICESTUDIO_URL:-}
       VOICESTUDIO_API_KEY: ${VOICESTUDIO_API_KEY:-}
       VOICESTUDIO_ALLOW_PRIVATE_HTTP_CIDRS: ${VOICESTUDIO_ALLOW_PRIVATE_HTTP_CIDRS:-100.64.0.0/10}
@@ -542,6 +546,7 @@ services:
       VOICE_CHECK_CONCURRENCY: ${VOICE_CHECK_CONCURRENCY:-2}
       LOUDNESS_LUFS: ${LOUDNESS_LUFS:--14}
       TRUE_PEAK_DBTP: ${TRUE_PEAK_DBTP:--1.5}
+      ORIGINAL_VOICE_GAIN: ${ORIGINAL_VOICE_GAIN:-0.3}
       # The Jev review measures captions with the font the render draws with.
       CAPTION_FONT_PATH: ${CAPTION_FONT_PATH:-/assets/fonts/BeVietnamPro-SemiBold.ttf}
     volumes:
@@ -570,6 +575,7 @@ services:
       RENDER_CONCURRENCY: ${RENDER_CONCURRENCY:-1}
       LOUDNESS_LUFS: ${LOUDNESS_LUFS:--14}
       TRUE_PEAK_DBTP: ${TRUE_PEAK_DBTP:--1.5}
+      ORIGINAL_VOICE_GAIN: ${ORIGINAL_VOICE_GAIN:-0.3}
       # Captions are measured (layout) and drawn (render) with this one font file.
       CAPTION_FONT_PATH: ${CAPTION_FONT_PATH:-/assets/fonts/BeVietnamPro-SemiBold.ttf}
       COVER_COLOR: ${COVER_COLOR:-#101010}
