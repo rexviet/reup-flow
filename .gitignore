@@ -35,3 +35,5 @@ services/localization/spikes/out/
 **/__pycache__/
 services/localization/spikes/hyperframes-review/project/.thumbnails/
 .gstack/
+# TypeScript's incremental build state.
+*.tsbuildinfo
