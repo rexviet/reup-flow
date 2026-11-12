@@ -40,7 +40,9 @@ content.js         Content script on douyin.com: a small round download
                    button pinned to the top-right corner of the playing video on any
                    video page
                    (`/video/<id>` or `?modal_id=<id>`). A click messages
-                   sw.js, which calls the backend's `POST /api/videos`.
+                   sw.js, which calls the backend's `POST /api/videos`
+                   with `localize: true`, so the video skips the default hold
+                   and is localized as soon as it is downloaded.
 lib/video-url.js, lib/button-view.js, lib/video-box.js, lib/enqueue-video.js
                    Page-URL check, button wording per backend status, which
                    <video> is the one being watched (and where it is drawn), and

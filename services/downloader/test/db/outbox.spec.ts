@@ -6,7 +6,8 @@
 import { eq } from 'drizzle-orm';
 import type { Pool } from 'pg';
 import { markDone } from '../../src/db/videos.repository';
-import { localizationOutbox, videos } from '../../src/db/schema';
+import { localizationOutbox, profiles, videos } from '../../src/db/schema';
+import { localize } from '../../src/dashboard/intake.repository';
 import {
   applyForwardMigration,
   createEmptySchema,
@@ -63,7 +64,7 @@ describe('markDone writes the outbox row', () => {
     expect(rows[0]).toMatchObject({
       awemeId: 'v1',
       generation: 1,
-      state: 'pending',
+      state: 'held',
       dispatchAttempts: 0,
     });
 
@@ -140,6 +141,99 @@ describe('markDone writes the outbox row', () => {
 
     const [video] = await db.select().from(videos).where(eq(videos.awemeId, 'v1'));
     expect(video!.status).toBe('downloading');
+  });
+});
+
+async function stateOf(awemeId: string): Promise<string | undefined> {
+  const [row] = await db
+    .select({ state: localizationOutbox.state })
+    .from(localizationOutbox)
+    .where(eq(localizationOutbox.awemeId, awemeId));
+  return row?.state;
+}
+
+async function seedChannel(autoLocalize: boolean): Promise<void> {
+  await db.insert(profiles).values({ secUserId: 'profile-1', autoLocalize });
+}
+
+describe('markDone chooses held or pending', () => {
+  it('holds a video whose channel switch is off', async () => {
+    await seedChannel(false);
+    await seedDownloading(db, 'v1');
+    await markDone(db, 'v1', 's3://bucket/v1.mp4');
+    expect(await stateOf('v1')).toBe('held');
+  });
+
+  it('queues a video whose channel switch is on', async () => {
+    await seedChannel(true);
+    await seedDownloading(db, 'v1');
+    await markDone(db, 'v1', 's3://bucket/v1.mp4');
+    expect(await stateOf('v1')).toBe('pending');
+  });
+
+  it('lets the video override win over the channel in both directions', async () => {
+    await seedChannel(false);
+    await seedDownloading(db, 'on');
+    await db.update(videos).set({ localizeOnDone: true }).where(eq(videos.awemeId, 'on'));
+    await markDone(db, 'on', 's3://bucket/on.mp4');
+    expect(await stateOf('on')).toBe('pending');
+
+    await db.update(profiles).set({ autoLocalize: true });
+    await seedDownloading(db, 'off');
+    await db.update(videos).set({ localizeOnDone: false }).where(eq(videos.awemeId, 'off'));
+    await markDone(db, 'off', 's3://bucket/off.mp4');
+    expect(await stateOf('off')).toBe('held');
+  });
+});
+
+describe('localize', () => {
+  async function seedOutbox(awemeId: string, state: string): Promise<void> {
+    await seedDownloading(db, awemeId);
+    await markDone(db, awemeId, `s3://bucket/${awemeId}.mp4`);
+    await pool.query(`UPDATE localization_outbox SET state = $2 WHERE aweme_id = $1`, [awemeId, state]);
+  }
+
+  it('moves only held rows, reports why the others were skipped, and logs it', async () => {
+    await seedOutbox('held', 'held');
+    await seedOutbox('sent', 'dispatched');
+    await seedOutbox('bad', 'rejected');
+
+    const result = await localize(db, ['held', 'sent', 'bad', 'ghost', 'held']);
+
+    expect(result.localized).toEqual(['held']);
+    expect(result.skipped).toEqual(
+      expect.arrayContaining([
+        { aweme_id: 'sent', reason: 'not_held', state: 'dispatched' },
+        { aweme_id: 'bad', reason: 'not_held', state: 'rejected' },
+        { aweme_id: 'ghost', reason: 'no_outbox_row' },
+      ]),
+    );
+    expect(result.skipped).toHaveLength(3);
+    expect(await stateOf('held')).toBe('pending');
+    expect(await stateOf('sent')).toBe('dispatched');
+    expect(await stateOf('bad')).toBe('rejected');
+
+    const { rows: log } = await pool.query(`SELECT aweme_id, action FROM dashboard_actions`);
+    expect(log).toEqual([{ aweme_id: 'held', action: 'localize' }]);
+  });
+
+  it('is a no-op the second time', async () => {
+    await seedOutbox('h', 'held');
+    await localize(db, ['h']);
+    const again = await localize(db, ['h']);
+    expect(again.localized).toEqual([]);
+    expect(again.skipped).toEqual([{ aweme_id: 'h', reason: 'not_held', state: 'pending' }]);
+    const { rows: log } = await pool.query(`SELECT 1 FROM dashboard_actions`);
+    expect(log).toHaveLength(1);
+  });
+
+  it('makes the row claimable now, while a held row is not claimable', async () => {
+    await seedOutbox('h', 'held');
+    await pool.query(`UPDATE localization_outbox SET next_attempt_at = now() + interval '1 hour'`);
+    const claimable = `SELECT aweme_id FROM localization_outbox WHERE state = 'pending' AND next_attempt_at <= now()`;
+    expect((await pool.query(claimable)).rows).toEqual([]);
+    await localize(db, ['h']);
+    expect((await pool.query(claimable)).rows).toEqual([{ aweme_id: 'h' }]);
   });
 });
 

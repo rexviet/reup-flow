@@ -11,6 +11,8 @@
 #         review-bridge (the `review` profile). Host, under pm2 (ecosystem.config.cjs):
 #           reup-voice-worker      the stt and tts queues, next to VoiceStudio
 #           reup-review-auto-open  opens HyperFrames Studio for each ready project
+#           reup-review-worker     final renders of approved projects, review scans,
+#                                  dashboard "open Studio" requests and the heartbeat
 #         The watcher used to be a macOS LaunchAgent; if that is still loaded it is stopped
 #         first, so two watchers never open the same project.
 # stop    Stops the host processes and Studio, then the Docker services this script started.
@@ -49,7 +51,7 @@ die() { echo "error: $*" >&2; exit 1; }
 # Postgres, Redis, Temporal and MinIO through `depends_on`.
 SERVICES=(localization-starter worker-agents worker-media review-bridge)
 DC=(docker compose --profile review)
-HOST_APPS=(reup-voice-worker reup-review-auto-open)
+HOST_APPS=(reup-voice-worker reup-review-auto-open reup-review-worker)
 VOICESTUDIO_URL=http://127.0.0.1:3900/.well-known/voicestudio-speech
 LAUNCH_AGENT=com.reup-flow.review-auto-open
 

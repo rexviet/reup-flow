@@ -55,7 +55,7 @@ export type JobStatus =
 export const CANCELLABLE_STATUSES: readonly JobStatus[] = ['pending', 'enumerating', 'downloading', 'blocked'];
 
 /** jobs.repository.ts's RETRYABLE_STATUSES, same caveat as above. */
-export const RETRYABLE_STATUSES: readonly JobStatus[] = ['blocked', 'failed'];
+export const RETRYABLE_STATUSES: readonly JobStatus[] = ['blocked', 'failed', 'cancelled'];
 
 export interface JobListResponse {
   items: JobResponse[];
@@ -72,106 +72,263 @@ export interface CookieStatus {
 }
 
 /**
- * `GET /api/workspace/snapshot` and `GET /api/workspace/runs/:awemeId/:generation`.
- * Source of truth: services/downloader/src/workspace/workspace.schemas.ts
- * (`snapshotSchema`, `runDetailSchema`). Every string is built by the server
- * from structured fields; none is free text from Temporal or a prompt.
+ * `GET/POST /api/dashboard/*`. Source of truth:
+ *   services/downloader/src/dashboard/{dashboard.service,dashboard.stage,dashboard.health,dashboard.actions,dashboard.media}.ts
+ * Vietnamese strings (attention reasons, health reasons, skip reasons) are built by the server and shown as is.
  */
-export type SourceState = 'ok' | 'down';
-export type AgentState = 'idle' | 'working' | 'retrying' | 'failed';
-export type Zone = 'media' | 'voice' | 'llm' | 'unknown';
-export type GateOutcome = 'skipped_ad' | 'skipped_no_video' | 'published_original' | 'needs_human' | 'ready_for_review';
-export type WorkspaceEventKind =
-  | 'activity_started'
-  | 'activity_retrying'
-  | 'activity_completed'
-  | 'activity_failed'
-  | 'llm_call_recorded'
-  | 'gate_decision'
-  | 'handoff';
+export const STAGES = [
+  'downloading',
+  'download_failed',
+  'held',
+  'queued',
+  'localizing',
+  'dispatch_failed',
+  'run_failed',
+  'skipped',
+  'awaiting_review',
+  'returned',
+  'render_queued',
+  'rendering',
+  'render_failed',
+  'rendered',
+  'published',
+] as const;
+export type Stage = (typeof STAGES)[number];
 
-export interface WorkspaceSources {
-  temporal: SourceState;
-  postgres: SourceState;
+export type LocalizingStep = 'prepare' | 'translate' | 'dub' | 'review' | 'unknown';
+
+export interface DashboardSources {
+  postgres: 'ok' | 'down';
+  temporal: 'ok' | 'down';
 }
 
-export interface WorkspaceAgent {
+export interface AttentionItem {
+  code: string;
+  reason: string;
+  action: string;
+}
+
+export interface VideoListItem {
+  aweme_id: string;
+  sec_user_id: string;
+  channel: string | null;
+  desc: string | null;
+  create_time: string;
+  duration_ms: number | null;
+  current_gen: number | null;
+  stage: Stage;
+  step?: LocalizingStep;
+  unknown?: boolean;
+  outbox_state: string | null;
+  run_status: string | null;
+  stage_since: string | null;
+  updated_at: string | null;
+  /** Revision of the review project being looked at; `approve` must send exactly this. */
+  revision: string | null;
+  mismatch_count: number | null;
+  attention: AttentionItem[];
+}
+
+export interface VideoListResponse {
+  items: VideoListItem[];
+  total: number;
+  counts_by_stage: Record<Stage, number>;
+  sources: DashboardSources;
+}
+
+export interface VideoListQuery {
+  stage?: Stage;
+  channel?: string;
+  q?: string;
+  from?: string;
+  to?: string;
+  attention?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+export interface BlockedJobItem {
   id: string;
-  zone: Zone;
-  state: AgentState;
-  awemeId?: string;
-  generation?: number;
-  since?: string;
-  attempt?: number;
+  sec_user_id: string;
+  channel: string | null;
+  status: string;
+  error: string | null;
+  updated_at: string;
+  reason: string;
+  action: string;
 }
 
-export interface WorkspaceEvent {
-  id: string;
-  at: string;
-  kind: WorkspaceEventKind;
-  agentId?: string;
-  toAgentId?: string;
-  awemeId?: string;
-  generation?: number;
-  detail: string;
+export interface AttentionResponse {
+  jobs: BlockedJobItem[];
+  items: VideoListItem[];
+  sources: DashboardSources;
 }
 
-export interface WorkspaceRun {
-  awemeId: string;
-  generation: number;
-  phase: string;
-  outcome?: GateOutcome;
-  llmCostUsd: number;
-  updatedAt?: string;
+export interface ChannelItem {
+  sec_user_id: string;
+  nickname: string | null;
+  auto_localize: boolean;
+  last_synced_at: string | null;
+  latest_job: {
+    id: string;
+    status: string;
+    created_at: string;
+    total_videos: number | null;
+    downloaded_count: number;
+    failed_count: number;
+    error: string | null;
+  } | null;
+  total: number;
+  counts_by_stage: Record<Stage, number>;
 }
 
-export interface WorkspaceSnapshot {
+export interface ChannelListResponse {
+  items: ChannelItem[];
+  sources: DashboardSources;
+}
+
+export type HealthState = 'ok' | 'degraded' | 'down' | 'unknown';
+export interface HealthItem {
+  status: HealthState;
+  reason: string;
+  pollers?: number;
+}
+export interface HealthReport {
   generatedAt: string;
-  sources: WorkspaceSources;
-  agents: WorkspaceAgent[];
-  events: WorkspaceEvent[];
-  runs: WorkspaceRun[];
+  postgres: HealthItem;
+  redis: HealthItem;
+  cookie: HealthItem;
+  temporal: HealthItem;
+  minio: HealthItem;
+  voicestudio: HealthItem;
+  queues: Record<'stt' | 'tts' | 'media' | 'render' | 'llm' | 'io' | 'workflows', HealthItem>;
+  host_worker: HealthItem;
+  disk: HealthItem;
 }
 
-export interface RunPhase {
+export interface TimelineStep {
+  id: string;
+  activity: string;
   agentId: string;
-  state: 'running' | 'retrying' | 'done' | 'failed';
+  state: 'running' | 'retrying' | 'done' | 'failed' | 'cancelled';
   startedAt: string;
   endedAt?: string;
-  activities: number;
+  attempt?: number;
+  step: LocalizingStep;
 }
 
-export interface RunDetail {
-  awemeId: string;
+export interface ReviewStatusView {
   generation: number;
-  sources: WorkspaceSources;
-  status?: string;
-  outcome?: GateOutcome;
-  phases: RunPhase[];
-  steps: Array<{
-    id: string;
-    activity: string;
-    agentId: string;
-    state: 'running' | 'retrying' | 'done' | 'failed' | 'cancelled';
-    startedAt: string;
-    endedAt?: string;
-    attempt?: number;
-  }>;
-  llmCostUsd: number;
-  costByStage: Array<{ stage: string; calls: number; costUsd: number }>;
-  gpuSecondsEstimate: { stt: number; tts: number };
+  revision: string | null;
+  cueCount: number | null;
+  mismatchCount: number | null;
+  dirty: boolean | null;
+  checkedAt: string;
 }
 
-export interface ReviewProject {
-  awemeId: string;
+export interface RenderView {
+  state: string;
+  approved_revision: string;
+  attempts: number;
+  error: string | null;
+  rendered_at: string | null;
+  final_ready: boolean;
+  srt_ready: boolean;
+}
+
+export interface PublicationView {
   generation: number;
-  status: 'ready_for_review' | 'needs_human';
-  projectKey: string;
+  state: string;
+  platform: string | null;
+  postUrl: string | null;
+  note: string | null;
   updatedAt: string;
 }
-export interface ReviewList {
-  items: ReviewProject[];
-  total: number;
-  limit: number;
-  offset: number;
+
+export interface DecisionView {
+  generation: number;
+  decision: string;
+  approvedRevision: string | null;
+  confirmMismatch: boolean;
+  note: string | null;
+  decidedAt: string;
+}
+
+export interface GenerationView {
+  generation: number;
+  is_current: boolean;
+  run: { status: string; updated_at: string; workflow_id: string; review_rounds: number; has_project: boolean } | null;
+  open_workflow: boolean;
+  decision: DecisionView | null;
+  render: RenderView | null;
+  publication: PublicationView | null;
+  review_status: ReviewStatusView | null;
+  llm_cost_usd: number;
+}
+
+export interface VideoDetailResponse {
+  /** `null` when Postgres could not be read; `sources` says why. */
+  video: {
+    aweme_id: string;
+    desc: string | null;
+    create_time: string;
+    duration_ms: number | null;
+    download_status: string;
+    download_attempts: number;
+    download_error: string | null;
+  } | null;
+  channel?: { sec_user_id: string; nickname: string | null; auto_localize: boolean };
+  current_gen?: number | null;
+  stage?: Stage;
+  step?: LocalizingStep;
+  unknown?: boolean;
+  attention?: AttentionItem[];
+  generations?: GenerationView[];
+  timeline?: TimelineStep[] | null;
+  /** Reviewer verdict as the pipeline stored it; shape is the Reviewer's, shown loosely. */
+  verdict?: unknown;
+  llm_cost?: { total_usd: number; by_stage: Array<{ stage: string; calls: number; cost_usd: number }> };
+  review_status?: ReviewStatusView | null;
+  decision?: DecisionView | null;
+  render?: RenderView | null;
+  publication?: PublicationView | null;
+  studio_request?: { generation: number; state: string; error: string | null; requestedAt: string; handledAt: string | null } | null;
+  dashboard_actions?: Array<{ id: number; action: string; detail: unknown; created_at: string }>;
+  sources: DashboardSources;
+}
+
+export type DashboardActionName =
+  | 'localize'
+  | 'rerun'
+  | 'approve'
+  | 'return'
+  | 'rerender'
+  | 'mark_published'
+  | 'mark_unpublished'
+  | 'open_studio';
+
+export interface ActionRequest {
+  action: DashboardActionName;
+  aweme_ids: string[];
+  note?: string;
+  post_url?: string;
+  platform?: string;
+  revision?: string;
+  generation?: number;
+  confirm_mismatch?: boolean;
+}
+
+export interface ActionResult {
+  done: string[];
+  skipped: Array<{ aweme_id: string; reason: string }>;
+}
+
+export type MediaKind = 'source' | 'final' | 'srt';
+export interface MediaLink {
+  kind: MediaKind;
+  available: boolean;
+  url?: string;
+  expires_at?: string;
+  /** Set by the server for a file that predates generations (the old `output/<aweme>.mp4`). */
+  note?: string;
 }

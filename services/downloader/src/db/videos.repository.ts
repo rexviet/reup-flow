@@ -261,7 +261,21 @@ export async function markDone(
       .update(videos)
       .set({ status: 'done', storagePath, leaseExpiresAt: null })
       .where(eq(videos.awemeId, awemeId));
-    await tx.insert(localizationOutbox).values({ awemeId }).onConflictDoNothing();
+    // `held` unless the video's own override or its channel switch asks for
+    // localization. Read in this transaction so the flip and the decision see
+    // the same rows; a video with no row to read stays held.
+    await tx
+      .insert(localizationOutbox)
+      .values({
+        awemeId,
+        state: sql`COALESCE((
+          SELECT CASE WHEN COALESCE(v.localize_on_done, p.auto_localize, false)
+                      THEN 'pending' ELSE 'held' END
+            FROM videos v LEFT JOIN profiles p ON p.sec_user_id = v.sec_user_id
+           WHERE v.aweme_id = ${awemeId}
+        ), 'held')`,
+      })
+      .onConflictDoNothing();
   });
 }
 

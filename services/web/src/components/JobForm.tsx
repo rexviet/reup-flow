@@ -1,7 +1,20 @@
 import { useState, type FormEvent } from 'react';
+import { Icon } from './Icon';
+
+export interface JobFormOptions {
+  /** Channel URL: localize every video of this channel as it finishes downloading. */
+  autoLocalize: boolean;
+  /** Single-video URL: localize this video as soon as it is downloaded instead of holding it. */
+  localizeNow: boolean;
+}
 
 export interface JobFormProps {
-  onSubmit: (url: string) => Promise<void>;
+  onSubmit: (url: string, options: JobFormOptions) => Promise<void>;
+}
+
+/** True for a URL that names one video (`/video/<id>` or `?modal_id=<id>`); the rest are channel URLs. */
+export function isVideoUrl(url: string): boolean {
+  return /\/video\/\d+/.test(url) || /[?&]modal_id=\d+/.test(url);
 }
 
 /**
@@ -11,6 +24,8 @@ export interface JobFormProps {
  */
 export function JobForm({ onSubmit }: JobFormProps) {
   const [url, setUrl] = useState('');
+  const [autoLocalize, setAutoLocalize] = useState(false);
+  const [localizeNow, setLocalizeNow] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -22,8 +37,9 @@ export function JobForm({ onSubmit }: JobFormProps) {
     setSubmitting(true);
     setError(null);
     try {
-      await onSubmit(trimmed);
+      await onSubmit(trimmed, { autoLocalize, localizeNow });
       setUrl('');
+      setLocalizeNow(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -43,10 +59,23 @@ export function JobForm({ onSubmit }: JobFormProps) {
           placeholder="https://www.douyin.com/user/..."
           value={url}
           onChange={(e) => setUrl(e.target.value)}
-          className="w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+          className="field"
         />
+        <div className="mt-1 flex flex-wrap gap-x-4">
+          {isVideoUrl(url) ? (
+            <label className="inline-flex min-h-11 items-center gap-2 text-xs text-text-secondary">
+              <input type="checkbox" className="h-5 w-5" checked={localizeNow} onChange={(e) => setLocalizeNow(e.target.checked)} />
+              Localize ngay
+            </label>
+          ) : (
+            <label className="inline-flex min-h-11 items-center gap-2 text-xs text-text-secondary">
+              <input type="checkbox" className="h-5 w-5" checked={autoLocalize} onChange={(e) => setAutoLocalize(e.target.checked)} />
+              Tự localize
+            </label>
+          )}
+        </div>
         {error ? (
-          <p className="mt-1 text-xs text-red-700" data-testid="job-form-error">
+          <p className="mt-1 text-xs text-status-error-text" data-testid="job-form-error">
             {error}
           </p>
         ) : null}
@@ -54,8 +83,9 @@ export function JobForm({ onSubmit }: JobFormProps) {
       <button
         type="submit"
         disabled={submitting}
-        className="whitespace-nowrap rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        className="btn btn-primary text-sm"
       >
+        <Icon name="download" />
         {submitting ? 'Đang tạo…' : 'Download all'}
       </button>
     </form>

@@ -248,7 +248,7 @@ jobs:
       # so the step below needs a real S3 API. MinIO is started with the same
       # pinned image as docker-compose.yml and provisioned by the repo's own
       # infra/minio/init.sh, so the `downloader` user carries the production
-      # policy (source/* only). All credentials are throwaway, CI-only values.
+      # policy (read-write source/*, read-only output/*). All credentials are throwaway, CI-only values.
       - name: Start MinIO for the S3 suites
         env:
           CI_ROOT_USER: ci-minio-root

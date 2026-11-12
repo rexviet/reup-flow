@@ -98,6 +98,8 @@ describe("parseEnv", () => {
     const parsed = parseEnv(env);
 
     expect(parsed.DATA_DIR).toBe("/data");
+    expect(parsed.DASHBOARD_STUCK_MINUTES).toBe(30);
+    expect(parsed.DASHBOARD_MEDIA_SECRET).toBeUndefined();
     expect(parsed.DOWNLOAD_CONCURRENCY).toBe(6);
     expect(parsed.ENUMERATE_SLEEP_MS_MIN).toBe(3000);
     expect(parsed.ENUMERATE_SLEEP_MS_MAX).toBe(5000);
@@ -352,5 +354,18 @@ describe("storage backend configuration", () => {
     }
     expect(message).toMatch(/S3_KEY_PREFIX/);
     expect(message).not.toContain(S3.S3_SECRET_ACCESS_KEY);
+  });
+});
+
+describe("DASHBOARD_MEDIA_SECRET", () => {
+  const base = (extra: Record<string, string>) => validEnv(extra);
+
+  it("is optional, and a blank value counts as unset", () => {
+    expect(parseEnv(base({ DASHBOARD_MEDIA_SECRET: "" })).DASHBOARD_MEDIA_SECRET).toBeUndefined();
+  });
+
+  it("accepts 32 or more characters and rejects a shorter one", () => {
+    expect(parseEnv(base({ DASHBOARD_MEDIA_SECRET: "k".repeat(32) })).DASHBOARD_MEDIA_SECRET).toBe("k".repeat(32));
+    expect(() => parseEnv(base({ DASHBOARD_MEDIA_SECRET: "short" }))).toThrow(/DASHBOARD_MEDIA_SECRET/);
   });
 });

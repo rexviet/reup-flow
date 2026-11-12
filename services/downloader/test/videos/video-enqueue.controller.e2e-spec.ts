@@ -13,7 +13,8 @@ import request from 'supertest';
 import { ApiKeyGuard } from '../../src/auth/api-key.guard';
 import { ConfigModule } from '../../src/config/config.module';
 import { DB } from '../../src/db/db.module';
-import { profiles, videos } from '../../src/db/schema';
+import { localizationOutbox, profiles, videos } from '../../src/db/schema';
+import { markDone } from '../../src/db/videos.repository';
 import { ParserClient } from '../../src/parser/parser.client';
 import { PARSER_CLIENT } from '../../src/parser/parser.module';
 import { VideoEnqueueController } from '../../src/videos/video-enqueue.controller';
@@ -144,6 +145,44 @@ describe('POST /api/videos', () => {
     const [row] = await db.select().from(videos).where(eq(videos.awemeId, VIDEO_ID));
     expect(row.status).toBe('done');
     expect(row.storagePath).toBe('/data/x.mp4');
+  });
+
+  it('records the per-video localize override, and omitted leaves it following the channel', async () => {
+    fakeParser.respondWithEnvelope({ aweme_detail: videoAweme() });
+    await post({ url: videoUrl(VIDEO_ID) });
+    const override = async (): Promise<boolean | null> =>
+      (await db.select().from(videos).where(eq(videos.awemeId, VIDEO_ID)))[0]!.localizeOnDone;
+    expect(await override()).toBeNull();
+
+    await post({ url: videoUrl(VIDEO_ID), localize: true });
+    expect(await override()).toBe(true);
+    await post({ url: videoUrl(VIDEO_ID) });
+    expect(await override()).toBe(true);
+    await post({ url: videoUrl(VIDEO_ID), localize: false });
+    expect(await override()).toBe(false);
+  });
+
+  it('localize:true on a downloaded, held video moves it to pending through the shared path', async () => {
+    fakeParser.respondWithEnvelope({ aweme_detail: videoAweme() });
+    await post({ url: videoUrl(VIDEO_ID) });
+    await markDone(db, VIDEO_ID, 's3://bucket/x.mp4');
+    const state = async (): Promise<string> =>
+      (await db.select().from(localizationOutbox).where(eq(localizationOutbox.awemeId, VIDEO_ID)))[0]!.state;
+    expect(await state()).toBe('held');
+
+    await post({ url: videoUrl(VIDEO_ID) });
+    expect(await state()).toBe('held');
+    const res = await post({ url: videoUrl(VIDEO_ID), localize: true });
+    expect(res.status).toBe(202);
+    expect(await state()).toBe('pending');
+    const { rows } = await pool.query('SELECT action FROM dashboard_actions');
+    expect(rows).toEqual([{ action: 'localize' }]);
+  });
+
+  it('rejects a non-boolean localize with 400 and never calls the parser', async () => {
+    const res = await post({ url: videoUrl(VIDEO_ID), localize: 'now' });
+    expect(res.status).toBe(400);
+    expect(fakeParser.requests).toHaveLength(0);
   });
 
   it('reports an image post as skipped instead of pretending it will download', async () => {

@@ -17,7 +17,11 @@ export const TEST_DATABASE_URL =
 
 const MIGRATIONS_DIR = resolve(__dirname, '../../migrations');
 /** Applied in this order; rolled back in the reverse order. */
-const MIGRATION_NAMES = ['260824-init-schema', '261026-localization-outbox'];
+const MIGRATION_NAMES = [
+  '260824-init-schema',
+  '261026-localization-outbox',
+  '261112-dashboard-intake',
+];
 export const FORWARD_MIGRATIONS = MIGRATION_NAMES.map((n) => resolve(MIGRATIONS_DIR, `${n}.sql`));
 export const ROLLBACK_MIGRATIONS = MIGRATION_NAMES.map((n) =>
   resolve(MIGRATIONS_DIR, `${n}.down.sql`),
@@ -131,5 +135,8 @@ export async function applyRollbackMigration(pool: Pool): Promise<void> {
 
 /** Truncates the tables so each test starts from a known-empty state. */
 export async function truncateAll(pool: Pool): Promise<void> {
-  await pool.query('TRUNCATE videos, jobs, profiles, localization_outbox RESTART IDENTITY CASCADE');
+  await pool.query(
+    `TRUNCATE videos, jobs, profiles, localization_outbox, review_decisions, publications,
+              studio_open_requests, dashboard_actions RESTART IDENTITY CASCADE`,
+  );
 }

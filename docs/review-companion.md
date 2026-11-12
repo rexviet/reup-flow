@@ -160,6 +160,56 @@ chỉ được đổi tên khi checksum khớp tên asset; file bị sửa tay �
 History trong object store vẫn nguyên. Dùng launcher để mở project; không mở
 các bản HTML asset như một composition độc lập.
 
+## Render bản cuối trên máy (`reup-review-worker`)
+
+Worker pm2 `reup-review-worker` (`scripts/review-worker.mjs`, chạy bởi `scripts/start-all.sh`)
+làm bốn việc mỗi vòng 5 giây, đều trên máy này:
+
+- **Render bản đã duyệt.** Khi dashboard duyệt một revision, worker nhận dòng
+  `localization.final_renders`, dựng đúng revision đó từ asset bất biến trong MinIO ra thư mục
+  tạm `data/review-render/` (không phải `data/review/`), chạy `hyperframes render -q delivery`
+  rồi upload `output/review/<aweme>/g<gen>/<revision>.mp4` và `.srt`. Studio đang mở, bridge
+  đang ghi hay chỉnh sửa chưa lưu đều không ảnh hưởng bản render. Mỗi render có timeout cứng
+  30 phút, lease 45 phút (gia hạn mỗi 5 phút) và tối đa 3 lần thử; thư mục tạm luôn bị xóa.
+  Dưới `REVIEW_WORKER_MIN_FREE_GB` (mặc định 5) đĩa trống thì worker không nhận việc và ghi lý
+  do vào heartbeat. `FINAL_RENDER_WORKERS` (mặc định 2) là số Chrome của một render.
+- **Quét review.** Mỗi 60 giây ghi `localization.review_status`: số cue, số mismatch và
+  project có chỉnh sửa chưa lưu hay không. Chỉ đọc: không materialize, không ghi marker (host
+  và container bridge không có khóa file chung đáng tin cậy, nên chỉ bridge ghi marker).
+- **Mở Studio theo yêu cầu** của dashboard (`studio_open_requests`) qua
+  `scripts/review-studio-request.mjs`: sao lưu rồi dừng Studio cũ nếu có, mở project mới. Studio
+  được khởi chạy tách khỏi worker nên vẫn mở khi worker khởi động lại.
+- **Heartbeat** vào `localization.host_workers` (tên `review-worker`): đĩa trống, tình trạng
+  VoiceStudio và render đang chạy. Dừng worker thì dashboard báo `down` sau 2 phút.
+
+`pm2 stop reup-review-worker` (hoặc reload) khiến worker đợi render đang chạy tối đa 60 giây,
+rồi trả dòng về `queued`, kill cả process group của renderer. `kill_timeout` của app là 90 giây
+vì pm2 mặc định chỉ đợi khoảng 1,6 giây, và `treekill: false` để pm2 không kill cả cây tiến
+trình ngay (renderer chết trước khi worker kịp trả dòng về hàng đợi). Worker dừng thì dòng
+`rendering` giữ nguyên tới khi lease hết hạn (45 phút) hoặc worker chạy lại; trong lúc đó
+dashboard chưa cho duyệt lại hay trả về. `reup-review-auto-open` chỉ mở project mới khi không có
+Studio nào đang mở, nên không đóng project vừa mở từ dashboard.
+
+Export tay trong Studio ghi `renders/*.meta.json`; thư mục `renders/` không còn tính vào
+dấu vân tay của project nên export không làm project bị coi là có chỉnh sửa chưa lưu. Marker
+cũ (tính theo cách trước, giữ nguyên revision của nó) hoặc project khớp từng byte với HEAD được
+bridge ghi lại marker mới một lần, trong `materialize` và khi lưu; thư mục có chỉnh sửa thật
+không bị động tới. Revision cũ có `renders/*.meta.json` trong `studio_files` vẫn materialize
+được: các file đó bị bỏ qua. Sau khi đổi code `review_bridge`, rebuild
+image: `docker compose --profile review build review-bridge` rồi `up -d --no-deps review-bridge`.
+
+Kiểm chứng ban đầu (HyperFrames 0.8.77, project `7689288513854595771/g3`, 189 s): bản render
+của worker khớp bản Studio export về độ phân giải 1024x576, 30 fps, thời lượng 189,67 s, âm
+thanh AAC, và khung hình có phụ đề (font, viền, hộp che) giống nhau (SSIM khoảng 0,98). Khác
+biệt duy nhất là bitrate vì worker dùng `-q delivery` (khoảng 98 MB so với 66 MB) và thời gian
+render khoảng 2 phút 10 giây.
+
+Cờ Chrome: HyperFrames khởi chạy `chrome-headless-shell` với `--no-sandbox` và
+`--disable-setuid-sandbox` theo mặc định, CLI 0.8.77 không có tùy chọn bật sandbox. Chrome
+chỉ nạp composition do pipeline tự dựng (CSP cố định, văn bản đã escape, asset từ revision
+bất biến) và chạy với môi trường tối thiểu (`PATH`, `HOME`, `LANG`, `TMPDIR`, không có
+credential DB hay S3). Đây là rủi ro đã biết, cần người dùng chấp nhận.
+
 ## Kiểm tra
 
 ```sh

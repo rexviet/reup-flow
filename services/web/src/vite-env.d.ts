@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
-  /** Base URL of the downloader API, e.g. http://localhost:3000. No trailing slash. */
+  /** Base URL of the downloader API, no trailing slash. Empty (the compose build) means same origin through nginx. */
   readonly VITE_API_BASE_URL: string;
   /**
    * `X-Api-Key` sent on every request. This is an internal tool for 1-3

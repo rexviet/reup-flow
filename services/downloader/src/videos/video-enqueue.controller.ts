@@ -19,7 +19,7 @@ export class VideoEnqueueController {
     @Body(new ZodValidationPipe(createVideoSchema)) body: CreateVideoDto,
   ): Promise<{ aweme_id: string; status: string }> {
     try {
-      const { awemeId, status } = await this.videosService.enqueueFromUrl(body.url);
+      const { awemeId, status } = await this.videosService.enqueueFromUrl(body.url, body.localize);
       return { aweme_id: awemeId, status };
     } catch (err) {
       throw mapParserError(err);

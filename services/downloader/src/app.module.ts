@@ -13,7 +13,7 @@ import { CookieModule } from "./cookie/cookie.module";
 import { StorageModule } from "./storage/storage.module";
 import { LanesModule } from "./lanes/lanes.module";
 import { TemporalModule } from "./temporal/temporal.module";
-import { ReviewsModule } from "./reviews/reviews.module";
+import { DashboardModule } from "./dashboard/dashboard.module";
 import { WorkspaceModule } from "./workspace/workspace.module";
 
 /**
@@ -55,7 +55,7 @@ import { WorkspaceModule } from "./workspace/workspace.module";
     VideosModule,
     CookieModule,
     WorkspaceModule,
-    ReviewsModule,
+    DashboardModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ApiKeyGuard }],

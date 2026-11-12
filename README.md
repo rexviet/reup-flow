@@ -7,15 +7,16 @@ workflow nằm ở Temporal, trace và eval nằm ở Langfuse.
 
 | Thành phần | Chạy ở đâu | Vai trò |
 |---|---|---|
-| `nest` (services/downloader) | compose, cổng 3000 | API, tải video, hàng đợi |
+| `nest` (services/downloader) | compose, `127.0.0.1:3300` (3000 trong container) | API, tải video, hàng đợi |
 | `parser` (submodule `src/Douyin_TikTok_Download_API`) | compose, nội bộ | gọi Douyin, không mở cổng ra ngoài |
-| `web` (services/web) | compose, cổng 5173 | giao diện và trang Agent Workspace |
+| `web` (services/web) | compose, `127.0.0.1:5173` | dashboard quản trị: sức khỏe, cần xử lý, pipeline, chi tiết video, kênh và job tải |
 | `localization-starter` | compose | biến hàng outbox thành workflow |
 | `worker-agents` | compose | Localizer, Dubber, Reviewer, OCR, gọi STT/TTS (queue `workflows`, `llm`, `io`, `voice_check`, `stt`, `tts`) |
 | `worker-media` | compose | Demucs và ffmpeg (queue `media`, `render`), nặng CPU, RAM, đĩa |
 | `review-bridge` | compose tùy chọn, loopback 3310 | companion sửa phụ đề/SRT và yêu cầu revoice; chưa rollout |
 | Temporal, Postgres, Redis, MinIO | compose | điều phối, dữ liệu, cache cookie, lưu media |
 | Langfuse (web, worker, ClickHouse) | compose, cổng 3100 | trace và eval |
+| `reup-review-worker`, `reup-voice-worker`, `reup-review-auto-open` | pm2 trên host | render bản cuối sau khi duyệt, mở Studio theo yêu cầu dashboard, heartbeat; STT/TTS; tự mở Studio ([dashboard](docs/admin-dashboard.md), [review](docs/review-companion.md)) |
 | **VoiceStudio** | **máy GPU riêng** | STT và TTS qua HTTP; **không nằm trong repo này** |
 
 ## Nền phụ đề
@@ -147,8 +148,9 @@ scripts/start-all.sh reload     # reload các tiến trình host sau khi đổi 
 scripts/start-all.sh stop
 ```
 
-Hai tiến trình host chạy dưới pm2 ([ecosystem.config.cjs](ecosystem.config.cjs)):
-`reup-voice-worker` (hàng đợi `stt` và `tts`) và `reup-review-auto-open` (tự mở Studio).
+Ba tiến trình host chạy dưới pm2 ([ecosystem.config.cjs](ecosystem.config.cjs)):
+`reup-voice-worker` (hàng đợi `stt` và `tts`), `reup-review-auto-open` (tự mở Studio khi Studio đang trống)
+và `reup-review-worker` (render bản đã duyệt, quét review, mở Studio theo yêu cầu dashboard, heartbeat).
 Xem log và điều khiển từng cái: `pm2 logs reup-voice-worker`, `pm2 reload <tên>`,
 `pm2 stop <tên>`. Muốn tự chạy lại sau khi khởi động máy: `pm2 save` rồi `pm2 startup`.
 
@@ -197,13 +199,13 @@ chép nguyên file. Script từ chối chạy nếu kiến trúc khác nhau ho�
 scripts/e2e-smoke.sh "https://www.douyin.com/video/<id>"  [số-phút-tối-đa]
 ```
 
-Script đưa video vào qua `POST /api/videos`, rồi theo dõi `localization.runs` tới khi có trạng thái
+Script đưa video vào qua `POST /api/videos` với `localize: true` (video không có cờ này bị giữ ở trạng thái `held`), rồi theo dõi `localization.runs` tới khi có trạng thái
 cuối. Mặc định mới đòi `ready_for_review`, bundle hợp lệ và không có output; `needs_human`
 có project hợp lệ thoát 4 để yêu cầu người sửa. Khi chạy pipeline legacy hiện tại, dùng
 `--mode legacy_render` để tiếp tục đòi `published`. [Runbook review](docs/hyperframes-review.md)
 ghi đầy đủ exit codes, canary, migration và rollback. Theo dõi trực quan ở:
 
-- Agent Workspace: `http://<host>:5173` (API key được đóng sẵn vào bản build của web)
+- Dashboard ([hướng dẫn](docs/admin-dashboard.md)): `http://localhost:5173` (API key được đóng sẵn vào bản build của web; web gọi API cùng origin qua nginx)
 - Temporal UI: `http://localhost:8233`
 - Langfuse: `http://localhost:3100` (tài khoản và mật khẩu trong `.env`)
 

@@ -10,13 +10,13 @@ export interface JobCardProps {
 }
 
 const STATUS_STYLES: Record<string, string> = {
-  pending: 'bg-gray-100 text-gray-700',
-  enumerating: 'bg-blue-100 text-blue-700',
-  downloading: 'bg-blue-100 text-blue-700',
-  blocked: 'bg-red-100 text-red-700',
-  failed: 'bg-red-100 text-red-700',
-  cancelled: 'bg-gray-100 text-gray-500',
-  completed: 'bg-green-100 text-green-700',
+  pending: 'bg-status-idle-bg text-status-idle-text',
+  enumerating: 'bg-status-active-bg text-status-active-text',
+  downloading: 'bg-status-active-bg text-status-active-text',
+  blocked: 'bg-status-error-bg text-status-error-text',
+  failed: 'bg-status-error-bg text-status-error-text',
+  cancelled: 'bg-status-idle-bg text-text-muted',
+  completed: 'bg-status-success-bg text-status-success-text',
 };
 
 export function JobCard({ job, onCancel, onRetry, actionPending }: JobCardProps) {
@@ -24,12 +24,12 @@ export function JobCard({ job, onCancel, onRetry, actionPending }: JobCardProps)
   const canRetry = (RETRYABLE_STATUSES as string[]).includes(job.status);
 
   return (
-    <div className="rounded-lg border border-gray-200 p-4 shadow-sm" data-testid="job-card" data-job-id={job.job_id}>
+    <div className="rounded bg-surface-container-low p-3" data-testid="job-card" data-job-id={job.job_id}>
       <div className="mb-2 flex items-center justify-between gap-2">
-        <span className="truncate font-mono text-sm text-gray-800" title={job.sec_user_id}>
+        <span className="truncate font-mono text-xs font-semibold text-text-primary" title={job.sec_user_id}>
           {job.sec_user_id}
         </span>
-        <span className={`rounded px-2 py-0.5 text-xs font-medium ${STATUS_STYLES[job.status] ?? 'bg-gray-100 text-gray-700'}`}>
+        <span className={`rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold ${STATUS_STYLES[job.status] ?? 'bg-status-idle-bg text-status-idle-text'}`}>
           {job.status}
         </span>
       </div>
@@ -37,7 +37,7 @@ export function JobCard({ job, onCancel, onRetry, actionPending }: JobCardProps)
       <ProgressBars job={job} />
 
       {job.error ? (
-        <p className="mt-2 rounded bg-red-50 p-2 text-xs text-red-800" data-testid="job-error">
+        <p className="mt-2 rounded bg-status-error-bg p-2 text-xs text-status-error-text" data-testid="job-error">
           {job.error}
         </p>
       ) : null}
@@ -46,7 +46,7 @@ export function JobCard({ job, onCancel, onRetry, actionPending }: JobCardProps)
         {canCancel ? (
           <button
             type="button"
-            className="rounded bg-white px-2 py-1 text-xs font-medium text-gray-700 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 disabled:opacity-50"
+            className="btn btn-ghost"
             disabled={actionPending}
             onClick={() => onCancel(job.job_id)}
           >
@@ -56,7 +56,7 @@ export function JobCard({ job, onCancel, onRetry, actionPending }: JobCardProps)
         {canRetry ? (
           <button
             type="button"
-            className="rounded bg-white px-2 py-1 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-300 hover:bg-blue-50 disabled:opacity-50"
+            className="btn btn-neutral"
             disabled={actionPending}
             onClick={() => onRetry(job.job_id)}
           >

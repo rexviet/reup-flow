@@ -104,11 +104,11 @@ rollback default không đổi histories. Vbee tiếp tục legacy.
 
 ## Discovery và smoke
 
-Tab **Review** (`#reviews`) đọc [GET /api/reviews](../services/downloader/src/reviews/reviews.controller.ts)
-qua global `X-Api-Key`, phân trang và chỉ hiện terminal có project. API đọc locator
-trong DB; không đọc bucket, ký URL hoặc start/signal Temporal. Principal DB vẫn là
-role hiện có, chưa được giảm quyền. Workspace dùng cùng status/catalog nhưng không
-trở thành editor; lệnh mở local nằm trong tab Review và không mang key/grant.
+Trang dashboard (`services/web`) liệt kê video chờ duyệt qua `GET /api/dashboard/videos`
+(lọc chip "Chờ duyệt") và nút **Mở Studio** trong trang chi tiết video; route `/api/reviews`
+cũ đã bị gỡ. Phần liệt kê chỉ đọc DB và Temporal; link media do `POST /api/dashboard/media-links` ký. Principal DB vẫn là
+role hiện có, chưa được giảm quyền. Dashboard không phải editor; Studio mở trên
+máy chạy dashboard qua worker review (yêu cầu mở không mang key/grant).
 
 [Smoke script](../scripts/e2e-smoke.sh) mặc định đòi `ready_for_review`, project hợp lệ
 và `output_key` rỗng. Nó materialize bundle bằng worker để kiểm checksum; `needs_human`

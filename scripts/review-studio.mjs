@@ -117,7 +117,7 @@ export async function boundaryProbe(base, fetcher = probeRequest) {
   }
 }
 
-async function cli() {
+export async function cli() {
   const require = createRequire(
     join(ROOT, 'services/localization/spikes/hyperframes-review/package.json'),
   );

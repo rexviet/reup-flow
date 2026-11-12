@@ -163,6 +163,19 @@ export const envSchema = z
      */
     TEMPORAL_ADDRESS: z.string().min(1, "TEMPORAL_ADDRESS must not be empty").default("temporal:7233"),
     TEMPORAL_NAMESPACE: z.string().min(1, "TEMPORAL_NAMESPACE must not be empty").default("default"),
+    /**
+     * A localization activity running longer than this lands the video in the
+     * dashboard's "needs attention" box. Reading only: nothing is cancelled.
+     */
+    DASHBOARD_STUCK_MINUTES: positiveInt("DASHBOARD_STUCK_MINUTES").default(30),
+    /**
+     * HMAC key for the signed dashboard media URLs. Unset means the media routes answer
+     * 503; there is no built-in default, because a published default would let anyone
+     * who reads the source sign a URL.
+     */
+    DASHBOARD_MEDIA_SECRET: blankAsUnset().refine((v) => v === undefined || v.length >= 32, {
+      message: "DASHBOARD_MEDIA_SECRET must be at least 32 characters",
+    }),
     DATA_DIR: z.string().min(1, "DATA_DIR must not be empty").default("/data"),
     DOWNLOAD_CONCURRENCY: positiveInt("DOWNLOAD_CONCURRENCY").default(6),
     ENUMERATE_SLEEP_MS_MIN: positiveInt("ENUMERATE_SLEEP_MS_MIN").default(3000),

@@ -27,7 +27,7 @@ async function save(state) {
   await rename(`${statePath}.tmp`, statePath);
 }
 
-async function studio() {
+export async function studio() {
   try {
     const record = JSON.parse(await readFile(studioPath, 'utf8'));
     return await matches(record) ? record : null;
@@ -37,16 +37,18 @@ async function studio() {
   }
 }
 
-export async function openNext(rows, state, { current, launch, persist, replace }) {
+// Opens the next ready project only while no Studio is open. A Studio that is open is never
+// replaced here: it may be the project an admin just opened from the dashboard. The project
+// stays unopened (and shows as awaiting review on the dashboard) until the Studio closes.
+export async function openNext(rows, state, { current, launch, persist }) {
   const pending = readyProjects(rows, state);
   if (!pending.length) return;
   const row = pending[0];
   const active = await current();
-  if (active?.pagesOpened === false) return;
   const same = active?.aweme === row.aweme_id &&
     active?.generation === String(row.generation);
-  if (active && !same) await replace(active);
-  if (!same) await launch(row);
+  if (active && !(same && active.pagesOpened === true)) return;
+  if (!active) await launch(row);
   const identity = `${row.aweme_id}/g${row.generation}`;
   const opened = [...state.opened, identity];
   await persist({ ...state, opened });
@@ -108,7 +110,7 @@ export async function run() {
           state.since], { cwd: ROOT, timeout: 20000, maxBuffer: 4 * 1024 * 1024 });
         if (stopping) break;
         await openNext(JSON.parse(stdout), state, {
-          current: studio, persist: save, replace: replaceStudio,
+          current: studio, persist: save,
           launch: async row => {
             child = spawn(process.execPath, [join(ROOT, 'scripts/review-studio.mjs'),
               'open', row.aweme_id, String(row.generation)], { cwd: ROOT, stdio: 'ignore' });

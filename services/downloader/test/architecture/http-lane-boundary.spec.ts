@@ -228,7 +228,7 @@ describe('module-graph proof (plan §0 principle 1): requiring the HTTP-layer fe
     '../../src/videos/videos.module',
     '../../src/cookie/cookie.module',
     '../../src/workspace/workspace.module',
-    '../../src/reviews/reviews.module',
+    '../../src/dashboard/dashboard.module',
   ];
 
   it('no entry in require.cache resolves under a lanes/ path after requiring jobs.module, videos.module, and cookie.module', () => {
@@ -249,15 +249,5 @@ describe('module-graph proof (plan §0 principle 1): requiring the HTTP-layer fe
     );
 
     expect(laneEntries).toEqual([]);
-  });
-});
-
-describe('review discovery is a database query only', () => {
-  it('imports neither object storage nor Temporal nor lane writers', () => {
-    const sources = listTsFilesRecursive(resolve(__dirname, '../../src/reviews'));
-    expect(sources.length).toBeGreaterThan(0);
-    for (const file of sources) {
-      expect(readFileSync(file, 'utf8')).not.toMatch(/@temporalio|@aws-sdk|from ['"].*(?:storage|lanes)\//);
-    }
   });
 });

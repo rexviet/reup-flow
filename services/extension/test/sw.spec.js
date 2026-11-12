@@ -151,6 +151,9 @@ describe('sw.js wiring', () => {
 
     expect(response).toEqual({ ok: true, status: 'pending', message: 'queued' });
     expect(lastFetchCall.url).toBe('http://backend/api/videos');
-    expect(JSON.parse(lastFetchCall.init.body)).toEqual({ url: 'https://www.douyin.com/video/1' });
+    expect(JSON.parse(lastFetchCall.init.body)).toEqual({
+      url: 'https://www.douyin.com/video/1',
+      localize: true,
+    });
   });
 });

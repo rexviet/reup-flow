@@ -4,7 +4,8 @@ import { TEMPORAL_CLIENT } from '../temporal/temporal.module';
 import { WorkspaceController } from './workspace.controller';
 import { WorkspaceRepository } from './workspace.repository';
 import { WorkspaceService } from './workspace.service';
-import { TEMPORAL_READER } from './workspace.tokens';
+import { DASHBOARD_TEMPORAL, TEMPORAL_READER } from './workspace.tokens';
+import { TemporalDashboardReader } from './workspace.dashboard-reader';
 import { TemporalWorkflowReader } from './workspace.temporal';
 
 /** `PG_POOL` and `TEMPORAL_CLIENT` come from the global DbModule and TemporalModule. */
@@ -12,6 +13,7 @@ import { TemporalWorkflowReader } from './workspace.temporal';
   controllers: [WorkspaceController],
   providers: [
     WorkspaceRepository,
+    { provide: DASHBOARD_TEMPORAL, inject: [TEMPORAL_CLIENT], useFactory: (c: Client) => new TemporalDashboardReader(c) },
     { provide: TEMPORAL_READER, inject: [TEMPORAL_CLIENT], useFactory: (c: Client) => new TemporalWorkflowReader(c) },
     {
       provide: WorkspaceService,
@@ -19,5 +21,6 @@ import { TemporalWorkflowReader } from './workspace.temporal';
       useFactory: (t: TemporalWorkflowReader, s: WorkspaceRepository) => new WorkspaceService(t, s),
     },
   ],
+  exports: [DASHBOARD_TEMPORAL],
 })
 export class WorkspaceModule {}

@@ -41,5 +41,8 @@ export const createVideoSchema = z.object({
     .refine((value) => extractAwemeId(value) !== null, {
       message: 'url must point at one video (/video/<id> or ?modal_id=<id>)',
     }),
+  /** true: localize as soon as it is downloaded; false: hold it once it finishes (a row already
+   * pending is not taken back). Omitted follows the channel. */
+  localize: z.boolean().optional(),
 });
 export type CreateVideoDto = z.infer<typeof createVideoSchema>;

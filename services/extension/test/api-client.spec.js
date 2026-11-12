@@ -139,7 +139,7 @@ describe('getCookieStatus', () => {
 });
 
 describe('enqueueVideo', () => {
-  test('POSTs {url} to {baseUrl}/api/videos with X-Api-Key and returns the parsed body', async () => {
+  test('POSTs {url, localize: true} to {baseUrl}/api/videos with X-Api-Key and returns the parsed body', async () => {
     const calls = [];
     const fetchImpl = async (url, init) => {
       calls.push({ url, init });
@@ -157,7 +157,10 @@ describe('enqueueVideo', () => {
     expect(calls[0].url).toBe('http://localhost:3000/api/videos');
     expect(calls[0].init.method).toBe('POST');
     expect(calls[0].init.headers['X-Api-Key']).toBe('key');
-    expect(JSON.parse(calls[0].init.body)).toEqual({ url: 'https://www.douyin.com/video/1' });
+    expect(JSON.parse(calls[0].init.body)).toEqual({
+      url: 'https://www.douyin.com/video/1',
+      localize: true,
+    });
   });
 
   test('throws CookiePushApiError carrying the status for a non-2xx reply', async () => {

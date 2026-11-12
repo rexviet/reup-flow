@@ -1,4 +1,18 @@
-import type { ReviewList, CookieStatus, JobListResponse, JobResponse, RunDetail, WorkspaceSnapshot } from './types';
+import type {
+  ActionRequest,
+  ActionResult,
+  AttentionResponse,
+  ChannelListResponse,
+  CookieStatus,
+  HealthReport,
+  JobListResponse,
+  JobResponse,
+  MediaKind,
+  MediaLink,
+  VideoDetailResponse,
+  VideoListQuery,
+  VideoListResponse,
+} from './types';
 
 /**
  * Thin fetch wrapper for the downloader API (services/downloader).
@@ -18,8 +32,9 @@ export class ApiError extends Error {
   }
 }
 
-function baseUrl(): string {
-  return import.meta.env.VITE_API_BASE_URL.replace(/\/$/, '');
+/** Empty (the default build) means same origin: every request goes through the web nginx. */
+export function baseUrl(): string {
+  return (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -59,10 +74,18 @@ export async function listJobs(limit = 20, offset = 0): Promise<JobListResponse>
   return request<JobListResponse>(`/api/jobs?limit=${limit}&offset=${offset}`);
 }
 
-export async function createJob(url: string): Promise<{ job_id: string }> {
+export async function createJob(url: string, autoLocalize?: boolean): Promise<{ job_id: string }> {
   return request<{ job_id: string }>('/api/jobs', {
     method: 'POST',
-    body: JSON.stringify({ url }),
+    body: JSON.stringify(autoLocalize === undefined ? { url } : { url, auto_localize: autoLocalize }),
+  });
+}
+
+/** One video by its page URL; `localize: true` skips the hold. */
+export async function createVideo(url: string, localize?: boolean): Promise<{ aweme_id: string; status: string }> {
+  return request<{ aweme_id: string; status: string }>('/api/videos', {
+    method: 'POST',
+    body: JSON.stringify(localize === undefined ? { url } : { url, localize }),
   });
 }
 
@@ -78,14 +101,51 @@ export async function getCookieStatus(): Promise<CookieStatus> {
   return request<CookieStatus>('/internal/cookie/status');
 }
 
-export async function getWorkspaceSnapshot(): Promise<WorkspaceSnapshot> {
-  return request<WorkspaceSnapshot>('/api/workspace/snapshot');
+function queryString(query: VideoListQuery): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== '') params.set(key, String(value));
+  }
+  const text = params.toString();
+  return text ? `?${text}` : '';
 }
 
-export async function getRunDetail(awemeId: string, generation: number): Promise<RunDetail> {
-  return request<RunDetail>(`/api/workspace/runs/${encodeURIComponent(awemeId)}/${generation}`);
+export async function getDashboardVideos(query: VideoListQuery = {}): Promise<VideoListResponse> {
+  return request<VideoListResponse>(`/api/dashboard/videos${queryString(query)}`);
 }
 
-export async function listReviews(limit = 20, offset = 0): Promise<ReviewList> {
-  return request<ReviewList>(`/api/reviews?limit=${limit}&offset=${offset}`);
+export async function getDashboardVideo(awemeId: string): Promise<VideoDetailResponse> {
+  return request<VideoDetailResponse>(`/api/dashboard/videos/${encodeURIComponent(awemeId)}`);
+}
+
+export async function getAttention(): Promise<AttentionResponse> {
+  return request<AttentionResponse>('/api/dashboard/attention');
+}
+
+export async function getChannels(): Promise<ChannelListResponse> {
+  return request<ChannelListResponse>('/api/dashboard/channels');
+}
+
+export async function getHealth(): Promise<HealthReport> {
+  return request<HealthReport>('/api/dashboard/health');
+}
+
+export async function runAction(body: ActionRequest): Promise<ActionResult> {
+  return request<ActionResult>('/api/dashboard/actions', { method: 'POST', body: JSON.stringify(body) });
+}
+
+/** Signed, short-lived URLs; each is prefixed with the API base so it works from any origin setup. */
+export async function getMediaLinks(awemeId: string, generation: number, kinds: MediaKind[]): Promise<MediaLink[]> {
+  const res = await request<{ links: MediaLink[] }>('/api/dashboard/media-links', {
+    method: 'POST',
+    body: JSON.stringify({ aweme_id: awemeId, generation, kinds }),
+  });
+  return res.links.map((l) => (l.url ? { ...l, url: `${baseUrl()}${l.url}` } : l));
+}
+
+export async function setAutoLocalize(secUserId: string, autoLocalize: boolean): Promise<void> {
+  await request(`/api/profiles/${encodeURIComponent(secUserId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ auto_localize: autoLocalize }),
+  });
 }

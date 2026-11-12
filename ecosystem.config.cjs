@@ -36,5 +36,24 @@ module.exports = {
       kill_timeout: 20000,
       time: true,
     },
+    {
+      // Final renders of approved review projects, review scans, Studio open requests from
+      // the dashboard and the heartbeat. A render can run for minutes: on SIGTERM the worker
+      // waits up to 60 s, hands the row back to the queue and kills the renderer, so pm2
+      // must not cut in before that (pm2's default is about 1.6 s).
+      name: 'reup-review-worker',
+      script: 'scripts/review-worker.mjs',
+      interpreter,
+      cwd: __dirname,
+      autorestart: true,
+      min_uptime: '20s',
+      max_restarts: 10,
+      restart_delay: 5000,
+      kill_timeout: 90000,
+      // pm2 would otherwise kill the whole process tree at once, which ends the renderer
+      // before the worker can wait for it and return the row to the queue.
+      treekill: false,
+      time: true,
+    },
   ],
 };

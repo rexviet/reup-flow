@@ -2,6 +2,7 @@ import { BadGatewayException, Inject, Injectable, NotFoundException } from '@nes
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { ENV } from '../config/config.module';
 import type { Env } from '../config/env';
+import { localize, setLocalizeOnDone } from '../dashboard/intake.repository';
 import { DB } from '../db/db.module';
 import * as jobsRepository from '../db/jobs.repository';
 import * as schema from '../db/schema';
@@ -40,7 +41,7 @@ export class VideosService {
    * The parser call happens before any write, for the same reason as in
    * `createFromUrl`: no transaction is held open across a network round trip.
    */
-  async enqueueFromUrl(url: string): Promise<EnqueuedVideo> {
+  async enqueueFromUrl(url: string, localizeFlag?: boolean): Promise<EnqueuedVideo> {
     const awemeId = extractAwemeId(url);
     if (awemeId === null) throw new BadGatewayException('url does not name a video');
 
@@ -59,7 +60,13 @@ export class VideosService {
     await this.db.transaction(async (tx) => {
       await jobsRepository.upsertProfile(tx, row.secUserId);
       await videosRepository.upsertMany(tx, [row], { urlTtlSeconds: this.env.URL_TTL_SECONDS });
+      if (localizeFlag !== undefined) await setLocalizeOnDone(tx, awemeId, localizeFlag);
     });
+    // A separate transaction on purpose: the flag above is already committed, so a
+    // failure here leaves a retryable request, not a lost one.
+    // Already downloaded and held: asking to localize now takes the same single
+    // held -> pending path as the dashboard button.
+    if (localizeFlag === true) await localize(this.db, [awemeId], 'enqueue');
 
     const stored = await videosRepository.findByAwemeId(this.db, awemeId);
     return { awemeId, status: stored?.status ?? row.status ?? 'pending' };

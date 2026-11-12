@@ -130,6 +130,35 @@ describe('POST /api/jobs', () => {
     expect(rows.rows.map((r) => r.sec_user_id)).toEqual(['sec-shared-shape', 'sec-shared-shape']);
   });
 
+  it('writes auto_localize on the channel, and leaves it alone when omitted', async () => {
+    fakeParser.respondWithEnvelope('sec-switch');
+    const url = 'https://www.douyin.com/user/sec-switch';
+    const auto = async (): Promise<boolean> =>
+      (await pool.query('SELECT auto_localize FROM profiles WHERE sec_user_id = $1', ['sec-switch'])).rows[0]
+        .auto_localize;
+
+    await authed(request(app.getHttpServer()).post('/api/jobs')).send({ url });
+    expect(await auto()).toBe(false);
+
+    const on = await authed(request(app.getHttpServer()).post('/api/jobs')).send({ url, auto_localize: true });
+    expect(on.status).toBe(201);
+    expect(await auto()).toBe(true);
+
+    await authed(request(app.getHttpServer()).post('/api/jobs')).send({ url });
+    expect(await auto()).toBe(true);
+
+    await authed(request(app.getHttpServer()).post('/api/jobs')).send({ url, auto_localize: false });
+    expect(await auto()).toBe(false);
+  });
+
+  it('rejects a non-boolean auto_localize with 400', async () => {
+    const res = await authed(request(app.getHttpServer()).post('/api/jobs')).send({
+      url: 'https://www.douyin.com/user/x',
+      auto_localize: 'yes',
+    });
+    expect(res.status).toBe(400);
+  });
+
   it('rejects a missing url with 400', async () => {
     const res = await authed(request(app.getHttpServer()).post('/api/jobs')).send({});
     expect(res.status).toBe(400);

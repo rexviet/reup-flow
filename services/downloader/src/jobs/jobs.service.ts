@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { DB } from '../db/db.module';
+import { setProfileAutoLocalize } from '../dashboard/intake.repository';
 import * as jobsRepository from '../db/jobs.repository';
 import type { Page, PageOptions } from '../db/jobs.repository';
 import * as schema from '../db/schema';
@@ -24,7 +25,8 @@ export class JobsService {
   /**
    * Plan §0 principle 1: the HTTP layer never calls a lane. This method does
    * exactly three things -- resolve the URL, upsert the profile, insert a
-   * `pending` job -- and then returns. It does NOT call, schedule, notify,
+   * `pending` job (plus the channel's auto-localize switch when the caller
+   * sends one) -- and then returns. It does NOT call, schedule, notify,
    * or import anything under `lanes/`; the enumerate lane (phase 5) finds
    * this row entirely on its own next poll. Postgres is the only channel
    * between this method and the lane, which is what makes moving lanes into
@@ -36,10 +38,15 @@ export class JobsService {
    * that transaction, a lock) for no reason -- there is nothing to roll back
    * about a read that talks to nothing but the parser.
    */
-  async createFromUrl(url: string): Promise<Job> {
+  async createFromUrl(url: string, autoLocalize?: boolean): Promise<Job> {
     const secUserId = await this.parser.resolveSecUserId(url);
     return this.db.transaction(async (tx) => {
       await jobsRepository.upsertProfile(tx, secUserId);
+      // Part of the channel row, not the job: videos carry no job id, so the
+      // switch lives where `markDone` can read it. Omitted leaves it alone.
+      if (autoLocalize !== undefined) {
+        await setProfileAutoLocalize(tx, secUserId, autoLocalize);
+      }
       const job = await jobsRepository.create(tx, secUserId);
       // PHASE 7 -- somebody is asking for this profile again, so nobody's
       // earlier cancel applies to it any more.

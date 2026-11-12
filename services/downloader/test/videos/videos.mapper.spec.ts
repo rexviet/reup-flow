@@ -22,6 +22,7 @@ function fakeVideo(overrides: Partial<Video> = {}): Video {
     attempts: 1,
     lastError: null,
     leaseExpiresAt: new Date('2026-08-01T01:00:00Z'),
+    localizeOnDone: null,
     ...overrides,
   };
 }

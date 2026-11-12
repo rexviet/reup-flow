@@ -96,10 +96,10 @@ import pathlib
 p = pathlib.Path("src/db/videos.repository.ts")
 s = p.read_text()
 a = "await exec.transaction(async (tx) => {"
-b = "await tx.insert(localizationOutbox).values({ awemeId }).onConflictDoNothing();\n  });"
+b = "      .onConflictDoNothing();\n  });"
 if a in s and b in s:
     s = s.replace(a, "await (async (tx: Executor) => {")
-    s = s.replace(b, "await tx.insert(localizationOutbox).values({ awemeId }).onConflictDoNothing();\n  })(exec);")
+    s = s.replace(b, "      .onConflictDoNothing();\n  })(exec);")
     p.write_text(s)
 EOF
 

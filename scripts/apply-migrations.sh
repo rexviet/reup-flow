@@ -16,6 +16,8 @@ MIGRATIONS=(
   services/localization/migrations/261027-llm-cost.sql
   services/localization/migrations/261028-llm-call-provider.sql
   services/localization/migrations/261108-review-project-key.sql
+  services/downloader/migrations/261112-dashboard-intake.sql
+  services/localization/migrations/261112-review-delivery.sql
 )
 psql_() {
   docker compose exec -T -e MIGRATION_TEST_DATABASE="${MIGRATION_TEST_DATABASE:-}" postgres sh -c \

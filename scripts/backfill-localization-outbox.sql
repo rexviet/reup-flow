@@ -9,8 +9,9 @@
 --     candidate already has an s3:// storage_path. Local-path videos are
 --     skipped on purpose: the localization side cannot read them.
 --
--- Every inserted row gets next_attempt_at = now(), so all of them are due at
--- once: a large backlog needs a rate limit on the dispatcher.
+-- Every inserted row is 'held': nothing is dispatched until an admin moves it
+-- to 'pending' (dashboard localize), so a large backlog cannot flood the
+-- dispatcher.
 --
 -- Idempotent: rows that already exist are left alone.
 --
@@ -18,8 +19,8 @@
 
 BEGIN;
 
-INSERT INTO localization_outbox (aweme_id)
-SELECT aweme_id
+INSERT INTO localization_outbox (aweme_id, state)
+SELECT aweme_id, 'held'
   FROM videos
  WHERE status = 'done'
    AND storage_path LIKE 's3://%'

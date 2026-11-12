@@ -12,7 +12,7 @@ describe('JobForm', () => {
     await userEvent.type(input, '  https://www.douyin.com/user/xyz  ');
     await userEvent.click(screen.getByRole('button', { name: /download all/i }));
 
-    expect(onSubmit).toHaveBeenCalledWith('https://www.douyin.com/user/xyz');
+    expect(onSubmit).toHaveBeenCalledWith('https://www.douyin.com/user/xyz', { autoLocalize: false, localizeNow: false });
     expect(input).toHaveValue('');
   });
 
@@ -52,6 +52,29 @@ describe('JobForm', () => {
     expect(button).toBeDisabled();
     await act(async () => {
       resolveSubmit();
+    });
+  });
+
+  it('passes the auto-localize switch and offers Localize ngay only for a single-video URL', async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(<JobForm onSubmit={onSubmit} />);
+
+    const input = screen.getByLabelText(/url profile/i);
+    await userEvent.type(input, 'https://www.douyin.com/user/xyz');
+    expect(screen.queryByLabelText(/localize ngay/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/tự localize/i)).not.toBeChecked();
+
+    await userEvent.click(screen.getByLabelText(/tự localize/i));
+    await userEvent.click(screen.getByRole('button', { name: /download all/i }));
+    expect(onSubmit).toHaveBeenLastCalledWith('https://www.douyin.com/user/xyz', { autoLocalize: true, localizeNow: false });
+
+    await userEvent.type(input, 'https://www.douyin.com/video/7300000000000000001');
+    expect(screen.queryByLabelText(/tự localize/i)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByLabelText(/localize ngay/i));
+    await userEvent.click(screen.getByRole('button', { name: /download all/i }));
+    expect(onSubmit).toHaveBeenLastCalledWith('https://www.douyin.com/video/7300000000000000001', {
+      autoLocalize: true,
+      localizeNow: true,
     });
   });
 });

@@ -1,5 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { listJobs, createJob, cancelJob, retryJob, getCookieStatus, ApiError } from './client';
+import {
+  listJobs,
+  createJob,
+  cancelJob,
+  retryJob,
+  getCookieStatus,
+  ApiError,
+  getDashboardVideos,
+  runAction,
+  getMediaLinks,
+  createVideo,
+  setAutoLocalize,
+} from './client';
 
 const originalFetch = global.fetch;
 
@@ -84,5 +96,47 @@ describe('getCookieStatus', () => {
     expect(result).toEqual(payload);
     const [url] = fetchMock.mock.calls[0];
     expect(String(url)).toBe('http://api.test/internal/cookie/status');
+  });
+});
+
+describe('dashboard client', () => {
+  it('sends only the filters that are set, as a query string', async () => {
+    const fetchMock = mockFetchOnce({ items: [] });
+    await getDashboardVideos({ stage: 'held', q: '', channel: 'sec1', limit: 50, offset: 0 });
+    expect(String(fetchMock.mock.calls[0][0])).toBe('http://api.test/api/dashboard/videos?stage=held&channel=sec1&limit=50&offset=0');
+  });
+
+  it('posts an action body as JSON', async () => {
+    const fetchMock = mockFetchOnce({ done: ['1'], skipped: [] });
+    await runAction({ action: 'rerun', aweme_ids: ['1'] });
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(String(url)).toBe('http://api.test/api/dashboard/actions');
+    expect((opts as RequestInit).method).toBe('POST');
+    expect(JSON.parse(String((opts as RequestInit).body))).toEqual({ action: 'rerun', aweme_ids: ['1'] });
+  });
+
+  it('prefixes signed media urls with the API base', async () => {
+    mockFetchOnce({ links: [{ kind: 'source', available: true, url: '/api/dashboard/media/tok' }, { kind: 'srt', available: false }] });
+    const links = await getMediaLinks('1', 2, ['source', 'srt']);
+    expect(links[0].url).toBe('http://api.test/api/dashboard/media/tok');
+    expect(links[1].url).toBeUndefined();
+  });
+
+  it('uses same-origin paths when no base URL is configured', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', '');
+    const fetchMock = mockFetchOnce({ aweme_id: '1', status: 'pending' });
+    await createVideo('https://www.douyin.com/video/1', true);
+    expect(String(fetchMock.mock.calls[0][0])).toBe('/api/videos');
+    expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))).toEqual({ url: 'https://www.douyin.com/video/1', localize: true });
+  });
+
+  it('omits auto_localize unless given, and patches a channel switch', async () => {
+    let fetchMock = mockFetchOnce({ job_id: 'a' });
+    await createJob('https://www.douyin.com/user/x');
+    expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))).toEqual({ url: 'https://www.douyin.com/user/x' });
+    fetchMock = mockFetchOnce({});
+    await setAutoLocalize('sec 1', true);
+    expect(String(fetchMock.mock.calls[0][0])).toBe('http://api.test/api/profiles/sec%201');
+    expect((fetchMock.mock.calls[0][1] as RequestInit).method).toBe('PATCH');
   });
 });

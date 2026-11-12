@@ -6,7 +6,7 @@
  *   POST /internal/cookie        body {platform, cookie}  header X-Api-Key
  *   GET  /internal/cookie/status                          header X-Api-Key
  * and services/downloader/src/videos/video-enqueue.controller.ts:
- *   POST /api/videos             body {url}               header X-Api-Key
+ *   POST /api/videos             body {url, localize}     header X-Api-Key
  *
  * Never logs the cookie value, the response body, or the API key anywhere --
  * see test/no-console-log.spec.js, which greps this file (and every other
@@ -109,7 +109,8 @@ async function getCookieStatus({ baseUrl, apiKey, fetchImpl }) {
 }
 
 /**
- * Queues ONE video by its page URL via `POST {baseUrl}/api/videos` and returns
+ * Queues ONE video by its page URL via `POST {baseUrl}/api/videos` (asking for
+ * immediate localization) and returns
  * the parsed `{ aweme_id, status }` body. Throws CookiePushApiError otherwise.
  */
 async function enqueueVideo({ baseUrl, apiKey, url, fetchImpl }) {
@@ -121,7 +122,9 @@ async function enqueueVideo({ baseUrl, apiKey, url, fetchImpl }) {
         'Content-Type': 'application/json',
         'X-Api-Key': apiKey,
       },
-      body: JSON.stringify({ url }),
+      // The extension button is an explicit "do this now": it bypasses the
+      // hold that channel downloads get by default.
+      body: JSON.stringify({ url, localize: true }),
     },
     fetchImpl,
   );

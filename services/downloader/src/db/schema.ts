@@ -1,9 +1,13 @@
 import { sql } from 'drizzle-orm';
 import {
   bigint,
+  bigserial,
+  boolean,
   index,
   integer,
+  jsonb,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uuid,
@@ -34,6 +38,8 @@ export const profiles = pgTable('profiles', {
   secUserId: text('sec_user_id').primaryKey(),
   nickname: text('nickname'),
   lastSyncedAt: tstz('last_synced_at'),
+  /** Per-channel switch: localize finished downloads without waiting for an admin. */
+  autoLocalize: boolean('auto_localize').notNull().default(false),
 });
 
 export const jobs = pgTable(
@@ -126,6 +132,8 @@ export const videos = pgTable(
      * mid-download leaves the row in `downloading` with nobody working on
      * it, forever. */
     leaseExpiresAt: tstz('lease_expires_at'),
+    /** Per-video override of the channel switch; NULL follows the channel. */
+    localizeOnDone: boolean('localize_on_done'),
   },
   (table) => [
     /** Claim path. Partial so the index holds only outstanding work: at
@@ -150,7 +158,7 @@ export const videos = pgTable(
  * follow `search_path` so each test run gets its own copy.
  *
  * `generation` is bumped to re-run a video; `state` is
- * pending | dispatched | rejected | dead.
+ * pending | held | dispatched | rejected | dead. Only `pending` is dispatched.
  */
 export const localizationOutbox = pgTable(
   'localization_outbox',
@@ -172,6 +180,61 @@ export const localizationOutbox = pgTable(
       .on(table.nextAttemptAt)
       .where(sql`${table.state} = 'pending'`),
   ],
+);
+
+/** Admin decision on a review revision. Written only by the downloader. */
+export const reviewDecisions = pgTable(
+  'review_decisions',
+  {
+    awemeId: text('aweme_id').notNull(),
+    generation: integer('generation').notNull(),
+    /** approved | returned */
+    decision: text('decision').notNull(),
+    approvedRevision: text('approved_revision'),
+    confirmMismatch: boolean('confirm_mismatch').notNull().default(false),
+    note: text('note'),
+    decidedAt: tstz('decided_at').notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.awemeId, table.generation] })],
+);
+
+export const publications = pgTable(
+  'publications',
+  {
+    awemeId: text('aweme_id').notNull(),
+    generation: integer('generation').notNull(),
+    /** unpublished | scheduled | publishing | published | failed */
+    state: text('state').notNull().default('unpublished'),
+    platform: text('platform'),
+    postUrl: text('post_url'),
+    note: text('note'),
+    updatedAt: tstz('updated_at').notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.awemeId, table.generation] })],
+);
+
+/** Dashboard asks the host worker to open Studio for a review project. */
+export const studioOpenRequests = pgTable('studio_open_requests', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  awemeId: text('aweme_id').notNull(),
+  generation: integer('generation').notNull(),
+  /** pending | done | failed */
+  state: text('state').notNull().default('pending'),
+  error: text('error'),
+  requestedAt: tstz('requested_at').notNull().defaultNow(),
+  handledAt: tstz('handled_at'),
+});
+
+export const dashboardActions = pgTable(
+  'dashboard_actions',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    awemeId: text('aweme_id').notNull(),
+    action: text('action').notNull(),
+    detail: jsonb('detail').notNull().default({}),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+  },
+  (table) => [index('dashboard_actions_aweme_idx').on(table.awemeId, table.createdAt.desc())],
 );
 
 export type Profile = typeof profiles.$inferSelect;

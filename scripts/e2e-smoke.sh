@@ -41,7 +41,7 @@ if [ "${URL:-}" != '' ]; then
   echo "queueing $URL"
   resp=$(printf 'X-Api-Key: %s\n' "$API_KEY" | curl -sS --max-time 60 -w '\n%{http_code}' \
     -X POST http://localhost:3300/api/videos -H @- -H 'Content-Type: application/json' \
-    -d "$(printf '{"url":"%s"}' "$URL")") || { echo 'API unavailable' >&2; exit 2; }
+    -d "$(printf '{"url":"%s","localize":true}' "$URL")") || { echo 'API unavailable' >&2; exit 2; }
   code=${resp##*$'\n'}
   body=${resp%$'\n'*}
   if [ "$code" != "202" ]; then

@@ -13,7 +13,16 @@ import { getTableConfig } from 'drizzle-orm/pg-core';
 import type { Pool } from 'pg';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { jobs, localizationOutbox, profiles, videos } from '../../src/db/schema';
+import {
+  dashboardActions,
+  jobs,
+  localizationOutbox,
+  profiles,
+  publications,
+  reviewDecisions,
+  studioOpenRequests,
+  videos,
+} from '../../src/db/schema';
 import {
   applyForwardMigration,
   applyRollbackMigration,
@@ -26,10 +35,33 @@ import {
 jest.setTimeout(30_000);
 
 const SCHEMA = testSchemaName('migration');
+const ROLLBACK_FILE = resolve(__dirname, '../../migrations/261112-dashboard-intake.down.sql');
+
+const ALL_TABLES = [
+  profiles,
+  jobs,
+  videos,
+  localizationOutbox,
+  reviewDecisions,
+  publications,
+  studioOpenRequests,
+  dashboardActions,
+];
+const EXPECTED_TABLES = [
+  'dashboard_actions',
+  'jobs',
+  'localization_outbox',
+  'profiles',
+  'publications',
+  'review_decisions',
+  'studio_open_requests',
+  'videos',
+];
 
 /** Collapses catalog vs Drizzle type spellings onto one comparable form. */
 function normalizeType(sqlType: string): string {
-  return sqlType.toLowerCase().replace(/\s+/g, ' ').trim();
+  // bigserial is a bigint column plus a sequence default; the catalog reports bigint.
+  return sqlType.toLowerCase().replace(/\s+/g, ' ').trim().replace(/^bigserial$/, 'bigint');
 }
 
 async function tableNames(pool: Pool): Promise<string[]> {
@@ -57,7 +89,7 @@ describe('phase 1: init migration and schema.ts agree', () => {
   });
 
   it('creates exactly the tables the design specifies', async () => {
-    expect(await tableNames(pool)).toEqual(['jobs', 'localization_outbox', 'profiles', 'videos']);
+    expect(await tableNames(pool)).toEqual(EXPECTED_TABLES);
   });
 
   describe.each([
@@ -65,6 +97,10 @@ describe('phase 1: init migration and schema.ts agree', () => {
     ['jobs', jobs],
     ['videos', videos],
     ['localization_outbox', localizationOutbox],
+    ['review_decisions', reviewDecisions],
+    ['publications', publications],
+    ['studio_open_requests', studioOpenRequests],
+    ['dashboard_actions', dashboardActions],
   ])('%s columns match the migration', (tableName, table) => {
     it('has the same column set, types and nullability in both directions', async () => {
       const { rows } = await pool.query<{
@@ -98,7 +134,7 @@ describe('phase 1: init migration and schema.ts agree', () => {
   });
 
   it('creates every index schema.ts declares, and no others', async () => {
-    const declared = [profiles, jobs, videos, localizationOutbox].flatMap((table) =>
+    const declared = ALL_TABLES.flatMap((table) =>
       getTableConfig(table).indexes.map((idx) => idx.config.name!),
     );
 
@@ -109,7 +145,7 @@ describe('phase 1: init migration and schema.ts agree', () => {
     // Primary-key indexes are created by the PK constraint, not by an
     // index() call in schema.ts, so they are not part of this comparison.
     const pkNames = new Set(
-      [profiles, jobs, videos, localizationOutbox].map((t) => `${getTableConfig(t).name}_pkey`),
+      ALL_TABLES.map((t) => `${getTableConfig(t).name}_pkey`),
     );
     const actual = rows.filter((r) => !pkNames.has(r.indexname));
 
@@ -153,6 +189,7 @@ describe('phase 1: init migration and schema.ts agree', () => {
       jobs_enumerating_lease_idx: '(status, lease_expires_at)',
       jobs_sec_user_id_idx: '(sec_user_id)',
       localization_outbox_due_idx: '(next_attempt_at)',
+      dashboard_actions_aweme_idx: '(aweme_id, created_at DESC)',
     };
 
     const { rows } = await pool.query<{ indexname: string; indexdef: string }>(
@@ -167,6 +204,38 @@ describe('phase 1: init migration and schema.ts agree', () => {
     }
   });
 
+  it('accepts held outbox state and rejects unknown states', async () => {
+    await pool.query(`INSERT INTO profiles (sec_user_id) VALUES ('p') ON CONFLICT DO NOTHING`);
+    await pool.query(
+      `INSERT INTO videos (aweme_id, sec_user_id, create_time) VALUES ('v-held', 'p', now()), ('v-bad', 'p', now())`,
+    );
+    await pool.query(`INSERT INTO localization_outbox (aweme_id, state) VALUES ('v-held', 'held')`);
+    await expect(
+      pool.query(`INSERT INTO localization_outbox (aweme_id, state) VALUES ('v-bad', 'bogus')`),
+    ).rejects.toThrow(/localization_outbox_state_check/);
+    await pool.query(`DELETE FROM localization_outbox`);
+  });
+
+  it('refuses to roll back while a held row exists', async () => {
+    await pool.query(
+      `INSERT INTO profiles (sec_user_id) VALUES ('p-held') ON CONFLICT DO NOTHING;
+       INSERT INTO videos (aweme_id, sec_user_id, create_time) VALUES ('v-held2', 'p-held', now())
+         ON CONFLICT DO NOTHING;
+       INSERT INTO localization_outbox (aweme_id, state) VALUES ('v-held2', 'held');`,
+    );
+    // The down file opens its own transaction and aborts it on error; use a
+    // dedicated client and roll back so no pooled connection stays aborted.
+    const client = await pool.connect();
+    try {
+      await expect(client.query(readFileSync(ROLLBACK_FILE, 'utf8'))).rejects.toThrow(/held rows/);
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+    }
+    expect(await tableNames(pool)).toEqual(EXPECTED_TABLES);
+    await pool.query(`DELETE FROM localization_outbox`);
+  });
+
   it('rolls back to a completely empty schema, and forward again', async () => {
     await applyRollbackMigration(pool);
     expect(await tableNames(pool)).toEqual([]);
@@ -174,7 +243,7 @@ describe('phase 1: init migration and schema.ts agree', () => {
     // Re-runnable: an operator who rolls back and re-applies must not need to
     // hand-clean leftovers first.
     await applyForwardMigration(pool);
-    expect(await tableNames(pool)).toEqual(['jobs', 'localization_outbox', 'profiles', 'videos']);
+    expect(await tableNames(pool)).toEqual(EXPECTED_TABLES);
   });
 });
 

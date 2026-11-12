@@ -53,6 +53,37 @@ BEGIN
       'localization.runs.llm_cost_usd:numeric(14,8)'];
     WHEN '261028-llm-call-provider.sql' THEN expected := ARRAY['localization.llm_calls.provider:text'];
     WHEN '261108-review-project-key.sql' THEN expected := ARRAY['localization.runs.project_key:text'];
+    WHEN '261112-dashboard-intake.sql' THEN expected := ARRAY[
+      'public.profiles.auto_localize:boolean','public.videos.localize_on_done:boolean',
+      'public.review_decisions.aweme_id:text','public.review_decisions.generation:integer','public.review_decisions.decision:text',
+      'public.review_decisions.approved_revision:text','public.review_decisions.confirm_mismatch:boolean',
+      'public.review_decisions.note:text','public.review_decisions.decided_at:timestamp with time zone',
+      'public.publications.aweme_id:text','public.publications.generation:integer','public.publications.state:text',
+      'public.publications.platform:text','public.publications.post_url:text','public.publications.note:text',
+      'public.publications.updated_at:timestamp with time zone',
+      'public.studio_open_requests.id:bigint','public.studio_open_requests.aweme_id:text',
+      'public.studio_open_requests.generation:integer','public.studio_open_requests.state:text',
+      'public.studio_open_requests.error:text','public.studio_open_requests.requested_at:timestamp with time zone',
+      'public.studio_open_requests.handled_at:timestamp with time zone',
+      'public.dashboard_actions.id:bigint','public.dashboard_actions.aweme_id:text','public.dashboard_actions.action:text',
+      'public.dashboard_actions.detail:jsonb','public.dashboard_actions.created_at:timestamp with time zone',
+      'public.review_decisions_pkey','public.publications_pkey','public.studio_open_requests_pkey',
+      'public.dashboard_actions_pkey','public.dashboard_actions_aweme_idx'];
+    WHEN '261112-review-delivery.sql' THEN expected := ARRAY[
+      'localization.final_renders.aweme_id:text','localization.final_renders.generation:integer',
+      'localization.final_renders.approved_revision:text','localization.final_renders.state:text',
+      'localization.final_renders.attempts:integer','localization.final_renders.claim:uuid',
+      'localization.final_renders.lease_expires_at:timestamp with time zone','localization.final_renders.error:text',
+      'localization.final_renders.final_key:text','localization.final_renders.srt_key:text',
+      'localization.final_renders.rendered_at:timestamp with time zone',
+      'localization.review_status.aweme_id:text','localization.review_status.generation:integer',
+      'localization.review_status.revision:text','localization.review_status.cue_count:integer',
+      'localization.review_status.mismatch_count:integer','localization.review_status.dirty:boolean',
+      'localization.review_status.checked_at:timestamp with time zone',
+      'localization.host_workers.name:text','localization.host_workers.seen_at:timestamp with time zone',
+      'localization.host_workers.info:jsonb',
+      'localization.final_renders_pkey','localization.final_renders_queued_idx','localization.review_status_pkey',
+      'localization.host_workers_pkey'];
     ELSE RAISE EXCEPTION 'Unknown migration %, reconcile manually', migration;
   END CASE;
   FOREACH item IN ARRAY expected LOOP

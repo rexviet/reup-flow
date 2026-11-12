@@ -15,27 +15,31 @@ test('both terminal project states open once across watcher restarts', async () 
   assert.deepEqual(opened, ['7001', '7002']);
 });
 
-test('a new completion replaces the managed previous review before launching', async () => {
+test('a new completion never replaces a Studio that is open and stays pending', async () => {
   const saved = state(), actions = [];
   const active = { aweme: '8000', generation: '1', pagesOpened: true };
   await openNext([row], saved, {
     current: async () => active,
-    replace: async actual => { assert.equal(actual, active); actions.push('preserve-and-stop'); },
+    replace: async () => actions.push('replace'),
     launch: async () => actions.push('launch'), persist: async () => actions.push('persist'),
   });
-  assert.deepEqual(actions, ['preserve-and-stop', 'launch', 'persist']);
-  assert.deepEqual(saved.opened, ['7001/g2']);
+  assert.deepEqual(actions, []);
+  assert.deepEqual(saved.opened, []);
 });
 
-test('failed preservation/stop leaves new review pending and never launches over it', async () => {
-  const saved = state();
-  await assert.rejects(openNext([row], saved, {
-    current: async () => ({ aweme: '8000', generation: '1', pagesOpened: true }),
-    replace: async () => { throw new Error('backup failed'); },
-    launch: async () => assert.fail('must preserve current review first'),
-    persist: async () => assert.fail('must not suppress unlaunched project'),
-  }), /backup failed/);
-  assert.deepEqual(saved.opened, []);
+test('the pending project opens once the Studio is gone', async () => {
+  const saved = state(), actions = [];
+  let active = { aweme: '8000', generation: '1', pagesOpened: true };
+  const deps = {
+    current: async () => active,
+    launch: async r => actions.push(`launch ${r.aweme_id}`),
+    persist: async () => actions.push('persist'),
+  };
+  await openNext([row], saved, deps);
+  active = null;
+  await openNext([row], saved, deps);
+  assert.deepEqual(actions, ['launch 7001', 'persist']);
+  assert.deepEqual(saved.opened, ['7001/g2']);
 });
 
 test('failed launch remains queued; a fully opened matching project is not reopened', async () => {

@@ -43,7 +43,7 @@ describe('performEnqueue', () => {
     expect(calls[0].url).toBe('http://backend/api/videos');
     expect(calls[0].init.method).toBe('POST');
     expect(calls[0].init.headers['X-Api-Key']).toBe('k');
-    expect(JSON.parse(calls[0].init.body)).toEqual({ url: URL_ON_PAGE });
+    expect(JSON.parse(calls[0].init.body)).toEqual({ url: URL_ON_PAGE, localize: true });
   });
 
   test.each([

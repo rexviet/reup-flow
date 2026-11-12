@@ -17,6 +17,7 @@ export function fixedEnv(overrides: Partial<Env> = {}): Env {
     TEMPORAL_ADDRESS: 'temporal:7233',
     TEMPORAL_NAMESPACE: 'default',
     DATA_DIR: '/data',
+    DASHBOARD_STUCK_MINUTES: 30,
     DOWNLOAD_CONCURRENCY: 6,
     ENUMERATE_SLEEP_MS_MIN: 3000,
     ENUMERATE_SLEEP_MS_MAX: 5000,

@@ -3,7 +3,10 @@
 A page in the web app that shows which standard-pipeline (VoiceStudio) localization
 agent is working on which video, from real data. Vbee has no dedicated desks here.
 
-**Open it:** the "Workspace" tab in `services/web`, or `http://localhost:5173/#workspace`.
+**Status:** the web app no longer has a Workspace tab; `services/web` is a single dashboard
+(health, attention, pipeline, video detail, channels). The backend `GET /api/workspace/*`
+routes described below remain, and the dashboard reuses their step catalog and Temporal
+reader. The floor-plan description that follows documents the removed screen.
 
 **Full-screen office:** Workspace fills the browser viewport with the desks. Only the
 Jobs/Workspace/Review navigation, a compact video selector and connection indicator overlay

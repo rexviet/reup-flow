@@ -57,6 +57,8 @@ export const createJobSchema = z.object({
     .refine(isAllowedJobUrl, {
       message: `url must be an http(s) URL on one of: ${ALLOWED_JOB_URL_HOSTS.join(', ')} (or a subdomain)`,
     }),
+  /** Omitted keeps the channel's current switch. */
+  auto_localize: z.boolean().optional(),
 });
 export type CreateJobDto = z.infer<typeof createJobSchema>;
 

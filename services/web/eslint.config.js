@@ -29,6 +29,9 @@ export default [
         HTMLDivElement: 'readonly',
         HTMLElement: 'readonly',
         Event: 'readonly',
+        HashChangeEvent: 'readonly',
+        HTMLVideoElement: 'readonly',
+        URLSearchParams: 'readonly',
       },
     },
     plugins: {

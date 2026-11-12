@@ -93,4 +93,53 @@ describe('usePolling', () => {
     });
     expect(fetcher).not.toHaveBeenCalled();
   });
+
+  it('refetches at once when the key changes and keeps the old data until the answer arrives', async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce('a').mockResolvedValueOnce('b');
+    const { result, rerender } = renderHook(({ k }) => usePolling(fetcher, 60_000, { key: k }), { initialProps: { k: 'one' } });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.data).toBe('a');
+
+    rerender({ k: 'two' });
+    expect(result.current.data).toBe('a');
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(result.current.data).toBe('b');
+  });
+
+  it('refresh() fetches outside the interval', async () => {
+    const fetcher = vi.fn().mockResolvedValue('v');
+    const { result } = renderHook(() => usePolling(fetcher, 60_000));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await act(async () => {
+      result.current.refresh();
+      await Promise.resolve();
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it('ignores a slow answer that arrives after a newer one', async () => {
+    let resolveSlow: (v: string) => void = () => {};
+    const fetcher = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise<string>((resolve) => { resolveSlow = resolve; }))
+      .mockResolvedValueOnce('fresh');
+    const { result } = renderHook(() => usePolling(fetcher, 60_000));
+    await act(async () => {
+      result.current.refresh();
+      await Promise.resolve();
+    });
+    expect(result.current.data).toBe('fresh');
+    await act(async () => {
+      resolveSlow('stale');
+      await Promise.resolve();
+    });
+    expect(result.current.data).toBe('fresh');
+  });
 });
