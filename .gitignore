@@ -1,6 +1,9 @@
 node_modules/
 dist/
 .env
+# Copies and variants of the env file (backups) hold the same secrets; only the example is tracked.
+.env.*
+!.env.example
 /data/
 
 # Local Python venv for the parser fork's test runner.
@@ -26,3 +29,9 @@ services/localization/spikes/out/
 
 # Promo videos made with HyperFrames (motion-studio); renders and node_modules stay local.
 /videos/
+
+# Generated: Python bytecode and the thumbnails HyperFrames Studio renders for a project.
+*.pyc
+**/__pycache__/
+services/localization/spikes/hyperframes-review/project/.thumbnails/
+.gstack/
