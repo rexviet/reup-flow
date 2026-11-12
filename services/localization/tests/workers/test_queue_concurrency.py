@@ -70,6 +70,8 @@ def _specs(settings: Settings) -> dict[str, QueueSpec]:
         demucs=object(),
         vbee_stt=None,
         vbee_tts=None,
+        zerotts_tts=None,
+        hear=None,
         singing=None,
     )
     store = ObjectStore(object(), "b")

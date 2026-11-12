@@ -30,8 +30,10 @@ from localization.contracts import LocalizationInput, SynthClip, SynthesisPlan, 
 from localization.contracts.models import STRETCH_MAX, STRETCH_MIN
 from localization.contracts.voice import VoiceRef
 from localization.observability.tracing import tag_session
-from localization.providers.base import TtsProvider
+from localization.providers.base import SttProvider, TtsProvider
 from localization.storage.object_store import ObjectStore, tts_cache_key
+from localization.text.pieces import CLAUSE_PIECE_CHARS, MAX_PIECE_CHARS
+from localization.text.word_coverage import is_lost, lost_words
 
 # S3 keeps user metadata in one 2 KiB header; the text goes in as base64.
 MAX_METADATA_TEXT_BYTES = 1400
@@ -42,13 +44,19 @@ BACKGROUND_HEARTBEAT_SECONDS = 5.0
 META_TEXT = "text-vi"
 META_VOICE = "voice-hash"
 META_DURATION = "duration-ms"
+# The words of the line the clip does not say, when it was kept all the same (the voice
+# lost them on every request): space-separated, absent for a whole clip.
+META_LOST = "lost-words"
 
 BeforePut = Callable[[str], Awaitable[None] | None]
 
 # How a clip is made from its line, part of the clip's cache identity. A line read in one
 # request dropped words a line read piece by piece does not, so clips cached the old way
-# must not stand in for the new ones.
-CLIP_METHOD = "pieces-1"
+# must not stand in for the new ones. `pieces-2`: a clip is heard back before it is kept.
+CLIP_METHOD = "pieces-2"
+
+# The language clips are heard back in: a fixed language is what makes hearing fast.
+HEARD_LANGUAGE = "vi"
 
 # A clip read faster than this many characters a second lost most of its words (a 25
 # character line came back as 287 ms, 87 a second; lines are read at about 20). It is
@@ -135,6 +143,8 @@ class Clip:
     hash: str
     key: str
     duration_ms: int
+    # Words of the line the clip leaves out, when no request got them all (see META_LOST).
+    lost_words: tuple[str, ...] = ()
 
 
 def wav_duration_ms(wav: bytes) -> int:
@@ -179,9 +189,13 @@ class Synthesizer:
         model: str | None,
         before_put: BeforePut | None = None,
         resolve: Callable[[VoiceRef], VoiceRef] = _as_given,
+        hear: SttProvider | None = None,
     ) -> None:
         self._store = store
         self._tts = tts
+        # Speech to text that hears a clip back (VoiceStudio's, as in the main pipeline).
+        # Without it a clip is judged by its length alone.
+        self._hear = hear
         self._model = model
         self._before_put = before_put
         # The voice a run names becomes the one spoken and hashed (see `tts_router`).
@@ -201,7 +215,9 @@ class Synthesizer:
         if meta is None:
             return None
         if META_DURATION in meta:
-            return Clip(digest, key, int(meta[META_DURATION]))
+            return Clip(
+                digest, key, int(meta[META_DURATION]), tuple(meta.get(META_LOST, "").split())
+            )
         # An object without a recorded length: measure what is there.
         wav = await asyncio.to_thread(self._store.get_bytes, key, produced_by="synthesize")
         return Clip(digest, key, await run_blocking(wav_duration_ms, wav))
@@ -230,8 +246,9 @@ class Synthesizer:
 
     async def _clip(self, digest: str, voice: VoiceRef, engine: str | None, text_vi: str) -> Clip:
         known = await self._cached(digest)
-        # A clip cached before short ones were refused is spoken again, and replaced.
-        if known is not None and not too_short(text_vi, known.duration_ms):
+        # A clip cached before short ones were refused is spoken again, and replaced; so is a
+        # clip kept with words missing, since another request may say them all.
+        if known is not None and not known.lost_words and not too_short(text_vi, known.duration_ms):
             return known
         encoded = base64.b64encode(text_vi.encode()).decode()
         if len(encoded) > MAX_METADATA_TEXT_BYTES:
@@ -240,23 +257,43 @@ class Synthesizer:
                 type="TextTooLong",
                 non_retryable=True,
             )
+        # The clip that left out the fewest words, kept when no request gets them all: a
+        # line read with a clause missing still has its other words, and a person is told.
+        best: tuple[bytes, int, list[str]] | None = None
         for attempt in range(1, SHORT_CLIP_ATTEMPTS + 1):
-            wav = await self._speak(voice, text_vi)
+            # The first request cuts a line the usual way; once a clip has lost words, every
+            # clause is read on its own, which is what the voice does not skip.
+            max_chars = MAX_PIECE_CHARS if attempt == 1 else CLAUSE_PIECE_CHARS
+            wav = await self._speak(voice, text_vi, max_chars)
             duration_ms = await run_blocking(wav_duration_ms, wav)
-            if not too_short(text_vi, duration_ms):
+            if too_short(text_vi, duration_ms):
+                activity.logger.warning(
+                    "clip %s is %d ms for %d characters (attempt %d): refused",
+                    digest[:12],
+                    duration_ms,
+                    len(text_vi),
+                    attempt,
+                )
+                continue
+            lost = await self._lost_words(wav, text_vi)
+            if not is_lost(text_vi, lost):
+                best = (wav, duration_ms, [])
                 break
             activity.logger.warning(
-                "clip %s is %d ms for %d characters (attempt %d): refused",
+                "clip %s lost %d words (%s) (attempt %d)",
                 digest[:12],
-                duration_ms,
-                len(text_vi),
+                len(lost),
+                " ".join(lost),
                 attempt,
             )
-        else:
+            if best is None or len(lost) < len(best[2]):
+                best = (wav, duration_ms, lost)
+        if best is None:
             raise ApplicationError(
                 f"the voice returned clips too short for the line {SHORT_CLIP_ATTEMPTS} times",
                 type="ShortClip",
             )
+        wav, duration_ms, lost = best
         if self._before_put is not None:
             outcome = self._before_put(digest)
             if outcome is not None:
@@ -271,16 +308,28 @@ class Synthesizer:
                 META_TEXT: encoded,
                 META_VOICE: voice_identity_hash(voice, model=self._model, engine=engine),
                 META_DURATION: str(duration_ms),
+                **({META_LOST: " ".join(lost)} if lost else {}),
             },
         )
-        return Clip(digest, key, duration_ms)
+        return Clip(digest, key, duration_ms, tuple(lost))
 
-    async def _speak(self, voice: VoiceRef, text_vi: str) -> bytes:
+    async def _lost_words(self, wav: bytes, text_vi: str) -> list[str]:
+        """The words of `text_vi` the clip does not say, as heard by the speech-to-text
+        model; empty when nothing is there to hear it with."""
+        if self._hear is None:
+            return []
+        with provider_errors():
+            heard = await self._hear.transcribe(wav, language=HEARD_LANGUAGE)
+        return lost_words(text_vi, " ".join(segment.text for segment in heard.segments))
+
+    async def _speak(
+        self, voice: VoiceRef, text_vi: str, max_chars: int = MAX_PIECE_CHARS
+    ) -> bytes:
         """The audio of a line, read piece by piece (see tts_pieces) and joined. A
         line of one piece is the provider's audio as it came. The pieces are asked
         for one after another: the voice server is one GPU, already shared by the
         activities running side by side. Any piece failing fails the line."""
-        pieces = split_line(text_vi) or [Piece(text_vi, 0)]
+        pieces = split_line(text_vi, max_chars) or [Piece(text_vi, 0)]
         with provider_errors():
             wavs = [await self._tts.synthesize(piece.text, voice) for piece in pieces]
             if len(wavs) == 1:
@@ -316,9 +365,12 @@ class SynthesizeActivities:
         engine: Callable[[], str | None] = lambda: None,
         before_put: BeforePut | None = None,
         resolve: Callable[[VoiceRef], VoiceRef] = _as_given,
+        hear: SttProvider | None = None,
     ) -> None:
         self._store = store
-        self._synth = Synthesizer(store, tts, model=model, before_put=before_put, resolve=resolve)
+        self._synth = Synthesizer(
+            store, tts, model=model, before_put=before_put, resolve=resolve, hear=hear
+        )
         self._engine = engine
 
     @property

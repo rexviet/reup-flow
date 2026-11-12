@@ -10,6 +10,7 @@ from localization.providers.openai_tts import OpenAICompatTts
 from localization.providers.singing import SingingDetector
 from localization.providers.vbee import VbeeStt, VbeeTts
 from localization.providers.vision_ocr import VisionOcr
+from localization.providers.zerotts_tts import ZeroTts
 
 
 @dataclass(frozen=True)
@@ -18,12 +19,17 @@ class Providers:
     media worker has Demucs and nothing else, so it needs no provider settings."""
 
     stt: SttProvider | None = None
+    # Hears synthesized clips back. A fixed language and no multilingual mode make VoiceStudio
+    # answer about 40% faster than the pipeline's multilingual `stt`.
+    hear: SttProvider | None = None
     tts: TtsProvider | None = None
     ocr: OcrProvider | None = None
     demucs: StemSeparator | None = None
     # Vbee's speech, for the Vbee dubbing workflow; None on a worker without its credentials.
     vbee_stt: VbeeStt | None = None
     vbee_tts: VbeeTts | None = None
+    # ZeroTTS, which runs on this machine; None unless `ZEROTTS_MODEL_PATH` is set.
+    zerotts_tts: ZeroTts | None = None
     # Whether a segment is sung; None when no `SINGING_MODEL` is set.
     singing: SingingDetector | None = None
 
@@ -57,11 +63,13 @@ def build_providers(
         )
         if voicestudio
         else None,
+        hear=OpenAICompatStt.from_settings(settings, http) if voicestudio else None,
         tts=OpenAICompatTts.from_settings(settings, http) if voicestudio else None,
         ocr=VisionOcr.from_settings(settings, llm_http or http),
         demucs=DemucsSeparator(settings.demucs_bin),
         vbee_stt=VbeeStt.from_settings(settings, http) if with_vbee else None,
         vbee_tts=VbeeTts.from_settings(settings, http) if with_vbee else None,
+        zerotts_tts=ZeroTts.from_settings(settings),
         singing=SingingDetector.from_settings(settings, llm_http or http),
     )
 

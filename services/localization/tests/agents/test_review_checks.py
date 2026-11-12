@@ -133,6 +133,15 @@ def test_a_line_that_still_overruns_its_slot_goes_back_to_the_dubber_for_that_li
     assert timing([seg(2, slot=800)], dub((2, 700, 1.0, False))) == []
 
 
+def test_a_line_the_voice_left_words_out_of_is_reported_for_a_person() -> None:
+    document = dub((3, 1000, 1.0, False))
+    spoken = document.segments[0].model_copy(update={"lost_words": ("dang", "thanh", "manh")})
+    document = document.model_copy(update={"segments": (spoken,)})
+    f = only(timing([seg(3)], document))
+    assert (f.dimension, f.issue.stage, f.issue.segment_id) == ("fidelity", "dub", 3)
+    assert "dang thanh manh" in f.issue.reason
+
+
 def test_a_line_stretched_to_the_edge_is_read_too_fast_or_too_slow() -> None:
     fast = only(timing([seg(0)], dub((0, 1900, STRETCH_MAX, False))))
     assert "too fast" in fast.issue.reason and fast.issue.stage == "dub"

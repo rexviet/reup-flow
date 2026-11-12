@@ -150,7 +150,7 @@ class Settings(BaseSettings):
     loudness_lufs: float = Field(default=-14.0, le=0.0, ge=-40.0)
     # The original voice under the dubbed one, as a fraction of its own level (0.3 is 70%
     # quieter, about -10 dB); 0 leaves it out. Sung spans keep it at full level regardless.
-    original_voice_gain: float = Field(default=0.3, ge=0.0, le=1.0)
+    original_voice_gain: float = Field(default=0.25, ge=0.0, le=1.0)
     true_peak_dbtp: float = Field(default=-1.5, le=0.0, ge=-9.0)
 
     demucs_bin: str = "demucs"
@@ -169,6 +169,14 @@ class Settings(BaseSettings):
     vbee_app_id: SecretStr | None = None
     vbee_api_token: SecretStr | None = None
     vbee_voice_id: SecretStr | None = None
+    # ZeroTTS (a voice that runs on this machine): the folder of the model's real files, the
+    # models held in memory (one per request spoken at once) and the CPU threads of each.
+    zerotts_model_path: str | None = None
+    zerotts_instances: Concurrency = 2
+    zerotts_threads: Annotated[int, Field(ge=1, le=32)] = 2
+    # The ZeroTTS voice new workflows are spoken with, by the id it is installed under on the
+    # host (read by the starter). Empty keeps VOICE_ID, a voice of the VoiceStudio provider.
+    zerotts_voice_id: str | None = None
     # How long one STT job or one TTS request is polled before it counts as lost.
     vbee_poll_timeout_seconds: float = Field(default=300.0, gt=0.0, le=3600.0)
 

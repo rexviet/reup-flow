@@ -53,6 +53,7 @@ from localization.contracts import (
     VoiceProfile,
 )
 from localization.contracts.models import PublishOutcome, VoiceCheck
+from localization.contracts.voice import REVIEW_PROVIDERS
 from localization.workflows.review_routing import (
     IssueKey,
     NoRoute,
@@ -411,7 +412,7 @@ class VideoLocalizationWorkflow:
     def _delivers_project(self, spec: LocalizationInput) -> bool:
         return (
             spec.delivery_mode == "review_project"
-            and spec.voice.provider == "voicestudio"
+            and spec.voice.provider in REVIEW_PROVIDERS
             and workflow.patched(REVIEW_PROJECT_PATCH)
         )
 

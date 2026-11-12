@@ -103,3 +103,26 @@ def put_script(
     )
     write_script(store, script)
     return script_key(aweme_id, version)
+
+
+@dataclass
+class FakeHear:
+    """A speech-to-text provider that "hears" what it is told to, one answer per call
+    (the last answer repeats). `calls` is the number of clips heard."""
+
+    answers: list[str]
+    calls: int = 0
+
+    async def transcribe(self, audio: bytes, *, filename: str = "audio.wav", language=None):
+        from localization.contracts.models import SttSegment, TranscriptDocument
+
+        # Hearing runs on a provider with a fixed language, Vietnamese.
+        assert language == "vi", "clips are heard back in Vietnamese"
+        text = self.answers[min(self.calls, len(self.answers) - 1)]
+        self.calls += 1
+        return TranscriptDocument(
+            language=language,
+            duration_ms=None,
+            segments=(SttSegment(id=0, start_ms=0, end_ms=1000, text=text),),
+            words=(),
+        )

@@ -215,6 +215,7 @@ class DubScriptActivities:
                     duration_ms=clip.duration_ms,
                     stretch_ratio=ratio,
                     overflow_unresolved=overflow,
+                    lost_words=clip.lost_words,
                 )
             )
         document = DubSegmentsDocument(

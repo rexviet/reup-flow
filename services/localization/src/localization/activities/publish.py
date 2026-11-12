@@ -36,6 +36,7 @@ from localization.contracts import (
     PublishRequest,
     PublishResult,
 )
+from localization.contracts.voice import REVIEW_PROVIDERS
 from localization.observability.scores import LangfuseScores, current_trace_id, run_scores
 from localization.observability.tracing import tag_session
 from localization.storage.object_store import ObjectStore, output_key, project_head_key, review_key
@@ -133,7 +134,7 @@ class PublishActivity:
         if request.project_key is not None:
             if (
                 spec.delivery_mode != "review_project"
-                or spec.voice.provider != "voicestudio"
+                or spec.voice.provider not in REVIEW_PROVIDERS
                 or request.outcome not in ("ready_for_review", "needs_human")
                 or request.render_key is not None
                 or request.project_key != project_head_key(spec.aweme_id, spec.generation)

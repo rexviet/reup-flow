@@ -36,6 +36,7 @@ from localization.contracts import (
     SubtitleDocument,
     SubtitleTrack,
 )
+from localization.contracts.voice import REVIEW_PROVIDERS
 from localization.storage.object_store import (
     ArtifactMissingError,
     ObjectStore,
@@ -192,7 +193,7 @@ class ReviewProjectActivity:
 
     def _build(self, spec, dub, ingest, subtitles, engine) -> ProjectRef:
         source_snapshot = spec.source_snapshot
-        if source_snapshot is None or spec.voice.provider != "voicestudio":
+        if source_snapshot is None or spec.voice.provider not in REVIEW_PROVIDERS:
             raise ValueError("review projects require a captured VoiceStudio run")
         head_key = project_head_key(spec.aweme_id, spec.generation)
         try:

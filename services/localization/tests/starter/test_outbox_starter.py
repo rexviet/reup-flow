@@ -22,7 +22,7 @@ from localization.starter.outbox_starter import (
 )
 from tests.support.prep_fakes import PrepFakes
 from tests.support.prep_worker import prep_workers
-from tests.support.scratch_db import INIT, OUTBOX, scratch_database
+from tests.support.scratch_db import DASHBOARD_INTAKE, INIT, OUTBOX, scratch_database
 from tests.support.stub_server import Scenario, StubServer
 
 BUCKET = "reup-media"
@@ -309,6 +309,20 @@ async def test_a_row_without_a_video_is_rejected(
     conn.execute("INSERT INTO localization_outbox (aweme_id) VALUES ('7001')")
     assert await starter(info, temporal_client, env).run_once() == Outcome.REJECTED
     assert row(conn, "7001")["state"] == "rejected"
+
+
+async def test_a_held_row_is_never_claimed() -> None:
+    for info, conn in scratch_database(INIT, OUTBOX, DASHBOARD_INTAKE):
+        add_video(conn, "7100")
+        conn.execute("UPDATE localization_outbox SET state = 'held' WHERE aweme_id = '7100'")
+        before = row(conn, "7100")
+
+        assert before["state"] == "held"
+
+        # The claim statement itself never sees a held row.
+        async with await psycopg.AsyncConnection.connect(info, autocommit=True) as aconn:
+            assert await OutboxStarter._claim(aconn) is None
+        assert row(conn, "7100") == before
 
 
 class FailingClient(CountingClient):
@@ -598,8 +612,8 @@ async def test_any_id_dispatches_for_a_provider_without_a_list(
     assert (got["voice"]["provider"], got["voice"]["voice_id"]) == ("openai_compat", "alloy")
 
 
-@pytest.mark.parametrize("provider", ["voicestudio", "vbee", "openai_compat"])
-def test_delivery_selection_is_frozen_only_for_voice_studio(provider):
+@pytest.mark.parametrize("provider", ["voicestudio", "zerotts", "vbee", "openai_compat"])
+def test_delivery_selection_is_frozen_only_for_the_voice_studio_pipeline(provider):
     from localization.contracts import VoiceRef
     from localization.starter.outbox_starter import Claimed
 
@@ -612,7 +626,7 @@ def test_delivery_selection_is_frozen_only_for_voice_studio(provider):
         dict(sec_user_id="channel", storage_path=f"s3://{settings.s3_bucket}/source/7001.mp4"),
     )
     assert spec.delivery_mode == (
-        "review_project" if provider == "voicestudio" else "legacy_render"
+        "review_project" if provider in ("voicestudio", "zerotts") else "legacy_render"
     )
     assert spec.source_snapshot is None
     rollback = settings.model_copy(update={"localization_delivery_mode": "legacy_render"})
@@ -626,7 +640,7 @@ def test_delivery_selection_is_frozen_only_for_voice_studio(provider):
         == "legacy_render"
     )
     assert spec.delivery_mode == (
-        "review_project" if provider == "voicestudio" else "legacy_render"
+        "review_project" if provider in ("voicestudio", "zerotts") else "legacy_render"
     )
 
 

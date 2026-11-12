@@ -113,9 +113,9 @@ class VoiceRateActivity:
     @activity.defn(name="voice_rate")
     async def voice_rate(self, voice: VoiceRef) -> float:
         # The voice a run names becomes the one spoken and hashed (see `tts_router`). The
-        # engine is the one VoiceStudio reports; it says nothing about a Vbee voice.
+        # engine is the one VoiceStudio reports; it says nothing about a Vbee or ZeroTTS voice.
         voice = self._resolve(voice)
-        engine = None if voice.provider == "vbee" else self._engine()
+        engine = None if voice.provider in ("vbee", "zerotts") else self._engine()
         key = voice_hash(voice, model=self._model, engine=engine)
         known = await self._store.get(key)
         if known is not None:

@@ -12,7 +12,7 @@ from localization.contracts.base import Contract
 from localization.contracts.geometry import BBox, NonNegativeInt, PositiveInt
 from localization.contracts.ids import AwemeId, ChannelId, Sha256, SourceKey, StorageKey
 from localization.contracts.review_project import SourceSnapshot
-from localization.contracts.voice import VoiceRef
+from localization.contracts.voice import REVIEW_PROVIDERS, VoiceRef
 
 Key = StorageKey
 Text = Annotated[str, Field(max_length=4000)]
@@ -58,7 +58,7 @@ class LocalizationInput(Contract):
         snapshot = self.source_snapshot
         if snapshot is not None and (
             self.delivery_mode != "review_project"
-            or self.voice.provider != "voicestudio"
+            or self.voice.provider not in REVIEW_PROVIDERS
             or snapshot.source_key != self.video_key
             or snapshot.snapshot_key != f"work/{self.aweme_id}/g{self.generation}/r0/source.mp4"
         ):
@@ -279,6 +279,9 @@ class DubSegment(LineMetadata):
     overflow_unresolved: bool
     # The original sound is kept over this segment (it is sung): it has no clip.
     keep_original: bool = False
+    # Words of the line the voice left out in every request, so the clip says less than
+    # the subtitle: a person has to hear it.
+    lost_words: tuple[str, ...] = ()
 
     @model_validator(mode="after")
     def _omitted_has_no_clip(self) -> "DubSegment":

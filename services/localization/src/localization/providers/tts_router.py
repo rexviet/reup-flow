@@ -7,8 +7,9 @@ voice put the configured `VBEE_VOICE_ID` in its place (`ConfiguredVoices.resolve
 Every cache key built from the resolved voice changes when the configured voice
 changes, and only its hash ever leaves the activity.
 
-`TtsByProvider` sends a voice to the provider it belongs to: a Vbee voice to Vbee, any
-other to the provider the worker was always configured with. The queue, the synthesizer,
+`TtsByProvider` sends a voice to the provider it belongs to: a Vbee voice to Vbee, a ZeroTTS
+voice to ZeroTTS (the speech worker on this machine), any other to the provider the worker
+was always configured with. The queue, the synthesizer,
 its clip cache and its heartbeats are the same for both.
 """
 
@@ -20,6 +21,7 @@ from localization.providers.base import TtsProvider
 from localization.providers.errors import PermanentProviderError
 
 VBEE = "vbee"
+ZEROTTS = "zerotts"
 
 
 class ConfiguredVoices:
@@ -46,12 +48,23 @@ class ConfiguredVoices:
 class TtsByProvider:
     """A `TtsProvider` that hands each voice to the provider it belongs to."""
 
-    def __init__(self, default: TtsProvider | None, vbee: TtsProvider | None = None) -> None:
+    def __init__(
+        self,
+        default: TtsProvider | None,
+        vbee: TtsProvider | None = None,
+        zerotts: TtsProvider | None = None,
+    ) -> None:
         self._default = default
         self._vbee = vbee
+        self._zerotts = zerotts
 
     async def synthesize(self, text: str, voice: VoiceRef) -> bytes:
-        provider = self._vbee if voice.provider == VBEE else self._default
+        if voice.provider == VBEE:
+            provider = self._vbee
+        elif voice.provider == ZEROTTS:
+            provider = self._zerotts
+        else:
+            provider = self._default
         if provider is None:
             raise PermanentProviderError(
                 f"tts: no provider for {voice.provider} voices is configured on this worker"

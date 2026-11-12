@@ -242,7 +242,8 @@
           "enum": [
             "voicestudio",
             "openai_compat",
-            "vbee"
+            "vbee",
+            "zerotts"
           ],
           "title": "Provider",
           "type": "string"
@@ -257,6 +258,9 @@
             },
             {
               "$ref": "#/$defs/VbeeSettings"
+            },
+            {
+              "$ref": "#/$defs/ZeroTtsSettings"
             }
           ],
           "title": "Settings"
@@ -301,6 +305,13 @@
         }
       },
       "title": "VoiceStudioSettings",
+      "type": "object"
+    },
+    "ZeroTtsSettings": {
+      "additionalProperties": false,
+      "description": "ZeroTTS has no speed control: how fast a voice speaks is part of the voice.",
+      "properties": {},
+      "title": "ZeroTtsSettings",
       "type": "object"
     }
   },

@@ -7,7 +7,13 @@ from localization.contracts.base import Contract
 
 _SECRET_FIELD_RE = re.compile(r"key|token|secret|password", re.IGNORECASE)
 
-Provider = Literal["voicestudio", "openai_compat", "vbee"]
+Provider = Literal["voicestudio", "openai_compat", "vbee", "zerotts"]
+
+
+# The providers whose runs go through the VoiceStudio pipeline: speech is heard by VoiceStudio's
+# speech-to-text and the result is delivered as a review project. Which one speaks the dub is
+# the only difference between them.
+REVIEW_PROVIDERS = frozenset({"voicestudio", "zerotts"})
 
 
 class ProviderSettings(Contract):
@@ -36,6 +42,16 @@ class OpenAICompatSettings(ProviderSettings):
     speed: Annotated[float, Field(ge=0.25, le=4.0)] = 1.0
 
 
+class ZeroTtsSettings(ProviderSettings):
+    """ZeroTTS has no speed control: how fast a voice speaks is part of the voice."""
+
+    @property
+    def speed(self) -> float:
+        """Always 1.0, so what reads a voice's speed (the measured speaking rate is divided
+        by it) needs no case for a provider without one. Not a field: it cannot be set."""
+        return 1.0
+
+
 class VbeeSettings(ProviderSettings):
     # The range Vbee's TTS accepts.
     speed: Annotated[float, Field(ge=0.25, le=1.9)] = 1.0
@@ -47,13 +63,14 @@ SETTINGS_BY_PROVIDER: dict[str, type[ProviderSettings]] = {
     "voicestudio": VoiceStudioSettings,
     "openai_compat": OpenAICompatSettings,
     "vbee": VbeeSettings,
+    "zerotts": ZeroTtsSettings,
 }
 
 
 class VoiceRef(Contract):
     provider: Provider
     voice_id: Annotated[str, Field(min_length=1, max_length=128)]
-    settings: VoiceStudioSettings | OpenAICompatSettings | VbeeSettings
+    settings: VoiceStudioSettings | OpenAICompatSettings | VbeeSettings | ZeroTtsSettings
 
     @model_validator(mode="before")
     @classmethod

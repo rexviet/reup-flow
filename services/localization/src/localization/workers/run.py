@@ -73,7 +73,7 @@ from localization.observability.llm_usage import Recorder
 from localization.observability.reported_cost import ReportedCostModel
 from localization.observability.scores import LangfuseScores
 from localization.observability.tracing import init_tracing
-from localization.providers.base import TtsProvider
+from localization.providers.base import SttProvider, TtsProvider
 from localization.providers.jev import jev_for
 from localization.providers.llm import model_for, openrouter_client
 from localization.providers.registry import Providers, build_media_providers, build_providers
@@ -188,7 +188,12 @@ def queue_specs(
             resolve=resolve,
         )
         synthesis = SynthesizeActivities(
-            store, tts, model=settings.tts_model, engine=engine, resolve=resolve
+            store,
+            tts,
+            model=settings.tts_model,
+            engine=engine,
+            resolve=resolve,
+            hear=providers.hear,
         )
         dub = DubScriptActivities(store, synthesis.synthesizer)
         revoice = RevoiceActivities(store, synthesis.synthesizer)
@@ -330,7 +335,7 @@ def queue_specs(
 def speech_provider(providers: Providers) -> TtsByProvider:
     """The TTS every speaking activity of the agents worker uses: a voice goes to the
     provider it belongs to."""
-    return TtsByProvider(providers.tts, providers.vbee_tts)
+    return TtsByProvider(providers.tts, providers.vbee_tts, providers.zerotts_tts)
 
 
 def runnable(specs: Sequence[QueueSpec]) -> list[QueueSpec]:
@@ -354,6 +359,7 @@ def bind_agent_runtime(
     store: ObjectStore,
     tts: TtsProvider | None = None,
     llm_http: httpx.AsyncClient | None = None,
+    hear: SttProvider | None = None,
 ) -> None:
     """What the agents' activities need on this process: the models that answer their
     requests and the ports their tools use. Refuses to start without them, so a
@@ -389,6 +395,7 @@ def bind_agent_runtime(
             tts,
             model=settings.tts_model,
             resolve=ConfiguredVoices(settings.vbee_voice_id).resolve,
+            hear=hear,
         )
         dubber_module.bind_ports(StoreDubberPorts(store, synthesizer))
 
@@ -437,7 +444,7 @@ async def serve(role: str) -> int:
     store = ObjectStore.from_settings(settings)
     health = VoiceStudioHealth.from_settings(settings) if agents_process else None
     if agents_process:
-        bind_agent_runtime(settings, store, speech_provider(providers), llm_http)
+        bind_agent_runtime(settings, store, speech_provider(providers), llm_http, providers.hear)
     specs = runnable(
         queue_specs(
             "agents" if role == "voice" else role,

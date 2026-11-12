@@ -34,7 +34,7 @@ from localization.config import ConfigError, Settings, load_settings, voice_ref_
 from localization.contracts import LocalizationInput, VoiceRef
 from localization.contracts.ids import validate_aweme_id, validate_channel_id, validate_source_key
 from localization.contracts.vbee_flow import VBEE_CONFIGURED_VOICE
-from localization.contracts.voice import VbeeSettings
+from localization.contracts.voice import REVIEW_PROVIDERS, VbeeSettings, ZeroTtsSettings
 from localization.observability.tracing import init_tracing, tag_session
 from localization.providers.voices import VoiceCatalog, VoiceUnavailable
 from localization.temporal.client import connect
@@ -160,10 +160,17 @@ def vbee_voice(settings: Settings) -> VoiceRef:
 
 
 def run_voice(settings: Settings) -> VoiceRef:
-    """The voice every new workflow is started with, for the configured pipeline."""
+    """The voice every new workflow is started with, for the configured pipeline: the
+    Vbee voice, else the ZeroTTS voice when ZEROTTS_VOICE_ID is set, else VOICE_ID."""
     if settings.localization_pipeline == "vbee":
         return vbee_voice(settings)
+    if settings.zerotts_voice_id and settings.zerotts_voice_id.strip():
+        return zerotts_ref(settings.zerotts_voice_id)
     return voice_ref_from_settings(settings)
+
+
+def zerotts_ref(voice_id: str) -> VoiceRef:
+    return VoiceRef(provider="zerotts", voice_id=voice_id.strip(), settings=ZeroTtsSettings())
 
 
 class Rejected(Exception):
@@ -245,7 +252,7 @@ class OutboxStarter:
             return LocalizationInput(
                 delivery_mode=(
                     settings.localization_delivery_mode
-                    if voice.provider == "voicestudio"
+                    if voice.provider in REVIEW_PROVIDERS
                     else "legacy_render"
                 ),
                 aweme_id=claimed.aweme_id,
@@ -258,8 +265,11 @@ class OutboxStarter:
         except (ValueError, ValidationError):
             raise Rejected("the row does not form a valid workflow input") from None
 
-    async def start_canary(self, aweme_id: str, generation: int) -> LocalizationInput:
-        """Start exactly one new review generation without claiming/changing the outbox."""
+    async def start_canary(
+        self, aweme_id: str, generation: int, voice: VoiceRef | None = None
+    ) -> LocalizationInput:
+        """Start exactly one new review generation without claiming/changing the outbox.
+        `voice` replaces the configured one for this run only."""
         try:
             validate_aweme_id(aweme_id)
         except ValueError as exc:
@@ -275,12 +285,14 @@ class OutboxStarter:
         if settings.localization_pipeline != "voicestudio":
             raise ConfigError("review canary requires the VoiceStudio pipeline")
         settings = settings.model_copy(update={"localization_delivery_mode": "review_project"})
-        voice = run_voice(settings)
-        if voice.provider != "voicestudio":
-            raise ConfigError("review canary requires a VoiceStudio voice")
+        voice = voice or run_voice(settings)
+        if voice.provider not in REVIEW_PROVIDERS:
+            raise ConfigError("review canary requires a VoiceStudio or ZeroTTS voice")
         if await self._open_workflows() >= settings.max_open_workflows:
             raise ConfigError("workflow capacity reached; retry canary later")
-        catalog = self._voices(settings)
+        # Only a VoiceStudio voice is checked against VoiceStudio's list; a ZeroTTS voice
+        # lives on the speech worker's machine, which this process cannot see.
+        catalog = self._voices(settings) if voice.provider == "voicestudio" else None
         if catalog is not None:
             await catalog.ensure_exists(voice.voice_id)
         async with await self._connect() as conn:
@@ -310,8 +322,9 @@ class OutboxStarter:
         settings = self._load()
         try:
             voice = run_voice(settings)
-            # A Vbee run never asks VoiceStudio: its voice is not one of VoiceStudio's.
-            catalog = None if voice.provider == "vbee" else self._voices(settings)
+            # A Vbee or ZeroTTS run never asks VoiceStudio: its voice is not one of
+            # VoiceStudio's.
+            catalog = None if voice.provider in ("vbee", "zerotts") else self._voices(settings)
             if catalog is not None:
                 await catalog.ensure_exists(voice.voice_id)
         except (ConfigError, VoiceUnavailable) as exc:
@@ -426,7 +439,18 @@ class OutboxStarter:
                     pass
 
 
-async def serve(canary_identity: tuple[str, int] | None = None) -> None:
+def zerotts_voice(spec: str) -> VoiceRef:
+    """`zerotts:<voice id>` as given to `canary --voice`: the id of a voice installed on the
+    machine the speech worker runs on."""
+    provider, _, voice_id = spec.partition(":")
+    if provider != "zerotts" or not voice_id.strip():
+        raise ConfigError("--voice must be zerotts:<voice id>")
+    return zerotts_ref(voice_id)
+
+
+async def serve(
+    canary_identity: tuple[str, int] | None = None, canary_voice: VoiceRef | None = None
+) -> None:
     settings = load_settings()
     if settings.loc_database_url is None:
         raise ConfigError("LOC_DATABASE_URL is not set")
@@ -434,12 +458,13 @@ async def serve(canary_identity: tuple[str, int] | None = None) -> None:
     client = await connect(settings.temporal_address, settings.temporal_namespace)
     starter = OutboxStarter(settings.loc_database_url.get_secret_value(), client)
     if canary_identity is not None:
-        spec = await starter.start_canary(*canary_identity)
+        spec = await starter.start_canary(*canary_identity, voice=canary_voice)
         log.info(
             "started canary %s with delivery_mode=%s",
             workflow_id(*canary_identity),
             spec.delivery_mode,
         )
+        log.info("canary voice: %s %s", spec.voice.provider, spec.voice.voice_id)
         return
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -457,9 +482,15 @@ def main() -> int:
     )
     canary.add_argument("aweme_id")
     canary.add_argument("generation", type=int)
+    canary.add_argument(
+        "--voice",
+        help="speak this run with a ZeroTTS voice, as zerotts:<voice id>; "
+        "the configured VoiceStudio voice otherwise",
+    )
     args = parser.parse_args()
     canary_identity = (args.aweme_id, args.generation) if args.command == "canary" else None
-    asyncio.run(serve(canary_identity))
+    canary_voice = zerotts_voice(args.voice) if args.command == "canary" and args.voice else None
+    asyncio.run(serve(canary_identity, canary_voice))
     return 0
 
 

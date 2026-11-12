@@ -7,7 +7,8 @@ the subtitle detector saw on the source), so every check has a case that fails a
 that passes.
 
   localize  the line is empty, still has Chinese, or lost a number or Latin name of its source
-  dub       a line still overruns its slot, is stretched to its limit, or is cut by the end
+  dub       a line still overruns its slot, is stretched to its limit, is cut by the end, or
+            was read without some of its words
   captions  a caption is wider than its box
   render    the audio is off its loudness limits, or source subtitle shows outside its cover
 """
@@ -151,6 +152,15 @@ def timing_findings(
         spoken = (
             f"spoken {seg.duration_ms} ms in a {slot.slot_ms} ms slot, at x{seg.stretch_ratio:.2f}"
         )
+        if seg.lost_words:
+            found.append(
+                _found(
+                    "fidelity",
+                    "dub",
+                    "the voice left words out of the line: " + " ".join(seg.lost_words),
+                    seg.id,
+                )
+            )
         if seg.overflow_unresolved:
             found.append(
                 _found("timing", "dub", f"the line still overruns its slot: {spoken}", seg.id)

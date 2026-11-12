@@ -642,3 +642,67 @@ async def test_a_sung_line_is_not_planned_for_synthesis(store) -> None:
     synthesis = await plan(acts, key)
     synth = acts.synthesizer
     assert synthesis.hashes == (synth.hash_of(VOICE, None, "xin chào"),)
+
+
+# --- A clip is heard back before it is kept -------------------------------------------
+
+from tests.support.tts_fakes import FakeHear  # noqa: E402
+
+WHOLE_LINE = "Mặt thì xinh xắn, dáng thanh mảnh, sao nhảy khỏe thế?"
+
+
+async def test_a_clip_that_lost_a_clause_is_read_again_clause_by_clause(store):
+    tts = FakeTts()
+    hear = FakeHear(["Mặt thì xinh xắn sao nhảy khỏe thế", WHOLE_LINE])
+    synth = Synthesizer(store, tts, model="tts-1", hear=hear)
+
+    clip = await synth.clip(VOICE, None, WHOLE_LINE)
+
+    assert hear.calls == 2
+    # First request: the line whole. Second: each clause on its own.
+    assert tts.calls[WHOLE_LINE] == 1
+    assert tts.calls["Mặt thì xinh xắn,"] == 1
+    assert tts.calls["dáng thanh mảnh,"] == 1
+    assert store.metadata(tts_cache_key(clip.hash)) is not None
+
+
+async def test_a_line_never_heard_whole_keeps_its_best_clip_and_says_what_is_missing(store):
+    tts = FakeTts()
+    hear = FakeHear(
+        [
+            "Mặt thì xinh xắn sao nhảy",
+            "Mặt thì xinh xắn sao nhảy khỏe thế",
+            "Mặt thì xinh xắn sao nhảy",
+        ]
+    )
+    synth = Synthesizer(store, tts, model="tts-1", hear=hear)
+
+    clip = await synth.clip(VOICE, None, WHOLE_LINE)
+
+    assert hear.calls == synthesize_module.SHORT_CLIP_ATTEMPTS
+    # The second request lost three words, the first and third five: the second is kept.
+    assert clip.lost_words == ("dang", "thanh", "manh")
+    stored = await synth.cached(VOICE, None, WHOLE_LINE)
+    assert stored is not None and stored.lost_words == ("dang", "thanh", "manh")
+
+
+async def test_a_clip_kept_with_words_missing_is_read_again_by_the_next_request(store):
+    tts = FakeTts()
+    hear = FakeHear(["Mặt thì xinh xắn sao nhảy khỏe thế"] * 3 + [WHOLE_LINE])
+    synth = Synthesizer(store, tts, model="tts-1", hear=hear)
+    first = await synth.clip(VOICE, None, WHOLE_LINE)
+    assert first.lost_words
+
+    again = await synth.clip(VOICE, None, WHOLE_LINE)
+
+    assert again.lost_words == ()
+    assert (await synth.cached(VOICE, None, WHOLE_LINE)).lost_words == ()
+
+
+async def test_a_whole_clip_is_heard_once(store):
+    hear = FakeHear([WHOLE_LINE])
+    synth = Synthesizer(store, FakeTts(), model="tts-1", hear=hear)
+
+    await synth.clip(VOICE, None, WHOLE_LINE)
+
+    assert hear.calls == 1

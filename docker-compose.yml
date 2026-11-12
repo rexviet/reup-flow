@@ -63,6 +63,8 @@ services:
       TEMPORAL_ADDRESS: ${TEMPORAL_ADDRESS:-temporal:7233}
       TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
       DATA_DIR: ${DATA_DIR:-/data}
+      DASHBOARD_STUCK_MINUTES: ${DASHBOARD_STUCK_MINUTES:-30}
+      DASHBOARD_MEDIA_SECRET: ${DASHBOARD_MEDIA_SECRET:-}
       DOWNLOAD_CONCURRENCY: ${DOWNLOAD_CONCURRENCY:-6}
       ENUMERATE_SLEEP_MS_MIN: ${ENUMERATE_SLEEP_MS_MIN:-3000}
       ENUMERATE_SLEEP_MS_MAX: ${ENUMERATE_SLEEP_MS_MAX:-5000}
@@ -91,9 +93,10 @@ services:
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
     ports:
-      # The orchestrator API is the only thing meant to be reachable from the
-      # host. Contrast with `parser` below, which deliberately has none.
-      - "3300:3000"
+      # Loopback only: extension and host scripts use localhost:3300; the
+      # dashboard reaches it through the web container's nginx. A LAN or tunnel
+      # client goes through the web port (behind Cloudflare Access), never here.
+      - "127.0.0.1:3300:3000"
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:3000/health"]
       interval: 5s
@@ -156,8 +159,8 @@ services:
       PGTZ: UTC
     ports:
       # Exposed for host-run integration tests (the SKIP LOCKED spike drives two
-      # real concurrent transactions from jest on the host).
-      - "5433:5432"
+      # real concurrent transactions from jest on the host). Loopback only.
+      - "127.0.0.1:5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -187,8 +190,8 @@ services:
         exec docker-entrypoint.sh redis-server --maxmemory-policy noeviction --aclfile /tmp/users.acl
     ports:
       # Exposed so host-run tests can write douyin:cookie:current the same way
-      # the nest service does.
-      - "6379:6379"
+      # the nest service does. Loopback only.
+      - "127.0.0.1:6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -214,10 +217,16 @@ services:
         # trusted network (plan §8 risk register). If this UI is ever put
         # anywhere reachable, the fix is a BFF that holds the key
         # server-side -- not a cleverer way to hide it in the bundle.
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:3300}
+        #
+        # Empty on purpose: the bundle calls /api and /internal on its own
+        # origin and nginx proxies them to `nest`. That keeps it working from
+        # localhost, the LAN and a tunnel alike. Not `${VAR:-default}`: a
+        # default would turn an empty value back into an absolute URL.
+        VITE_API_BASE_URL: ""
         VITE_API_KEY: ${API_KEY}
     ports:
-      - "5173:80"
+      # Loopback only; a tunnel on this machine is the way in from elsewhere.
+      - "127.0.0.1:5173:80"
     depends_on:
       nest:
         condition: service_healthy
@@ -460,6 +469,9 @@ services:
       VOICE_PROVIDER: ${VOICE_PROVIDER:-voicestudio}
       VOICE_ID: ${VOICE_ID:-}
       VOICE_SETTINGS_JSON: ${VOICE_SETTINGS_JSON:-}
+      # New workflows speak with this ZeroTTS voice (installed on the host: ngoc-huyen-2); set it
+      # empty to use VOICE_ID, a VoiceStudio voice, instead.
+      ZEROTTS_VOICE_ID: ${ZEROTTS_VOICE_ID-3k7WSOHjfuY9euT7VKCA}
       VOICESTUDIO_URL: ${VOICESTUDIO_URL:-}
       VOICESTUDIO_API_KEY: ${VOICESTUDIO_API_KEY:-}
       VOICESTUDIO_ALLOW_PRIVATE_HTTP_CIDRS: ${VOICESTUDIO_ALLOW_PRIVATE_HTTP_CIDRS:-100.64.0.0/10}
@@ -539,6 +551,11 @@ services:
       VBEE_API_TOKEN: ${VBEE_API_TOKEN:-}
       VBEE_VOICE_ID: ${VBEE_VOICE_ID:-}
       VBEE_POLL_TIMEOUT_SECONDS: ${VBEE_POLL_TIMEOUT_SECONDS:-300}
+      # ZeroTTS speaks only on the host speech worker (it reads these from here); the folder is a
+      # path on the host, so a container worker never loads it.
+      ZEROTTS_MODEL_PATH: ${ZEROTTS_MODEL_PATH:-}
+      ZEROTTS_INSTANCES: ${ZEROTTS_INSTANCES:-2}
+      ZEROTTS_THREADS: ${ZEROTTS_THREADS:-2}
       STT_CONCURRENCY: ${STT_CONCURRENCY:-1}
       TTS_CONCURRENCY: ${TTS_CONCURRENCY:-2}
       LLM_CONCURRENCY: ${LLM_CONCURRENCY:-8}
@@ -546,7 +563,7 @@ services:
       VOICE_CHECK_CONCURRENCY: ${VOICE_CHECK_CONCURRENCY:-2}
       LOUDNESS_LUFS: ${LOUDNESS_LUFS:--14}
       TRUE_PEAK_DBTP: ${TRUE_PEAK_DBTP:--1.5}
-      ORIGINAL_VOICE_GAIN: ${ORIGINAL_VOICE_GAIN:-0.3}
+      ORIGINAL_VOICE_GAIN: ${ORIGINAL_VOICE_GAIN:-0.25}
       # The Jev review measures captions with the font the render draws with.
       CAPTION_FONT_PATH: ${CAPTION_FONT_PATH:-/assets/fonts/BeVietnamPro-SemiBold.ttf}
     volumes:
@@ -575,7 +592,7 @@ services:
       RENDER_CONCURRENCY: ${RENDER_CONCURRENCY:-1}
       LOUDNESS_LUFS: ${LOUDNESS_LUFS:--14}
       TRUE_PEAK_DBTP: ${TRUE_PEAK_DBTP:--1.5}
-      ORIGINAL_VOICE_GAIN: ${ORIGINAL_VOICE_GAIN:-0.3}
+      ORIGINAL_VOICE_GAIN: ${ORIGINAL_VOICE_GAIN:-0.25}
       # Captions are measured (layout) and drawn (render) with this one font file.
       CAPTION_FONT_PATH: ${CAPTION_FONT_PATH:-/assets/fonts/BeVietnamPro-SemiBold.ttf}
       COVER_COLOR: ${COVER_COLOR:-#101010}
