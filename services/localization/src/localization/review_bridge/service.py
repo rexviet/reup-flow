@@ -8,7 +8,7 @@ from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from localization.review_bridge.models import RevoiceCue, SaveCue, mismatch
-from localization.review_bridge.repository import Conflict, atomic_write, safe_path
+from localization.review_bridge.repository import RENDERS, Conflict, atomic_write, safe_path
 from localization.review_bridge.visual import capture_visual, require_visual_only
 from localization.storage.object_store import ArtifactMissingError, StorageConflictError
 from localization.workflows.revoice_caption import RevoiceCaptionWorkflow
@@ -63,6 +63,7 @@ class Service:
                 }
             )
             cues = tuple(changed if c.id == cue_id else c for c in base.cues)
+            self.repo.adopt_marker(folder, base)
             before = self.repo.projection(folder)
             marker = safe_path(folder, ".projection.json")
             if marker.exists():
@@ -86,7 +87,7 @@ class Service:
                 }
             else:
                 visual = capture_visual(self.repo.read_asset(base.html), base.cues)
-                extras = base.studio_files
+                extras = {n: a for n, a in base.studio_files.items() if not n.startswith(RENDERS)}
             candidate = self.repo.prepare(base, cues, visual, studio_files=extras)
             if before != self.repo.projection(folder):
                 raise Conflict(base.revision_id, "Studio changed during save; retry merge")
@@ -111,6 +112,7 @@ class Service:
             cue = next((c for c in base.cues if c.id == command.cueId), None)
             if cue is None or not cue.text_vi.strip() or cue.end_ms <= cue.start_ms:
                 raise ValueError("save a nonblank caption and positive slot before revoice")
+            self.repo.adopt_marker(folder, base)
             marker = safe_path(folder, ".projection.json")
             if marker.exists() and json.loads(marker.read_bytes())["fingerprint"] != (
                 self.repo.fingerprint(self.repo.projection(folder))

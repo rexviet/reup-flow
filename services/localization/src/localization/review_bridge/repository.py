@@ -24,6 +24,8 @@ from localization.storage.object_store import (
     project_head_key,
 )
 
+RENDERS = "renders/"  # Studio's export output: never part of the project source
+
 
 class Conflict(Exception):
     def __init__(self, revision: str, message="Project changed; reload before retrying"):
@@ -110,7 +112,8 @@ class Repository:
             source = apply_visual(
                 project_html(
                     cues, base.video, mixed, base.font, subtitles, base, font_path=font_path
-                ), visual
+                ),
+                visual,
             )
         candidate = base.model_copy(
             update={
@@ -176,7 +179,10 @@ class Repository:
             fcntl.flock(stream, fcntl.LOCK_EX)
             yield folder
 
-    def projection(self, folder):
+    def projection(self, folder, *, with_renders=False):
+        # `renders/` holds Studio's export output (mp4 + meta json). It is never source,
+        # so a finished export must not make the project look edited. `with_renders`
+        # reproduces the earlier fingerprint to recognise markers written before.
         files = {}
         for path in folder.rglob("*"):
             if path.is_symlink():
@@ -184,6 +190,7 @@ class Repository:
             name = path.relative_to(folder).as_posix()
             if (
                 path.is_file()
+                and (with_renders or not name.startswith(RENDERS))
                 and path.suffix in {".html", ".json", ".css"}
                 and not name.startswith(
                     (".hyperframes/preview/", ".thumbnails/", ".waveform-cache/")
@@ -206,9 +213,108 @@ class Repository:
     def fingerprint(self, files):
         return checksum(json.dumps({k: checksum(v) for k, v in sorted(files.items())}).encode())
 
+    def marker_state(self, folder, project):
+        """(clean, marker revision to record) for a folder whose marker is read-only here.
+
+        Clean means the folder provably holds no Studio edits: it matches the marker, or the
+        marker under the earlier rule that counted `renders/` (the marker keeps its own
+        revision), or it is byte for byte what `project` (HEAD) projects."""
+        marker = safe_path(folder, ".projection.json")
+        files = self.projection(folder)
+        if not marker.exists():
+            return not files, None
+        state = json.loads(marker.read_bytes())
+        if self.fingerprint(files) == state["fingerprint"]:
+            return True, state["revision"]
+        legacy = self.fingerprint(self.projection(folder, with_renders=True))
+        if legacy == state["fingerprint"]:
+            return True, state["revision"]
+        expected = {"index.html": project.html.sha256} | {
+            name: asset.sha256
+            for name, asset in project.studio_files.items()
+            if not name.startswith(RENDERS)
+        }
+        if {k: checksum(v) for k, v in files.items()} == expected:
+            return True, project.revision_id
+        return False, state["revision"]
+
+    def adopt_marker(self, folder, project):
+        """Rewrite a marker that no longer matches when `marker_state` proves the folder
+        clean. Real edits are never blessed. Call with the project lock held, from the
+        side that shares the lock with the bridge (the bridge itself)."""
+        clean, revision = self.marker_state(folder, project)
+        marker = safe_path(folder, ".projection.json")
+        if clean and revision is not None and marker.exists():
+            state = json.loads(marker.read_bytes())
+            current = self.fingerprint(self.projection(folder))
+            if state["fingerprint"] != current or state["revision"] != revision:
+                atomic_write(
+                    marker, json.dumps({"revision": revision, "fingerprint": current}).encode()
+                )
+
+    def local_state(self, aweme, generation, project=None):
+        """Whether the local projection holds unsaved Studio edits. Strictly read-only: the
+        host shares no reliable file lock with the bridge container, so only the bridge
+        rewrites markers."""
+        project_head_key(aweme, generation)
+        if self.root is None:
+            return False
+        path = safe_path(self.root, f"{aweme}/g{generation}")
+        if not path.is_dir():
+            return False
+        project = project or self.current(aweme, generation)[1]
+        return not self.marker_state(path, project)[0]
+
+    def stage(self, project):
+        """Every file of a revision as bytes, read from immutable assets only."""
+        # Older revisions captured Studio's export metadata as source; it is not source.
+        studio = {n: a for n, a in project.studio_files.items() if not n.startswith(RENDERS)}
+        assets = (
+            [
+                getattr(project, n)
+                for n in (
+                    "video",
+                    "mixed_audio",
+                    "bgm",
+                    "font",
+                    "script",
+                    "dub",
+                    "subtitles",
+                    "html",
+                    "srt",
+                )
+            ]
+            + [c.clip for c in project.cues if c.clip]
+            + list(studio.values())
+        )
+        staged = {asset_filename(a): self.read_asset(a) for a in assets}
+        staged.update({name: self.read_asset(a) for name, a in studio.items()})
+        staged.update(
+            {
+                "index.html": self.read_asset(project.html),
+                "captions.srt": self.read_asset(project.srt),
+                "manifest.json": project.model_dump_json().encode(),
+            }
+        )
+        return staged
+
+    def export_revision(self, aweme, generation, revision, dest: Path):
+        """Write exactly `revision` to the empty directory `dest`, outside the Studio
+        projection. Nothing local (open Studio, unsaved edits) can reach the result."""
+        project_head_key(aweme, generation)
+        dest.mkdir(parents=True, exist_ok=True)
+        if any(dest.iterdir()):
+            raise ValueError("export destination is not empty")
+        project = self.manifest(aweme, generation, revision)
+        for name, data in self.stage(project).items():
+            atomic_write(safe_path(dest, name), data)
+        archive_html_dependencies(dest)
+        return project
+
     def materialize(self, aweme, generation, *, allow_dirty=False):
         with self.lock(aweme, generation) as folder:
             _, project, etag = self.current(aweme, generation)
+            self.adopt_marker(folder, project)
             before = self.projection(folder)
             marker = safe_path(folder, ".projection.json")
             pending_path = safe_path(folder, ".projection-pending.json")
@@ -233,40 +339,15 @@ class Repository:
                 raise Conflict(
                     project.revision_id, "Untracked Studio source; refusing to overwrite"
                 )
-            assets = (
-                [
-                    getattr(project, n)
-                    for n in (
-                        "video",
-                        "mixed_audio",
-                        "bgm",
-                        "font",
-                        "script",
-                        "dub",
-                        "subtitles",
-                        "html",
-                        "srt",
-                    )
-                ]
-                + [c.clip for c in project.cues if c.clip]
-                + list(project.studio_files.values())
-            )
             # Read dependencies before mutating the projection, then check for a Studio race.
-            staged = {asset_filename(a): self.read_asset(a) for a in assets}
-            staged.update({name: self.read_asset(a) for name, a in project.studio_files.items()})
-            staged.update(
-                {
-                    "index.html": self.read_asset(project.html),
-                    "captions.srt": self.read_asset(project.srt),
-                    "manifest.json": project.model_dump_json().encode(),
-                }
-            )
+            staged = self.stage(project)
             if self.projection(folder) != before:
                 raise Conflict(project.revision_id, "Studio changed during materialization")
             after = {
                 name: data
                 for name, data in staged.items()
-                if name == "index.html" or name in project.studio_files
+                if name == "index.html"
+                or (name in project.studio_files and not name.startswith(RENDERS))
             }
             pending = {
                 "before": {name: checksum(data) for name, data in before.items()},
