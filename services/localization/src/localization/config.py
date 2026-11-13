@@ -79,6 +79,9 @@ class Settings(BaseSettings):
     voice_settings_json: str = "{}"
     target_lang: str = "vi"
     stt_model: str | None = None
+    # Off for a VoiceStudio ASR engine that has no `multilingual` mode (MLX Whisper): each
+    # chunk is then detected on its own and decoded at temperature 0.
+    stt_multilingual: bool = True
     tts_model: str | None = None
 
     loc_database_url: SecretStr | None = None

@@ -31,8 +31,31 @@ layout mới tạo hash khác để không lấy nhầm video đã cache với h
 
 Workflow VoiceStudio chia audio đã tách giọng theo Silero VAD thành các đoạn
 không chồng nhau, tối đa 12 giây, với 200 ms đệm ở biên. Mỗi đoạn gọi STT với
-`multilingual=true`, `temperature=0` và tự nhận ngôn ngữ; timestamp được ghép
-về timeline gốc trước khi dịch. Không có speech thì không gọi STT.
+`temperature=0` và tự nhận ngôn ngữ (cùng `multilingual=true` khi `STT_MULTILINGUAL=true`);
+timestamp được ghép về timeline gốc trước khi dịch. Không có speech thì không gọi STT.
+
+### Engine STT: MLX Whisper trên GPU Apple
+
+Mặc định VoiceStudio chạy **MLX Whisper** (`whisper-large-v3-mlx`) thay cho faster-whisper trên CPU:
+nhanh hơn khoảng 4 lần và không còn chuỗi lặp ở đoạn có tiếng ngân hoặc nhạc nền. Cấu hình gồm:
+
+- `scripts/launch-voicestudio.py` mở app với `OMNIVOICE_ASR_BACKEND=mlx-whisper` và
+  `OMNIVOICE_MLX_FORCED_ALIGN=0`, qua `OMNIVOICE_BACKEND_CMD` để app không chép đè runtime.
+  Nó vá `backend/services/asr_backend.py` (xem `scripts/voicestudio-patches/`) chỉ khi file trùng
+  checksum bản gốc trong app. Tắt căn từ wav2vec2 vì mốc từ quá chặt làm lộ khoảng lặng trong câu hát,
+  `SILENCE_GAP_MS` cắt một câu hát thành nhiều segment và `detect_singing` bỏ sót lời bài hát.
+  `--check` chỉ kiểm tra, `--reset` trả file về bản gốc. `scripts/start-all.sh up` tự gọi nó khi
+  VoiceStudio chưa trả lời; app đang chạy thì thoát trước khi muốn áp thay đổi.
+- `ecosystem.config.cjs` đặt `STT_MODEL=mlx-whisper` và `STT_MULTILINGUAL=false` cho
+  `reup-voice-worker`. MLX không có `multilingual`, nên mỗi đoạn tự nhận ngôn ngữ riêng; lời pha hai
+  ngôn ngữ trong một đoạn có thể chỉ được nhận một ngôn ngữ.
+- Lần đầu cần tải model (2,9 GB) vào cache Hugging Face; nếu chưa có, request đầu tiên sẽ tự tải
+  và có thể quá thời gian.
+
+Muốn quay lại faster-whisper: thoát app, `scripts/launch-voicestudio.py --reset`, mở app bình thường,
+xóa khối `env` của `reup-voice-worker` trong `ecosystem.config.cjs`, rồi `scripts/start-all.sh reload`.
+
+Phần dưới mô tả chế độ `multilingual` của faster-whisper (`STT_MULTILINGUAL=true`).
 
 Transcript lưu `segments[].language` theo kết quả nhận dạng của từng chunk.
 Nếu các chunk có nhiều ngôn ngữ, `language` của toàn file là `null`; đây là

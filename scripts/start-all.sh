@@ -98,7 +98,11 @@ pm2_field() { # <app> <jq-like path in pm2 jlist>: prints one field, empty if th
 host_start() {
   need_pm2
   NODE=$(find_node) || die "Node 22.13+ was not found (the Studio watcher needs it)"
-  voicestudio_up || die "VoiceStudio does not answer on $VOICESTUDIO_URL; open the app, then run this again"
+  if ! voicestudio_up; then
+    echo "VoiceStudio does not answer on $VOICESTUDIO_URL: starting it (MLX Whisper, patched runtime)"
+    python3 scripts/launch-voicestudio.py || die "VoiceStudio did not start; see: scripts/launch-voicestudio.py --check"
+  fi
+  voicestudio_up || die "VoiceStudio does not answer on $VOICESTUDIO_URL"
   for port in 7233 9000; do
     wait_for "Docker port 127.0.0.1:$port" 60 port_open "$port"
   done

@@ -59,7 +59,10 @@ def build_providers(
     with_vbee = vbee_configured(settings)
     return Providers(
         stt=OpenAICompatStt.from_settings(
-            settings, http, multilingual=settings.voice_provider == "voicestudio"
+            settings,
+            http,
+            multilingual=settings.voice_provider == "voicestudio" and settings.stt_multilingual,
+            temperature=None if settings.stt_multilingual else 0,
         )
         if voicestudio
         else None,

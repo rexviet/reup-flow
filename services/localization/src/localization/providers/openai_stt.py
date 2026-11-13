@@ -31,9 +31,11 @@ class OpenAICompatStt:
         http: httpx.AsyncClient | None = None,
         provider: str = "openai-compatible",
         multilingual: bool = False,
+        temperature: float | None = None,
     ) -> None:
         self._model = model
         self._multilingual = multilingual
+        self._temperature = temperature
         self._client = OpenAICompatClient(
             "stt",
             base_url,
@@ -52,6 +54,7 @@ class OpenAICompatStt:
         http: httpx.AsyncClient | None = None,
         *,
         multilingual: bool = False,
+        temperature: float | None = None,
     ) -> "OpenAICompatStt":
         if not settings.voicestudio_url or not settings.stt_model:
             raise PermanentProviderError("stt: VOICESTUDIO_URL and STT_MODEL must be set")
@@ -64,6 +67,7 @@ class OpenAICompatStt:
             http=http,
             provider=settings.voice_provider,
             multilingual=multilingual,
+            temperature=temperature,
         )
 
     async def transcribe(
@@ -80,6 +84,8 @@ class OpenAICompatStt:
             await self._require_multilingual()
             data["multilingual"] = "true"
             data["temperature"] = "0"
+        elif self._temperature is not None:
+            data["temperature"] = str(self._temperature)
         if language:
             data["language"] = language
         response = await self._client.post(

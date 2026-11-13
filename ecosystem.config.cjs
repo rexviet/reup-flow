@@ -22,6 +22,13 @@ module.exports = {
       // The worker drains running activities for up to 90 s on SIGTERM; give it longer.
       kill_timeout: 100000,
       time: true,
+      // VoiceStudio runs MLX Whisper (scripts/launch-voicestudio.py). It has no `multilingual`
+      // mode, so each speech chunk is detected on its own. These win over the same names in the
+      // dotenv file, which stay for the containers.
+      env: {
+        STT_MODEL: 'mlx-whisper',
+        STT_MULTILINGUAL: 'false',
+      },
     },
     {
       // Opens HyperFrames Studio for each project that becomes ready for review.

@@ -79,3 +79,21 @@ def test_production_provider_enables_multilingual_only_for_voice_studio(provider
         ocr_bbox_format="xyxy_px",
     )
     assert build_providers(settings).stt._multilingual is enabled
+
+
+async def test_temperature_without_multilingual_is_sent_and_language_stays_auto():
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, json={"text": "", "segments": [], "words": []})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        stt = OpenAICompatStt(
+            "http://example.test", None, "mlx", http=http, multilingual=False, temperature=0
+        )
+        await stt.transcribe(b"audio")
+    body = requests[-1].content
+    assert b'name="temperature"\r\n\r\n0' in body
+    assert b'name="multilingual"' not in body
+    assert b'name="language"' not in body
