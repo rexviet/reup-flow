@@ -12,7 +12,9 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from localization.activities.assemble_audio import (
+    VOICE_UNDER_MUSIC_DB,
     AssembleAudioActivity,
+    balance_music_gain,
     build_filter_graph,
     check_length,
     parse_loudnorm,
@@ -420,3 +422,37 @@ def test_quiet_original_voice_without_sung_spans_or_clips():
     none_spoken = build_filter_graph([], 5_000, None, under=0.3)
     assert "[bgm][under]amix=inputs=2" in none_spoken
     assert "under" not in build_filter_graph([(0, 1.0)], 5_000, None)
+
+
+def test_the_music_gain_is_applied_before_the_music_is_ducked() -> None:
+    graph = build_filter_graph([(0, 1.0)], 5_000, music_gain_db=-4.8)
+    assert "volume=-4.800dB,apad" in graph
+    assert "volume" not in build_filter_graph([(0, 1.0)], 5_000)
+
+
+def test_nothing_spoken_leaves_the_music_alone(tmp_path: Path) -> None:
+    music = tmp_path / "music.wav"
+    music.write_bytes(make_wav(2.0, frequency=MUSIC_HZ, amplitude=0.25))
+    assert (
+        balance_music_gain(bgm=music, clips=[], placements=[], duration_ms=2000, work=tmp_path) == 0
+    )
+
+
+@pytest.mark.parametrize("music_amplitude", [0.05, 0.9])
+def test_the_voice_sits_under_the_music_whatever_the_music_level(
+    tmp_path: Path, music_amplitude: float
+) -> None:
+    music = tmp_path / "music.wav"
+    music.write_bytes(make_wav(4.0, frequency=MUSIC_HZ, amplitude=music_amplitude))
+    clip = tmp_path / "clip.wav"
+    clip.write_bytes(make_wav(2.0, frequency=VOICE_HZ, amplitude=0.25))
+    work = tmp_path / "work"
+    work.mkdir()
+    gain = balance_music_gain(
+        bgm=music, clips=[clip], placements=[(1000, 1.0)], duration_ms=4000, work=work
+    )
+    # Loud music is brought down and quiet music up, to the same relative level.
+    assert (gain < 0) == (music_amplitude > 0.25)
+    voice = integrated_lufs(work / "balance-voice.wav")
+    heard = integrated_lufs(work / "balance-music.wav")
+    assert abs((voice - heard) - VOICE_UNDER_MUSIC_DB) < 0.5

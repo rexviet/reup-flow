@@ -2,10 +2,14 @@ import io
 import wave
 from unittest.mock import AsyncMock
 
+import pytest
+
 from localization.activities import speech_chunks
+from localization.activities import transcribe as transcribe_module
 from localization.activities.speech_chunks import chunk_bounds, split_speech
 from localization.activities.transcribe import TranscribeActivity
 from localization.contracts import SttSegment, SttWord, TranscriptDocument
+from localization.providers.errors import TransientProviderError
 
 
 def wav(seconds=30):
@@ -65,6 +69,43 @@ async def test_chunk_languages_offsets_and_full_duration_survive_regroup(monkeyp
     ]
     assert [w.start_ms for w in result.words] == [900, 9900]
     assert provider.transcribe.await_count == 2
+
+
+async def test_a_chunk_whose_answer_cannot_be_read_is_asked_again_not_the_whole_audio(monkeypatch):
+    monkeypatch.setattr(transcribe_module, "CHUNK_RETRY_SECONDS", 0)
+    monkeypatch.setattr(
+        speech_chunks,
+        "speech_spans",
+        lambda pcm: [{"start": 16000, "end": 32000}, {"start": 160000, "end": 176000}],
+    )
+    good = [
+        TranscriptDocument(
+            language="zh",
+            duration_ms=1400,
+            segments=(SttSegment(id=0, start_ms=0, end_ms=1400, text=text),),
+            words=(SttWord(text=text, start_ms=100, end_ms=700),),
+        )
+        for text in ("你好", "再见")
+    ]
+    provider = AsyncMock()
+    provider.transcribe.side_effect = [
+        good[0],
+        TransientProviderError("stt: unexpected response shape (object with keys: text)"),
+        good[1],
+    ]
+    result = await TranscribeActivity(object(), provider, chunked=True)._transcribe_chunks(wav())
+    assert [s.text for s in result.segments] == ["你好", "再见"]
+    assert provider.transcribe.await_count == 3  # chunk 0 once, chunk 1 twice
+
+
+async def test_a_chunk_that_keeps_failing_fails_the_activity_as_retryable(monkeypatch):
+    monkeypatch.setattr(transcribe_module, "CHUNK_RETRY_SECONDS", 0)
+    monkeypatch.setattr(speech_chunks, "speech_spans", lambda pcm: [{"start": 16000, "end": 32000}])
+    provider = AsyncMock()
+    provider.transcribe.side_effect = TransientProviderError("stt: unexpected response shape")
+    with pytest.raises(TransientProviderError):
+        await TranscribeActivity(object(), provider, chunked=True)._transcribe_chunks(wav())
+    assert provider.transcribe.await_count == transcribe_module.CHUNK_ATTEMPTS
 
 
 async def test_no_speech_yields_empty_transcript_without_provider_calls(monkeypatch):

@@ -10,6 +10,8 @@
 # start   Docker: infrastructure, localization-starter, worker-agents, worker-media and
 #         review-bridge (the `review` profile). Host, under pm2 (ecosystem.config.cjs):
 #           reup-voice-worker      the stt and tts queues, next to VoiceStudio
+#           reup-ingest-worker     the ingest queue: Demucs on the GPU (run
+#                                  scripts/setup-host-demucs.sh once first)
 #           reup-review-auto-open  opens HyperFrames Studio for each ready project
 #           reup-review-worker     final renders of approved projects, review scans,
 #                                  dashboard "open Studio" requests and the heartbeat
@@ -51,7 +53,7 @@ die() { echo "error: $*" >&2; exit 1; }
 # Postgres, Redis, Temporal and MinIO through `depends_on`.
 SERVICES=(localization-starter worker-agents worker-media review-bridge)
 DC=(docker compose --profile review)
-HOST_APPS=(reup-voice-worker reup-review-auto-open reup-review-worker)
+HOST_APPS=(reup-voice-worker reup-ingest-worker reup-review-auto-open reup-review-worker)
 VOICESTUDIO_URL=http://127.0.0.1:3900/.well-known/voicestudio-speech
 LAUNCH_AGENT=com.reup-flow.review-auto-open
 
@@ -120,25 +122,50 @@ host_start() {
     path=$(pm2_field reup-voice-worker "$field")
     [ -n "$path" ] && logs+=("$path")
   done
+  ingest_logs=()
+  for field in pm2_env.pm_out_log_path pm2_env.pm_err_log_path; do
+    path=$(pm2_field reup-ingest-worker "$field")
+    [ -n "$path" ] && ingest_logs+=("$path")
+  done
   served() { cat "${logs[@]}" 2>/dev/null | grep -c "serving queues \['stt', 'tts'\]" || true; }
+  served_ingest() { cat "${ingest_logs[@]}" 2>/dev/null | grep -c "serving queues \['ingest'\]" || true; }
   before=$(served)
+  before_ingest=$(served_ingest)
   REUP_NODE="$NODE" pm2 startOrReload ecosystem.config.cjs --update-env >/dev/null
   if [ ${#logs[@]} -eq 0 ]; then
     for field in pm2_env.pm_out_log_path pm2_env.pm_err_log_path; do
       logs+=("$(pm2_field reup-voice-worker "$field")")
     done
   fi
+  if [ ${#ingest_logs[@]} -eq 0 ]; then
+    for field in pm2_env.pm_out_log_path pm2_env.pm_err_log_path; do
+      ingest_logs+=("$(pm2_field reup-ingest-worker "$field")")
+    done
+  fi
   echo "waiting for the voice worker to serve the speech queues"
+  voice_ready=0
   for _ in $(seq 1 90); do
     status=$(pm2_field reup-voice-worker pm2_env.status)
     [ "$status" = errored ] && die "reup-voice-worker failed to start; see: pm2 logs reup-voice-worker --lines 50"
     if [ "$(served)" -gt "$before" ]; then
       echo "reup-voice-worker is serving stt and tts"
+      voice_ready=1
+      break
+    fi
+    sleep 1
+  done
+  [ "$voice_ready" = 1 ] || die "reup-voice-worker did not report serving its queues; see: pm2 logs reup-voice-worker --lines 50"
+  echo "waiting for the ingest worker to serve the ingest queue"
+  for _ in $(seq 1 90); do
+    status=$(pm2_field reup-ingest-worker pm2_env.status)
+    [ "$status" = errored ] && die "reup-ingest-worker failed to start (has scripts/setup-host-demucs.sh been run?); see: pm2 logs reup-ingest-worker --lines 50"
+    if [ "$(served_ingest)" -gt "$before_ingest" ]; then
+      echo "reup-ingest-worker is serving ingest"
       return 0
     fi
     sleep 1
   done
-  die "reup-voice-worker did not report serving its queues; see: pm2 logs reup-voice-worker --lines 50"
+  die "reup-ingest-worker did not report serving its queue; see: pm2 logs reup-ingest-worker --lines 50"
 }
 
 case "$ACTION" in

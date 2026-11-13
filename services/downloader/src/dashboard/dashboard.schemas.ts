@@ -68,6 +68,8 @@ export const mediaQuerySchema = z.object({ download: booleanFlag.optional() }).s
 /** Every action the dashboard can run on a video. */
 export const ACTIONS = [
   'localize',
+  'retry_download',
+  'resume',
   'rerun',
   'approve',
   'return',

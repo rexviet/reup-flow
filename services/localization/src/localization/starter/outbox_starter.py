@@ -16,8 +16,9 @@ import re
 import signal
 import sys
 import time
+import uuid
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -25,7 +26,11 @@ import psycopg
 from opentelemetry import trace
 from psycopg.rows import dict_row
 from pydantic import ValidationError
-from temporalio.client import Client
+from temporalio.api.common.v1 import WorkflowExecution
+from temporalio.api.enums.v1 import EventType, ResetReapplyType
+from temporalio.api.history.v1 import HistoryEvent
+from temporalio.api.workflowservice.v1 import ResetWorkflowExecutionRequest
+from temporalio.client import Client, WorkflowExecutionStatus
 from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
@@ -90,6 +95,16 @@ UPDATE localization_outbox
 """
 
 
+# A resumed run is a new run of the same workflow, so the failure the old one recorded is no
+# longer its outcome. Only a `failed` row is removed: anything else there is not ours to drop.
+CLEAR_FAILED_RUN_SQL = """
+DELETE FROM localization.runs WHERE aweme_id = %s AND generation = %s AND status = 'failed'
+"""
+NOT_RESUMABLE_SQL = """
+UPDATE localization_outbox SET last_error = %s
+ WHERE aweme_id = %s AND generation = %s AND state = 'dispatched'
+"""
+
 RELEASED_SQL = """
 UPDATE localization_outbox
    SET last_error = %(error)s, next_attempt_at = now() + make_interval(secs => %(delay)s)
@@ -120,6 +135,37 @@ def is_systemic(exc: Exception) -> bool:
     if isinstance(exc, RPCError):
         return exc.status in SYSTEMIC_STATUSES
     return isinstance(exc, OSError)
+
+
+def reset_point(events: Sequence[HistoryEvent]) -> int | None:
+    """Where to reset a failed run so it goes on from the step that failed: the workflow task
+    that scheduled the last activity to fail or time out. Everything before it (the steps
+    that finished, with their results) is kept, and that activity is scheduled again. None
+    when the run did not end in an activity, so there is no step to go on from."""
+    by_id = {event.event_id: event for event in events}
+    for event in reversed(events):
+        if event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_FAILED:
+            scheduled_id = event.activity_task_failed_event_attributes.scheduled_event_id
+        elif event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_TIMED_OUT:
+            scheduled_id = event.activity_task_timed_out_event_attributes.scheduled_event_id
+        else:
+            continue
+        scheduled = by_id.get(scheduled_id)
+        if scheduled is None:
+            return None
+        return scheduled.activity_task_scheduled_event_attributes.workflow_task_completed_event_id
+    return None
+
+
+class Start(enum.Enum):
+    STARTED = "started"
+    # The id is already a dispatch of this generation (a previous attempt got as far as
+    # starting it): nothing to do.
+    DUPLICATE = "duplicate"
+    # The id was a run that failed; it goes on from the step that failed.
+    RESUMED = "resumed"
+    # The id failed, but not in an activity: it can only be run again as a new generation.
+    NOT_RESUMABLE = "not_resumable"
 
 
 class Outcome(enum.Enum):
@@ -355,7 +401,7 @@ class OutboxStarter:
             if video is None:
                 raise Rejected("the video row does not exist")
             spec = self._start_input(settings, voice, claimed, video)
-            await self._start(spec, id_, WORKFLOW_TYPES[settings.localization_pipeline])
+            started = await self._start(spec, id_, WORKFLOW_TYPES[settings.localization_pipeline])
         except Rejected as exc:
             await conn.execute(REJECTED_SQL, (str(exc), claimed.aweme_id, claimed.generation))
             log.warning("rejected %s: %s", id_, exc)
@@ -387,7 +433,15 @@ class OutboxStarter:
             return Outcome.FAILED
         self._recent.append((self._clock(), self._open + 1))
         await conn.execute(DISPATCHED_SQL, (id_, claimed.aweme_id, claimed.generation))
-        log.info("dispatched %s", id_)
+        if started is Start.RESUMED:
+            await conn.execute(CLEAR_FAILED_RUN_SQL, (claimed.aweme_id, claimed.generation))
+            log.info("resumed %s from the step that failed", id_)
+        elif started is Start.NOT_RESUMABLE:
+            reason = "cannot go on: the run did not fail in a step; run it again"
+            await conn.execute(NOT_RESUMABLE_SQL, (reason, claimed.aweme_id, claimed.generation))
+            log.warning("%s: %s", id_, reason)
+        else:
+            log.info("dispatched %s", id_)
         return Outcome.DISPATCHED
 
     async def _start(
@@ -397,7 +451,7 @@ class OutboxStarter:
         workflow_type: str = WORKFLOW_TYPE,
         *,
         ignore_duplicate: bool = True,
-    ) -> None:
+    ) -> Start:
         tracer = trace.get_tracer("localization.starter")
         with tracer.start_as_current_span("localization.start"):
             tag_session(spec.aweme_id)
@@ -413,9 +467,37 @@ class OutboxStarter:
             except WorkflowAlreadyStartedError:
                 if not ignore_duplicate:
                     raise
-                # The id carries the generation, so the same id is the same
-                # dispatch: a previous attempt got as far as starting it.
-                return
+                # The id carries the generation, so the same id is the same dispatch: a
+                # previous attempt got as far as starting it, unless that run failed and the
+                # row was put back to pending on purpose (the dashboard's "go on").
+                return await self.resume_if_failed(id_)
+            return Start.STARTED
+
+    async def resume_if_failed(self, id_: str) -> Start:
+        """Resets a failed run to the step that failed, so Temporal replays the finished steps
+        from its history and runs the failed one again. Any other state of the id is a
+        duplicate dispatch."""
+        handle = self._client.get_workflow_handle(id_)
+        description = await handle.describe()
+        if description.status != WorkflowExecutionStatus.FAILED:
+            return Start.DUPLICATE
+        events = [event async for event in handle.fetch_history_events()]
+        point = reset_point(events)
+        if point is None:
+            return Start.NOT_RESUMABLE
+        await self._client.workflow_service.reset_workflow_execution(
+            ResetWorkflowExecutionRequest(
+                namespace=self._client.namespace,
+                workflow_execution=WorkflowExecution(
+                    workflow_id=id_, run_id=description.run_id or ""
+                ),
+                reason="gone on from the step that failed (dashboard)",
+                workflow_task_finish_event_id=point,
+                request_id=str(uuid.uuid4()),
+                reset_reapply_type=ResetReapplyType.RESET_REAPPLY_TYPE_NONE,
+            )
+        )
+        return Start.RESUMED
 
     async def run_forever(self, stop: asyncio.Event | None = None) -> None:
         stop = stop or asyncio.Event()

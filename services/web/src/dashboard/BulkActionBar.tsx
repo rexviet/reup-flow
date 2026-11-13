@@ -1,15 +1,22 @@
 import type { DashboardActionName, VideoListItem } from '../api/types';
 import { Icon, type IconName } from '../components/Icon';
-import { ACTION_LABELS } from './format';
+import { ACTION_LABELS, ACTIONS_BY_STAGE } from './format';
 
-const BULK_ACTIONS: DashboardActionName[] = ['localize', 'rerun', 'approve', 'rerender', 'mark_published'];
+const BULK_ACTIONS: DashboardActionName[] = ['retry_download', 'localize', 'resume', 'rerun', 'approve', 'rerender', 'mark_published'];
 
 const ACTION_ICONS: Partial<Record<DashboardActionName, IconName>> = {
+  retry_download: 'refresh',
+  resume: 'play',
   localize: 'play',
   rerun: 'refresh',
   approve: 'check-circle',
   rerender: 'video',
   mark_published: 'upload',
+};
+
+const ACTION_HINTS: Partial<Record<DashboardActionName, string>> = {
+  resume: 'Giữ các bước đã xong, chạy lại từ bước bị lỗi.',
+  rerun: 'Chạy lại từ đầu, tạo một lượt xử lý mới.',
 };
 
 export interface BulkActionBarProps {
@@ -19,7 +26,14 @@ export interface BulkActionBarProps {
   onClear: () => void;
 }
 
+/** An action is offered when at least one selected video is at a stage where it makes sense. */
+function offered(selected: VideoListItem[], action: DashboardActionName): boolean {
+  return selected.some((v) => ACTIONS_BY_STAGE[v.stage]?.includes(action));
+}
+
 /**
+ * Only the actions that fit the stages of the selected videos are shown (a failed download gets
+ * "Tải lại", not "Duyệt"); the server still checks each video and reports the ones it skips.
  * `approve` binds one revision to one video, so it is offered for a single selected video only;
  * a bulk approve would approve revisions the admin never looked at.
  */
@@ -39,7 +53,7 @@ export function BulkActionBar({ selected, busy, onRun, onClear }: BulkActionBarP
         <span className="text-sm font-medium text-text-primary">Đã chọn {selected.length} video</span>
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
-        {BULK_ACTIONS.map((action) => {
+        {BULK_ACTIONS.filter((action) => offered(selected, action)).map((action) => {
           const needsOne = action === 'approve' && single === null;
           const noRevision = action === 'approve' && single !== null && single.revision === null;
           const disabled = busy || needsOne || noRevision;
@@ -53,7 +67,7 @@ export function BulkActionBar({ selected, busy, onRun, onClear }: BulkActionBarP
                   ? 'Duyệt chỉ áp dụng cho một video mỗi lần.'
                   : noRevision
                     ? 'Video chưa có bản review để duyệt.'
-                    : undefined
+                    : ACTION_HINTS[action]
               }
               onClick={() => onRun(action)}
               className={`btn ${action === 'mark_published' ? 'btn-success' : 'btn-neutral'}`}

@@ -69,6 +69,17 @@ async def test_stt_requests_word_and_segment_timestamps_and_parses_them(
     ]
 
 
+@pytest.mark.parametrize(
+    "body",
+    [{"text": "hi"}, {"segments": None}, {"segments": [{"start": 0}]}, ["not", "an", "object"]],
+)
+def test_an_stt_answer_that_cannot_be_read_is_retryable_and_names_only_its_shape(body) -> None:
+    with pytest.raises(TransientProviderError, match="unexpected response shape") as raised:
+        OpenAICompatStt._parse(body)
+    # What the answer said never reaches the message, history or a log line.
+    assert "hi" not in str(raised.value).replace("shape", "")
+
+
 @pytest.mark.parametrize("status", [408, 429, 500, 502, 503])
 async def test_transient_statuses_are_retryable(
     stub: StubServer, monkeypatch: pytest.MonkeyPatch, status: int
@@ -192,3 +203,60 @@ def test_missing_configuration_fails_at_construction(monkeypatch: pytest.MonkeyP
         OpenAICompatTts.from_settings(Settings())
     with pytest.raises(PermanentProviderError):
         OpenAICompatStt.from_settings(Settings())
+
+
+def _answer(segments=None, words=None) -> dict:
+    body: dict = {"segments": segments if segments is not None else [], "language": "ko"}
+    if words is not None:
+        body["words"] = words
+    return body
+
+
+SEG = {"id": 0, "start": 0.0, "end": 1.0, "text": "SECRETTEXT"}
+
+
+@pytest.mark.parametrize(
+    ("body", "names"),
+    [
+        (
+            _answer([SEG, {**SEG, "id": 1, "start": 5.0, "end": 4.0}]),
+            ["segments[1]", "fails its check", "start 5.0, end 4.0"],
+        ),
+        (_answer([SEG, {"id": 1, "start": 1.0}]), ["segments[1] has no 'end'"]),
+        (
+            _answer([{**SEG, "end": "soon"}]),
+            ["segments[0].end is not a usable number (str)"],
+        ),
+        (
+            _answer([{**SEG, "start": float("nan")}]),
+            ["segments[0].start is not a usable number (nan)"],
+        ),
+        (_answer([SEG, "oops"]), ["segments[1] is a str, not an object"]),
+        (
+            _answer([SEG], words=[{"word": "a", "start": 0.0, "end": 0.5}, {"start": 0, "end": 1}]),
+            ["words[1] has no 'word'"],
+        ),
+        (
+            _answer([SEG], words=[{"word": "x" * 201, "start": 0.0, "end": 0.5}]),
+            ["words[0].text fails its check", "string_too_long"],
+        ),
+        (
+            _answer([SEG], words=[{"word": "SECRETTEXT", "start": 2.0, "end": 1.0}]),
+            ["words[0]", "fails its check", "start 2.0, end 1.0"],
+        ),
+        (
+            _answer([{**SEG, "words": [{"word": "a", "start": 0.0, "end": "x"}]}]),
+            ["words[0].end is not a usable number (str)"],
+        ),
+    ],
+)
+def test_an_unreadable_stt_item_is_named_by_place_and_field_but_never_by_its_text(
+    body, names
+) -> None:
+    with pytest.raises(TransientProviderError) as raised:
+        OpenAICompatStt._parse(body)
+    message = str(raised.value)
+    for name in names:
+        assert name in message, message
+    assert "SECRETTEXT" not in message
+    assert "object with keys: language,segments" in message

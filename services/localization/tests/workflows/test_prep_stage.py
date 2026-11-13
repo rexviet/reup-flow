@@ -108,7 +108,7 @@ async def test_preparation_runs_each_stage_once_on_its_own_queue(temporal_client
     # stage (tests/agents).
     assert (await _scheduled(handle))[:5] == [
         ("check_voice", "voice_check"),
-        ("ingest", "media"),
+        ("ingest", "ingest"),
         ("voice_rate", "tts"),
         ("transcribe", "stt"),
         ("detect_subtitles", "io"),
@@ -165,7 +165,7 @@ async def test_a_missing_source_video_is_not_regenerated(temporal_client: Client
         build_worker(
             temporal_client, QueueSpec("workflows", workflows=[VideoLocalizationWorkflow])
         ),
-        build_worker(temporal_client, QueueSpec("media", activities=[acts["ingest"]])),
+        build_worker(temporal_client, QueueSpec("ingest", activities=[acts["ingest"]])),
         build_worker(temporal_client, QueueSpec("stt", activities=[acts["transcribe"]])),
         build_worker(temporal_client, QueueSpec("io", activities=[detect, record_outcome])),
         # The voice check every run starts with hears a voice: the run goes on to its ingest.
@@ -1069,7 +1069,7 @@ async def test_a_failed_stage_cancels_the_sibling_instead_of_leaving_it_running(
         build_worker(
             temporal_client, QueueSpec("workflows", workflows=[VideoLocalizationWorkflow])
         ),
-        build_worker(temporal_client, QueueSpec("media", activities=[acts["ingest"]])),
+        build_worker(temporal_client, QueueSpec("ingest", activities=[acts["ingest"]])),
         build_worker(temporal_client, QueueSpec("stt", activities=[slow_transcribe])),
         build_worker(temporal_client, QueueSpec("io", activities=[broken_detect, record_outcome])),
         build_worker(

@@ -34,10 +34,51 @@ async function flush() {
 
 describe('DashboardPage pipeline', () => {
   it('keeps Duyệt disabled for a single selected video that has no review revision', async () => {
+    vi.mocked(client.getDashboardVideos).mockResolvedValue(
+      list([item({ aweme_id: '7005', stage: 'awaiting_review', revision: null })]),
+    );
     render(<DashboardPage />);
     await flush();
-    await userEvent.click(screen.getByLabelText('Chọn 7002'));
+    await userEvent.click(screen.getByLabelText('Chọn 7005'));
     expect(within(screen.getByRole('toolbar')).getByRole('button', { name: 'Duyệt' })).toBeDisabled();
+  });
+
+  it('a failed run offers Chạy tiếp từ bước lỗi next to Chạy lại, and sends resume', async () => {
+    vi.mocked(client.getDashboardVideos).mockResolvedValue(list([item({ aweme_id: '7007', stage: 'run_failed' })]));
+    vi.mocked(client.runAction).mockResolvedValue({ done: ['7007'], skipped: [] });
+    render(<DashboardPage />);
+    await flush();
+    await userEvent.click(screen.getByLabelText('Chọn 7007'));
+    const bar = screen.getByRole('toolbar');
+    expect(within(bar).getByRole('button', { name: 'Chạy lại' })).toBeInTheDocument();
+    await userEvent.click(within(bar).getByRole('button', { name: 'Chạy tiếp từ bước lỗi' }));
+    await userEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Xác nhận' }));
+    await flush();
+    expect(client.runAction).toHaveBeenCalledWith({ action: 'resume', aweme_ids: ['7007'] });
+  });
+
+  it('offers only the actions that fit the selected stages, and Tải lại for a failed download', async () => {
+    const download = item({ aweme_id: '7006', stage: 'download_failed', revision: null, current_gen: null });
+    vi.mocked(client.getDashboardVideos).mockResolvedValue(list([download, held]));
+    vi.mocked(client.runAction).mockResolvedValue({ done: ['7006'], skipped: [] });
+    render(<DashboardPage />);
+    await flush();
+
+    await userEvent.click(screen.getByLabelText('Chọn 7006'));
+    const bar = screen.getByRole('toolbar');
+    expect(within(bar).getByRole('button', { name: 'Tải lại' })).toBeEnabled();
+    for (const name of ['Duyệt', 'Chạy lại', 'Render lại', 'Đánh dấu đã đăng', 'Đưa vào localization'])
+      expect(within(bar).queryByRole('button', { name })).toBeNull();
+
+    // Selecting a held video as well adds its own action; the download one stays.
+    await userEvent.click(screen.getByLabelText('Chọn 7002'));
+    expect(within(bar).getByRole('button', { name: 'Đưa vào localization' })).toBeInTheDocument();
+    expect(within(bar).getByRole('button', { name: 'Tải lại' })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByLabelText('Chọn 7002'));
+    await userEvent.click(within(bar).getByRole('button', { name: 'Tải lại' }));
+    await flush();
+    expect(client.runAction).toHaveBeenCalledWith({ action: 'retry_download', aweme_ids: ['7006'] });
   });
 
   it('marks a guessed stage with a question mark and Escape closes the confirm dialog', async () => {
@@ -197,12 +238,76 @@ describe('DashboardPage bulk actions', () => {
 
   it('shows the server error when the action fails', async () => {
     vi.mocked(client.runAction).mockRejectedValue(new Error('revision đã đổi'));
+    vi.mocked(client.getDashboardVideos).mockResolvedValue(list([item({ aweme_id: '7008', stage: 'rendered' })]));
     render(<DashboardPage />);
     await flush();
-    await userEvent.click(screen.getByLabelText('Chọn 7002'));
+    await userEvent.click(screen.getByLabelText('Chọn 7008'));
     await userEvent.click(within(screen.getByRole('toolbar')).getByRole('button', { name: 'Đánh dấu đã đăng' }));
     await flush();
     expect(screen.getByTestId('action-notice')).toHaveTextContent('revision đã đổi');
+  });
+});
+
+describe('DashboardPage rendered videos as pictures', () => {
+  const rendered = [
+    item({ aweme_id: '7101', stage: 'rendered', desc: 'Cảnh một' }),
+    item({ aweme_id: '7102', stage: 'rendered', desc: 'Cảnh hai' }),
+  ];
+
+  async function openRendered() {
+    vi.mocked(client.getDashboardVideos).mockResolvedValue(list([review, ...rendered]));
+    render(<DashboardPage />);
+    await flush();
+    vi.mocked(client.getDashboardVideos).mockResolvedValue(list(rendered));
+    await userEvent.click(screen.getByTestId('chip-rendered'));
+    await flush();
+  }
+
+  it('shows each rendered video as a card with its poster, and the other stages stay a table', async () => {
+    vi.mocked(client.getMediaLinks).mockImplementation(async (awemeId) => [
+      { kind: 'poster', available: true, url: `/api/dashboard/media/tok-${awemeId}`, expires_at: new Date(Date.now() + 600_000).toISOString() },
+    ]);
+    vi.mocked(client.getDashboardVideos).mockResolvedValue(list([review, ...rendered]));
+    render(<DashboardPage />);
+    await flush();
+    expect(screen.queryByTestId('rendered-grid')).toBeNull();
+    expect(screen.getAllByTestId('pipeline-row')).toHaveLength(3);
+
+    vi.mocked(client.getDashboardVideos).mockResolvedValue(list(rendered));
+    await userEvent.click(screen.getByTestId('chip-rendered'));
+    await flush();
+
+    expect(screen.queryByTestId('pipeline-row')).toBeNull();
+    const cards = screen.getAllByTestId('rendered-card');
+    expect(cards).toHaveLength(2);
+    expect(client.getMediaLinks).toHaveBeenCalledWith('7101', 1, ['poster']);
+    expect(within(cards[0]).getByRole('presentation', { hidden: true })).toHaveAttribute('src', '/api/dashboard/media/tok-7101');
+    expect(within(cards[0]).getByRole('link', { name: 'Chi tiết 7101' })).toHaveAttribute('href', '#/video/7101');
+    expect(cards[0]).toHaveTextContent('Cảnh một');
+  });
+
+  it('shows a placeholder for a video with no poster, and when the picture fails to load', async () => {
+    vi.mocked(client.getMediaLinks).mockImplementation(async (awemeId) =>
+      awemeId === '7101'
+        ? [{ kind: 'poster', available: false }]
+        : [{ kind: 'poster', available: true, url: '/api/dashboard/media/gone', expires_at: new Date(Date.now() + 600_000).toISOString() }],
+    );
+    await openRendered();
+    const [first, second] = screen.getAllByTestId('rendered-card');
+    expect(first).toHaveTextContent('Chưa có ảnh');
+
+    const image = within(second).getByRole('presentation', { hidden: true });
+    await act(async () => {
+      image.dispatchEvent(new Event('error'));
+    });
+    expect(second).toHaveTextContent('Chưa có ảnh');
+  });
+
+  it('selects a card with its checkbox so the bulk bar works on pictures too', async () => {
+    vi.mocked(client.getMediaLinks).mockResolvedValue([{ kind: 'poster', available: false }]);
+    await openRendered();
+    await userEvent.click(screen.getByLabelText('Chọn 7102'));
+    expect(within(screen.getByRole('toolbar')).getByRole('button', { name: 'Đánh dấu đã đăng' })).toBeInTheDocument();
   });
 });
 

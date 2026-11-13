@@ -84,6 +84,7 @@ from localization.workers.health import VoiceStudioHealth
 from localization.workflows.revoice_caption import RevoiceCaptionWorkflow
 from localization.workflows.vbee_dubbing import VbeeDubbingWorkflow
 from localization.workflows.video_localization import (
+    INGEST_QUEUE,
     RENDER_QUEUE,
     VOICE_CHECK_QUEUE,
     VideoLocalizationWorkflow,
@@ -135,6 +136,10 @@ def queue_specs(
 ) -> list[QueueSpec]:
     """A queue with nothing to run gets no worker. `engine` names the speech engine
     VoiceStudio reports as active; it is part of a measured voice's identity."""
+    if role == "ingest":
+        # The separation on its own, for a worker on the host where Demucs can use the GPU.
+        ingest = IngestActivity(store, providers.demucs)
+        return [QueueSpec(INGEST_QUEUE, settings.ingest_concurrency, activities=[ingest.ingest])]
     if role == "media":
         ingest = IngestActivity(store, providers.demucs)
         assemble_audio = AssembleAudioActivity(
@@ -423,8 +428,10 @@ async def serve(role: str) -> int:
     if provider is not None:
         instrument_agents(provider, include_content=settings.trace_agent_content)
     client = await connect(settings.temporal_address, settings.temporal_namespace)
-    if role not in ("agents", "media", "voice"):
-        raise ConfigError(f"unknown worker role {role!r}; expected 'agents', 'media' or 'voice'")
+    if role not in ("agents", "media", "voice", "ingest"):
+        raise ConfigError(
+            f"unknown worker role {role!r}; expected 'agents', 'media', 'voice' or 'ingest'"
+        )
     # `voice` is the agents' process restricted to the speech queues: it builds the same
     # providers and runtime, and serves only `stt` and `tts`.
     agents_process = role in ("agents", "voice")
@@ -504,7 +511,8 @@ async def supervise(workers: Sequence[Worker], stop: asyncio.Event) -> int:
 def main(argv: Sequence[str]) -> int:
     logging.basicConfig(level=logging.INFO)
     if len(argv) != 1:
-        print("usage: python -m localization.workers.run agents|media", file=sys.stderr)
+        usage = "usage: python -m localization.workers.run agents|media|voice|ingest"
+        print(usage, file=sys.stderr)
         return 2
     return asyncio.run(serve(argv[0]))
 

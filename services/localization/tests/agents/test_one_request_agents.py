@@ -457,3 +457,25 @@ def test_legacy_shaped_repair_keeps_inferred_provenance_and_unresolved_omission(
     assert merged.lines[1].status == "inferred"
     assert merged.lines[1].reason == base.lines[1].reason
     assert merged.lines[2] == base.lines[2]
+
+
+def test_a_review_run_is_told_to_remove_donation_appeals_and_a_plain_run_is_not() -> None:
+    assert "donation appeal removed" in localizer_single.CONTEXTUAL_RULES
+    assert "quyên góp" in localizer_single.CONTEXTUAL_RULES
+    # Only a run that can leave a line out (review projects) carries the rule.
+    assert "donation" not in localizer_single.INSTRUCTIONS
+
+
+async def test_a_removed_donation_appeal_is_an_unresolved_line_and_not_a_problem() -> None:
+    policy = deps().model_copy(update={"contextual": True})
+    ctx = await localizer_single.load_context(policy, FakePorts())
+    removed = LocalizedLines(
+        lines=(
+            LocalizedLine(id=0, text_vi=SHORT),
+            LocalizedLine(id=1, text_vi="", status="unresolved", reason="donation appeal removed"),
+        )
+    )
+    assessment = localizer_single.assess(policy, ctx, removed)
+    assert assessment.problems == {}
+    assert assessment.records[1].text_vi == ""
+    assert localizer_single.lines_of(assessment).lines[1].status == "unresolved"

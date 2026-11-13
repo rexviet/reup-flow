@@ -84,6 +84,10 @@ BEGIN
       'localization.host_workers.info:jsonb',
       'localization.final_renders_pkey','localization.final_renders_queued_idx','localization.review_status_pkey',
       'localization.host_workers_pkey'];
+    WHEN '261113-sequential-queue.sql' THEN expected := ARRAY[
+      'public.auto_queue_inflight.one:boolean','public.auto_queue_inflight.aweme_id:text',
+      'public.auto_queue_inflight.generation:integer',
+      'public.auto_queue_inflight.released_at:timestamp with time zone','public.auto_queue_inflight_pkey'];
     ELSE RAISE EXCEPTION 'Unknown migration %, reconcile manually', migration;
   END CASE;
   FOREACH item IN ARRAY expected LOOP

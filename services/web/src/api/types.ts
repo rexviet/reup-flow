@@ -201,7 +201,7 @@ export interface HealthReport {
   temporal: HealthItem;
   minio: HealthItem;
   voicestudio: HealthItem;
-  queues: Record<'stt' | 'tts' | 'media' | 'render' | 'llm' | 'io' | 'workflows', HealthItem>;
+  queues: Record<'stt' | 'tts' | 'ingest' | 'media' | 'render' | 'llm' | 'io' | 'workflows', HealthItem>;
   host_worker: HealthItem;
   disk: HealthItem;
 }
@@ -299,6 +299,8 @@ export interface VideoDetailResponse {
 
 export type DashboardActionName =
   | 'localize'
+  | 'retry_download'
+  | 'resume'
   | 'rerun'
   | 'approve'
   | 'return'
@@ -323,7 +325,7 @@ export interface ActionResult {
   skipped: Array<{ aweme_id: string; reason: string }>;
 }
 
-export type MediaKind = 'source' | 'final' | 'srt';
+export type MediaKind = 'source' | 'final' | 'srt' | 'poster';
 export interface MediaLink {
   kind: MediaKind;
   available: boolean;

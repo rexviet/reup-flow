@@ -129,6 +129,9 @@ class Settings(BaseSettings):
     stt_concurrency: Concurrency = 1
     tts_concurrency: Concurrency = 2
     media_concurrency: Concurrency = 2
+    # Separations at once on the host worker (one at a time: Demucs on the GPU already uses it
+    # all).
+    ingest_concurrency: Concurrency = 1
     render_concurrency: Concurrency = 1
     llm_concurrency: Concurrency = 8
     io_concurrency: Concurrency = 2

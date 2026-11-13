@@ -72,6 +72,7 @@ async function boot(env: Partial<Env>, withReader: boolean): Promise<INestApplic
     ['source/a/1.mp4', VIDEO],
     ['output/review/100/g3/final.mp4', VIDEO],
     ['output/review/100/g3/final.srt', Buffer.from('1\n00:00:00,000 --> 00:00:01,000\nxin chao\n')],
+    ['output/review/100/g3/final.jpg', Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00])],
     ['output/100.mp4', VIDEO],
   ]);
   reader = new MemoryReader(objects);
@@ -178,7 +179,7 @@ describe('POST /api/dashboard/media-links', () => {
 });
 
 describe('GET /api/dashboard/media/:token', () => {
-  const tokenUrl = async (kind: 'source' | 'final' | 'srt'): Promise<string> => {
+  const tokenUrl = async (kind: 'source' | 'final' | 'srt' | 'poster'): Promise<string> => {
     const res = await link({ aweme_id: '100', generation: 3, kinds: [kind] });
     return res.body.links[0].url as string;
   };
@@ -212,6 +213,18 @@ describe('GET /api/dashboard/media/:token', () => {
     expect(res.status).toBe(200);
     expect(res.headers['content-disposition']).toBe('attachment; filename="100-g3.srt"');
     expect(res.headers['content-type']).toContain('application/x-subrip');
+  });
+
+  it('serves the poster, the still stored beside the video, as an image', async () => {
+    const res = await request(app.getHttpServer()).get(await tokenUrl('poster')).buffer(true).parse(collect as never);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toBe('image/jpeg');
+    expect((res.body as Buffer).subarray(0, 3)).toEqual(Buffer.from([0xff, 0xd8, 0xff]));
+  });
+
+  it('offers no poster for a render whose video key is not an mp4 of the review folder', async () => {
+    const res = await link({ aweme_id: '102', generation: 1, kinds: ['poster'] });
+    expect(res.body.links).toEqual([{ kind: 'poster', available: false }]);
   });
 
   it('answers 401 without a signature, with a forged one, and when expired', async () => {

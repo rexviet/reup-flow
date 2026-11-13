@@ -61,7 +61,6 @@ from localization.workflows.video_localization import (
     ASSEMBLE_AUDIO,
     DETECT_SUBTITLES,
     DUB_IO,
-    INGEST,
     IO_QUEUE,
     LAYOUT,
     PUBLISH,
@@ -73,6 +72,7 @@ from localization.workflows.video_localization import (
     _describe,
     _failed,
     _retry,
+    ingest_options,
     tts_batches,
 )
 
@@ -199,7 +199,9 @@ class VbeeDubbingWorkflow:
         """The separation, the source subtitles and the voice's rate start together; the
         speech is sent to Vbee as soon as the separation is done. Whichever fails first
         fails the run and stops the rest: nothing is paid for a run that cannot finish."""
-        ingesting = workflow.start_activity("ingest", spec, result_type=IngestResult, **INGEST)
+        ingesting = workflow.start_activity(
+            "ingest", spec, result_type=IngestResult, **ingest_options()
+        )
         detecting = workflow.start_activity(
             "detect_subtitles", spec, result_type=SubtitleTrack, **DETECT_SUBTITLES
         )

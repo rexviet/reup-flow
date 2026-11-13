@@ -53,7 +53,7 @@ export function health(over: Partial<HealthReport> = {}): HealthReport {
     temporal: ok,
     minio: ok,
     voicestudio: ok,
-    queues: { stt: ok, tts: ok, media: ok, render: ok, llm: ok, io: ok, workflows: ok },
+    queues: { stt: ok, tts: ok, ingest: ok, media: ok, render: ok, llm: ok, io: ok, workflows: ok },
     host_worker: ok,
     disk: ok,
     ...over,

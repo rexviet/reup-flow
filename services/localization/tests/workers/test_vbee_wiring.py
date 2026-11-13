@@ -20,7 +20,7 @@ from localization.workers.run import queue_specs, runnable
 from localization.workflows import vbee_dubbing
 from localization.workflows.revoice_caption import RevoiceCaptionWorkflow
 from localization.workflows.vbee_dubbing import VbeeDubbingWorkflow
-from localization.workflows.video_localization import VideoLocalizationWorkflow
+from localization.workflows.video_localization import INGEST_QUEUE, VideoLocalizationWorkflow
 from tests.support.tts_fakes import FakeTts
 
 STORE = ObjectStore(object(), "b")
@@ -45,7 +45,7 @@ def providers(**vbee: object) -> SimpleNamespace:
 def served(settings: Settings, given: SimpleNamespace | None = None) -> dict[str, set[str]]:
     """Activity names each queue's worker serves, on both workers, counting the plugins."""
     out: dict[str, set[str]] = {}
-    for role in ("agents", "media"):
+    for role in ("agents", "media", "ingest"):
         for spec in runnable(queue_specs(role, settings, STORE, given or providers())):  # type: ignore[arg-type]
             names = {fn.__temporal_activity_definition.name for fn in spec.activities}  # type: ignore[attr-defined]
             for plugin in spec.plugins:
@@ -57,7 +57,7 @@ def served(settings: Settings, given: SimpleNamespace | None = None) -> dict[str
 # Every activity the workflow schedules and the queue it sends it to, read from the
 # workflow's own configuration (and the workflow test checks the same table in a run).
 SENT = {
-    "ingest": vbee_dubbing.INGEST,
+    "ingest": {"task_queue": INGEST_QUEUE},
     "detect_subtitles": vbee_dubbing.DETECT_SUBTITLES,
     "voice_rate": vbee_dubbing.VOICE_RATE,
     "vbee_stt": vbee_dubbing.VBEE_STT,

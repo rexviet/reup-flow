@@ -22,8 +22,8 @@ class WorkerConfig:
     voicestudio_url: str | None = None
     # Hard limit is shorter than the lease so a stuck render is killed before the row
     # becomes claimable again.
-    render_timeout_s: int = 30 * 60
-    lease_minutes: int = 45
+    render_timeout_s: int = 60 * 60
+    lease_minutes: int = 75
     renew_every_s: int = 5 * 60
     shutdown_grace_s: int = 60
     max_attempts: int = 3

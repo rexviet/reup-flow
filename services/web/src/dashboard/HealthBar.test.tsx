@@ -12,7 +12,7 @@ describe('HealthBar', () => {
     });
     render(<HealthBar health={report} error={null} />);
 
-    for (const id of ['cookie', 'voicestudio', 'stt', 'tts', 'host_worker', 'temporal', 'minio', 'disk']) {
+    for (const id of ['cookie', 'voicestudio', 'stt', 'tts', 'ingest', 'host_worker', 'temporal', 'minio', 'disk']) {
       expect(screen.getByTestId(`health-${id}`)).toBeInTheDocument();
     }
     expect(screen.getByTestId('health-cookie')).toHaveAttribute('data-state', 'down');

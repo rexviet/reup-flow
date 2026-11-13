@@ -95,6 +95,9 @@ describe('DashboardActionsService (real downloader and localization schemas)', (
 
   describe('localize', () => {
     it('moves held to pending, skips the rest with the reason, and logs once', async () => {
+      // The sequential queue releases a held row at once unless a video is in flight; one is,
+      // so row 1 stays held until the admin sends it.
+      await pool.query(`INSERT INTO auto_queue_inflight (aweme_id, generation) VALUES ('0', 1)`);
       await video('1');
       await outbox('1', 1, 'held');
       await video('2');
@@ -109,6 +112,86 @@ describe('DashboardActionsService (real downloader and localization schemas)', (
       const again = await svc.run(body('localize', ['1']));
       expect(again.done).toEqual([]);
       expect(await logged('1')).toEqual(['localize']);
+      await pool.query('DELETE FROM auto_queue_inflight');
+    });
+  });
+
+  describe('retry_download', () => {
+    const videoRow = (id: string) => one<{ status: string; attempts: number; last_error: string | null }>(
+      'SELECT status, attempts, last_error FROM videos WHERE aweme_id = $1', [id]);
+
+    it('puts a failed download back in the queue with fresh attempts, once, and logs it', async () => {
+      await pool.query(
+        `INSERT INTO videos (aweme_id, sec_user_id, create_time, status, attempts, last_error, lease_expires_at)
+         VALUES ('81', 'ch', now(), 'failed', 5, 'cdn 403', now())`,
+      );
+      const res = await svc.run(body('retry_download', ['81']));
+      expect(res.done).toEqual(['81']);
+      expect(await videoRow('81')).toEqual({ status: 'pending', attempts: 0, last_error: null });
+      expect(await logged('81')).toEqual(['retry_download']);
+      const again = await svc.run(body('retry_download', ['81']));
+      expect(again.done).toEqual([]);
+      expect(again.skipped[0].reason).toContain('pending');
+      expect(await logged('81')).toEqual(['retry_download']);
+    });
+
+    it('leaves a video that is not a failed download alone and says what it is', async () => {
+      await video('82');
+      await pool.query(`UPDATE videos SET status = 'done' WHERE aweme_id = '82'`);
+      const res = await svc.run(body('retry_download', ['82', '83']));
+      expect(res.done).toEqual([]);
+      expect(res.skipped.map((s) => s.aweme_id)).toEqual(['82', '83']);
+      expect(res.skipped[0].reason).toContain('done');
+      expect((await videoRow('82'))?.status).toBe('done');
+    });
+  });
+
+  describe('resume', () => {
+    beforeEach(async () => {
+      await video('20');
+    });
+    const outboxRow = () =>
+      one('SELECT generation, state, dispatch_attempts, last_error, workflow_id FROM localization_outbox');
+
+    it('puts a failed run back to pending under the same generation, once, and logs it', async () => {
+      await outbox('20', 2, 'dispatched');
+      await run('20', 2, 'failed');
+      await pool.query(`UPDATE localization_outbox SET workflow_id = 'video-20-g2', dispatch_attempts = 3, last_error = 'x' WHERE aweme_id = '20'`);
+      const res = await svc.run(body('resume', ['20']));
+      expect(res).toEqual({ done: ['20'], skipped: [] });
+      // Same generation and the workflow id kept: the starter finds that workflow failed and resets it.
+      expect(await outboxRow()).toEqual({
+        generation: 2,
+        state: 'pending',
+        dispatch_attempts: 0,
+        last_error: null,
+        workflow_id: 'video-20-g2',
+      });
+      expect(await logged('20')).toEqual(['resume']);
+      const again = await svc.run(body('resume', ['20']));
+      expect(again.done).toEqual([]);
+      expect(await logged('20')).toEqual(['resume']);
+    });
+
+    it('refuses a run that did not fail, one that is still running, and a Temporal it cannot read', async () => {
+      await outbox('20', 1, 'dispatched');
+      await run('20', 1, 'ready_for_review');
+      const notFailed = await svc.run(body('resume', ['20']));
+      expect(notFailed.skipped[0].reason).toContain('thất bại');
+
+      await pool.query(`UPDATE localization.runs SET status = 'failed'`);
+      temporal.statuses.set('video-20-g1', 'running');
+      expect((await svc.run(body('resume', ['20']))).skipped[0].reason).toContain('đang chạy');
+
+      temporal.statuses.delete('video-20-g1');
+      temporal.down = true;
+      expect((await svc.run(body('resume', ['20']))).skipped[0].reason).toContain('Temporal');
+      expect((await outboxRow())?.state).toBe('dispatched');
+    });
+
+    it('refuses a video whose dispatch never reached a workflow', async () => {
+      await outbox('20', 1, 'rejected');
+      expect((await svc.run(body('resume', ['20']))).skipped[0].reason).toContain('không có lần chạy');
     });
   });
 
@@ -132,6 +215,16 @@ describe('DashboardActionsService (real downloader and localization schemas)', (
         workflow_id: null,
       });
       expect(await logged('10')).toEqual(['rerun']);
+    });
+
+    it('starts a returned video over in a new generation', async () => {
+      await outbox('10', 2, 'dispatched');
+      await run('10', 2, 'ready_for_review');
+      await status('10', 2, 'rev-1');
+      expect((await svc.run(body('return', ['10']))).done).toEqual(['10']);
+      expect((await svc.run(body('rerun', ['10']))).done).toEqual(['10']);
+      expect(await one('SELECT generation, state FROM localization_outbox')).toEqual({ generation: 3, state: 'pending' });
+      expect(await logged('10')).toEqual(['return', 'rerun']);
     });
 
     it('works from a dead outbox row with no run', async () => {
@@ -561,6 +654,8 @@ describe('DashboardActionsService (real downloader and localization schemas)', (
 
   describe('bulk', () => {
     it('handles many videos independently and reports each one', async () => {
+      // A video is in flight, so the sequential queue leaves both held rows alone.
+      await pool.query(`INSERT INTO auto_queue_inflight (aweme_id, generation) VALUES ('0', 1)`);
       for (const id of ['71', '72', '73']) await video(id);
       await outbox('71', 1, 'held');
       await outbox('72', 1, 'dispatched');
@@ -568,6 +663,7 @@ describe('DashboardActionsService (real downloader and localization schemas)', (
       const res = await svc.run(body('localize', ['71', '72', '73', '71']));
       expect(res.done).toEqual(['71', '73']);
       expect(res.skipped.map((s) => s.aweme_id)).toEqual(['72']);
+      await pool.query('DELETE FROM auto_queue_inflight');
     });
 
     it('reports an unknown video as skipped', async () => {

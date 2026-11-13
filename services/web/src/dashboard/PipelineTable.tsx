@@ -3,6 +3,7 @@ import type { ChannelItem, Stage, VideoListItem, VideoListResponse } from '../ap
 import { STAGES } from '../api/types';
 import { Icon } from '../components/Icon';
 import { formatDateTime, formatDuration, relativeTime, STAGE_LABELS, STAGE_TONES, TONE_CLASSES, TONE_ICONS } from './format';
+import { RenderedGrid } from './RenderedGrid';
 import { StageBadge } from './StageBadge';
 
 export interface PipelineFilters {
@@ -143,45 +144,50 @@ export function PipelineTable({
         </div>
       </div>
 
-      <div className="relative overflow-x-auto rounded bg-surface-layer-1">
-        <table className="w-full min-w-[44rem] border-collapse text-left text-sm">
-          <thead>
-            <tr className="bg-surface-container-low font-mono text-[11px] uppercase tracking-wider text-text-muted">
-              <th scope="col" className="w-10 p-2 text-center">
-                <input
-                  type="checkbox"
-                  aria-label="Chọn tất cả"
-                  checked={allOn}
-                  onChange={(e) =>
-                    onToggleAll(
-                      items.map((i) => i.aweme_id),
-                      e.target.checked,
-                    )
-                  }
-                  className="h-5 w-5 cursor-pointer"
-                />
-              </th>
-              <th scope="col" className="p-2 font-semibold">Video</th>
-              <th scope="col" className="p-2 font-semibold">Gen</th>
-              <th scope="col" className="p-2 font-semibold">Giai đoạn</th>
-              <th scope="col" className="p-2 font-semibold">Ở giai đoạn này</th>
-              <th scope="col" className="p-2 font-semibold">Cập nhật</th>
-              <th scope="col" className="p-2 text-right font-semibold">Chi tiết</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border-subtle/60">
-            {items.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="p-4 text-text-secondary">
-                  {data ? 'Không có video nào khớp.' : 'Đang tải…'}
-                </td>
+      {filters.stage === 'rendered' ? (
+        <RenderedGrid items={items} loading={data === null} selected={selected} onToggle={onToggle} />
+      ) : (
+        <div className="relative overflow-x-auto rounded bg-surface-layer-1">
+          <table className="w-full min-w-[44rem] border-collapse text-left text-sm">
+            <thead>
+              <tr className="bg-surface-container-low font-mono text-[11px] uppercase tracking-wider text-text-muted">
+                <th scope="col" className="w-10 p-2 text-center">
+                  <input
+                    type="checkbox"
+                    aria-label="Chọn tất cả"
+                    checked={allOn}
+                    onChange={(e) =>
+                      onToggleAll(
+                        items.map((i) => i.aweme_id),
+                        e.target.checked,
+                      )
+                    }
+                    className="h-5 w-5 cursor-pointer"
+                  />
+                </th>
+                <th scope="col" className="p-2 font-semibold">Video</th>
+                <th scope="col" className="p-2 font-semibold">Gen</th>
+                <th scope="col" className="p-2 font-semibold">Giai đoạn</th>
+                <th scope="col" className="p-2 font-semibold">Ở giai đoạn này</th>
+                <th scope="col" className="p-2 font-semibold">Cập nhật</th>
+                <th scope="col" className="p-2 text-right font-semibold">Chi tiết</th>
               </tr>
-            ) : (
-              items.map((item) => <Row key={item.aweme_id} item={item} checked={selected.has(item.aweme_id)} onToggle={onToggle} />)
-            )}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody className="divide-y divide-border-subtle/60">
+              {items.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="p-4 text-text-secondary">
+                    {data ? 'Không có video nào khớp.' : 'Đang tải…'}
+                  </td>
+                </tr>
+              ) : (
+                items.map((item) => <Row key={item.aweme_id} item={item} checked={selected.has(item.aweme_id)} onToggle={onToggle} />)
+              )}
+            </tbody>
+          </table>
+        </div>
+
+      )}
 
       {data && data.total > PAGE_SIZE ? (
         <div className="flex items-center justify-between gap-2 text-xs text-text-secondary">

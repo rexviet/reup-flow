@@ -10,7 +10,7 @@ import uuid
 from temporalio.api.enums.v1 import EventType
 from temporalio.client import Client
 
-from localization.agents.localizer import UNTRUSTED_CLOSE, UNTRUSTED_OPEN
+from localization.agents.localizer import UNTRUSTED_CLOSE, UNTRUSTED_OPEN, SegmentView
 from localization.contracts import LocalizationInput, LocalizationResult
 from localization.workflows.video_localization import VideoLocalizationWorkflow
 from tests.support.before_review_projects_flow import BeforeReviewProjectsWorkflow
@@ -42,9 +42,10 @@ async def run(
     *,
     spec=None,
     workflow_type=VideoLocalizationWorkflow,
+    prep: PrepFakes | None = None,
 ):
     async with prep_workers(
-        client, PrepFakes(), localizing, dubbing=dubbing, workflow=workflow_type
+        client, prep or PrepFakes(), localizing, dubbing=dubbing, workflow=workflow_type
     ):
         handle = await client.start_workflow(
             "VideoLocalizationWorkflow",
@@ -74,6 +75,10 @@ def model_requests(names: list[str]) -> dict[str, int]:
         if name.endswith("__model_request") and name.startswith("agent__"):
             out[name] = out.get(name, 0) + 1
     return out
+
+
+def long_transcript(count: int) -> tuple[SegmentView, ...]:
+    return tuple(SegmentView(i, i * 2000, i * 2000 + 1500, f"第{i}句") for i in range(count))
 
 
 # --- the Localizer ---------------------------------------------------------------------
@@ -469,3 +474,19 @@ async def test_contextual_missing_id_cannot_become_an_implicit_omission(temporal
     assert not isinstance(result, LocalizationResult)
     assert localizing.calls["assemble_script"] == 0
     assert model.requests == 2
+
+
+async def test_a_transcript_over_150_segments_is_read_in_windows_and_the_lines_joined(
+    temporal_client: Client,
+) -> None:
+    count = 300
+    model = OneRequestModel(answers=(fits,))
+    localizing = LocalizerFakes(
+        mode="single", model=model, ports=FakePorts(segment_list=long_transcript(count))
+    )
+    handle, result = await run(temporal_client, localizing, prep=PrepFakes(segment_count=count))
+    assert isinstance(result, LocalizationResult), result
+    windows = [segment_ids_in(prompt) for prompt in model.prompts]
+    assert [(w[0], w[-1]) for w in windows] == [(0, 99), (100, 199), (200, 299)]
+    assert [line.id for line in localizing.lines_seen[0].lines] == list(range(count))
+    assert model_requests(await scheduled(handle)) == {"agent__localizer_single__model_request": 3}

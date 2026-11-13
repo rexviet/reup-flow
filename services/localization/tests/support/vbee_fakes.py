@@ -345,12 +345,12 @@ class VbeeRun:
                         QueueSpec(
                             "media",
                             activities=[
-                                fake["ingest"],
                                 fake["assemble_audio"],
                                 review["layout_captions"],
                             ],  # type: ignore[list-item]
                         ),
                     ),
+                    build_worker(client, QueueSpec("ingest", activities=[fake["ingest"]])),
                     build_worker(client, QueueSpec("stt", activities=[hear.vbee_stt])),
                     build_worker(
                         client,

@@ -102,6 +102,7 @@ export class DashboardActionsService {
     state: { temporalFailed: boolean },
   ): Promise<string | null> {
     if (body.action === 'localize') return this.localize(awemeId);
+    if (body.action === 'retry_download') return this.retryDownload(awemeId);
 
     const record = await this.repo.video(awemeId);
     if (!record) return SKIP.notFound;
@@ -114,6 +115,8 @@ export class DashboardActionsService {
     if (body.generation !== undefined && body.generation !== gen) return SKIP.changed;
 
     switch (body.action) {
+      case 'resume':
+        return this.resume(record, gen, openKnown, open ?? [], state);
       case 'rerun':
         return this.rerun(record, gen, openKnown, open ?? [], state);
       case 'approve':
@@ -166,19 +169,39 @@ export class DashboardActionsService {
     return `Video không ở trạng thái giữ (hiện: ${skip?.state ?? 'không rõ'}).`;
   }
 
-  private async rerun(
+  /**
+   * Puts a video whose download failed back in the download lane's queue, with a fresh set of
+   * attempts (the same reset the channel-wide retry does). The condition is in the `WHERE`, so a
+   * second click, or a video that is already downloading or done, changes nothing. When the
+   * download finishes it gets its outbox row the usual way.
+   */
+  private async retryDownload(awemeId: string): Promise<string | null> {
+    return this.tx(async (c) => {
+      const moved = await c.query(
+        `UPDATE videos
+            SET status = 'pending', attempts = 0, last_error = NULL, lease_expires_at = NULL
+          WHERE aweme_id = $1 AND status = 'failed'`,
+        [awemeId],
+      );
+      if (moved.rowCount === 1) {
+        await this.log(c, awemeId, 'retry_download', {});
+        return;
+      }
+      const now = await c.query<{ status: string }>(`SELECT status FROM videos WHERE aweme_id = $1`, [awemeId]);
+      throw new Skip(
+        now.rowCount === 0 ? SKIP.notFound : `Video không ở trạng thái tải lỗi (hiện: ${now.rows[0].status}).`,
+      );
+    });
+  }
+
+  /** `null` when nothing of this generation is running or rendering, else why it cannot be touched. */
+  private async noLiveWork(
     record: VideoRecord,
     gen: number,
     openKnown: boolean,
     open: OpenGeneration[],
     state: { temporalFailed: boolean },
   ): Promise<string | null> {
-    const outbox = record.outbox;
-    if (!outbox) return 'Video chưa vào hàng đợi localization.';
-    if (outbox.state === 'rejected') return SKIP.rejected;
-    if (outbox.state === 'held') return 'Video đang được giữ, hãy bấm Localize.';
-    if (outbox.state === 'pending') return 'Video đã đang chờ chạy.';
-    if (outbox.state !== 'dispatched' && outbox.state !== 'dead') return `Trạng thái ${outbox.state} không chạy lại được.`;
     // One failed describe makes the rest of a bulk request skip at once, not wait 5s each.
     if (!openKnown || state.temporalFailed) return SKIP.temporalDown;
     if (open.length > 0) return 'Workflow đang chạy.';
@@ -194,6 +217,58 @@ export class DashboardActionsService {
     if (record.renders.some((r) => r.generation === gen && r.state === 'rendering')) {
       return 'Đang render bản cuối.';
     }
+    return null;
+  }
+
+  /**
+   * Goes on from the step that failed instead of starting over. It only puts the outbox row back
+   * to `pending` under the same generation; the starter sees that the workflow id already exists
+   * as a failed run and has Temporal reset it to the failed step (this service never writes to
+   * Temporal). Only a run that recorded `failed` can be gone on from: it keeps the steps that
+   * finished, which "Chạy lại" (a new generation) does not.
+   */
+  private async resume(
+    record: VideoRecord,
+    gen: number,
+    openKnown: boolean,
+    open: OpenGeneration[],
+    state: { temporalFailed: boolean },
+  ): Promise<string | null> {
+    const outbox = record.outbox;
+    if (!outbox || outbox.state !== 'dispatched') return 'Video không có lần chạy nào để chạy tiếp.';
+    if (outbox.generation !== gen) return SKIP.changed;
+    const failed = record.runs.some((r) => r.generation === gen && r.status === 'failed');
+    if (!failed) return 'Chỉ chạy tiếp được lần chạy đã thất bại.';
+    const blocked = await this.noLiveWork(record, gen, openKnown, open, state);
+    if (blocked !== null) return blocked;
+
+    return this.tx(async (c) => {
+      const moved = await c.query(
+        `UPDATE localization_outbox
+            SET state = 'pending', next_attempt_at = now(), dispatch_attempts = 0, last_error = NULL
+          WHERE aweme_id = $1 AND generation = $2 AND state = 'dispatched'`,
+        [record.awemeId, gen],
+      );
+      if (moved.rowCount !== 1) throw new Skip(SKIP.changed);
+      await this.log(c, record.awemeId, 'resume', { generation: gen });
+    });
+  }
+
+  private async rerun(
+    record: VideoRecord,
+    gen: number,
+    openKnown: boolean,
+    open: OpenGeneration[],
+    state: { temporalFailed: boolean },
+  ): Promise<string | null> {
+    const outbox = record.outbox;
+    if (!outbox) return 'Video chưa vào hàng đợi localization.';
+    if (outbox.state === 'rejected') return SKIP.rejected;
+    if (outbox.state === 'held') return 'Video đang được giữ, hãy bấm Localize.';
+    if (outbox.state === 'pending') return 'Video đã đang chờ chạy.';
+    if (outbox.state !== 'dispatched' && outbox.state !== 'dead') return `Trạng thái ${outbox.state} không chạy lại được.`;
+    const blocked = await this.noLiveWork(record, gen, openKnown, open, state);
+    if (blocked !== null) return blocked;
 
     const readGeneration = outbox.generation;
     return this.tx(async (c) => {

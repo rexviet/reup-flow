@@ -166,8 +166,24 @@ function Loaded({
               {ACTION_LABELS.localize}
             </button>
           ) : null}
+          {has('retry_download') ? (
+            <button type="button" disabled={busy} onClick={() => void actions.perform('retry_download', [target])} className="btn btn-neutral">
+              {ACTION_LABELS.retry_download}
+            </button>
+          ) : null}
+          {has('resume') ? (
+            <button
+              type="button"
+              disabled={busy}
+              title="Giữ các bước đã xong, chạy lại từ bước bị lỗi."
+              onClick={() => void actions.perform('resume', [target])}
+              className="btn btn-neutral"
+            >
+              {ACTION_LABELS.resume}
+            </button>
+          ) : null}
           {has('rerun') ? (
-            <button type="button" disabled={busy} onClick={() => void actions.perform('rerun', [target])} className="btn btn-neutral">
+            <button type="button" disabled={busy} title="Chạy lại từ đầu, tạo một lượt xử lý mới." onClick={() => void actions.perform('rerun', [target])} className="btn btn-neutral">
               {ACTION_LABELS.rerun}
             </button>
           ) : null}

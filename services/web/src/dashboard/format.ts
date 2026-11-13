@@ -72,6 +72,8 @@ export function stageText(item: Pick<VideoListItem, 'stage' | 'step' | 'unknown'
 
 export const ACTION_LABELS: Record<DashboardActionName, string> = {
   localize: 'Đưa vào localization',
+  retry_download: 'Tải lại',
+  resume: 'Chạy tiếp từ bước lỗi',
   rerun: 'Chạy lại',
   approve: 'Duyệt',
   return: 'Trả về',
@@ -83,19 +85,20 @@ export const ACTION_LABELS: Record<DashboardActionName, string> = {
 
 /** The buttons worth showing at each stage. The server re-checks every one; this only hides the pointless ones. */
 export const ACTIONS_BY_STAGE: Partial<Record<Stage, DashboardActionName[]>> = {
+  download_failed: ['retry_download'],
   held: ['localize'],
   dispatch_failed: ['rerun'],
-  run_failed: ['rerun'],
+  run_failed: ['resume', 'rerun'],
   queued: ['rerun'],
   awaiting_review: ['open_studio', 'approve', 'return'],
-  returned: ['open_studio', 'approve'],
+  returned: ['open_studio', 'approve', 'rerun'],
   render_failed: ['rerender'],
   rendered: ['rerender', 'mark_published'],
   published: ['mark_unpublished'],
 };
 
 /** Actions that spend GPU time or LLM money and so ask first, naming how many videos. */
-export const CONFIRMED_ACTIONS: readonly DashboardActionName[] = ['localize', 'rerun', 'approve', 'rerender'];
+export const CONFIRMED_ACTIONS: readonly DashboardActionName[] = ['localize', 'resume', 'rerun', 'approve', 'rerender'];
 
 export function relativeTime(iso: string | null | undefined, nowMs: number = Date.now()): string {
   if (!iso) return '-';

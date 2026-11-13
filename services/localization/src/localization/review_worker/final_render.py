@@ -15,6 +15,7 @@ from pathlib import Path
 
 import psycopg
 
+from localization.review_worker import posters
 from localization.review_worker.config import WorkerConfig
 
 log = logging.getLogger("review_worker.render")
@@ -250,6 +251,19 @@ def output_keys(aweme: str, generation: int, revision: str) -> tuple[str, str]:
     return base + ".mp4", base + ".srt"
 
 
+def _upload_poster(store, video: Path, final_key: str, work: Path) -> None:
+    """The video's still, beside it. Best effort: a render does not fail for its picture."""
+    key = posters.poster_key(final_key)
+    if key is None:
+        return
+    try:
+        out = work / "poster.jpg"
+        if posters.make_poster(video, out):
+            store.put_file(key, out, content_type="image/jpeg")
+    except Exception as exc:  # noqa: BLE001
+        log.warning("poster of a render was not stored: %s", type(exc).__name__)
+
+
 def render_claimed(
     row: dict,
     *,
@@ -302,6 +316,7 @@ def render_claimed(
         store.put_bytes(
             srt_key, (folder / "captions.srt").read_bytes(), content_type="application/x-subrip"
         )
+        _upload_poster(store, output, final_key, work)
         done = conn.execute(DONE_SQL, {**ids, "final": final_key, "srt": srt_key}).rowcount
         if done == 1:
             return "rendered"

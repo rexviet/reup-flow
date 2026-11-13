@@ -21,6 +21,7 @@ from localization.contracts import (
 )
 from localization.observability.tracing import tag_session
 from localization.providers.base import SttProvider
+from localization.providers.errors import TransientProviderError
 from localization.storage.object_store import ObjectStore, require_work_key, work_key_for
 
 # A pause longer than this ends a segment.
@@ -33,6 +34,11 @@ SILENCE_GAP_MS = 400
 MAX_SEGMENT_CHARS = 60
 # A cut leaves no piece shorter than this when it can: a line still worth dubbing.
 MIN_SEGMENT_CHARS = 20
+# A chunk whose answer could not be read is asked again this many times before the activity
+# fails (and Temporal starts it over): the activity's other chunks were read, and asking for
+# all of them again costs minutes.
+CHUNK_ATTEMPTS = 3
+CHUNK_RETRY_SECONDS = 2.0
 SENTENCE_ENDS = "。！？.!?…"
 CLAUSE_ENDS = "，、；：,;:"
 # A provider can return one number as several words, each ending exactly where the
@@ -265,6 +271,22 @@ class TranscribeActivity:
         await asyncio.to_thread(put_json, self._store, key, doc)
         return Transcript(transcript_key=key, segment_count=len(doc.segments))
 
+    async def _transcribe_chunk(self, audio: bytes, index: int) -> TranscriptDocument:
+        for attempt in range(1, CHUNK_ATTEMPTS + 1):
+            try:
+                return await self._stt.transcribe(audio, filename=f"chunk-{index}.wav")
+            except TransientProviderError as error:
+                if attempt == CHUNK_ATTEMPTS:
+                    raise
+                activity.logger.warning(
+                    "chunk %s: %s; asking again (%s of %s)",
+                    index,
+                    error,
+                    attempt,
+                    CHUNK_ATTEMPTS - 1,
+                )
+                await asyncio.sleep(CHUNK_RETRY_SECONDS)
+
     async def _transcribe_chunks(self, audio: bytes) -> TranscriptDocument:
         from localization.activities.speech_chunks import split_speech
 
@@ -273,7 +295,7 @@ class TranscribeActivity:
             duration = round(wav.getnframes() / wav.getframerate() * 1000)
         segments, words, languages = [], [], set()
         for index, chunk in enumerate(chunks):
-            doc = regroup(await self._stt.transcribe(chunk.audio, filename=f"chunk-{index}.wav"))
+            doc = regroup(await self._transcribe_chunk(chunk.audio, index))
             if doc.language:
                 languages.add(doc.language)
             for segment in doc.segments:

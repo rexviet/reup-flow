@@ -107,12 +107,12 @@ async def prep_workers(
                     QueueSpec(
                         "media",
                         activities=[
-                            acts["ingest"],
                             dub["assemble_audio"],
                             review["layout_captions"],
                         ],  # type: ignore[list-item]
                     ),
                 ),
+                build_worker(client, QueueSpec("ingest", activities=[acts["ingest"]])),  # type: ignore[list-item]
                 build_worker(client, QueueSpec("stt", activities=[acts["transcribe"]])),  # type: ignore[list-item]
                 build_worker(
                     client,

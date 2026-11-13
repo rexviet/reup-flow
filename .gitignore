@@ -9,6 +9,9 @@ dist/
 # Local Python venv for the parser fork's test runner.
 .venv/
 
+# Demucs for the host ingest worker (scripts/setup-host-demucs.sh): its Python, weights and command.
+services/localization/.host-demucs/
+
 # Agent scratch notes -- internal, and this tree feeds a public fork.
 .claude/agent-memory/
 

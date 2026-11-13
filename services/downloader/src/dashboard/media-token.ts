@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
-export const MEDIA_KINDS = ['source', 'final', 'srt'] as const;
+export const MEDIA_KINDS = ['source', 'final', 'srt', 'poster'] as const;
 export type MediaKind = (typeof MEDIA_KINDS)[number];
 
 /** A link lives long enough to watch a video, and no longer. */
@@ -12,6 +12,9 @@ export interface MediaClaims {
   kind: MediaKind;
   expiresAtMs: number;
 }
+
+// Built from the kinds, so a new kind cannot be signed yet refused when it comes back.
+const TOKEN_PAYLOAD = new RegExp(`^(\\d{1,32})\\.(\\d{1,9})\\.(${MEDIA_KINDS.join('|')})\\.(\\d{1,12})$`);
 
 const b64 = (buf: Buffer): string => buf.toString('base64url');
 
@@ -42,7 +45,7 @@ export function verifyMediaToken(secret: string, token: unknown, nowMs: number):
   const given = Buffer.from(signature, 'base64url');
   if (given.length !== expected.length || !timingSafeEqual(given, expected)) return null;
 
-  const match = /^(\d{1,32})\.(\d{1,9})\.(source|final|srt)\.(\d{1,12})$/.exec(
+  const match = TOKEN_PAYLOAD.exec(
     Buffer.from(payload, 'base64url').toString('utf8'),
   );
   if (!match) return null;

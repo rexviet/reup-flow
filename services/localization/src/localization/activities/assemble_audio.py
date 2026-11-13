@@ -3,9 +3,10 @@
 Every clip is sped (or slowed) by its stretch ratio and placed at its segment's start;
 the clips are mixed into one voice track; the background music is ducked under it; over
 a sung segment the original vocals are laid back in, and nothing ducks the music there;
-the result is loudness-normalised in two passes to the configured target. The output
-must be as long as the video, because a track that is not would drift against the
-picture.
+the music is set so the voice sits just under it (loud music would bury the voice once
+the track is normalised); the result is loudness-normalised in two passes to the
+configured target. The output must be as long as the video, because a track that is not
+would drift against the picture.
 
 This module takes a script and clips and produces audio. It never writes or changes
 text, so it must not reach an agent.
@@ -46,6 +47,13 @@ LOUDNORM_LRA = 11
 
 # Music drops under the voice: heavy compression keyed on the voice track.
 DUCK = "threshold=0.03:ratio=10:attack=20:release=300"
+# The music is set so the dubbed voice sits this far under the ducked music, measured
+# before the final loudness pass (which lifts both by the same amount). A video whose
+# music is loud would otherwise bury the voice, because that pass holds the sum constant.
+VOICE_UNDER_MUSIC_DB = -0.5
+BALANCE_TOLERANCE_DB = 0.1
+BALANCE_ROUNDS = 6
+MAX_MUSIC_GAIN_DB = 24.0
 # The original vocals of a sung segment fade in and out over this long at its edges.
 KEEP_FADE_S = 0.06
 
@@ -73,11 +81,28 @@ def _kept_vocals(source: str, kept: list[tuple[int, int]], seconds: float) -> li
     return lines
 
 
+def _voice_lines(placements: list[tuple[int, float]], fmt: str, seconds: float) -> list[str]:
+    """One line per clip (stretched, delayed to its start) and their mix as `[voice]`,
+    padded to the video's length: the ducker ends when its control input does, and a
+    track that ended with the last line would cut the music off there."""
+    lines = []
+    labels = []
+    for index, (start_ms, ratio) in enumerate(placements, start=1):
+        labels.append(f"[v{index}]")
+        lines.append(f"[{index}:a]{fmt},atempo={ratio:.6f},adelay={start_ms}:all=1[v{index}]")
+    lines.append(
+        f"{''.join(labels)}amix=inputs={len(labels)}:normalize=0:duration=longest,"
+        f"apad=whole_dur={seconds:.3f}[voice]"
+    )
+    return lines
+
+
 def build_filter_graph(
     placements: list[tuple[int, float]],
     duration_ms: int,
     kept: list[tuple[int, int]] | None = None,
     under: float = 0.0,
+    music_gain_db: float = 0.0,
 ) -> str:
     """The ffmpeg filter graph. Input 0 is the music; inputs 1.. are the clips, in
     the order of `placements` (start in ms, stretch ratio); the input after them is the
@@ -86,11 +111,13 @@ def build_filter_graph(
     same vocals also run quietly (at that fraction of their level) under the dubbed
     voice everywhere else: not in the voice that ducks the music, and silent over the
     kept spans, where they already play in full. Pure, so the arithmetic of
-    where each clip goes can be tested without ffmpeg."""
+    where each clip goes can be tested without ffmpeg. `music_gain_db` lifts or lowers the
+    music before it is ducked."""
     seconds = duration_ms / 1000
     fmt = f"aformat=sample_rates={SAMPLE_RATE}:channel_layouts=stereo"
     kept = [(a, b) for a, b in kept or [] if b > a]
-    lines = [f"[0:a]{fmt},apad=whole_dur={seconds:.3f},atrim=end={seconds:.3f}[bgm]"]
+    gain = f"volume={music_gain_db:.3f}dB," if music_gain_db else ""
+    lines = [f"[0:a]{fmt},{gain}apad=whole_dur={seconds:.3f},atrim=end={seconds:.3f}[bgm]"]
     vocals = len(placements) + 1
     if kept and under > 0:
         lines.append(f"[{vocals}:a]{fmt},asplit=2[vk][vu]")
@@ -106,19 +133,8 @@ def build_filter_graph(
         lines.append(f"{quiet}[under]")
     extras = ("[keep]" if kept else "") + ("[under]" if under > 0 else "")
     voices = 2 + bool(kept) + (under > 0)
-    labels = []
-    for index, (start_ms, ratio) in enumerate(placements, start=1):
-        label = f"v{index}"
-        labels.append(f"[{label}]")
-        lines.append(f"[{index}:a]{fmt},atempo={ratio:.6f},adelay={start_ms}:all=1[{label}]")
-    if labels:
-        # The voice track is padded to the video's length: the ducker ends when its
-        # control input does, and a track that ended with the last line would cut the
-        # music off there.
-        lines.append(
-            f"{''.join(labels)}amix=inputs={len(labels)}:normalize=0:duration=longest,"
-            f"apad=whole_dur={seconds:.3f}[voice]"
-        )
+    if placements:
+        lines += _voice_lines(placements, fmt, seconds)
         lines.append("[voice]asplit=2[vkey][vmix]")
         lines.append(f"[bgm][vkey]sidechaincompress={DUCK}[ducked]")
         # Trimmed, because a line that still overflows at the largest stretch (and is
@@ -163,6 +179,76 @@ def measure_loudness(path: Path, target: float, peak: float) -> dict[str, str]:
     return parse_loudnorm(result.stderr)
 
 
+_INTEGRATED_RE = re.compile(rb"Integrated loudness:\s*\n\s*I:\s*(-?[\d.]+|-?inf) LUFS")
+
+
+def _integrated_lufs(path: Path) -> float | None:
+    """Integrated loudness of a track, or None when it is silent."""
+    result = run_ffmpeg(["-i", str(path), "-af", "ebur128", "-f", "null", "-"], loglevel="info")
+    found = _INTEGRATED_RE.findall(result.stderr)
+    if not found:
+        raise PermanentProviderError("ffmpeg: ebur128 did not report a loudness")
+    value = float(found[-1])
+    return value if value > -70 else None
+
+
+def _stems_graph(placements: list[tuple[int, float]], duration_ms: int, gain_db: float) -> str:
+    """The voice track and the ducked music, each as its own output, with the music
+    lifted by `gain_db` first."""
+    seconds = duration_ms / 1000
+    fmt = f"aformat=sample_rates={SAMPLE_RATE}:channel_layouts=stereo"
+    gain = f"volume={gain_db:.3f}dB," if gain_db else ""
+    return ";\n".join(
+        [
+            f"[0:a]{fmt},{gain}apad=whole_dur={seconds:.3f},atrim=end={seconds:.3f}[bgm]",
+            *_voice_lines(placements, fmt, seconds),
+            "[voice]asplit=2[vkey][vout]",
+            f"[bgm][vkey]sidechaincompress={DUCK}[dout]",
+        ]
+    )
+
+
+def balance_music_gain(
+    *,
+    bgm: Path,
+    clips: list[Path],
+    placements: list[tuple[int, float]],
+    duration_ms: int,
+    work: Path,
+) -> float:
+    """The gain (dB) to give the music so the dubbed voice sits `VOICE_UNDER_MUSIC_DB`
+    under the music as it is heard while the voice speaks. Ducking is not linear in the
+    music's level, so this closes in on it in a few rounds. 0 when nothing is spoken or
+    either track is silent."""
+    if not placements:
+        return 0.0
+    inputs: list[str] = []
+    for path in [bgm, *clips]:
+        inputs += ["-i", str(path)]
+    graph = work / "balance-graph.txt"
+    voice_wav, music_wav = work / "balance-voice.wav", work / "balance-music.wav"
+    gain = 0.0
+    for _ in range(BALANCE_ROUNDS):
+        graph.write_text(_stems_graph(placements, duration_ms, gain))
+        run_ffmpeg(
+            [
+                *inputs,
+                "-filter_complex_script", str(graph),
+                "-map", "[vout]", "-c:a", "pcm_f32le", str(voice_wav),
+                "-map", "[dout]", "-c:a", "pcm_f32le", str(music_wav),
+            ]
+        )  # fmt: skip
+        voice, music = _integrated_lufs(voice_wav), _integrated_lufs(music_wav)
+        if voice is None or music is None:
+            return 0.0
+        error = (voice - music) - VOICE_UNDER_MUSIC_DB
+        if abs(error) <= BALANCE_TOLERANCE_DB:
+            break
+        # Voice too far under the music (error < 0): the music comes down.
+        gain = max(-MAX_MUSIC_GAIN_DB, min(MAX_MUSIC_GAIN_DB, gain + error))
+    return gain
+
+
 def render(
     *,
     bgm: Path,
@@ -184,8 +270,11 @@ def render(
         raise ValueError("kept spans need the original vocals")
     if vocals is None:
         under = 0.0
+    music_gain = balance_music_gain(
+        bgm=bgm, clips=clips, placements=placements, duration_ms=duration_ms, work=work
+    )
     graph = work / "graph.txt"
-    graph.write_text(build_filter_graph(placements, duration_ms, kept, under))
+    graph.write_text(build_filter_graph(placements, duration_ms, kept, under, music_gain))
     mixed = work / "mix.wav"
     inputs: list[str] = []
     for path in [bgm, *clips, *([vocals] if vocals is not None else [])]:

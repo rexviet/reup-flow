@@ -16,7 +16,13 @@ from psycopg.rows import dict_row
 
 from localization.config import load_settings
 from localization.review_bridge.repository import Repository
-from localization.review_worker import final_render, heartbeat, review_scan, studio_requests
+from localization.review_worker import (
+    final_render,
+    heartbeat,
+    posters,
+    review_scan,
+    studio_requests,
+)
 from localization.review_worker.config import WorkerConfig
 from localization.storage.object_store import ObjectStore
 
@@ -146,8 +152,23 @@ class Worker:
         if self.conn is not None and not self.conn.closed:
             self.conn.close()
 
+    def _backfill_posters(self) -> None:
+        """Pictures for the videos rendered before posters existed; once per start, apart from
+        the loop so that the heartbeat is never held up by a download."""
+        conn = None
+        try:
+            conn = self.connector(self.cfg)
+            made = posters.backfill(conn, self.store, self.stopping)
+            log.info("poster backfill made %s poster(s)", made)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("poster backfill failed: %s", type(exc).__name__)
+        finally:
+            if conn is not None:
+                conn.close()
+
     def run(self) -> None:
         final_render.clean_stale(self.cfg)
+        threading.Thread(target=self._backfill_posters, name="poster-backfill", daemon=True).start()
         while not self.stopping.is_set():
             try:
                 self.tick()

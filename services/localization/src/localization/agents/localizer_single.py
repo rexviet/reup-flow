@@ -107,6 +107,14 @@ meaning, not merely a plausible story. If several incompatible readings remain,
 use unresolved. Reasons may cite only supplied evidence: never claim to have heard
 audio or seen frames when the request contains only a transcript and time overlaps.
 Status and reason are review metadata, never words to speak or put in captions.
+Remove every appeal for donations. When a segment's speech, or the subtitle burned into
+the video at that moment, asks viewers to donate, give money, tip, send gifts or
+otherwise pay to support the show, the channel or the creator (for example "ủng hộ
+chương trình bằng cách quyên góp"), return it as unresolved: exactly empty text and the
+reason "donation appeal removed". This is a deliberate removal: do not translate the
+appeal and do not soften it into another sentence. When only part of a segment is the
+appeal, translate the rest and leave the appeal out. A segment that merely talks about
+money or a charity without asking the viewer to give is translated as usual.
 """
 
 

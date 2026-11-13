@@ -13,11 +13,12 @@ export interface QueueHealth extends HealthItem {
   pollers?: number;
 }
 
-export const QUEUE_NAMES = ['stt', 'tts', 'media', 'render', 'llm', 'io', 'workflows'] as const;
+export const QUEUE_NAMES = ['stt', 'tts', 'ingest', 'media', 'render', 'llm', 'io', 'workflows'] as const;
 export type QueueName = (typeof QUEUE_NAMES)[number];
 const QUEUE_KIND_OF: Record<QueueName, QueueKind> = {
   stt: 'activity',
   tts: 'activity',
+  ingest: 'activity',
   media: 'activity',
   render: 'activity',
   llm: 'activity',

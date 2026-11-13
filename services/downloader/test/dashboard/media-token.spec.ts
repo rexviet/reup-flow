@@ -1,4 +1,4 @@
-import { signMediaToken, verifyMediaToken, MEDIA_TOKEN_TTL_MS } from '../../src/dashboard/media-token';
+import { MEDIA_KINDS, signMediaToken, verifyMediaToken, MEDIA_TOKEN_TTL_MS } from '../../src/dashboard/media-token';
 
 const SECRET = 's'.repeat(40);
 const NOW = 1_800_000_000_000;
@@ -8,6 +8,11 @@ describe('media token', () => {
   it('round-trips the signed facts', () => {
     const token = signMediaToken(SECRET, claims);
     expect(verifyMediaToken(SECRET, token, NOW)).toEqual(claims);
+  });
+
+  it.each(MEDIA_KINDS)('round-trips a %s token: every kind that can be signed can be verified', (kind) => {
+    const given = { ...claims, kind };
+    expect(verifyMediaToken(SECRET, signMediaToken(SECRET, given), NOW)).toEqual(given);
   });
 
   it('rejects an expired token', () => {

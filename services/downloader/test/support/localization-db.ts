@@ -11,6 +11,7 @@ const LOCALIZATION_MIGRATIONS = [
   '261028-llm-call-provider',
   '261108-review-project-key',
   '261112-review-delivery',
+  '261113-sequential-queue',
 ].map((n) => resolve(__dirname, '../../../localization/migrations', `${n}.sql`));
 
 export interface ScratchDatabase {

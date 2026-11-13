@@ -45,6 +45,12 @@ describe('buildHealth', () => {
     expect(h.temporal.status).toBe('ok');
   });
 
+  it('reports the ingest queue down when the host ingest worker is not polling', async () => {
+    const h = await buildHealth(deps({ queueProbe: { freshPollers: async (q) => (q === 'ingest' ? 0 : 2) } }));
+    expect(h.queues.ingest).toMatchObject({ status: 'down', pollers: 0 });
+    expect(h.queues.media).toMatchObject({ status: 'ok' });
+  });
+
   it('marks Temporal down and queues unknown when no queue can be read', async () => {
     const h = await buildHealth(deps({ queueProbe: { freshPollers: async () => { throw new Error('down'); } } }));
     expect(h.temporal.status).toBe('down');

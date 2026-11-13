@@ -31,6 +31,22 @@ module.exports = {
       },
     },
     {
+      // Splits the voice from the music (the `ingest` queue) with Demucs on this Mac's GPU. It
+      // must be running whenever a run is to get past its ingest. Needs
+      // scripts/setup-host-demucs.sh to have been run once.
+      name: 'reup-ingest-worker',
+      script: 'scripts/host-ingest-worker.mjs',
+      interpreter,
+      cwd: __dirname,
+      autorestart: true,
+      min_uptime: '20s',
+      max_restarts: 10,
+      restart_delay: 5000,
+      // The worker drains a running separation for up to 60 s on SIGTERM; give it longer.
+      kill_timeout: 100000,
+      time: true,
+    },
+    {
       // Opens HyperFrames Studio for each project that becomes ready for review.
       name: 'reup-review-auto-open',
       script: 'scripts/review-auto-open.mjs',

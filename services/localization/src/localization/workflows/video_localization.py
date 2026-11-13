@@ -65,6 +65,10 @@ from localization.workflows.review_routing import (
 
 # Task queues. `workflows` carries only this workflow; every activity runs elsewhere.
 MEDIA_QUEUE = "media"
+# The ingest (Demucs) has a queue of its own, served by a worker on the host where Demucs can use
+# the GPU. A run that began before this queue existed keeps asking the `media` queue.
+INGEST_QUEUE = "ingest"
+INGEST_QUEUE_PATCH = "ingest-queue"
 STT_QUEUE = "stt"
 IO_QUEUE = "io"
 TTS_QUEUE = "tts"
@@ -154,6 +158,15 @@ INGEST = dict(
     heartbeat_timeout=timedelta(minutes=2),
     retry_policy=_retry(3, 10, 120),
 )
+
+
+def ingest_options() -> dict:
+    """The options of the ingest activity, on the queue the run is recorded to use it on."""
+    if workflow.patched(INGEST_QUEUE_PATCH):
+        return {**INGEST, "task_queue": INGEST_QUEUE}
+    return INGEST
+
+
 TRANSCRIBE = dict(
     task_queue=STT_QUEUE,
     start_to_close_timeout=timedelta(minutes=30),
@@ -587,7 +600,9 @@ class VideoLocalizationWorkflow:
     ) -> tuple[IngestResult, workflow.ActivityHandle]:
         """Ingest and the voice's rate measured at the same time. Whichever fails first
         fails the run and stops the other: nothing is paid for a run that cannot finish."""
-        ingesting = workflow.start_activity("ingest", spec, result_type=IngestResult, **INGEST)
+        ingesting = workflow.start_activity(
+            "ingest", spec, result_type=IngestResult, **ingest_options()
+        )
         rating = self._start_rate(spec)
         try:
             # The preparation goes on as soon as the ingest is done, the rate still running.
@@ -660,7 +675,9 @@ class VideoLocalizationWorkflow:
         )
 
     async def _ingest(self, spec: LocalizationInput) -> IngestResult:
-        return await workflow.execute_activity("ingest", spec, result_type=IngestResult, **INGEST)
+        return await workflow.execute_activity(
+            "ingest", spec, result_type=IngestResult, **ingest_options()
+        )
 
     async def _settle(self, handle: workflow.ActivityHandle, restart: Callable, spec):
         """Awaits a stage. When it fails because an artifact it reads is gone, the

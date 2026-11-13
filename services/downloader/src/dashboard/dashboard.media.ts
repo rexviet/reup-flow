@@ -92,9 +92,15 @@ export function createS3MediaReader(env: Env): MediaReader | null {
 const SOURCE_KEY = /^source\/[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/;
 const noDotSegments = (key: string): boolean => key.split('/').every((s) => s !== '.' && s !== '..');
 
+const MEDIA_CONTENT_TYPES = {
+  mp4: 'video/mp4',
+  srt: 'application/x-subrip; charset=utf-8',
+  jpg: 'image/jpeg',
+} as const;
+
 export interface ResolvedKey {
   key: string;
-  ext: 'mp4' | 'srt';
+  ext: 'mp4' | 'srt' | 'jpg';
   /** Shown to the admin next to the link. */
   note?: string;
 }
@@ -133,7 +139,11 @@ export async function resolveMediaKey(
   const stored: unknown = rows[0]?.[kind === 'srt' ? 'srt_key' : 'final_key'];
   if (typeof stored === 'string') {
     const ok = stored.startsWith(reviewDir) && /^[A-Za-z0-9._-]+$/.test(stored.slice(reviewDir.length));
-    if (ok && noDotSegments(stored)) return { key: stored, ext: kind === 'srt' ? 'srt' : 'mp4' };
+    if (ok && noDotSegments(stored)) {
+      // The poster is the still the review worker stores beside the video, under the same name.
+      if (kind === 'poster') return stored.endsWith('.mp4') ? { key: `${stored.slice(0, -4)}.jpg`, ext: 'jpg' } : null;
+      return { key: stored, ext: kind === 'srt' ? 'srt' : 'mp4' };
+    }
   }
   if (kind === 'final') {
     const legacy = await pool.query(
@@ -236,7 +246,7 @@ export class DashboardMediaService {
       filename: `${claims.awemeId}-g${claims.generation}.${resolved.ext}`,
       // From the file kind, never from the object's metadata: uploads set none, and a stored
       // type must not decide what the dashboard's origin serves.
-      contentType: resolved.ext === 'srt' ? 'application/x-subrip; charset=utf-8' : 'video/mp4',
+      contentType: MEDIA_CONTENT_TYPES[resolved.ext],
     };
   }
 }

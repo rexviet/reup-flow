@@ -21,6 +21,7 @@ export function healthBadges(h: HealthReport): Badge[] {
     { id: 'voicestudio', label: 'VoiceStudio', item: h.voicestudio },
     { id: 'stt', label: 'Voice STT', item: h.queues.stt },
     { id: 'tts', label: 'Voice TTS', item: h.queues.tts },
+    { id: 'ingest', label: 'Tách nhạc (GPU)', item: h.queues.ingest },
     { id: 'host_worker', label: 'Worker review', item: h.host_worker },
     { id: 'temporal', label: 'Temporal', item: h.temporal },
     { id: 'minio', label: 'MinIO', item: h.minio },

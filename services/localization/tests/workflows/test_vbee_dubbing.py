@@ -60,7 +60,7 @@ async def test_a_run_goes_from_the_vocals_to_one_published_render_in_order(
         "publish",
     ]
     assert await run.queues() == {
-        "ingest": "media",
+        "ingest": "ingest",
         "detect_subtitles": "io",
         "voice_rate": "tts",
         "vbee_stt": "stt",

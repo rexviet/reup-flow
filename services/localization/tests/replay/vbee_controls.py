@@ -8,10 +8,10 @@ from localization.contracts import IngestResult, LocalizationInput, ScriptResult
 from localization.contracts.vbee_flow import SlotPlan, VbeeDubbingResult
 from localization.workflows.vbee_dubbing import (
     DETECT_SUBTITLES,
-    INGEST,
     WORKFLOW_NAME,
     VbeeDubbingWorkflow,
 )
+from localization.workflows.video_localization import INGEST
 
 
 @workflow.defn(name=WORKFLOW_NAME)

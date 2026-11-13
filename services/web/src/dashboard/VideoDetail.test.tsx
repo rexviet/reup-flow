@@ -42,12 +42,23 @@ describe('VideoDetail buttons follow the stage', () => {
     expect(screen.getByText(/studio mở trên máy chạy dashboard/i)).toBeInTheDocument();
   });
 
-  it('run failed: only Chạy lại', async () => {
+  it('run failed: Chạy tiếp từ bước lỗi and Chạy lại, nothing about review', async () => {
     vi.mocked(client.getDashboardVideo).mockResolvedValue(detail({ stage: 'run_failed', review_status: null }));
     render(<VideoDetail awemeId="7001" />);
     await flush();
+    expect(screen.getByRole('button', { name: 'Chạy tiếp từ bước lỗi' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Chạy lại' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Duyệt' })).toBeNull();
+  });
+
+  it('returned: Mở Studio, Duyệt and Chạy lại (a new generation from the start), no Trả về', async () => {
+    vi.mocked(client.getDashboardVideo).mockResolvedValue(detail({ stage: 'returned' }));
+    render(<VideoDetail awemeId="7001" />);
+    await flush();
+    expect(screen.getByRole('button', { name: 'Mở Studio' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Duyệt' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Chạy lại' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Trả về' })).toBeNull();
   });
 
   it('rendered: Render lại, a publish form, and MP4 and SRT downloads from signed links', async () => {
