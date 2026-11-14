@@ -10,9 +10,9 @@ docker compose exec -T postgres sh -c 'createdb -U "$POSTGRES_USER" "$1"' sh "$n
 run() { MIGRATION_TEST_DATABASE="$name" bash scripts/apply-migrations.sh; }
 assert_sql() { local got; got=$(printf '%s\n' "$1" | psql_); [ "$got" = "$2" ] || { echo "assertion failed: expected $2 got $got" >&2; exit 1; }; }
 run
-assert_sql 'SELECT count(*) FROM public.applied_migrations' 12
+assert_sql 'SELECT count(*) FROM public.applied_migrations' 13
 run
-assert_sql 'SELECT count(*) FROM public.applied_migrations' 12
+assert_sql 'SELECT count(*) FROM public.applied_migrations' 13
 
 # Dashboard migrations: outbox accepts 'held' only, and a down/up round trip works.
 printf "INSERT INTO public.profiles(sec_user_id) VALUES ('p'); INSERT INTO public.collections(kind,external_id,sec_user_id,name) VALUES ('channel','p','p','p'); INSERT INTO public.videos(aweme_id,sec_user_id,create_time,collection_id) SELECT a,'p',now(),c.id FROM unnest(ARRAY['h0','h1','h2']) a, public.collections c;\n" | psql_
@@ -28,14 +28,15 @@ fi
 printf "DELETE FROM public.localization_outbox;\n" | psql_
 psql_ -1 < services/localization/migrations/261114-glossary-collection-scope.down.sql >/dev/null 2>&1
 psql_ -1 < services/downloader/migrations/261114-collections.down.sql >/dev/null 2>&1
+psql_ -1 < services/localization/migrations/261114-auto-queue-switch.down.sql >/dev/null 2>&1
 psql_ -1 < services/localization/migrations/261113-sequential-queue.down.sql >/dev/null 2>&1
 psql_ -1 < services/localization/migrations/261112-review-delivery.down.sql >/dev/null 2>&1
 psql_ -1 < services/downloader/migrations/261112-dashboard-intake.down.sql >/dev/null 2>&1
-assert_sql "SELECT count(*) FROM pg_tables WHERE (schemaname,tablename) IN (('public','review_decisions'),('localization','final_renders'),('public','auto_queue_inflight'),('public','collections'),('public','folder_exports'))" 0
+assert_sql "SELECT count(*) FROM pg_tables WHERE (schemaname,tablename) IN (('public','review_decisions'),('localization','final_renders'),('public','auto_queue_inflight'),('public','collections'),('public','folder_exports'),('public','auto_queue_settings'))" 0
 assert_sql "SELECT channel_id || ':' || term_vi FROM localization.glossary" 'p:Apple'
-printf "DELETE FROM public.applied_migrations WHERE name IN ('261112-dashboard-intake.sql','261112-review-delivery.sql','261113-sequential-queue.sql','261114-collections.sql','261114-glossary-collection-scope.sql');\n" | psql_
+printf "DELETE FROM public.applied_migrations WHERE name IN ('261112-dashboard-intake.sql','261112-review-delivery.sql','261113-sequential-queue.sql','261114-auto-queue-switch.sql','261114-collections.sql','261114-glossary-collection-scope.sql');\n" | psql_
 run
-assert_sql 'SELECT count(*) FROM public.applied_migrations' 12
+assert_sql 'SELECT count(*) FROM public.applied_migrations' 13
 # The re-applied backfill gives the existing videos their channel collection again.
 assert_sql "SELECT count(*) FROM public.videos v JOIN public.collections c ON c.id = v.collection_id WHERE c.kind = 'channel' AND c.external_id = 'p'" 3
 assert_sql "SELECT c.external_id || ':' || g.term_vi FROM localization.glossary g JOIN public.collections c ON c.id = g.collection_id" 'p:Apple'
