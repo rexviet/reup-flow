@@ -121,6 +121,17 @@ export function formatDateTime(iso: string | null | undefined): string {
   return d.toLocaleString('vi-VN', { timeZone: 'Asia/Saigon', hour12: false });
 }
 
+/** "14:05" in Saigon time; the date as well when it is not within the last 20 hours. */
+export function formatClock(iso: string, nowMs: number = Date.now()): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '-';
+  if (nowMs - d.getTime() > 20 * 3600 * 1000) return formatDateTime(iso);
+  return d.toLocaleTimeString('vi-VN', { timeZone: 'Asia/Saigon', hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
+/** What to do on a render machine left on old code (the file sits at the repo root). */
+export const UPDATE_RENDER_MACHINE = 'Trên máy đó, bấm đúp file cap-nhat-may-render.bat trong thư mục reup-flow.';
+
 export function formatUsd(n: number): string {
   return `$${n.toFixed(4)}`;
 }

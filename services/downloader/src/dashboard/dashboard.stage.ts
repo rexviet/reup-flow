@@ -1,4 +1,5 @@
 import { stepOf, type Step } from '../workspace/workspace.steps';
+import { renderFailureOf } from './render-failure';
 
 /**
  * Where a video is on its way from download to publication. Pure: every input
@@ -55,7 +56,8 @@ export interface StageFacts {
   outbox: { generation: number; state: string; dispatchedAtMs: number | null } | null;
   runs: RunFact[];
   decisions: Array<{ generation: number; decision: string }>;
-  renders: Array<{ generation: number; state: string }>;
+  /** `error` is the worker's raw reason for a failed render. */
+  renders: Array<{ generation: number; state: string; error?: string | null }>;
   publications: Array<{ generation: number; state: string }>;
   reviewStatus: Array<{ generation: number; mismatchCount: number | null; dirty: boolean | null }>;
 }
@@ -179,6 +181,7 @@ export type AttentionCode =
   | 'dispatch_dead'
   | 'run_failed'
   | 'render_failed'
+  | 'render_stale'
   | 'needs_human'
   | 'mismatch'
   | 'dirty'
@@ -225,7 +228,9 @@ export function attentionOf(
     items.push({ code: 'run_failed', reason: 'Lần chạy localization thất bại.', action: 'Chạy lại video.' });
   }
   if (stage === 'render_failed') {
-    items.push({ code: 'render_failed', reason: 'Render bản cuối thất bại.', action: 'Render lại bản đã duyệt.' });
+    const failure = renderFailureOf(facts.renders.find((r) => r.generation === currentGen)?.error);
+    // Rendering again cannot help once the review changed after approval: it needs a new approval.
+    items.push({ code: failure.kind === 'stale' ? 'render_stale' : 'render_failed', reason: failure.reason, action: failure.action });
   }
   const run = facts.runs.find((r) => r.generation === currentGen);
   if (stage === 'awaiting_review' && run?.status === 'needs_human') {

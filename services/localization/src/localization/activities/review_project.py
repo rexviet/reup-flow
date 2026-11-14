@@ -455,7 +455,15 @@ class ReviewProjectActivity:
         return ProjectRef(project_key=head_key)
 
 
-def resolve_project(store: ObjectStore, head_key: str):
+def read_manifest(raw: bytes, *, tolerant: bool = False) -> ReviewProjectManifest:
+    """Strict by default: an unknown field is an error. `tolerant` ignores fields this code does
+    not know, for read-only callers that use only the fields they know (the final render, which
+    renders the stored HTML). Checksums and the manifest's own validators still apply. Never
+    use it before writing a manifest: the unknown fields would be dropped from the new one."""
+    return ReviewProjectManifest.model_validate_json(raw, extra="ignore" if tolerant else None)
+
+
+def resolve_project(store: ObjectStore, head_key: str, *, tolerant: bool = False):
     data, etag = store.read_version(head_key)
     head = ReviewHead.model_validate_json(data)
     if head_key != project_head_key(head.aweme_id, head.generation):
@@ -463,7 +471,7 @@ def resolve_project(store: ObjectStore, head_key: str):
     raw = store.get_bytes(head.manifest_key, produced_by="review_project")
     if checksum(raw) != head.manifest_sha256:
         raise ValueError("manifest checksum mismatch")
-    manifest = ReviewProjectManifest.model_validate_json(raw)
+    manifest = read_manifest(raw, tolerant=tolerant)
     if (manifest.aweme_id, manifest.generation, manifest.revision_id, manifest.source) != (
         head.aweme_id,
         head.generation,

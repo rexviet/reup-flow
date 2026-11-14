@@ -19,6 +19,7 @@ from localization.platform import current as current_platform
 from localization.platform.posix import group_alive  # noqa: F401  (kept importable here)
 from localization.review_worker import posters
 from localization.review_worker.config import WorkerConfig
+from localization.review_worker.version import REVIEW_PROTOCOL
 
 log = logging.getLogger("review_worker.render")
 
@@ -40,6 +41,15 @@ UPDATE localization.final_renders f
           LIMIT 1
             FOR UPDATE OF c SKIP LOCKED)
 RETURNING f.aweme_id, f.generation, f.approved_revision, f.claim, f.attempts
+"""
+
+# The highest protocol among workers with a heartbeat in the last 2 minutes (the dashboard's
+# liveness window). A heartbeat without one comes from a worker older than protocols: 1.
+NEWEST_PROTOCOL_SQL = """
+SELECT max(CASE WHEN jsonb_typeof(info->'protocol') = 'number'
+                THEN floor((info->>'protocol')::numeric)::int ELSE 1 END) AS protocol
+  FROM localization.host_workers
+ WHERE seen_at > now() - interval '2 minutes'
 """
 
 # A render whose lease lapsed after its last attempt would otherwise stay `rendering`.
@@ -138,7 +148,33 @@ def disk_ok(path: Path, min_free_gb: float) -> tuple[bool, int, int]:
     return usage.free >= min_free_gb * 1024**3, usage.free, usage.total
 
 
-def claim(conn, cfg: WorkerConfig) -> dict | None:
+# The newer protocol this worker last stood back for, so the reason is logged once per change.
+_held_back_for: int | None = None
+
+
+def outdated(conn, protocol: int = REVIEW_PROTOCOL) -> bool:
+    """True when a live worker runs a newer render contract than this code: this worker may
+    not read the manifests that one writes, so it leaves the renders to it."""
+    global _held_back_for
+    row = conn.execute(NEWEST_PROTOCOL_SQL).fetchone()
+    newest = row["protocol"] if row else None
+    if newest is None or newest <= protocol:
+        if _held_back_for is not None:
+            log.info("final renders resumed: no live worker runs a newer protocol any more")
+        _held_back_for = None
+        return False
+    if _held_back_for != newest:
+        log.warning(
+            "not claiming final renders: a live worker runs protocol %s, this code only %s; "
+            "update this machine (cap-nhat-may-render.bat on Windows)", newest, protocol,
+        )  # fmt: skip
+    _held_back_for = newest
+    return True
+
+
+def claim(conn, cfg: WorkerConfig, *, protocol: int = REVIEW_PROTOCOL) -> dict | None:
+    if outdated(conn, protocol):
+        return None
     conn.execute(
         REAP_SQL,
         {
@@ -284,8 +320,16 @@ def render_claimed(
     cfg: WorkerConfig,
     cancelled: threading.Event,
     runner: Callable[..., None] = run_cli,
+    progress: Callable[[str], None] | None = None,
 ) -> str:
-    """Returns the final state of the claim: rendered, failed, queued or dropped."""
+    """Returns the final state of the claim: rendered, failed, queued or dropped. `progress`
+    gets the renderer's latest stage ("35% Capturing frames") whenever it changes."""
+
+    def report(line: str) -> None:
+        log.info("render %s/g%s: %s", aweme, gen, line)
+        if progress is not None:
+            progress(line)
+
     aweme, gen, revision, token = (
         row["aweme_id"], row["generation"], row["approved_revision"], row["claim"],
     )  # fmt: skip
@@ -293,11 +337,13 @@ def render_claimed(
     cfg.work_root.mkdir(parents=True, exist_ok=True)
     work = Path(tempfile.mkdtemp(prefix="final-render-", dir=cfg.work_root))
     try:
-        _, project, _ = repo.current(aweme, gen)
+        # Read-only: a manifest field this code does not know cannot change the stored HTML
+        # that is rendered, so it is ignored rather than failing the render.
+        _, project, _ = repo.current(aweme, gen, tolerant=True)
         if project.revision_id != revision:
             raise RenderRejected("Bản đã đổi sau khi duyệt, duyệt lại bản mới.")
         folder = work / "project"
-        repo.export_revision(aweme, gen, revision, folder)
+        repo.export_revision(aweme, gen, revision, folder, tolerant=True)
         if cancelled.is_set():
             raise Cancelled()
         tmp = work / "tmp"
@@ -314,7 +360,7 @@ def render_claimed(
                 conn.execute(RENEW_SQL, {**ids, "lease": cfg.lease_minutes}).rowcount == 1
             ),
             cancelled=cancelled,
-            progress=lambda line: log.info("render %s/g%s: %s", aweme, gen, line),
+            progress=report,
         )
         if not output.is_file() or output.stat().st_size == 0:
             raise RuntimeError("Render không tạo ra tệp MP4.")

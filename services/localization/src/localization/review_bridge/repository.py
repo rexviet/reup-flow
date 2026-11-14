@@ -14,6 +14,7 @@ from localization.activities.review_project import (
     asset_filename,
     checksum,
     project_html,
+    read_manifest,
     resolve_project,
 )
 from localization.activities.srt_document import srt_document
@@ -63,8 +64,9 @@ class Repository:
         self.root = root
         self.file_lock = file_lock or current_platform().file_lock
 
-    def current(self, aweme, generation):
-        return resolve_project(self.store, project_head_key(aweme, generation))
+    def current(self, aweme, generation, *, tolerant=False):
+        """`tolerant` only for read-only callers; see `read_manifest`."""
+        return resolve_project(self.store, project_head_key(aweme, generation), tolerant=tolerant)
 
     def asset(self, project, data: bytes, suffix: str):
         digest = checksum(data)
@@ -78,10 +80,10 @@ class Repository:
             raise ValueError("asset checksum mismatch")
         return data
 
-    def manifest(self, aweme, generation, revision):
+    def manifest(self, aweme, generation, revision, *, tolerant=False):
         key = f"review/{aweme}/g{generation}/r{revision}/manifest.json"
-        return ReviewProjectManifest.model_validate_json(
-            self.store.get_bytes(key, produced_by="review_project")
+        return read_manifest(
+            self.store.get_bytes(key, produced_by="review_project"), tolerant=tolerant
         )
 
     def committed(self, candidate) -> bool:
@@ -326,14 +328,16 @@ class Repository:
         )
         return staged
 
-    def export_revision(self, aweme, generation, revision, dest: Path):
+    def export_revision(self, aweme, generation, revision, dest: Path, *, tolerant=False):
         """Write exactly `revision` to the empty directory `dest`, outside the Studio
-        projection. Nothing local (open Studio, unsaved edits) can reach the result."""
+        projection. Nothing local (open Studio, unsaved edits) can reach the result.
+        `tolerant` reads a manifest with fields this code does not know (see `read_manifest`);
+        the exported `manifest.json` then lacks them, which the renderer never reads."""
         project_head_key(aweme, generation)
         dest.mkdir(parents=True, exist_ok=True)
         if any(dest.iterdir()):
             raise ValueError("export destination is not empty")
-        project = self.manifest(aweme, generation, revision)
+        project = self.manifest(aweme, generation, revision, tolerant=tolerant)
         for name, data in self.stage(project).items():
             atomic_write(safe_path(dest, name), data)
         archive_html_dependencies(dest)

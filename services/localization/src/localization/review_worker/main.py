@@ -32,6 +32,7 @@ from localization.review_worker import (
     review_scan,
     studio_requests,
     thumbnails,
+    version,
 )
 from localization.review_worker.config import WorkerConfig
 from localization.storage.object_store import ObjectStore
@@ -123,6 +124,12 @@ class Worker:
             if conn is not None:
                 conn.close()
 
+    def _progress(self, line: str) -> None:
+        # Shown on the dashboard with the next heartbeat; a new dict, never a half-written one.
+        current = self.current
+        if current is not None:
+            self.current = {**current, "progress": line}
+
     def _render_thread(self, row: dict) -> None:
         conn = None
         started = time.monotonic()
@@ -130,7 +137,7 @@ class Worker:
             conn = final_render.Session(lambda: self.connector(self.cfg))
             outcome = self.render(
                 row, conn=conn, store=self.store, repo=self.repo, cfg=self.cfg,
-                cancelled=self.cancelled,
+                cancelled=self.cancelled, progress=self._progress,
             )  # fmt: skip
             elapsed = int(time.monotonic() - started)
             log.info("render %s/g%s: %s in %dm%02ds", row["aweme_id"], row["generation"],
@@ -308,8 +315,10 @@ def main() -> None:
     for sig in stop_signals():
         signal.signal(sig, lambda *_: worker.stopping.set())
     log.info(
-        "review worker started; data root %s; roles %s; name %s; platform %s",
+        "review worker started; data root %s; roles %s; name %s; platform %s; code %s; "
+        "protocol %s",
         Path(cfg.data_root), ",".join(sorted(cfg.roles)), cfg.name, host.name,
+        version.code_version(), version.REVIEW_PROTOCOL,
     )  # fmt: skip
     if "studio" in cfg.roles:
         if cfg.export_root is None:

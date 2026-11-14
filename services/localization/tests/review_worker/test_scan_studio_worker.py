@@ -1,11 +1,18 @@
 import dataclasses
 import subprocess
+import threading
 import time
 
 import httpx
 
 from localization.review_bridge.service import Service
-from localization.review_worker import final_render, heartbeat, review_scan, studio_requests
+from localization.review_worker import (
+    final_render,
+    heartbeat,
+    review_scan,
+    studio_requests,
+    version,
+)
 from localization.review_worker.main import Worker
 from tests.review_bridge.test_service import command
 
@@ -257,3 +264,39 @@ def test_claim_and_finish_are_logged(db, cfg, project, caplog):
     messages = [r.getMessage() for r in caplog.records]
     assert "render 7001/g1: started (attempt 1)" in messages
     assert any(m.startswith("render 7001/g1: rendered in 0m0") for m in messages)
+
+
+def test_heartbeat_carries_the_code_version_protocol_and_render_progress(db, cfg, project):
+    repo, revision = project
+    db.approve("7001", 1, revision)
+    reported, release = threading.Event(), threading.Event()
+
+    def render(row, *, progress, **kwargs):
+        progress("35% Capturing frames")
+        reported.set()
+        release.wait(10)
+        return "rendered"
+
+    worker = make_worker(db, cfg, repo.store, render=render)
+    worker.tick()
+    assert reported.wait(5)
+    worker.tick()
+    info = host_info(db)
+    release.set()
+    worker.thread.join(5)
+    assert info["protocol"] == version.REVIEW_PROTOCOL
+    assert info["code_version"] == version.code_version() and info["code_version"]
+    assert info["current"]["aweme_id"] == "7001"
+    assert info["current"]["progress"] == "35% Capturing frames"
+
+
+def test_code_version_falls_back_to_unknown_without_git(monkeypatch):
+    def missing(*args, **kwargs):
+        raise FileNotFoundError("git")
+
+    version.code_version.cache_clear()
+    monkeypatch.setattr(version.subprocess, "run", missing)
+    try:
+        assert version.code_version() == "unknown"
+    finally:
+        version.code_version.cache_clear()

@@ -217,6 +217,24 @@ export interface HealthReport {
   queues: Record<'stt' | 'tts' | 'ingest' | 'media' | 'render' | 'llm' | 'io' | 'workflows', HealthItem>;
   host_worker: HealthItem;
   disk: HealthItem;
+  /** Every machine that writes a heartbeat (dashboard.health.ts `hostWorkerViews`). */
+  host_workers: HostWorkerView[];
+}
+
+export type OutdatedReason = 'no_version' | 'protocol' | 'version';
+
+export interface HostWorkerView {
+  name: string;
+  alive: boolean;
+  seen_at: string;
+  /** Short git commit; `null` when the worker's code predates version reporting, `'unknown'` when git failed. */
+  code_version: string | null;
+  protocol: number | null;
+  current: { aweme_id: string; generation: number | null; progress: string | null } | null;
+  outdated: boolean;
+  outdated_reason: OutdatedReason | null;
+  /** The Mac review worker's code version, the one every machine should run. */
+  latest_code_version: string | null;
 }
 
 export interface TimelineStep {

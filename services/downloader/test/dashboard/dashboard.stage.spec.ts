@@ -195,6 +195,22 @@ describe('attentionOf', () => {
     expect(codes(f, [])).toContain(code);
   });
 
+  it('explains a failed render from the worker\'s raw reason', () => {
+    const failed = (error: string | null) => {
+      const f = facts({
+        runs: [run(1, 'ready_for_review')],
+        decisions: [{ generation: 1, decision: 'approved' }],
+        renders: [{ generation: 1, state: 'failed', error }],
+      });
+      return attentionOf(f, computeStage(f, []), ctx([]));
+    };
+    const outdated = failed('ValidationError: 7 validation errors for ReviewProjectManifest caption_color Extra inputs are not permitted [type=extra_forbidden]');
+    expect(outdated).toEqual([expect.objectContaining({ code: 'render_failed', reason: expect.stringContaining('bản cũ') })]);
+    expect(outdated[0].action).toContain('cap-nhat-may-render.bat');
+    expect(failed('Bản đã đổi sau khi duyệt, duyệt lại bản mới.')[0]).toMatchObject({ code: 'render_stale', action: expect.stringContaining('Duyệt lại') });
+    expect(failed(null)[0]).toMatchObject({ code: 'render_failed', reason: 'Render lỗi.' });
+  });
+
   it('flags mismatches and unsaved changes while awaiting review', () => {
     const f = facts({
       runs: [run(1, 'ready_for_review')],

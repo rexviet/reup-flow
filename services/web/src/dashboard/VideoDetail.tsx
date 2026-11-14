@@ -101,6 +101,9 @@ export function VideoDetail({ awemeId }: { awemeId: string }) {
   );
 }
 
+/** Attention codes of a failed final render; the server explains them, the raw reason is kept below. */
+const RENDER_FAILURES = ['render_failed', 'render_stale'];
+
 function Loaded({
   d,
   awemeId,
@@ -217,6 +220,37 @@ function Loaded({
           {d.attention!.map((a) => (
             <li key={a.code}>
               {a.reason} <span className="text-text-secondary">{a.action}</span>
+              {RENDER_FAILURES.includes(a.code) ? (
+                <div data-testid="render-failure" className="mt-2 flex flex-col gap-2">
+                  <div className="flex flex-wrap gap-2">
+                    {a.code === 'render_stale' ? (
+                      <>
+                        <button type="button" disabled={busy} onClick={() => void actions.perform('open_studio', [target])} className="btn btn-ghost">
+                          {ACTION_LABELS.open_studio}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy || target.revision === null || d.review_status?.dirty === true}
+                          onClick={() => void actions.perform('approve', [target])}
+                          className="btn btn-primary"
+                        >
+                          Duyệt lại
+                        </button>
+                      </>
+                    ) : (
+                      <button type="button" disabled={busy} onClick={() => void actions.perform('rerender', [target])} className="btn btn-neutral">
+                        {ACTION_LABELS.rerender}
+                      </button>
+                    )}
+                  </div>
+                  {render?.error ? (
+                    <details className="text-xs text-text-secondary">
+                      <summary className="cursor-pointer">Chi tiết kỹ thuật</summary>
+                      <pre className="mt-1 whitespace-pre-wrap break-all font-mono text-[11px]">{render.error}</pre>
+                    </details>
+                  ) : null}
+                </div>
+              ) : null}
             </li>
           ))}
         </ul>

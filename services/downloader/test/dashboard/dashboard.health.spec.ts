@@ -1,4 +1,5 @@
-import { buildHealth, DISK_DEGRADED_BYTES, DISK_DOWN_BYTES, QUEUE_NAMES, type HealthDeps } from '../../src/dashboard/dashboard.health';
+import { buildHealth, DISK_DEGRADED_BYTES, DISK_DOWN_BYTES, hostWorkerViews, QUEUE_NAMES, type HealthDeps } from '../../src/dashboard/dashboard.health';
+import type { HostWorkerRow } from '../../src/dashboard/dashboard.repository';
 
 const NOW = Date.parse('2026-11-12T10:00:00Z');
 const GIB = 1024 ** 3;
@@ -12,11 +13,13 @@ function deps(over: Partial<HealthDeps> = {}): HealthDeps {
     queueProbe: { freshPollers: async () => 1 },
     minioEndpoint: 'http://minio:9000',
     fetchImpl: (async () => new Response('ok', { status: 200 })) as typeof fetch,
-    hostWorker: async () => ({
-      name: 'review-worker',
-      seenAtMs: NOW - 10_000,
-      info: { disk_free_bytes: 100 * GIB, voicestudio: { ok: true } },
-    }),
+    hostWorkers: async () => [
+      {
+        name: 'review-worker',
+        seenAtMs: NOW - 10_000,
+        info: { disk_free_bytes: 100 * GIB, voicestudio: { ok: true } },
+      },
+    ],
     ...over,
   };
 }
@@ -90,7 +93,7 @@ describe('buildHealth', () => {
     const h = await buildHealth(
       deps({
         fetchImpl,
-        hostWorker: async () => ({ name: 'review-worker', seenAtMs: NOW, info: { voicestudio: { ok: false }, disk_free_bytes: 50 * GIB } }),
+        hostWorkers: async () => [{ name: 'review-worker', seenAtMs: NOW, info: { voicestudio: { ok: false }, disk_free_bytes: 50 * GIB } }],
       }),
     );
     expect(h.voicestudio.status).toBe('down');
@@ -98,7 +101,7 @@ describe('buildHealth', () => {
   });
 
   it('grades the disk by free space', async () => {
-    const at = (free: number) => deps({ hostWorker: async () => ({ name: 'review-worker', seenAtMs: NOW, info: { disk_free_bytes: free } }) });
+    const at = (free: number) => deps({ hostWorkers: async () => [{ name: 'review-worker', seenAtMs: NOW, info: { disk_free_bytes: free } }] });
     expect((await buildHealth(at(DISK_DOWN_BYTES - 1))).disk.status).toBe('down');
     expect((await buildHealth(at(DISK_DEGRADED_BYTES - 1))).disk.status).toBe('degraded');
     expect((await buildHealth(at(DISK_DEGRADED_BYTES))).disk.status).toBe('ok');
@@ -106,7 +109,7 @@ describe('buildHealth', () => {
 
   it('is down after two minutes without a heartbeat and then VoiceStudio and disk are unknown', async () => {
     const h = await buildHealth(
-      deps({ hostWorker: async () => ({ name: 'review-worker', seenAtMs: NOW - 121_000, info: { voicestudio: { ok: true }, disk_free_bytes: 100 * GIB } }) }),
+      deps({ hostWorkers: async () => [{ name: 'review-worker', seenAtMs: NOW - 121_000, info: { voicestudio: { ok: true }, disk_free_bytes: 100 * GIB } }] }),
     );
     expect(h.host_worker.status).toBe('down');
     expect(h.voicestudio.status).toBe('unknown');
@@ -114,8 +117,8 @@ describe('buildHealth', () => {
   });
 
   it('is down with no heartbeat row, and unknown when the row cannot be read', async () => {
-    expect((await buildHealth(deps({ hostWorker: async () => null }))).host_worker.status).toBe('down');
-    expect((await buildHealth(deps({ hostWorker: async () => { throw new Error('x'); } }))).host_worker.status).toBe('unknown');
+    expect((await buildHealth(deps({ hostWorkers: async () => [] }))).host_worker.status).toBe('down');
+    expect((await buildHealth(deps({ hostWorkers: async () => { throw new Error('x'); } }))).host_worker.status).toBe('unknown');
   });
 
   it('does not wait for a probe that never answers', async () => {
@@ -127,5 +130,72 @@ describe('buildHealth', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+});
+
+describe('hostWorkerViews', () => {
+  const row = (name: string, info: Record<string, unknown>, ageMs = 10_000): HostWorkerRow => ({ name, seenAtMs: NOW - ageMs, info });
+
+  it('lists every machine with liveness, current work and version', async () => {
+    const h = await buildHealth(
+      deps({
+        hostWorkers: async () => [
+          row('review-worker', { code_version: 'def5678', protocol: 2, current: null }),
+          row('render-worker-win', { code_version: 'def5678', protocol: 2, current: { aweme_id: '7001', generation: 1, progress: '35% Capturing' } }),
+        ],
+      }),
+    );
+    expect(h.host_workers).toEqual([
+      {
+        name: 'render-worker-win',
+        alive: true,
+        seen_at: new Date(NOW - 10_000).toISOString(),
+        code_version: 'def5678',
+        protocol: 2,
+        current: { aweme_id: '7001', generation: 1, progress: '35% Capturing' },
+        outdated: false,
+        outdated_reason: null,
+        latest_code_version: 'def5678',
+      },
+      expect.objectContaining({ name: 'review-worker', alive: true, current: null, outdated: false }),
+    ]);
+  });
+
+  it('flags a machine that does not report its version as outdated', () => {
+    const [win] = hostWorkerViews([row('render-worker-win', { disk_free_bytes: 1 }), row('review-worker', { code_version: 'def5678', protocol: 2 })], NOW);
+    expect(win).toMatchObject({ code_version: null, protocol: null, outdated: true, outdated_reason: 'no_version' });
+  });
+
+  it('flags a lower protocol than the newest live machine, and a version that differs from the Mac', () => {
+    const views = hostWorkerViews(
+      [
+        row('review-worker', { code_version: 'def5678', protocol: 3 }),
+        row('render-worker-win', { code_version: 'abc1234', protocol: 2 }),
+        row('render-2', { code_version: 'abc1234', protocol: 3 }),
+      ],
+      NOW,
+    );
+    const by = Object.fromEntries(views.map((v) => [v.name, v]));
+    expect(by['render-worker-win']).toMatchObject({ outdated: true, outdated_reason: 'protocol', latest_code_version: 'def5678' });
+    expect(by['render-2']).toMatchObject({ outdated: true, outdated_reason: 'version' });
+    expect(by['review-worker']).toMatchObject({ outdated: false });
+  });
+
+  it('marks a silent machine as not alive and ignores its protocol, and trusts no unknown version', () => {
+    const views = hostWorkerViews(
+      [
+        row('review-worker', { code_version: 'unknown', protocol: 2 }),
+        row('render-worker-win', { code_version: 'abc1234', protocol: 2 }),
+        row('old-box', { code_version: 'abc1234', protocol: 9 }, 10 * 60_000),
+      ],
+      NOW,
+    );
+    const by = Object.fromEntries(views.map((v) => [v.name, v]));
+    expect(by['old-box']).toMatchObject({ alive: false, outdated: false });
+    expect(by['render-worker-win']).toMatchObject({ alive: true, outdated: false, latest_code_version: null });
+  });
+
+  it('is empty when the heartbeats cannot be read', async () => {
+    expect((await buildHealth(deps({ hostWorkers: async () => { throw new Error('x'); } }))).host_workers).toEqual([]);
   });
 });

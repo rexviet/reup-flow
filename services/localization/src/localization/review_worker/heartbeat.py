@@ -7,6 +7,7 @@ from pathlib import Path
 import httpx
 from psycopg.types.json import Jsonb
 
+from localization.review_worker import version
 from localization.review_worker.config import DEFAULT_NAME as WORKER_NAME
 
 WELL_KNOWN = "/.well-known/voicestudio-speech"
@@ -49,6 +50,9 @@ def build_info(
         "disk_total_bytes": disk_total,
         "voicestudio": voicestudio,
         "current": current,
+        # Which code runs here: the dashboard flags a machine left on an older checkout.
+        "code_version": version.code_version(),
+        "protocol": version.REVIEW_PROTOCOL,
     }
     if paused_reason:
         info["paused_reason"] = paused_reason

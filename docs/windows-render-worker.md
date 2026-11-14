@@ -534,6 +534,22 @@ hoặc `render.log` của renderer (mục 5.6).
   dòng** (xuống dòng giữa `user` và `@host` làm `scp` chép thành file tên `user` trên chính Mac).
 - Ngay sau khi vào, SSH đứng ở `C:\Users\<user>`; `cd E:\reup-flow` nếu repo ở ổ khác.
 
+### 5.9 Cập nhật máy render
+
+Mỗi lần Mac có code mới, máy Windows phải cập nhật theo. Trên máy Windows, **bấm đúp file
+`cap-nhat-may-render.bat` trong thư mục reup-flow** (ví dụ `E:\reup-flow`). File này tự dừng task
+`reup-render-worker`, `git pull --ff-only`, `uv sync --frozen --no-dev`, `pnpm install` trong
+`services\localization\spikes\hyperframes-review`, chạy lại task và in phiên bản mới. Nếu báo lỗi
+lấy code (thường do có file bị sửa tay trên máy đó), chụp màn hình cửa sổ gửi người phụ trách.
+
+Dashboard tự báo khi một máy chạy bản cũ: thanh sức khỏe có một dòng cho mỗi máy (còn kết nối hay
+không, đang render gì, phiên bản), và dòng đỏ «… đang chạy bản cũ …» khi phiên bản của máy đó khác
+máy Mac, khi máy đó chưa báo phiên bản (code cũ), hoặc khi giao thức render của nó thấp hơn máy khác.
+Mỗi worker ghi vào heartbeat `code_version` (commit đang chạy) và `protocol`
+(`REVIEW_PROTOCOL` trong `services/localization/src/localization/review_worker/version.py`).
+Worker thấy một máy còn sống có `protocol` cao hơn mình thì **không nhận render** (ghi log một lần),
+để khỏi render hỏng bản review mới. Ai đổi manifest review hay cách render thì tăng `REVIEW_PROTOCOL`.
+
 ## 6. Kiểm chứng
 
 1. Trên dashboard, duyệt một video thử, rồi trên Mac:
@@ -582,7 +598,7 @@ hoặc `render.log` của renderer (mục 5.6).
   `idle Postgres connection dropped` rồi kết nối lại (trước đây nó thoát hẳn và dashboard báo 502
   Bad Gateway cho tới khi `docker compose up -d --no-deps nest`). Không có migration hay dữ liệu cần hoàn tác. Muốn đóng LAN: gỡ
   `docker-compose.lan.yml` và `COMPOSE_FILE`, rồi `docker compose up -d --no-deps postgres minio`.
-- Nâng cấp: cập nhật hai máy cùng commit. HyperFrames ghim `0.8.77`; đổi ghim phải xác minh lại trên
+- Nâng cấp: cập nhật hai máy cùng commit (Windows: mục 5.9). HyperFrames ghim `0.8.77`; đổi ghim phải xác minh lại trên
   cả hai máy.
 
 ## 8. Câu hỏi còn mở

@@ -8,6 +8,8 @@ const SUGGESTED: Record<string, DashboardActionName | undefined> = {
   run_failed: 'rerun',
   lost: 'rerun',
   render_failed: 'rerender',
+  // The review changed after approval: rendering again cannot help, it needs a look and a new approval.
+  render_stale: 'open_studio',
   needs_human: 'open_studio',
   mismatch: 'open_studio',
   dirty: 'open_studio',

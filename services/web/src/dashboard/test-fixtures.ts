@@ -83,6 +83,7 @@ export function health(over: Partial<HealthReport> = {}): HealthReport {
     queues: { stt: ok, tts: ok, ingest: ok, media: ok, render: ok, llm: ok, io: ok, workflows: ok },
     host_worker: ok,
     disk: ok,
+    host_workers: [],
     ...over,
   };
 }

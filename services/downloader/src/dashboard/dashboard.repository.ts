@@ -106,7 +106,7 @@ export function stageFactsOf(r: VideoRecord): StageFacts {
       hasProject: x.projectKey !== null,
     })),
     decisions: r.decisions.map((d) => ({ generation: d.generation, decision: d.decision })),
-    renders: r.renders.map((x) => ({ generation: x.generation, state: x.state })),
+    renders: r.renders.map((x) => ({ generation: x.generation, state: x.state, error: x.error })),
     publications: r.publications.map((p) => ({ generation: p.generation, state: p.state })),
     reviewStatus: r.reviewStatus.map((s) => ({
       generation: s.generation,
@@ -423,13 +423,12 @@ export class DashboardRepository {
     }));
   }
 
-  async hostWorker(name: string): Promise<HostWorkerRow | null> {
-    const { rows } = await this.pool.query(
-      `SELECT name, seen_at, info FROM localization.host_workers WHERE name = $1`,
-      [name],
+  /** Every machine's latest heartbeat; a handful of rows, one per host worker. */
+  async hostWorkers(): Promise<HostWorkerRow[]> {
+    const { rows } = await this.pool.query<{ name: string; seen_at: Date; info: Record<string, unknown> | null }>(
+      `SELECT name, seen_at, info FROM localization.host_workers ORDER BY name`,
     );
-    const r = rows[0];
-    return r ? { name: r.name, seenAtMs: r.seen_at.getTime(), info: r.info ?? {} } : null;
+    return rows.map((r) => ({ name: r.name, seenAtMs: r.seen_at.getTime(), info: r.info ?? {} }));
   }
 
   async ping(): Promise<void> {

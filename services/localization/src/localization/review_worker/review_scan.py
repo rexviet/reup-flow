@@ -27,7 +27,8 @@ ON CONFLICT (aweme_id, generation) DO UPDATE
 
 
 def scan_one(repo, aweme: str, generation: int) -> dict:
-    _, project, _ = repo.current(aweme, generation)
+    # Read-only and only known fields: a newer manifest field must not stop the scan.
+    _, project, _ = repo.current(aweme, generation, tolerant=True)
     return {
         "aweme": aweme,
         "gen": generation,

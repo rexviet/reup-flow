@@ -103,6 +103,50 @@ describe('VideoDetail buttons follow the stage', () => {
   });
 });
 
+describe('VideoDetail failed render', () => {
+  const RAW = 'ValidationError: 7 validation errors for ReviewProjectManifest caption_color Extra inputs are not permitted [type=extra_forbidden]';
+  const failedDetail = (code: string, reason: string, action: string) =>
+    detail({
+      stage: 'render_failed',
+      attention: [{ code, reason, action }],
+      render: { state: 'failed', approved_revision: 'rev-9', attempts: 3, error: RAW, rendered_at: null, final_ready: false, srt_ready: false },
+    });
+
+  it('explains it in plain words, keeps the raw reason folded away, and renders again from there', async () => {
+    vi.mocked(client.getDashboardVideo).mockResolvedValue(
+      failedDetail('render_failed', 'Máy render đang chạy bản cũ, không đọc được bản review mới.', 'Cập nhật máy render rồi bấm Render lại.'),
+    );
+    vi.mocked(client.runAction).mockResolvedValue({ done: ['7001'], skipped: [] });
+    render(<VideoDetail awemeId="7001" />);
+    await flush();
+    const notice = screen.getByTestId('render-failure').closest('li')!;
+    expect(notice).toHaveTextContent('Máy render đang chạy bản cũ');
+    const details = within(notice).getByText('Chi tiết kỹ thuật').closest('details')!;
+    expect(details).not.toHaveAttribute('open');
+    expect(details).toHaveTextContent(RAW);
+    await userEvent.click(within(notice).getByRole('button', { name: 'Render lại' }));
+    await userEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Xác nhận' }));
+    await flush();
+    expect(client.runAction).toHaveBeenCalledWith(expect.objectContaining({ action: 'rerender', aweme_ids: ['7001'] }));
+  });
+
+  it('asks for a new approval instead of a render when the review changed after approval', async () => {
+    vi.mocked(client.getDashboardVideo).mockResolvedValue(
+      failedDetail('render_stale', 'Bản review đã đổi sau khi duyệt nên không render bản cũ nữa.', 'Mở Studio xem bản mới rồi bấm Duyệt lại.'),
+    );
+    vi.mocked(client.runAction).mockResolvedValue({ done: ['7001'], skipped: [] });
+    render(<VideoDetail awemeId="7001" />);
+    await flush();
+    const notice = screen.getByTestId('render-failure');
+    expect(within(notice).queryByRole('button', { name: 'Render lại' })).toBeNull();
+    expect(within(notice).getByRole('button', { name: 'Mở Studio' })).toBeInTheDocument();
+    await userEvent.click(within(notice).getByRole('button', { name: 'Duyệt lại' }));
+    await userEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Xác nhận' }));
+    await flush();
+    expect(client.runAction).toHaveBeenCalledWith({ action: 'approve', aweme_ids: ['7001'], revision: 'rev-9', generation: 2 });
+  });
+});
+
 describe('VideoDetail actions', () => {
   it('Duyệt sends the revision being shown and the current generation', async () => {
     vi.mocked(client.runAction).mockResolvedValue({ done: ['7001'], skipped: [] });

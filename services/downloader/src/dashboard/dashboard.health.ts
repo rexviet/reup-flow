@@ -37,6 +37,27 @@ export interface HealthReport {
   queues: Record<QueueName, QueueHealth>;
   host_worker: HealthItem;
   disk: HealthItem;
+  /** Every machine that ever wrote a heartbeat, by name; empty when the table cannot be read. */
+  host_workers: HostWorkerView[];
+}
+
+/** Why a machine is flagged as running old code. */
+export type OutdatedReason = 'no_version' | 'protocol' | 'version';
+
+/** One host worker as the dashboard lists it: alive or not, what it does, which code it runs. */
+export interface HostWorkerView {
+  name: string;
+  alive: boolean;
+  seen_at: string;
+  /** Short git commit of its checkout; `null` when the worker predates version reporting. */
+  code_version: string | null;
+  /** Render contract version (`review_worker/version.py`); `null` before protocols existed. */
+  protocol: number | null;
+  current: { aweme_id: string; generation: number | null; progress: string | null } | null;
+  outdated: boolean;
+  outdated_reason: OutdatedReason | null;
+  /** The Mac review worker's code version, the one other machines should match. */
+  latest_code_version: string | null;
 }
 
 /** The review worker on the host writes a heartbeat each loop; this long without one is down. */
@@ -58,7 +79,7 @@ export interface HealthDeps {
   /** `undefined` when no S3 endpoint is configured. */
   minioEndpoint: string | undefined;
   fetchImpl: typeof fetch;
-  hostWorker(): Promise<HostWorkerRow | null>;
+  hostWorkers(): Promise<HostWorkerRow[]>;
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
@@ -113,6 +134,61 @@ function diskHealth(info: Record<string, unknown>): HealthItem {
   return { status: 'ok', reason: `Đĩa còn ${gib} GB.` };
 }
 
+/** A heartbeat without a protocol comes from a worker older than protocols. */
+const LEGACY_PROTOCOL = 1;
+const UNKNOWN_VERSION = 'unknown';
+
+function text(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() !== '' ? value : null;
+}
+
+function currentOf(value: unknown): HostWorkerView['current'] {
+  if (typeof value !== 'object' || value === null) return null;
+  const c = value as Record<string, unknown>;
+  const aweme = text(c.aweme_id);
+  if (aweme === null) return null;
+  return { aweme_id: aweme, generation: Number.isInteger(c.generation) ? (c.generation as number) : null, progress: text(c.progress) };
+}
+
+/**
+ * A worker is outdated when it does not report its code version (code from before versions), when
+ * its protocol is below the newest among live workers (it may not read their manifests), or when
+ * its version differs from the Mac review worker's while both are known.
+ */
+export function hostWorkerViews(rows: readonly HostWorkerRow[], nowMs: number): HostWorkerView[] {
+  const alive = (r: HostWorkerRow) => nowMs - r.seenAtMs <= HOST_HEARTBEAT_STALE_MS;
+  const protocolOf = (r: HostWorkerRow) => (Number.isInteger(r.info.protocol) ? (r.info.protocol as number) : null);
+  const live = rows.filter(alive).map((r) => protocolOf(r) ?? LEGACY_PROTOCOL);
+  const newest = live.length > 0 ? Math.max(...live) : LEGACY_PROTOCOL;
+  const reference = text(rows.find((r) => r.name === HOST_WORKER_NAME)?.info.code_version);
+  const latest = reference === UNKNOWN_VERSION ? null : reference;
+  return [...rows]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((r) => {
+      const version = text(r.info.code_version);
+      const protocol = protocolOf(r);
+      const reason: OutdatedReason | null =
+        version === null
+          ? 'no_version'
+          : (protocol ?? LEGACY_PROTOCOL) < newest
+            ? 'protocol'
+            : r.name !== HOST_WORKER_NAME && latest !== null && version !== UNKNOWN_VERSION && version !== latest
+              ? 'version'
+              : null;
+      return {
+        name: r.name,
+        alive: alive(r),
+        seen_at: new Date(r.seenAtMs).toISOString(),
+        code_version: version,
+        protocol,
+        current: currentOf(r.info.current),
+        outdated: reason !== null,
+        outdated_reason: reason,
+        latest_code_version: latest,
+      };
+    });
+}
+
 /** Never throws: each probe that fails becomes a `down` entry with its reason. */
 export async function buildHealth(deps: HealthDeps): Promise<HealthReport> {
   const nowMs = deps.nowMs();
@@ -144,9 +220,10 @@ export async function buildHealth(deps: HealthDeps): Promise<HealthReport> {
         }, 'MinIO không trả lời.'),
     (async () => {
       try {
-        return { row: await withTimeout(deps.hostWorker(), PROBE_TIMEOUT_MS), failed: false };
+        const rows = await withTimeout(deps.hostWorkers(), PROBE_TIMEOUT_MS);
+        return { rows, row: rows.find((r) => r.name === HOST_WORKER_NAME) ?? null, failed: false };
       } catch {
-        return { row: null, failed: true };
+        return { rows: [] as HostWorkerRow[], row: null, failed: true };
       }
     })(),
   ]);
@@ -177,5 +254,6 @@ export async function buildHealth(deps: HealthDeps): Promise<HealthReport> {
     queues,
     host_worker,
     disk: hostAlive && host.row ? diskHealth(host.row.info) : stale,
+    host_workers: hostWorkerViews(host.rows, nowMs),
   };
 }

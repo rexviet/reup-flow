@@ -5,7 +5,7 @@ import type { Env } from '../config/env';
 import { CookieService } from '../cookie/cookie.service';
 import { REDIS } from '../redis/redis.module';
 import { TASK_QUEUE_PROBE, type TaskQueueProbe } from '../temporal/task-queue-probe';
-import { buildHealth, HOST_WORKER_NAME, type HealthReport } from './dashboard.health';
+import { buildHealth, type HealthReport } from './dashboard.health';
 import { DashboardRepository } from './dashboard.repository';
 
 /** Probes are cheap but several tabs poll: one read serves everyone inside this window. */
@@ -36,7 +36,7 @@ export class DashboardHealthService {
       queueProbe: this.queueProbe,
       minioEndpoint: this.env.S3_ENDPOINT,
       fetchImpl: fetch,
-      hostWorker: () => this.repo.hostWorker(HOST_WORKER_NAME),
+      hostWorkers: () => this.repo.hostWorkers(),
     });
     this.cached = { atMs: nowMs, value };
     return value;

@@ -205,11 +205,15 @@ describe('DashboardRepository (real downloader and localization schemas)', () =>
          ('5', 1, 'done', now() - interval '1 hour'), ('5', 2, 'pending', now())`,
     );
     expect(await repo.latestStudioRequest('5')).toMatchObject({ generation: 2, state: 'pending', handledAt: null });
-    expect(await repo.hostWorker('review-worker')).toBeNull();
+    expect(await repo.hostWorkers()).toEqual([]);
     await pool.query(
-      `INSERT INTO localization.host_workers (name, info) VALUES ('review-worker', '{"disk_free_bytes": 5}')`,
+      `INSERT INTO localization.host_workers (name, info) VALUES
+         ('review-worker', '{"disk_free_bytes": 5}'), ('render-worker-win', '{"protocol": 2}')`,
     );
-    expect(await repo.hostWorker('review-worker')).toMatchObject({ info: { disk_free_bytes: 5 } });
+    expect(await repo.hostWorkers()).toMatchObject([
+      { name: 'render-worker-win', info: { protocol: 2 } },
+      { name: 'review-worker', info: { disk_free_bytes: 5 } },
+    ]);
   });
 
   it('lists 2000 videos with all joins comfortably inside the 500 ms budget', async () => {
