@@ -9,6 +9,7 @@ Any change to the ORDER of the commands this workflow issues must be guarded wit
 from collections.abc import Callable
 from datetime import timedelta
 
+from pydantic_ai.exceptions import AgentRunError
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, ApplicationError
@@ -332,7 +333,7 @@ def _missing_stage(error: ActivityError) -> str | None:
     return None
 
 
-def _describe(error: ActivityError | ApplicationError) -> str:
+def _describe(error: ActivityError | ApplicationError | AgentRunError) -> str:
     """`Type: message` of what actually failed, for a person to read."""
     cause = error.cause if isinstance(error, ActivityError) else error
     kind = (
@@ -383,10 +384,13 @@ class VideoLocalizationWorkflow:
         the person who looks finds the reason where the run's outcome is kept."""
         try:
             return await self._pipeline(spec)
-        except (ActivityError, ApplicationError) as error:
-            # An activity that failed, or an agent that gave up (it raises in the workflow
-            # itself, as an ApplicationError). A run recorded before the steps that write
-            # the row existed has no marker, so it replays without the extra activity.
+        except (ActivityError, ApplicationError, AgentRunError) as error:
+            # An activity that failed, an agent that gave up (it raises in the workflow
+            # itself, as an ApplicationError), or an agent whose model request failed:
+            # pydantic-ai raises that one in the workflow as the model's own error (a 402
+            # from a provider out of credit is a ModelHTTPError), not as an ActivityError.
+            # A run recorded before the steps that write the row existed has no marker,
+            # so it replays without the extra activity.
             if workflow.patched(REVIEW_PATCH):
                 await self._record_failure(spec, error)
             raise
@@ -878,7 +882,7 @@ class VideoLocalizationWorkflow:
         )
 
     async def _record_failure(
-        self, spec: LocalizationInput, error: ActivityError | ApplicationError
+        self, spec: LocalizationInput, error: ActivityError | ApplicationError | AgentRunError
     ) -> None:
         reason = _describe(error)
         try:

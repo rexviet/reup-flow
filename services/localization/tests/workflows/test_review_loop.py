@@ -629,3 +629,33 @@ async def test_a_failure_before_the_localizer_is_written_on_the_run_too(
     await run_workflow(temporal_client, run)
     assert isinstance(run.outcome, BaseException)
     assert row(run)["status"] == "failed"
+
+
+async def test_a_model_provider_that_refuses_the_dubber_is_written_on_the_run(
+    temporal_client: Client,
+) -> None:
+    """The agent's request is an activity, but pydantic-ai raises its failure in the
+    workflow as the model's own error (here an out-of-credit 402), not as an
+    ActivityError: the run must still be written, or nothing records that it ended."""
+    from pydantic_ai.exceptions import ModelHTTPError
+    from pydantic_ai.models.function import FunctionModel
+
+    from tests.support.dub_fakes import CodeDubber
+
+    class OutOfCredit(CodeDubber):
+        def model(self) -> FunctionModel:
+            async def respond(*_: object) -> None:
+                raise ModelHTTPError(402, "scripted-code-dubber", {"message": "more credits"})
+
+            return FunctionModel(respond, model_name="scripted-code-dubber")
+
+    run = Run()
+    run.dubbing = DubFakes(unfit_ids=(0, 1), mode="code", dubber=OutOfCredit())
+    # The request is retried with backoff (about 2.5 minutes) before the error comes back.
+    await run_workflow(temporal_client, run, timeout=240)
+    assert isinstance(run.outcome, BaseException)
+    assert row(run)["status"] == "failed" and row(run)["needs_human"] is False
+    (reason,) = row(run)["record"]["reasons"]
+    assert reason.startswith("ModelHTTPError: ") and "402" in reason
+    assert run.reviewing.calls["layout_captions"] == 0
+    assert not run.has(OUTPUT) and not run.has(REVIEW)
