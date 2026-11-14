@@ -2,6 +2,7 @@ import type {
   ActionRequest,
   ActionResult,
   AttentionResponse,
+  AutoQueueStatus,
   ChannelListResponse,
   CookieStatus,
   HealthReport,
@@ -128,6 +129,15 @@ export async function getChannels(): Promise<ChannelListResponse> {
 
 export async function getHealth(): Promise<HealthReport> {
   return request<HealthReport>('/api/dashboard/health');
+}
+
+export async function getAutoQueue(): Promise<AutoQueueStatus> {
+  return request<AutoQueueStatus>('/api/dashboard/auto-queue');
+}
+
+/** Turning it on starts the next held video at once when none is running. */
+export async function setAutoQueue(enabled: boolean): Promise<AutoQueueStatus> {
+  return request<AutoQueueStatus>('/api/dashboard/auto-queue', { method: 'PUT', body: JSON.stringify({ enabled }) });
 }
 
 export async function runAction(body: ActionRequest): Promise<ActionResult> {

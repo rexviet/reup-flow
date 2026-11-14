@@ -187,6 +187,14 @@ export interface ChannelListResponse {
   sources: DashboardSources;
 }
 
+/** `GET`/`PUT /api/dashboard/auto-queue` (services/downloader/src/dashboard/auto-queue.controller.ts). */
+export interface AutoQueueStatus {
+  enabled: boolean;
+  updated_at: string;
+  in_flight: { aweme_id: string; generation: number; released_at: string } | null;
+  held: number;
+}
+
 export type HealthState = 'ok' | 'degraded' | 'down' | 'unknown';
 export interface HealthItem {
   status: HealthState;

@@ -4,6 +4,7 @@ import type { DashboardActionName, VideoListQuery } from '../api/types';
 import { usePolling } from '../hooks/usePolling';
 import { ActionNotice } from './ActionNotice';
 import { AttentionList } from './AttentionList';
+import { AutoQueueSwitch } from './AutoQueueSwitch';
 import { BulkActionBar } from './BulkActionBar';
 import { ChannelsPanel } from './ChannelsPanel';
 import { HealthBar } from './HealthBar';
@@ -100,6 +101,7 @@ export function DashboardPage() {
       <header className="flex flex-col gap-3">
         <h1 className="text-xl font-bold tracking-tight text-text-primary">Bảng điều khiển</h1>
         <HealthBar health={health.data} error={health.error} />
+        <AutoQueueSwitch />
       </header>
 
       <AttentionList

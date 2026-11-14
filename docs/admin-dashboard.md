@@ -160,5 +160,18 @@ Hệ quả: kênh tắt "Tự localize" vẫn có video `held`, nhưng chúng s�
 "Đưa vào localization" chạy song song bên cạnh và không làm hàng đợi tiến lên. Một workflow chết mà
 không ghi `runs` (quá hạn 14 ngày, bị hủy trong Temporal) làm hàng đợi đứng; sự kiện tiếp theo sau 14
 ngày tự gỡ, còn muốn chạy ngay thì chạy
-`DELETE FROM auto_queue_inflight; SELECT auto_queue_release_next();`. Muốn tắt hẳn, chạy
-`services/localization/migrations/261113-sequential-queue.down.sql`.
+`DELETE FROM auto_queue_inflight; SELECT auto_queue_release_next();`.
+
+### Bật/tắt hàng đợi
+
+Công tắc "Tự chạy video đang giữ khi video trước tới bước chờ duyệt" ở đầu dashboard (migration
+`261114-auto-queue-switch`, bảng `auto_queue_settings`, API `GET`/`PUT /api/dashboard/auto-queue`):
+
+- **Tắt:** video đang chạy vẫn chạy tới hết, nhưng khi nó xong thì không thả video nào; video `held`
+  mới cũng đứng yên.
+- **Bật:** nếu không có video nào của hàng đợi đang chạy, video `held` cũ nhất được thả ngay; sau đó
+  hàng đợi chạy như trên.
+
+Dùng công tắc thay cho việc gỡ trigger. Gỡ trigger bằng tay (chạy file `.down.sql` mà không xóa dòng
+trong `applied_migrations`) làm `apply-migrations.sh` tưởng hàng đợi vẫn còn. Đó là tình trạng đã gặp
+từ 2026-11-13 tới 2026-11-14; lúc sửa, công tắc được đặt ở trạng thái tắt.

@@ -88,6 +88,9 @@ BEGIN
       'public.auto_queue_inflight.one:boolean','public.auto_queue_inflight.aweme_id:text',
       'public.auto_queue_inflight.generation:integer',
       'public.auto_queue_inflight.released_at:timestamp with time zone','public.auto_queue_inflight_pkey'];
+    WHEN '261114-auto-queue-switch.sql' THEN expected := ARRAY[
+      'public.auto_queue_settings.one:boolean','public.auto_queue_settings.enabled:boolean',
+      'public.auto_queue_settings.updated_at:timestamp with time zone','public.auto_queue_settings_pkey'];
     ELSE RAISE EXCEPTION 'Unknown migration %, reconcile manually', migration;
   END CASE;
   FOREACH item IN ARRAY expected LOOP

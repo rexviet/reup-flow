@@ -5,6 +5,7 @@ import { WorkspaceModule } from '../workspace/workspace.module';
 import { ENV } from '../config/config.module';
 import type { Env } from '../config/env';
 import { CookieService } from '../cookie/cookie.service';
+import { AutoQueueController } from './auto-queue.controller';
 import { DashboardActionsController } from './dashboard.actions.controller';
 import { DashboardActionsService } from './dashboard.actions';
 import type { Pool } from 'pg';
@@ -24,7 +25,13 @@ import { ProfilesController } from './profiles.controller';
  */
 @Module({
   imports: [WorkspaceModule],
-  controllers: [DashboardController, DashboardActionsController, DashboardMediaController, ProfilesController],
+  controllers: [
+    DashboardController,
+    DashboardActionsController,
+    DashboardMediaController,
+    ProfilesController,
+    AutoQueueController,
+  ],
   providers: [
     DashboardRepository,
     CookieService,
