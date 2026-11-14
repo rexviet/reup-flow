@@ -12,6 +12,7 @@ from localization.providers.base import (
     local_server_http,
 )
 from localization.providers.errors import PermanentProviderError, TransientProviderError
+from localization.text.repeats import collapse_repeats
 
 
 def _shape(body: Any) -> str:
@@ -50,7 +51,7 @@ def _seconds(item: dict, key: str, where: str) -> int:
 def _word_text(word: dict, where: str) -> str:
     if "word" not in word:
         raise _Unreadable(f"{where} has no 'word'")
-    return str(word["word"]).strip()
+    return collapse_repeats(str(word["word"]).strip())
 
 
 def _read_item(kind: str, index: int, item: Any, build: Any) -> Any:
@@ -188,7 +189,8 @@ class OpenAICompatStt:
                         id=int(s.get("id", i)),
                         start_ms=_seconds(s, "start", where),
                         end_ms=_seconds(s, "end", where),
-                        text=str(s.get("text", "")).strip(),
+                        # A scream is heard as hundreds of one letter; one says the same.
+                        text=collapse_repeats(str(s.get("text", "")).strip()),
                     ),
                 )
                 for i, s in enumerate(raw_segments)

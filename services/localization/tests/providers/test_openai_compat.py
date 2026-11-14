@@ -237,7 +237,7 @@ SEG = {"id": 0, "start": 0.0, "end": 1.0, "text": "SECRETTEXT"}
             ["words[1] has no 'word'"],
         ),
         (
-            _answer([SEG], words=[{"word": "x" * 201, "start": 0.0, "end": 0.5}]),
+            _answer([SEG], words=[{"word": "ab" * 101, "start": 0.0, "end": 0.5}]),
             ["words[0].text fails its check", "string_too_long"],
         ),
         (
@@ -260,3 +260,19 @@ def test_an_unreadable_stt_item_is_named_by_place_and_field_but_never_by_its_tex
         assert name in message, message
     assert "SECRETTEXT" not in message
     assert "object with keys: language,segments" in message
+
+
+def test_a_scream_heard_as_one_long_repeated_word_is_read_as_one() -> None:
+    """MLX Whisper heard a 0.76 s scream as a single word of hundreds of `啊`, over the
+    200-character word limit, and at temperature 0 every retry heard the same."""
+    scream = "啊" * 300
+    body = _answer(
+        [{**SEG, "text": f"{scream} 救命"}],
+        words=[
+            {"word": scream, "start": 0.0, "end": 0.76},
+            {"word": "á á á", "start": 1, "end": 2},
+        ],
+    )
+    doc = OpenAICompatStt._parse(body)
+    assert doc.segments[0].text == "啊 救命"
+    assert [w.text for w in doc.words] == ["啊", "á"]
