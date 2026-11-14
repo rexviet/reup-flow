@@ -1125,7 +1125,7 @@ async def _detect(store: ObjectStore, video: Path, ocr: FakeOcr):  # noqa: ANN20
     spec = make_input()
     store.put_file(spec.video_key, video)
     return await ActivityEnvironment().run(
-        DetectSubtitlesActivity(store, ocr).detect_subtitles, spec
+        DetectSubtitlesActivity(store, ocr, retry_seconds=0).detect_subtitles, spec
     )
 
 
@@ -1168,7 +1168,7 @@ async def test_half_of_the_frames_unusable_is_not_more_than_half(
     assert (await _detect(store, ten_frames, ocr)).region is None
 
 
-async def test_a_transport_failure_still_fails_the_activity_as_before(
+async def test_a_transport_failure_that_persists_still_fails_the_activity(
     store: ObjectStore, ten_frames: Path
 ) -> None:
     from localization.providers.errors import TransientProviderError
@@ -1178,3 +1178,30 @@ async def test_a_transport_failure_still_fails_the_activity_as_before(
         await _detect(store, ten_frames, ocr)
     assert caught.value.non_retryable is False
     assert "503" in str(caught.value)
+
+
+class OneBadGateway(FakeOcr):
+    """Answers every frame, except that the request for frame `bad` first gets a 502."""
+
+    def __init__(self, answers: dict[int, BBox], bad: int) -> None:
+        super().__init__(answers)
+        self.bad, self.failed = bad, False
+
+    async def detect_region(self, frame_png: bytes, width: int, height: int) -> BBox | None:
+        from localization.providers.errors import TransientProviderError
+
+        if self.calls == self.bad and not self.failed:
+            self.failed = True
+            raise TransientProviderError("ocr: HTTP 502")
+        return await super().detect_region(frame_png, width, height)
+
+
+async def test_one_bad_gateway_is_asked_again_instead_of_failing_the_activity(
+    store: ObjectStore, ten_frames: Path
+) -> None:
+    box = BBox(x=10, y=200, w=300, h=30)
+    ocr = OneBadGateway({i: box for i in range(10)}, bad=3)
+    result = await _detect(store, ten_frames, ocr)
+    assert ocr.failed and result.region is not None
+    stored = json.loads(store.get_bytes(result.subtitle_key, produced_by="detect_subtitles"))
+    assert len(stored["frame_boxes"]) == 10 and stored["unusable_frames"] == []

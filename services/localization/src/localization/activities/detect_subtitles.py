@@ -23,7 +23,11 @@ from localization.contracts import (
 )
 from localization.observability.tracing import tag_session
 from localization.providers.base import OcrProvider
-from localization.providers.errors import PermanentProviderError, UnusableAnswer
+from localization.providers.errors import (
+    PermanentProviderError,
+    TransientProviderError,
+    UnusableAnswer,
+)
 from localization.storage.object_store import ObjectStore, source_video_key, work_key, work_key_for
 
 SAMPLE_FPS = 2
@@ -56,6 +60,11 @@ REGION_PAD_H = 0.02
 MAX_CENTRE_OFFSET = 0.15
 # Longest side of a frame sent to the vision model.
 OCR_MAX_SIDE = 1024
+# A frame whose request failed transiently is asked this many times in all, waiting
+# `FRAME_RETRY_SECONDS` times the attempt number in between. One 502 in 600 requests
+# once threw away every frame read before it.
+FRAME_ATTEMPTS = 3
+FRAME_RETRY_SECONDS = 2.0
 # Frames extracted to disk at once: four OCR batches.
 CHUNK_FRAMES = 4 * BATCH_SIZE
 
@@ -180,19 +189,31 @@ class DetectSubtitlesActivity:
         *,
         chunk_frames: int = CHUNK_FRAMES,
         tmp_root: Path | None = None,
+        retry_seconds: float = FRAME_RETRY_SECONDS,
     ) -> None:
         self._store = store
         self._ocr = ocr
         self._chunk_frames = chunk_frames
+        self._retry_seconds = retry_seconds
         self._tmp_root = tmp_root
 
     async def _read(self, image: bytes, scaled: tuple[int, int]) -> tuple[BBox | None, bool]:
-        """The detection for one frame, and whether the answer was unusable."""
-        try:
-            box = await self._ocr.detect_region(image, *scaled)
-        except UnusableAnswer:
-            return None, True
-        return box, False
+        """The detection for one frame, and whether the answer was unusable. A transient
+        failure (a 502 from the gateway, a timeout) is asked again a few times before it
+        fails the activity, which would read every frame again from the first."""
+        for attempt in range(1, FRAME_ATTEMPTS + 1):
+            try:
+                return await self._ocr.detect_region(image, *scaled), False
+            except UnusableAnswer:
+                return None, True
+            except TransientProviderError as error:
+                if attempt == FRAME_ATTEMPTS:
+                    raise
+                activity.logger.warning(
+                    "frame: %s; asking again (%s of %s)", error, attempt, FRAME_ATTEMPTS - 1
+                )
+                await asyncio.sleep(self._retry_seconds * attempt)
+        raise AssertionError("unreachable")
 
     @activity.defn(name="detect_subtitles")
     async def detect_subtitles(self, spec: LocalizationInput) -> SubtitleTrack:
