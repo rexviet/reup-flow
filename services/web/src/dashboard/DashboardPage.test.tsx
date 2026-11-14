@@ -139,6 +139,18 @@ describe('DashboardPage pipeline', () => {
     expect(vi.mocked(client.getDashboardVideos).mock.lastCall?.[0]).not.toHaveProperty('stage');
   });
 
+  it('a click on a collection lists its videos and marks it as the one shown', async () => {
+    vi.mocked(client.listCollections).mockResolvedValue({ items: [collection({ id: 'c-a', name: 'Phim A' }), collection({ id: 'c-b', name: 'Phim B' })] });
+    render(<DashboardPage />);
+    await flush();
+    await userEvent.click(screen.getByRole('button', { name: 'Xem video của Phim B' }));
+    await flush();
+    expect(client.getDashboardVideos).toHaveBeenLastCalledWith(expect.objectContaining({ collection: 'c-b', offset: 0 }));
+    expect(screen.getByLabelText('Lọc theo collection')).toHaveValue('c-b');
+    expect(screen.getByRole('button', { name: 'Xem video của Phim B' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Xem video của Phim A' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
   it('sends the search text after a pause', async () => {
     render(<DashboardPage />);
     await flush();

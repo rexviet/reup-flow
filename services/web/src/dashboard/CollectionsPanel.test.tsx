@@ -61,6 +61,14 @@ describe('CollectionsPanel list', () => {
     expect(second).toHaveTextContent('Chưa đặt thư mục');
   });
 
+  it('a click on a row asks for that collection\'s videos', async () => {
+    const onOpen = vi.fn();
+    render(<CollectionsPanel collections={[mix]} onChanged={() => {}} onOpen={onOpen} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Xem video của Phim A' }));
+    expect(onOpen).toHaveBeenCalledWith(mix.id);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
   it('creates a collection by name', async () => {
     const onChanged = vi.fn();
     vi.mocked(client.createCollection).mockResolvedValue(collection({ id: 'c-new', name: 'Mới' }));

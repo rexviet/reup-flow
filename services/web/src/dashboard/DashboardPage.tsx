@@ -178,7 +178,18 @@ export function DashboardPage() {
         collections={collectionItems}
         onChanged={refreshAll}
       />
-      <CollectionsPanel collections={collections.data?.items ?? null} error={collections.error} onChanged={refreshCollections} />
+      <CollectionsPanel
+        collections={collections.data?.items ?? null}
+        error={collections.error}
+        onChanged={refreshCollections}
+        activeId={filters.collection}
+        onOpen={(id) => {
+          setFilters({ ...EMPTY_FILTERS, collection: id });
+          setSelected(new Set());
+          // jsdom has no scrollIntoView.
+          document.getElementById('pipeline-title')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+        }}
+      />
       {actions.dialog}
     </div>
   );

@@ -50,10 +50,14 @@ export interface CollectionsPanelProps {
   /** The last failed load; the list keeps its last good answer meanwhile. */
   error?: Error | null;
   onChanged: () => void;
+  /** The collection whose videos the pipeline list shows now, if any. */
+  activeId?: string;
+  /** Show this collection's videos in the pipeline list. */
+  onOpen?: (id: string) => void;
 }
 
 /** Every collection with its kind, size and folder; create one by name, edit its settings and glossary. */
-export function CollectionsPanel({ collections, error = null, onChanged }: CollectionsPanelProps) {
+export function CollectionsPanel({ collections, error = null, onChanged, activeId = '', onOpen }: CollectionsPanelProps) {
   const [editing, setEditing] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
   const [creating, setCreating] = useState(false);
@@ -119,16 +123,28 @@ export function CollectionsPanel({ collections, error = null, onChanged }: Colle
       ) : (
         <ul className="divide-y divide-border-subtle/60">
           {collections.map((c) => (
-            <li key={c.id} data-testid="collection-row" className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
-              <div className="min-w-0">
-                <p className="break-all font-medium text-text-primary">
+            <li
+              key={c.id}
+              data-testid="collection-row"
+              className={`flex items-center justify-between gap-2 py-1 text-sm ${activeId === c.id ? 'rounded bg-surface-layer-2' : ''}`}
+            >
+              {/* The whole row shows the collection's videos in the pipeline list above. */}
+              <button
+                type="button"
+                onClick={() => onOpen?.(c.id)}
+                aria-label={`Xem video của ${c.name}`}
+                aria-pressed={activeId === c.id}
+                className="min-w-0 flex-1 rounded px-2 py-1 text-left hover:bg-surface-layer-2"
+              >
+                <span className="block break-all font-medium text-text-primary">
                   {c.name}{' '}
                   <span className="rounded bg-surface-layer-2 px-1 font-mono text-[11px] text-text-muted">{COLLECTION_KIND_LABELS[c.kind] ?? c.kind}</span>
-                </p>
-                <p className="font-mono text-xs text-text-muted">
+                  {activeId === c.id ? <span className="ml-1 rounded bg-status-success-bg px-1 text-[11px] text-status-success-text">Đang xem</span> : null}
+                </span>
+                <span className="block font-mono text-xs text-text-muted">
                   {c.video_count} video · {c.save_subdir === null ? 'Chưa đặt thư mục' : `${SAVE_ROOT_LABEL}/${c.save_subdir}`}
-                </p>
-              </div>
+                </span>
+              </button>
               <button
                 type="button"
                 aria-label={`Sửa ${c.name}`}
