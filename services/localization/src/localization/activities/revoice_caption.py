@@ -19,6 +19,10 @@ from localization.review_bridge.service import request_hash
 from localization.review_bridge.visual import capture_visual
 from localization.storage.object_store import ArtifactMissingError, StorageConflictError
 
+# The reference `revoice_synthesize` returns for a blank caption: the mix drops that cue's
+# clip instead of placing a new one. The workflow passes it on unchanged.
+REMOVE_SUFFIX = ".remove"
+
 
 class RevoiceActivities:
     def __init__(self, store, synthesizer=None, *, target=-14.0, peak=-1.5):
@@ -66,6 +70,9 @@ class RevoiceActivities:
         if await asyncio.to_thread(self.repo.optional_json, key) is not None:
             return key
         _, base, cue = await asyncio.to_thread(self.request, request_key)
+        if not cue.text_vi.strip():
+            # A blank caption is spoken by nobody: the mix drops its clip, no TTS is asked.
+            return self.derived_key(request_key, REMOVE_SUFFIX)
         if self.synth is None or self.synth._model != base.model:
             raise ApplicationError("TTS model changed", non_retryable=True)
         async with background_heartbeat():
@@ -90,7 +97,11 @@ class RevoiceActivities:
 
     @activity.defn(name="revoice_mix")
     async def mix(self, request_key: str, clip_ref: str) -> str:
-        if clip_ref != self.derived_key(request_key, ".clip.json"):
+        allowed = {
+            self.derived_key(request_key, ".clip.json"),
+            self.derived_key(request_key, REMOVE_SUFFIX),
+        }
+        if clip_ref not in allowed:
             raise ValueError("foreign clip reference")
         return await run_blocking(self._mix, request_key, clip_ref)
 
@@ -103,22 +114,37 @@ class RevoiceActivities:
             return candidate_key
         except ArtifactMissingError:
             pass
-        record = self.repo.read_json(clip_ref)
-        clip = ReviewAsset.model_validate(record["asset"])
-        duration = record["duration_ms"]
-        slot = cue.end_ms - cue.start_ms
-        if slot <= 0 or duration > slot * 1.15:
-            return self.derived_key(request_key, ".overflow")
-        changed = cue.model_copy(
-            update={
-                "clip": clip,
-                "spoken_text": cue.text_vi,
-                "audio_start_ms": cue.start_ms,
-                "audio_duration_ms": duration,
-                "stretch_ratio": max(1.0, duration / slot),
-                "overflow_unresolved": False,
-            }
-        )
+        if clip_ref == self.derived_key(request_key, REMOVE_SUFFIX):
+            if cue.text_vi.strip():
+                raise ValueError("only a blank caption has its voice removed")
+            clip, duration = None, None
+            changed = cue.model_copy(
+                update={
+                    "clip": None,
+                    "spoken_text": "",
+                    "audio_start_ms": cue.start_ms,
+                    "audio_duration_ms": 0,
+                    "stretch_ratio": 1.0,
+                    "overflow_unresolved": False,
+                }
+            )
+        else:
+            record = self.repo.read_json(clip_ref)
+            clip = ReviewAsset.model_validate(record["asset"])
+            duration = record["duration_ms"]
+            slot = cue.end_ms - cue.start_ms
+            if slot <= 0 or duration > slot * 1.15:
+                return self.derived_key(request_key, ".overflow")
+            changed = cue.model_copy(
+                update={
+                    "clip": clip,
+                    "spoken_text": cue.text_vi,
+                    "audio_start_ms": cue.start_ms,
+                    "audio_duration_ms": duration,
+                    "stretch_ratio": max(1.0, duration / slot),
+                    "overflow_unresolved": False,
+                }
+            )
         cues = tuple(changed if c.id == cue.id else c for c in base.cues)
         with tempfile.TemporaryDirectory(prefix="revoice-") as directory:
             root = Path(directory)
@@ -130,7 +156,7 @@ class RevoiceActivities:
                     continue
                 path = root / f"cue-{item.id}.wav"
                 path.write_bytes(self.repo.read_asset(item.clip))
-                if item.id == cue.id and probe_duration_ms(path) != duration:
+                if item.id == cue.id and clip is not None and probe_duration_ms(path) != duration:
                     raise ValueError("clip duration mismatch")
                 clips.append(path)
                 placements.append((item.audio_start_ms, item.stretch_ratio))

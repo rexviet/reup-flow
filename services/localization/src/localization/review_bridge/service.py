@@ -110,7 +110,13 @@ class Service:
             if base.revision_id != command.baseRevision:
                 raise Conflict(base.revision_id)
             cue = next((c for c in base.cues if c.id == command.cueId), None)
-            if cue is None or not cue.text_vi.strip() or cue.end_ms <= cue.start_ms:
+            if cue is None:
+                raise ValueError("unknown cue")
+            # A cue saved blank that still has a clip is asked to drop its voice from the mix.
+            if not cue.text_vi.strip():
+                if cue.clip is None:
+                    raise ValueError("this cue has no voice to remove")
+            elif cue.end_ms <= cue.start_ms:
                 raise ValueError("save a nonblank caption and positive slot before revoice")
             self.repo.adopt_marker(folder, base)
             marker = safe_path(folder, ".projection.json")

@@ -116,6 +116,61 @@ async def test_crash_after_head_cas_recovers_even_after_later_save(
     assert original(key, result) == result
 
 
+def save_blank(service):
+    state = service.project("7001", 1)
+    service.save(
+        "7001",
+        1,
+        17,
+        SaveCue(
+            expectedRevision=state["revision"],
+            headETag=state["headETag"],
+            text="",
+            start_ms=0,
+            end_ms=1000,
+        ),
+    )
+
+
+async def test_a_blank_caption_has_its_voice_removed_from_the_mix(review_store, tmp_path):
+    """A duplicated line saved blank, then "Xoá giọng": its clip leaves the mix, the
+    other cue's stays, and the cue is in sync again."""
+    service, acts, provider = audio_project(review_store, tmp_path)
+    repo = service.repo
+    save_blank(service)
+    assert service.project("7001", 1)["cues"][0]["mismatch"]  # blank caption, old voice
+    original = repo.current("7001", 1)[1]
+    key = reserve(service)
+    env = ActivityEnvironment()
+    clip_ref = await env.run(acts.synthesize, key)
+    assert clip_ref.endswith(".remove") and provider.calls == []
+    candidate_ref = await env.run(acts.mix, key, clip_ref)
+    assert (await env.run(acts.commit, key, candidate_ref))["status"] == "completed"
+    current = repo.current("7001", 1)[1]
+    assert current.cues[0].clip is None and current.cues[0].spoken_text == ""
+    assert current.cues[1] == original.cues[1]
+    assert not service.project("7001", 1)["cues"][0]["mismatch"]
+    path = tmp_path / "removed.wav"
+    path.write_bytes(repo.read_asset(current.mixed_audio))
+    samples = decode(path)
+    assert level(samples, 50, 450, 220) < 0.001  # the removed cue is silent
+    assert level(samples, 1450, 1850, 220) > 0.05  # the other cue still plays
+
+
+async def test_a_blank_caption_without_a_voice_has_nothing_to_remove(review_store, tmp_path):
+    service, acts, _ = audio_project(review_store, tmp_path, blank=True)
+    save_blank(service)
+    with pytest.raises(ValueError, match="no voice to remove"):
+        reserve(service)
+
+
+async def test_a_removal_reference_is_refused_for_a_caption_with_text(review_store, tmp_path):
+    service, acts, _ = audio_project(review_store, tmp_path)
+    key = reserve(service)
+    with pytest.raises(ValueError, match="only a blank caption"):
+        await ActivityEnvironment().run(acts.mix, key, key.removesuffix(".json") + ".remove")
+
+
 async def test_foreign_clip_ref_is_rejected(review_store, tmp_path):
     service, acts, _ = audio_project(review_store, tmp_path)
     with pytest.raises(ValueError, match="foreign"):

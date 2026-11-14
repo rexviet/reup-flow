@@ -105,8 +105,11 @@ function render() {
     if (cue.reason) article.append(element('p', cue.reason, 'reason'));
     const actions = element('div', undefined, 'actions');
     const save = element('button', 'Lưu phụ đề', 'primary');
-    const voice = element('button', 'Tạo lại giọng');
-    save.disabled = voice.disabled = busy;
+    // A cue saved blank that still plays a clip offers to drop that voice from the mix.
+    const removing = !cue.text_vi.trim();
+    const voice = element('button', removing ? 'Xoá giọng' : 'Tạo lại giọng');
+    save.disabled = busy;
+    voice.disabled = busy || (removing && !cue.spoken_text);
     save.addEventListener('click', () =>
       action(async () => {
         if (!start.reportValidity() || !end.reportValidity()) return;
@@ -123,15 +126,21 @@ function render() {
         });
         edits.delete(cue.id);
         preview.src = `/preview?revision=${project.revision}`;
-        message('Đã lưu phụ đề. Giọng cũ được giữ cho tới khi tạo lại giọng.');
+        message(
+          project.cues.find((c) => c.id === cue.id)?.text_vi.trim()
+            ? 'Đã lưu phụ đề. Giọng cũ được giữ cho tới khi tạo lại giọng.'
+            : 'Đã lưu phụ đề trống. Giọng cũ vẫn phát cho tới khi bấm "Xoá giọng".',
+        );
       }),
     );
     voice.addEventListener('click', () =>
       action(async () => {
         if (edits.has(cue.id))
-          throw new Error('Lưu phụ đề của câu này trước khi tạo lại giọng.');
-        if (!cue.text_vi.trim())
-          throw new Error('Nhập và lưu nội dung trước khi tạo lại giọng.');
+          throw new Error(
+            removing
+              ? 'Lưu phụ đề trống của câu này trước khi xoá giọng.'
+              : 'Lưu phụ đề của câu này trước khi tạo lại giọng.',
+          );
         if (localStorage.getItem(jobKey()))
           throw new Error(
             'Đang có yêu cầu tạo giọng. Chờ kết quả hoặc tải bản mới để tiếp tục theo dõi.',
@@ -203,7 +212,7 @@ async function submit(command) {
           return;
         }
         message(
-          'Đã cập nhật giọng trong bản mix. Tải lại preview trong Studio để nghe.',
+          'Đã cập nhật giọng trong bản mix (câu trống thì đã bỏ giọng). Tải lại preview trong Studio để nghe.',
         );
       } else
         message(
