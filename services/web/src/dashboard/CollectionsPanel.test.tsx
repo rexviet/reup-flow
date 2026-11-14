@@ -119,6 +119,25 @@ describe('CollectionsPanel settings', () => {
     expect(screen.getByLabelText('Màu chữ')).not.toHaveAccessibleDescription(/relative path/);
   });
 
+  it('opens in a dialog named after the collection, which the close button and Escape both close', async () => {
+    await openEditor();
+    expect(screen.getByRole('dialog', { name: 'Sửa «Phim A»' })).toBeInTheDocument();
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Đóng' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Sửa Phim A' }));
+    fireEvent(screen.getByRole('dialog'), new Event('cancel', { cancelable: true }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('a click on the backdrop closes the dialog; a click inside it does not', async () => {
+    await openEditor();
+    await userEvent.click(screen.getByLabelText('Tên collection'));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('dialog'));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
   it('has a Glossary tab', async () => {
     await openEditor();
     await userEvent.click(screen.getByRole('tab', { name: 'Glossary' }));

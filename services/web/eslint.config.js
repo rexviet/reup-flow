@@ -31,6 +31,7 @@ export default [
         Event: 'readonly',
         HashChangeEvent: 'readonly',
         HTMLVideoElement: 'readonly',
+        HTMLDialogElement: 'readonly',
         URLSearchParams: 'readonly',
       },
     },

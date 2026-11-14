@@ -1,7 +1,7 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { createCollection, updateCollection } from '../api/client';
 import type { CollectionItem, UpdateCollectionBody } from '../api/types';
-import { Icon } from '../components/Icon';
+import { Modal } from '../components/Modal';
 import { CollectionGlossary } from './CollectionGlossary';
 import { COLLECTION_KIND_LABELS, fieldErrorsOf, SAVE_ROOT_LABEL } from './format';
 
@@ -100,8 +100,8 @@ export function CollectionsPanel({ collections, error = null, onChanged }: Colle
               <button
                 type="button"
                 aria-label={`Sửa ${c.name}`}
-                aria-expanded={editing === c.id}
-                onClick={() => setEditing(editing === c.id ? null : c.id)}
+                aria-haspopup="dialog"
+                onClick={() => setEditing(c.id)}
                 className="btn btn-ghost"
               >
                 Sửa
@@ -116,17 +116,12 @@ export function CollectionsPanel({ collections, error = null, onChanged }: Colle
   );
 }
 
+/** Opens over the page where the admin is, so a long list never pushes it out of sight. */
 function CollectionEditor({ collection, onSaved, onClose }: { collection: CollectionItem; onSaved: () => void; onClose: () => void }) {
   const [tab, setTab] = useState<'settings' | 'glossary'>('settings');
   const tabClass = (on: boolean) => `btn ${on ? 'btn-neutral' : 'btn-ghost'}`;
   return (
-    <div className="flex flex-col gap-3 rounded bg-surface-container-low p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold text-text-primary">Sửa «{collection.name}»</h3>
-        <button type="button" onClick={onClose} aria-label="Đóng" className="inline-flex min-h-8 min-w-8 items-center justify-center rounded text-text-muted hover:text-text-primary">
-          <Icon name="close" size={14} />
-        </button>
-      </div>
+    <Modal title={`Sửa «${collection.name}»`} onClose={onClose}>
       <div role="tablist" aria-label="Phần cần sửa" className="flex gap-1.5">
         <button type="button" role="tab" id="tab-settings" aria-selected={tab === 'settings'} aria-controls="panel-collection" onClick={() => setTab('settings')} className={tabClass(tab === 'settings')}>
           Setting
@@ -138,7 +133,7 @@ function CollectionEditor({ collection, onSaved, onClose }: { collection: Collec
       <div role="tabpanel" id="panel-collection" aria-labelledby={tab === 'settings' ? 'tab-settings' : 'tab-glossary'}>
         {tab === 'settings' ? <SettingsForm collection={collection} onSaved={onSaved} /> : <CollectionGlossary collectionId={collection.id} />}
       </div>
-    </div>
+    </Modal>
   );
 }
 
