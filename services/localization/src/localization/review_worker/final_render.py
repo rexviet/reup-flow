@@ -3,9 +3,7 @@ projection, upload the MP4 and SRT, and record the result under the claim token.
 
 import contextlib
 import logging
-import os
 import shutil
-import signal
 import subprocess
 import tempfile
 import threading
@@ -15,6 +13,9 @@ from pathlib import Path
 
 import psycopg
 
+from localization.platform import ProcessControl
+from localization.platform import current as current_platform
+from localization.platform.posix import group_alive  # noqa: F401  (kept importable here)
 from localization.review_worker import posters
 from localization.review_worker.config import WorkerConfig
 
@@ -153,43 +154,24 @@ def claim(conn, cfg: WorkerConfig) -> dict | None:
 def render_command(cfg: WorkerConfig, folder: Path, output: Path) -> list[str]:
     if cfg.hyperframes_bin is None:
         raise RuntimeError("HYPERFRAMES_BIN is not set")
-    return [
+    command = [
         cfg.node, cfg.hyperframes_bin, "render", str(folder),
         "-o", str(output), "-q", "delivery", "--workers", str(cfg.render_workers),
     ]  # fmt: skip
+    if cfg.render_gpu:
+        command.append("--gpu")
+    return command
 
 
 def render_env(tmp: Path) -> dict[str, str]:
     """Nothing but what the CLI and Chrome need: no database or storage credentials."""
-    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "TMPDIR": str(tmp)}
-    env["HOME"] = os.environ.get("HOME", "")
-    env["LANG"] = os.environ.get("LANG", "en_US.UTF-8")
-    return env
+    return current_platform().process.child_env(tmp)
 
 
-def group_alive(pgid: int, sig: int = 0) -> bool:
-    """Signal the group; False once nothing is left. macOS answers EPERM, not ESRCH, for a
-    group that holds only a zombie, so both mean gone."""
-    try:
-        os.killpg(pgid, sig)
-    except (ProcessLookupError, PermissionError):
-        return False
-    return True
-
-
-def kill_group(proc: subprocess.Popen) -> None:
+def kill_group(proc: subprocess.Popen, process: ProcessControl | None = None) -> None:
     """Stop the renderer and everything it started (Chrome, ffmpeg), also when the leader
     already exited and left children behind."""
-    proc.poll()  # reap an exited leader so the group is not held by a zombie
-    if group_alive(proc.pid, signal.SIGTERM):
-        for _ in range(100):
-            if not group_alive(proc.pid):
-                break
-            time.sleep(0.1)
-        else:
-            group_alive(proc.pid, signal.SIGKILL)
-    with contextlib.suppress(subprocess.TimeoutExpired):
-        proc.wait(timeout=5)
+    (process or current_platform().process).terminate_tree(proc)
 
 
 def run_cli(
@@ -202,14 +184,13 @@ def run_cli(
     renew_every_s: float,
     renew: Callable[[], bool],
     cancelled: threading.Event,
+    process: ProcessControl | None = None,
 ) -> None:
     """Run the renderer in its own process group; kill the group on timeout, lost
     claim or cancellation."""
+    process = process or current_platform().process
     with log_path.open("wb") as out:
-        proc = subprocess.Popen(
-            command, cwd=cwd, env=env, stdout=out, stderr=subprocess.STDOUT,
-            stdin=subprocess.DEVNULL, start_new_session=True,
-        )  # fmt: skip
+        proc = process.spawn(command, cwd=cwd, env=env, stdout=out)
     started = last_renew = time.monotonic()
     try:
         while True:
@@ -228,7 +209,7 @@ def run_cli(
                 if not renew():
                     raise ClaimLost()
     finally:
-        kill_group(proc)
+        kill_group(proc, process)
     if code != 0:
         raise RuntimeError(f"hyperframes render thoát với mã {code}: {tail(log_path)}")
 

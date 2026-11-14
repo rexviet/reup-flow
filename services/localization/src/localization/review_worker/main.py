@@ -2,6 +2,9 @@
 
 One loop every 5 seconds: heartbeat, Studio open requests, a scan every 60 seconds and,
 when the disk allows, one final render at a time on its own thread.
+
+`REVIEW_WORKER_ROLES` splits this between machines: a Windows PC that only renders runs
+`render` (no Studio, no scan of its empty `data/review`); the Mac then runs `studio`.
 """
 
 import logging
@@ -14,6 +17,7 @@ from pathlib import Path
 import psycopg
 from psycopg.rows import dict_row
 
+from localization import platform
 from localization.config import load_settings
 from localization.review_bridge.repository import Repository
 from localization.review_worker import (
@@ -113,9 +117,16 @@ class Worker:
                 disk_free=free, disk_total=total, voicestudio=self.probe(),
                 current=self.current, paused_reason=paused,
             ),
+            self.cfg.name,
         )  # fmt: skip
         if self.stopping.is_set():
             return
+        if "studio" in self.cfg.roles:
+            self._studio_work(conn)
+        if "render" in self.cfg.roles and enough and not self.rendering():
+            self._claim(conn)
+
+    def _studio_work(self, conn) -> None:
         # Opening Studio can take over a minute; it must not delay the heartbeat.
         if self.studio_thread is None or not self.studio_thread.is_alive():
             self.studio_thread = threading.Thread(
@@ -125,19 +136,21 @@ class Worker:
         if time.monotonic() - self.last_scan >= SCAN_EVERY_S:
             self.last_scan = time.monotonic()
             review_scan.scan(conn, self.repo)
-        if enough and not self.rendering():
-            row = final_render.claim(conn, self.cfg)
-            if row:
-                self.current = {
-                    "aweme_id": row["aweme_id"],
-                    "generation": row["generation"],
-                    "state": "rendering",
-                    "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-                }
-                self.thread = threading.Thread(
-                    target=self._render_thread, args=(row,), name="final-render", daemon=True
-                )
-                self.thread.start()
+
+    def _claim(self, conn) -> None:
+        row = final_render.claim(conn, self.cfg)
+        if not row:
+            return
+        self.current = {
+            "aweme_id": row["aweme_id"],
+            "generation": row["generation"],
+            "state": "rendering",
+            "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        }
+        self.thread = threading.Thread(
+            target=self._render_thread, args=(row,), name="final-render", daemon=True
+        )
+        self.thread.start()
 
     def shutdown(self) -> None:
         """Wait for the running render, then give its row back and kill the CLI."""
@@ -167,8 +180,12 @@ class Worker:
                 conn.close()
 
     def run(self) -> None:
-        final_render.clean_stale(self.cfg)
-        threading.Thread(target=self._backfill_posters, name="poster-backfill", daemon=True).start()
+        if "render" in self.cfg.roles:
+            final_render.clean_stale(self.cfg)
+        if "studio" in self.cfg.roles:
+            threading.Thread(
+                target=self._backfill_posters, name="poster-backfill", daemon=True
+            ).start()
         while not self.stopping.is_set():
             try:
                 self.tick()
@@ -181,16 +198,27 @@ class Worker:
         self.shutdown()
 
 
+def stop_signals() -> tuple[int, ...]:
+    """SIGTERM (pm2) and SIGINT (Ctrl+C) everywhere; on Windows also SIGBREAK
+    (Ctrl+Break, and what a service wrapper sends to a console program)."""
+    extra = getattr(signal, "SIGBREAK", None)
+    return (signal.SIGTERM, signal.SIGINT) + ((extra,) if extra is not None else ())
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     logging.getLogger("httpx").setLevel(logging.WARNING)  # one line per heartbeat otherwise
+    host = platform.current()  # an unknown REVIEW_PLATFORM stops here, before any work
     cfg = WorkerConfig.from_environ()
     store = ObjectStore.from_settings(load_settings())
     cfg.data_root.mkdir(parents=True, exist_ok=True)
     worker = Worker(cfg, store)
-    for sig in (signal.SIGTERM, signal.SIGINT):
+    for sig in stop_signals():
         signal.signal(sig, lambda *_: worker.stopping.set())
-    log.info("review worker started; data root %s", Path(cfg.data_root))
+    log.info(
+        "review worker started; data root %s; roles %s; name %s; platform %s",
+        Path(cfg.data_root), ",".join(sorted(cfg.roles)), cfg.name, host.name,
+    )  # fmt: skip
     worker.run()
 
 

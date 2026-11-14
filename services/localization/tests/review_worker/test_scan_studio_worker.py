@@ -210,3 +210,38 @@ def test_shutdown_gives_the_running_render_back_to_the_queue(db, cfg, project):
     after = db.render_row()
     assert after["state"] == "queued" and after["attempts"] == 0 and after["claim"] is None
     assert not worker.rendering()
+
+
+def test_render_role_renders_under_its_own_name_and_leaves_studio_work_alone(
+    db, cfg, project, monkeypatch
+):
+    repo, revision = project
+    db.approve("7001", 1, revision)
+    ready_run(db)
+    scanned = []
+    monkeypatch.setattr(review_scan, "scan", lambda *a: scanned.append(1))
+    rendered = []
+    worker = make_worker(
+        db, dataclasses.replace(cfg, roles=frozenset({"render"}), name="render-worker-win"),
+        repo.store, render=lambda row, **kw: rendered.append(row["aweme_id"]) or "rendered",
+    )  # fmt: skip
+    worker.tick()
+    worker.thread.join(5)
+    assert rendered == ["7001"] and scanned == [] and worker.studio_thread is None
+    names = [r["name"] for r in db.admin.execute("SELECT name FROM localization.host_workers")]
+    assert names == ["render-worker-win"]
+
+
+def test_studio_role_never_claims_a_render(db, cfg, project, monkeypatch):
+    repo, revision = project
+    db.approve("7001", 1, revision)
+    scanned = []
+    monkeypatch.setattr(review_scan, "scan", lambda *a: scanned.append(1))
+    worker = make_worker(db, dataclasses.replace(cfg, roles=frozenset({"studio"})), repo.store)
+    worker.tick()
+    worker.studio_thread.join(5)
+    assert worker.thread is None and db.render_row()["state"] == "queued"
+    assert scanned == [1]
+    assert db.admin.execute("SELECT name FROM localization.host_workers").fetchone()["name"] == (
+        "review-worker"
+    )

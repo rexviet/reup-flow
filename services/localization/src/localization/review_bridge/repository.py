@@ -1,7 +1,6 @@
 """Immutable revisions, HEAD CAS and recoverable local Studio projections."""
 
 import contextlib
-import fcntl
 import json
 import os
 import tempfile
@@ -18,6 +17,8 @@ from localization.activities.review_project import (
 )
 from localization.activities.srt_document import srt_document
 from localization.contracts import ReviewAsset, ReviewHead, ReviewProjectManifest
+from localization.platform import FileLock
+from localization.platform import current as current_platform
 from localization.storage.object_store import (
     ArtifactMissingError,
     StorageConflictError,
@@ -56,9 +57,10 @@ def safe_path(root: Path, name: str) -> Path:
 
 
 class Repository:
-    def __init__(self, store, root: Path | None = None):
+    def __init__(self, store, root: Path | None = None, file_lock: FileLock | None = None):
         self.store = store
         self.root = root
+        self.file_lock = file_lock or current_platform().file_lock
 
     def current(self, aweme, generation):
         return resolve_project(self.store, project_head_key(aweme, generation))
@@ -175,8 +177,7 @@ class Repository:
     def lock(self, aweme, generation):
         folder = self.folder(aweme, generation)
         path = safe_path(folder, ".companion.lock")
-        with path.open("a+b") as stream:
-            fcntl.flock(stream, fcntl.LOCK_EX)
+        with self.file_lock.hold(path):
             yield folder
 
     def projection(self, folder, *, with_renders=False):

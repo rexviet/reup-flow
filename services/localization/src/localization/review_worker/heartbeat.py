@@ -7,7 +7,8 @@ from pathlib import Path
 import httpx
 from psycopg.types.json import Jsonb
 
-WORKER_NAME = "review-worker"
+from localization.review_worker.config import DEFAULT_NAME as WORKER_NAME
+
 WELL_KNOWN = "/.well-known/voicestudio-speech"
 
 UPSERT_SQL = """
@@ -54,8 +55,8 @@ def build_info(
     return info
 
 
-def beat(conn, info: dict) -> None:
-    conn.execute(UPSERT_SQL, (WORKER_NAME, Jsonb(info)))
+def beat(conn, info: dict, name: str = WORKER_NAME) -> None:
+    conn.execute(UPSERT_SQL, (name, Jsonb(info)))
 
 
 def data_disk(data_root: Path) -> Path:
