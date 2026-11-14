@@ -391,6 +391,12 @@ export interface CollectionSettings {
   cover_color: string | null;
   /** Whole percentage 0–100. */
   cover_opacity_pct: number | null;
+  /** Shift of the cover box centre, whole % of frame height, −50 to 50 (positive = down); null = automatic. */
+  cover_offset_pct: number | null;
+  /** Cover box width, whole % of frame width, 20 to 100, centred; null = automatic. */
+  cover_width_pct: number | null;
+  /** Cover box height, whole % of frame height, 3 to 50; null = automatic. */
+  cover_height_pct: number | null;
   /** A folder relative to the export root on the Mac. */
   save_subdir: string | null;
 }
@@ -408,6 +414,21 @@ export interface CollectionItem extends CollectionSettings {
 
 export interface CollectionListResponse {
   items: CollectionItem[];
+}
+
+/** `GET /api/collections/:id/cover-preview`. Source of truth: services/downloader/src/collections/cover-preview.ts. */
+export interface CoverPreview {
+  aweme_id: string;
+  generation: number;
+  /** Frame size of the review project, in pixels. */
+  width: number;
+  height: number;
+  /** The source subtitle band, in pixels; null when none was found. */
+  source_region: { x: number; y: number; w: number; h: number } | null;
+  /** A moment of the source video that shows its subtitles. */
+  sample_ms: number;
+  /** Short-lived signed link to the source video, already prefixed with the API base; null when it cannot be served. */
+  source_url: string | null;
 }
 
 export type CreateCollectionBody = { name: string; sec_user_id?: string } & Partial<CollectionSettings>;

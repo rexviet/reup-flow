@@ -21,6 +21,12 @@ export interface CollectionView {
   caption_text_color: string | null;
   cover_color: string | null;
   cover_opacity_pct: number | null;
+  /** Cover box centre shift, % of frame height (positive = down); null = automatic. */
+  cover_offset_pct: number | null;
+  /** Cover box width, % of frame width; null = automatic. */
+  cover_width_pct: number | null;
+  /** Cover box height, % of frame height; null = automatic. */
+  cover_height_pct: number | null;
   save_subdir: string | null;
   created_at: string;
   updated_at: string;
@@ -51,7 +57,8 @@ export function isForeignKeyViolation(err: unknown, constraint?: string): boolea
 
 const SELECT_COLLECTIONS = `
   SELECT c.id, c.kind, c.external_id, c.name, c.sec_user_id, p.nickname,
-         c.bgm_offset_db, c.caption_text_color, c.cover_color, c.cover_opacity_pct, c.save_subdir,
+         c.bgm_offset_db, c.caption_text_color, c.cover_color, c.cover_opacity_pct,
+         c.cover_offset_pct, c.cover_width_pct, c.cover_height_pct, c.save_subdir,
          c.created_at, c.updated_at,
          (SELECT count(*)::int FROM videos v WHERE v.collection_id = c.id) AS video_count
     FROM collections c
@@ -71,6 +78,9 @@ function toCollection(r: Record<string, any>): CollectionView {
     caption_text_color: r.caption_text_color,
     cover_color: r.cover_color,
     cover_opacity_pct: r.cover_opacity_pct,
+    cover_offset_pct: r.cover_offset_pct,
+    cover_width_pct: r.cover_width_pct,
+    cover_height_pct: r.cover_height_pct,
     save_subdir: r.save_subdir,
     created_at: r.created_at.toISOString(),
     updated_at: r.updated_at.toISOString(),
@@ -120,8 +130,9 @@ export class CollectionsService {
     try {
       const { rows } = await this.pool.query<{ id: string }>(
         `INSERT INTO collections (kind, name, sec_user_id, bgm_offset_db, caption_text_color, cover_color,
-                                  cover_opacity_pct, save_subdir)
-         VALUES ('manual', $1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+                                  cover_opacity_pct, cover_offset_pct, cover_width_pct, cover_height_pct,
+                                  save_subdir)
+         VALUES ('manual', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
         [
           body.name,
           body.sec_user_id ?? null,
@@ -129,6 +140,9 @@ export class CollectionsService {
           body.caption_text_color ?? null,
           body.cover_color ?? null,
           body.cover_opacity_pct ?? null,
+          body.cover_offset_pct ?? null,
+          body.cover_width_pct ?? null,
+          body.cover_height_pct ?? null,
           body.save_subdir ?? null,
         ],
       );

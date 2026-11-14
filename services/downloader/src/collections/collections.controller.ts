@@ -11,6 +11,7 @@ import {
   type UpdateCollectionBody,
 } from './collections.schemas';
 import { CollectionsService } from './collections.service';
+import { CoverPreviewService } from './cover-preview';
 import { glossaryTermSchema, normalizeTerm, type GlossaryTerm } from './glossary-term';
 
 const termPipe = new ZodValidationPipe(glossaryTermSchema);
@@ -23,7 +24,10 @@ const termPipe = new ZodValidationPipe(glossaryTermSchema);
  */
 @Controller('api/collections')
 export class CollectionsController {
-  constructor(private readonly collections: CollectionsService) {}
+  constructor(
+    private readonly collections: CollectionsService,
+    private readonly coverPreview: CoverPreviewService,
+  ) {}
 
   @Get()
   list() {
@@ -41,6 +45,12 @@ export class CollectionsController {
     @Body(new ZodValidationPipe(updateCollectionSchema)) body: UpdateCollectionBody,
   ) {
     return this.collections.update(params.id, body);
+  }
+
+  /** A frame size, subtitle band and signed source link to preview the cover box on. */
+  @Get(':id/cover-preview')
+  preview(@Param(new ZodValidationPipe(collectionParamsSchema)) params: { id: string }) {
+    return this.coverPreview.preview(params.id);
   }
 
   @Get(':id/glossary')

@@ -7,6 +7,7 @@ import type {
   CollectionItem,
   CollectionListResponse,
   CookieStatus,
+  CoverPreview,
   CreateCollectionBody,
   GlossaryResponse,
   GlossaryTerm,
@@ -206,6 +207,12 @@ export async function createCollection(body: CreateCollectionBody): Promise<Coll
 /** A `null` setting returns it to the shared default; a key left out stays as it is. */
 export async function updateCollection(id: string, body: UpdateCollectionBody): Promise<CollectionItem> {
   return request<CollectionItem>(`/api/collections/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+
+/** A frame of one of the collection's videos to preview the cover box on; 404 when it has none with a review project. */
+export async function getCoverPreview(id: string): Promise<CoverPreview> {
+  const res = await request<CoverPreview>(`/api/collections/${encodeURIComponent(id)}/cover-preview`);
+  return res.source_url ? { ...res, source_url: `${baseUrl()}${res.source_url}` } : res;
 }
 
 const glossaryPath = (collectionId: string): string => `/api/collections/${encodeURIComponent(collectionId)}/glossary`;

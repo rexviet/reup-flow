@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 /**
  * Value rules for a collection's settings. They match the CHECK constraints in
- * migrations/261114-collections.sql, so a bad value is a 400 here and never a
+ * migrations/261114-collections.sql (and later collection migrations), so a bad value is a 400 here and never a
  * constraint violation (500) in Postgres.
  */
 
@@ -27,6 +27,15 @@ export const bgmOffsetDbSchema = z
 
 /** Opacity of the caption box as a whole percentage, like `Cover.opacity_pct`. */
 export const coverOpacityPctSchema = z.number().int().min(0).max(100);
+
+/**
+ * Where the caption box sits, as whole percentages of the frame
+ * (migrations/261114-collection-cover-geometry.sql): the shift of its centre
+ * (positive = down), its width (centred) and its height.
+ */
+export const coverOffsetPctSchema = z.number().int().min(-50).max(50);
+export const coverWidthPctSchema = z.number().int().min(20).max(100);
+export const coverHeightPctSchema = z.number().int().min(3).max(50);
 
 /**
  * A folder relative to REVIEW_WORKER_EXPORT_ROOT on the Mac. Every segment must be
@@ -58,6 +67,9 @@ const settingsShape = {
   caption_text_color: hexColorSchema.nullable().optional(),
   cover_color: hexColorSchema.nullable().optional(),
   cover_opacity_pct: coverOpacityPctSchema.nullable().optional(),
+  cover_offset_pct: coverOffsetPctSchema.nullable().optional(),
+  cover_width_pct: coverWidthPctSchema.nullable().optional(),
+  cover_height_pct: coverHeightPctSchema.nullable().optional(),
   save_subdir: saveSubdirSchema.nullable().optional(),
 };
 

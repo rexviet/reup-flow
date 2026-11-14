@@ -21,7 +21,8 @@ jest.setTimeout(60_000);
 const MIGRATIONS_DIR = resolve(__dirname, '../../migrations');
 const UP = readFileSync(resolve(MIGRATIONS_DIR, '261114-collections.sql'), 'utf8');
 const DOWN = readFileSync(resolve(MIGRATIONS_DIR, '261114-collections.down.sql'), 'utf8');
-const BEFORE = FORWARD_MIGRATIONS.filter((f) => !f.endsWith('261114-collections.sql'));
+// Only the migrations that come before it: later ones build on the collections table.
+const BEFORE = FORWARD_MIGRATIONS.slice(0, FORWARD_MIGRATIONS.findIndex((f) => f.endsWith('261114-collections.sql')));
 
 const SCHEMA = testSchemaName('collections_mig');
 

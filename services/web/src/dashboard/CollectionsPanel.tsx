@@ -3,12 +3,44 @@ import { createCollection, updateCollection } from '../api/client';
 import type { CollectionItem, UpdateCollectionBody } from '../api/types';
 import { Modal } from '../components/Modal';
 import { CollectionGlossary } from './CollectionGlossary';
+import { CoverPreview } from './CoverPreview';
 import { COLLECTION_KIND_LABELS, fieldErrorsOf, SAVE_ROOT_LABEL } from './format';
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
-const SETTING_FIELDS = ['name', 'bgm_offset_db', 'caption_text_color', 'cover_color', 'cover_opacity_pct', 'save_subdir'] as const;
+const SETTING_FIELDS = [
+  'name',
+  'bgm_offset_db',
+  'caption_text_color',
+  'cover_color',
+  'cover_opacity_pct',
+  'cover_offset_pct',
+  'cover_width_pct',
+  'cover_height_pct',
+  'save_subdir',
+] as const;
 type SettingField = (typeof SETTING_FIELDS)[number];
 type Errors = Partial<Record<SettingField | '', string>>;
+/** The cover box geometry fields: whole percentages within the server's ranges (collections.schemas.ts). */
+const GEOMETRY = {
+  cover_offset_pct: { min: -50, max: 50, label: 'Dời hộp nền theo chiều dọc (%)', hint: 'Từ −50 đến 50, số dương dời xuống. Để trống: tự động theo phụ đề gốc.' },
+  cover_width_pct: { min: 20, max: 100, label: 'Chiều rộng hộp nền (%)', hint: 'Từ 20 đến 100, tính theo chiều rộng khung. Để trống: tự động theo phụ đề gốc.' },
+  cover_height_pct: { min: 3, max: 50, label: 'Chiều cao hộp nền (%)', hint: 'Từ 3 đến 50, tính theo chiều cao khung. Để trống: tự động theo phụ đề gốc.' },
+} as const;
+type GeometryField = keyof typeof GEOMETRY;
+const GEOMETRY_FIELDS = Object.keys(GEOMETRY) as GeometryField[];
+
+/** A geometry field as typed: null when empty (automatic), else a whole number in range, else the error to show. */
+function parseGeometry(field: GeometryField, raw: string): { value: number | null; error?: string } {
+  const text = raw.trim();
+  if (text === '') return { value: null };
+  const { min, max } = GEOMETRY[field];
+  const value = Number(text);
+  if (!Number.isInteger(value) || value < min || value > max) {
+    return { value: null, error: `Phải là số nguyên từ ${String(min).replace('-', '−')} đến ${max}.` };
+  }
+  return { value };
+}
+
 /** Where the opacity slider starts when a collection stops using the shared value; the admin then moves it. */
 const OPACITY_START = 100;
 
@@ -193,6 +225,12 @@ function SettingsForm({ collection, onSaved }: { collection: CollectionItem; onS
   const [coverColor, setCoverColor] = useState(collection.cover_color ?? '');
   const [opacity, setOpacity] = useState<number | null>(collection.cover_opacity_pct);
   const [saveSubdir, setSaveSubdir] = useState(collection.save_subdir ?? '');
+  const [geometry, setGeometry] = useState<Record<GeometryField, string>>(() => ({
+    cover_offset_pct: collection.cover_offset_pct === null ? '' : String(collection.cover_offset_pct),
+    cover_width_pct: collection.cover_width_pct === null ? '' : String(collection.cover_width_pct),
+    cover_height_pct: collection.cover_height_pct === null ? '' : String(collection.cover_height_pct),
+  }));
+  const parsed = Object.fromEntries(GEOMETRY_FIELDS.map((f) => [f, parseGeometry(f, geometry[f])])) as Record<GeometryField, { value: number | null; error?: string }>;
   const [errors, setErrors] = useState<Errors>({});
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -212,12 +250,19 @@ function SettingsForm({ collection, onSaved }: { collection: CollectionItem; onS
     const bgmValue = bgmText === '' ? null : Number(bgmText);
     const subdir = saveSubdir.trim();
     if (bgmValue !== null && !Number.isFinite(bgmValue)) found.bgm_offset_db = 'Phải là một số dB.';
+    for (const field of GEOMETRY_FIELDS) {
+      const error = parsed[field].error;
+      if (error) found[field] = error;
+    }
     const body: UpdateCollectionBody = {
       name: trimmedName,
       bgm_offset_db: bgmValue,
       caption_text_color: color('caption_text_color', captionColor),
       cover_color: color('cover_color', coverColor),
       cover_opacity_pct: opacity,
+      cover_offset_pct: parsed.cover_offset_pct.value,
+      cover_width_pct: parsed.cover_width_pct.value,
+      cover_height_pct: parsed.cover_height_pct.value,
       save_subdir: subdir === '' ? null : subdir,
     };
     if (Object.keys(found).length > 0) return { errors: found };
@@ -321,6 +366,42 @@ function SettingsForm({ collection, onSaved }: { collection: CollectionItem; onS
           />
         </div>
       </Field>
+      <fieldset className="flex flex-col gap-3 sm:col-span-2 sm:flex-row">
+        <legend className="mb-1 text-xs font-medium text-text-secondary">Vị trí hộp nền</legend>
+        <div className="shrink-0">
+          <CoverPreview
+            collectionId={collection.id}
+            offsetPct={parsed.cover_offset_pct.value}
+            widthPct={parsed.cover_width_pct.value}
+            heightPct={parsed.cover_height_pct.value}
+            color={HEX.test(coverColor.trim()) ? coverColor.trim().toLowerCase() : null}
+            opacityPct={opacity}
+          />
+        </div>
+        <div className="flex flex-1 flex-col gap-3">
+          {GEOMETRY_FIELDS.map((field) => {
+            const id = `collection-${field}`;
+            const { label, hint } = GEOMETRY[field];
+            return (
+              <Field key={field} id={id} label={label} error={errors[field]} hint={hint}>
+                <input
+                  id={id}
+                  type="number"
+                  // No native min/max/step: the browser would block the submit with its own bubble
+                  // instead of the message beside the field.
+                  step="any"
+                  value={geometry[field]}
+                  onChange={(e) => setGeometry((g) => ({ ...g, [field]: e.target.value }))}
+                  placeholder="tự động"
+                  aria-describedby={describedBy(id, errors[field])}
+                  aria-invalid={errors[field] ? true : undefined}
+                  className="field font-mono"
+                />
+              </Field>
+            );
+          })}
+        </div>
+      </fieldset>
       <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
         <button type="submit" disabled={saving} className="btn btn-primary">
           {saving ? 'Đang lưu…' : 'Lưu setting'}

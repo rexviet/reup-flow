@@ -67,6 +67,12 @@ export const collections = pgTable(
     captionTextColor: text('caption_text_color'),
     coverColor: text('cover_color'),
     coverOpacityPct: smallint('cover_opacity_pct'),
+    /** Shift of the cover box centre, % of frame height (−50..50, positive = down); NULL = automatic. */
+    coverOffsetPct: smallint('cover_offset_pct'),
+    /** Cover box width, % of frame width (20..100), centred; NULL = automatic. */
+    coverWidthPct: smallint('cover_width_pct'),
+    /** Cover box height, % of frame height (3..50); NULL = automatic. */
+    coverHeightPct: smallint('cover_height_pct'),
     /** Relative to REVIEW_WORKER_EXPORT_ROOT on the Mac. */
     saveSubdir: text('save_subdir'),
     createdAt: tstz('created_at').notNull().defaultNow(),

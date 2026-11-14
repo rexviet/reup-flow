@@ -51,5 +51,7 @@ import { ProfilesController } from './profiles.controller';
         new DashboardService(repo, temporal, env.DASHBOARD_STUCK_MINUTES),
     },
   ],
+  // The collection cover preview reads review manifests and signs source links with these.
+  exports: [DashboardMediaService, MEDIA_READER],
 })
 export class DashboardModule {}

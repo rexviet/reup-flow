@@ -22,6 +22,7 @@ const MIGRATION_NAMES = [
   '261026-localization-outbox',
   '261112-dashboard-intake',
   '261114-collections',
+  '261114-collection-cover-geometry',
 ];
 export const FORWARD_MIGRATIONS = MIGRATION_NAMES.map((n) => resolve(MIGRATIONS_DIR, `${n}.sql`));
 export const ROLLBACK_MIGRATIONS = MIGRATION_NAMES.map((n) =>

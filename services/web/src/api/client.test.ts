@@ -18,6 +18,7 @@ import {
   putGlossaryTerm,
   deleteGlossaryTerm,
   moveCollection,
+  getCoverPreview,
 } from './client';
 
 const originalFetch = global.fetch;
@@ -189,6 +190,20 @@ describe('collections client', () => {
     expect(String(fetchMock.mock.calls[0][0])).toBe(`http://api.test/api/collections/${COLLECTION}`);
     expect((fetchMock.mock.calls[0][1] as RequestInit).method).toBe('PATCH');
     expect(bodyOf(fetchMock)).toEqual({ caption_text_color: null, cover_opacity_pct: 40 });
+  });
+
+  it('gets the cover preview, prefixing its signed source link with the API base', async () => {
+    const preview = { aweme_id: '1', generation: 1, width: 720, height: 1280, source_region: null, sample_ms: 10, source_url: '/api/dashboard/media/tok' };
+    let fetchMock = mockFetchOnce(preview);
+    const got = await getCoverPreview(COLLECTION);
+    expect(String(fetchMock.mock.calls[0][0])).toBe(`http://api.test/api/collections/${COLLECTION}/cover-preview`);
+    expect(got.source_url).toBe('http://api.test/api/dashboard/media/tok');
+
+    fetchMock = mockFetchOnce({ ...preview, source_url: null });
+    expect((await getCoverPreview(COLLECTION)).source_url).toBeNull();
+
+    mockFetchOnce({ message: 'Bộ sưu tập chưa có video' }, { status: 404 });
+    await expect(getCoverPreview(COLLECTION)).rejects.toMatchObject({ status: 404 });
   });
 
   it('puts and deletes a glossary term under its encoded Chinese key', async () => {

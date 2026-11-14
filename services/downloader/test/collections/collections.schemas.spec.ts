@@ -38,6 +38,21 @@ describe('collection setting validation', () => {
     });
   });
 
+  describe.each([
+    ['cover_offset_pct', [-50, -1, 0, 3, 50], [-51, 51, 1.5, '3']],
+    ['cover_width_pct', [20, 60, 100], [19, 101, 0, 60.5, '80']],
+    ['cover_height_pct', [3, 12, 50], [2, 51, 0, 12.5, '12']],
+  ] as const)('%s', (key, good, bad) => {
+    it.each([...good, null])('accepts %p', (v) => {
+      expect(ok({ [key]: v }).success).toBe(true);
+      expect(updateCollectionSchema.safeParse({ [key]: v }).success).toBe(true);
+    });
+    it.each([...bad])('rejects %p', (v) => {
+      expect(ok({ [key]: v }).success).toBe(false);
+      expect(updateCollectionSchema.safeParse({ [key]: v }).success).toBe(false);
+    });
+  });
+
   describe('save_subdir', () => {
     it.each(['Phim', 'Phim/成名的代价', 'a/b/c', '.hidden', 'a..b', 'x'.repeat(512), '字'.repeat(512)])(
       'accepts %j',

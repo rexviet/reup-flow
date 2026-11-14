@@ -35,12 +35,14 @@ write_policy() { cat > "$POLICY_DIR/$1.json"; }
 BUCKET_ARN="arn:aws:s3:::$MEDIA"
 
 # downloader: read-write source/*, read-only output/*. The dashboard proxies final renders
-# and SRT files from output/ to the browser; it never writes there and never reads
-# review/, work/ or cache/.
+# and SRT files from output/ to the browser; it never writes there. Of review/ it reads
+# only each project's HEAD and revision manifests (the collection cover preview takes the
+# frame size and subtitle band from them), never assets; it never reads work/ or cache/.
 write_policy downloader <<JSON
 {"Version":"2012-10-17","Statement":[
  {"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject","s3:AbortMultipartUpload","s3:ListMultipartUploadParts"],"Resource":["$BUCKET_ARN/source/*"]},
  {"Effect":"Allow","Action":["s3:GetObject"],"Resource":["$BUCKET_ARN/output/*"]},
+ {"Effect":"Allow","Action":["s3:GetObject"],"Resource":["$BUCKET_ARN/review/*/head.json","$BUCKET_ARN/review/*/manifest.json"]},
  {"Effect":"Allow","Action":["s3:ListBucket"],"Resource":["$BUCKET_ARN"],"Condition":{"StringLike":{"s3:prefix":["source/*","source/"]}}},
  {"Effect":"Allow","Action":["s3:ListBucketMultipartUploads"],"Resource":["$BUCKET_ARN"]}
 ]}

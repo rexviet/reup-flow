@@ -114,6 +114,9 @@ BEGIN
       'public.jobs@jobs_collection_id_fkey'];
     WHEN '261114-glossary-collection-scope.sql' THEN expected := ARRAY[
       'localization.glossary.collection_id:uuid','localization.glossary@glossary_collection_id_fkey'];
+    WHEN '261114-collection-cover-geometry.sql' THEN expected := ARRAY[
+      'public.collections.cover_offset_pct:smallint','public.collections.cover_width_pct:smallint',
+      'public.collections.cover_height_pct:smallint'];
     ELSE RAISE EXCEPTION 'Unknown migration %, reconcile manually', migration;
   END CASE;
   -- After the glossary moved to collections, the core migration's glossary is

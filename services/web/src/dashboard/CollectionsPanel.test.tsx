@@ -27,8 +27,20 @@ const mix = collection({
   save_subdir: 'phim/a',
 });
 
+/** A 720×1280 review project whose source subtitles sit at y=1000, 120 px tall. */
+const preview = {
+  aweme_id: '7677937301649142961',
+  generation: 1,
+  width: 720,
+  height: 1280,
+  source_region: { x: 10, y: 1000, w: 700, h: 120 },
+  sample_ms: 2000,
+  source_url: '/api/dashboard/media/tok',
+};
+
 beforeEach(() => {
   vi.mocked(client.getGlossary).mockResolvedValue({ items: [] });
+  vi.mocked(client.getCoverPreview).mockResolvedValue(preview);
   vi.mocked(client.updateCollection).mockResolvedValue(mix);
 });
 
@@ -136,6 +148,71 @@ describe('CollectionsPanel settings', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('dialog'));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('sends the cover geometry as whole numbers, and an emptied one as null (automatic)', async () => {
+    vi.mocked(client.updateCollection).mockResolvedValue(mix);
+    render(<CollectionsPanel collections={[{ ...mix, cover_width_pct: 80 }]} onChanged={() => {}} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Sửa Phim A' }));
+    await flush();
+    expect(screen.getByLabelText('Chiều rộng hộp nền (%)')).toHaveValue(80);
+    await userEvent.clear(screen.getByLabelText('Chiều rộng hộp nền (%)'));
+    await userEvent.type(screen.getByLabelText('Dời hộp nền theo chiều dọc (%)'), '-3');
+    await userEvent.type(screen.getByLabelText('Chiều cao hộp nền (%)'), '12');
+    await userEvent.click(screen.getByRole('button', { name: 'Lưu setting' }));
+    await flush();
+    expect(client.updateCollection).toHaveBeenCalledWith(COLLECTION_ID, {
+      cover_offset_pct: -3,
+      cover_width_pct: null,
+      cover_height_pct: 12,
+    });
+  });
+
+  it.each([
+    ['Dời hộp nền theo chiều dọc (%)', '51', /từ −50 đến 50/],
+    ['Chiều rộng hộp nền (%)', '19', /từ 20 đến 100/],
+    ['Chiều cao hộp nền (%)', '12.5', /từ 3 đến 50/],
+  ])('%s out of range (%s) is caught beside the field before anything is sent', async (label, value, message) => {
+    await openEditor();
+    await userEvent.type(screen.getByLabelText(label), value);
+    await userEvent.click(screen.getByRole('button', { name: 'Lưu setting' }));
+    expect(client.updateCollection).not.toHaveBeenCalled();
+    expect(screen.getByLabelText(label)).toHaveAccessibleDescription(message);
+  });
+
+  it('previews the box on a frame of a collection video, following the values as they are typed', async () => {
+    await openEditor();
+    expect(client.getCoverPreview).toHaveBeenCalledWith(COLLECTION_ID);
+    const video = screen.getByLabelText('Khung hình xem trước');
+    expect(video).toHaveAttribute('src', '/api/dashboard/media/tok');
+    expect((video as HTMLVideoElement).muted).toBe(true);
+    const box = screen.getByTestId('cover-preview-box');
+    // Automatic: the source band, 60 % wide, in the worker's default colour.
+    expect(box.style.top).toBe('78.125%');
+    expect(box.style.height).toBe('9.375%');
+    expect(box.style.width).toBe('60%');
+    expect(box.style.left).toBe('20%');
+    expect(box).toHaveStyle({ backgroundColor: '#101010', opacity: '0.92' });
+
+    await userEvent.type(screen.getByLabelText('Dời hộp nền theo chiều dọc (%)'), '3');
+    await userEvent.type(screen.getByLabelText('Chiều rộng hộp nền (%)'), '100');
+    await userEvent.clear(screen.getByLabelText('Màu hộp nền'));
+    await userEvent.type(screen.getByLabelText('Màu hộp nền'), '#FF0000');
+    await userEvent.click(screen.getByLabelText('Dùng độ mờ chung'));
+    fireEvent.change(screen.getByLabelText('Độ mờ hộp nền'), { target: { value: '50' } });
+    expect(box.style.top).toBe(`${(1038 / 1280) * 100}%`);
+    expect(box.style.width).toBe('100%');
+    expect(box.style.left).toBe('0%');
+    expect(box).toHaveStyle({ backgroundColor: '#ff0000', opacity: '0.5' });
+    expect(client.updateCollection).not.toHaveBeenCalled();
+  });
+
+  it('says so when no video of the collection has a review project to preview', async () => {
+    vi.mocked(client.getCoverPreview).mockRejectedValue(Object.assign(new Error('Bộ sưu tập chưa có video'), { status: 404 }));
+    await openEditor();
+    expect(screen.getByTestId('cover-preview-missing')).toHaveTextContent('Chưa có video nào của collection có project review để xem trước.');
+    expect(screen.queryByTestId('cover-preview-box')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Chiều cao hộp nền (%)')).toBeInTheDocument();
   });
 
   it('has a Glossary tab', async () => {
