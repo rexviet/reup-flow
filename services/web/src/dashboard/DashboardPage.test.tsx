@@ -109,7 +109,7 @@ describe('DashboardPage pipeline', () => {
 
     expect(screen.getByTestId('chip-all')).toHaveTextContent('Tất cả 3');
     expect(screen.getByTestId('chip-all')).toHaveAttribute('aria-pressed', 'true');
-    const row = screen.getAllByTestId('pipeline-row').find((r) => r.getAttribute('data-aweme-id') === '7004')!;
+    const row = screen.getAllByTestId('video-card').find((r) => r.getAttribute('data-aweme-id') === '7004')!;
     expect(within(row).getByTitle('Thời lượng video')).toHaveTextContent('1:35');
     expect(within(row).getByText('Có cue lệch.')).toBeInTheDocument();
     expect(within(row).getByRole('link', { name: 'Chi tiết 7004' })).toHaveAttribute('href', '#/video/7004');
@@ -125,14 +125,14 @@ describe('DashboardPage pipeline', () => {
     render(<DashboardPage />);
     await flush();
     expect(screen.getByTestId('chip-held')).toHaveTextContent('Đang giữ 1');
-    expect(screen.getAllByTestId('pipeline-row')).toHaveLength(3);
+    expect(screen.getAllByTestId('video-card')).toHaveLength(3);
 
     vi.mocked(client.getDashboardVideos).mockResolvedValue(list([held]));
     await userEvent.click(screen.getByTestId('chip-held'));
     await flush();
 
     expect(client.getDashboardVideos).toHaveBeenLastCalledWith(expect.objectContaining({ stage: 'held' }));
-    expect(screen.getAllByTestId('pipeline-row')).toHaveLength(1);
+    expect(screen.getAllByTestId('video-card')).toHaveLength(1);
     expect(screen.getByTestId('chip-held')).toHaveAttribute('aria-pressed', 'true');
 
     await userEvent.click(screen.getByTestId('chip-held'));
@@ -277,22 +277,23 @@ describe('DashboardPage rendered videos as pictures', () => {
     await flush();
   }
 
-  it('shows each rendered video as a card with its poster, and the other stages stay a table', async () => {
+  it('shows every stage as cards with the stage on each, and a rendered video with its poster', async () => {
     vi.mocked(client.getMediaLinks).mockImplementation(async (awemeId) => [
       { kind: 'poster', available: true, url: `/api/dashboard/media/tok-${awemeId}`, expires_at: new Date(Date.now() + 600_000).toISOString() },
     ]);
     vi.mocked(client.getDashboardVideos).mockResolvedValue(list([review, ...rendered]));
     render(<DashboardPage />);
     await flush();
-    expect(screen.queryByTestId('rendered-grid')).toBeNull();
-    expect(screen.getAllByTestId('pipeline-row')).toHaveLength(3);
+    expect(screen.getByTestId('video-grid')).toBeInTheDocument();
+    expect(screen.getAllByTestId('video-card')).toHaveLength(3);
+    // Only a video with a final render is asked for a still of it.
+    expect(client.getMediaLinks).not.toHaveBeenCalledWith(review.aweme_id, expect.anything(), expect.anything());
 
     vi.mocked(client.getDashboardVideos).mockResolvedValue(list(rendered));
     await userEvent.click(screen.getByTestId('chip-rendered'));
     await flush();
 
-    expect(screen.queryByTestId('pipeline-row')).toBeNull();
-    const cards = screen.getAllByTestId('rendered-card');
+    const cards = screen.getAllByTestId('video-card');
     expect(cards).toHaveLength(2);
     expect(client.getMediaLinks).toHaveBeenCalledWith('7101', 1, ['poster']);
     expect(within(cards[0]).getByRole('presentation', { hidden: true })).toHaveAttribute('src', '/api/dashboard/media/tok-7101');
@@ -307,7 +308,7 @@ describe('DashboardPage rendered videos as pictures', () => {
         : [{ kind: 'poster', available: true, url: '/api/dashboard/media/gone', expires_at: new Date(Date.now() + 600_000).toISOString() }],
     );
     await openRendered();
-    const [first, second] = screen.getAllByTestId('rendered-card');
+    const [first, second] = screen.getAllByTestId('video-card');
     expect(first).toHaveTextContent('Chưa có ảnh');
 
     const image = within(second).getByRole('presentation', { hidden: true });
@@ -328,7 +329,7 @@ describe('DashboardPage rendered videos as pictures', () => {
 describe('DashboardPage thumbnails', () => {
   const thumbLinks = async (ids: string[]) =>
     ids.map((id) => ({ aweme_id: id, kind: 'thumb' as const, available: true as const, url: `/api/dashboard/media/thumb-${id}`, expires_at: new Date(Date.now() + 900_000).toISOString() }));
-  const rowOf = (id: string) => screen.getAllByTestId('pipeline-row').find((r) => r.getAttribute('data-aweme-id') === id)!;
+  const rowOf = (id: string) => screen.getAllByTestId('video-card').find((r) => r.getAttribute('data-aweme-id') === id)!;
 
   it('shows a thumbnail in every row from one request, and a placeholder when it fails to load', async () => {
     vi.mocked(client.getThumbLinks).mockImplementation(thumbLinks);
@@ -388,7 +389,7 @@ describe('DashboardPage thumbnails', () => {
     vi.mocked(client.getDashboardVideos).mockResolvedValue(list([done]));
     await userEvent.click(screen.getByTestId('chip-rendered'));
     await flush();
-    expect(within(screen.getByTestId('rendered-card')).getByTestId('video-thumb')).toHaveAttribute('src', '/api/dashboard/media/thumb-7030');
+    expect(within(screen.getByTestId('video-card')).getByTestId('video-thumb')).toHaveAttribute('src', '/api/dashboard/media/thumb-7030');
   });
 });
 
@@ -503,7 +504,7 @@ describe('DashboardPage collections', () => {
     );
     render(<DashboardPage />);
     await flush();
-    const cell = within(screen.getByTestId('pipeline-row')).getByTestId('collection-cell');
+    const cell = within(screen.getByTestId('video-card')).getByTestId('collection-cell');
     expect(cell).toHaveTextContent('Phim A');
     expect(cell).toHaveTextContent('Tập 3');
   });

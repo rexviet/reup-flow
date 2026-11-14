@@ -1,21 +1,16 @@
 import { useEffect, useState } from 'react';
-import type { ChannelItem, CollectionItem, Stage, VideoListItem, VideoListResponse } from '../api/types';
+import type { ChannelItem, CollectionItem, Stage, VideoListResponse } from '../api/types';
 import { STAGES } from '../api/types';
 import { Icon } from '../components/Icon';
 import {
   COLLECTION_KIND_LABELS,
-  formatDateTime,
-  formatDuration,
-  relativeTime,
   STAGE_LABELS,
   STAGE_TONES,
   TONE_CLASSES,
   TONE_ICONS,
 } from './format';
-import { RenderedGrid } from './VideoGrid';
-import { StageBadge } from './StageBadge';
+import { VideoGrid } from './VideoGrid';
 import { useThumbLinks } from './useMediaLinks';
-import { SmallThumb } from './VideoThumb';
 
 export interface PipelineFilters {
   stage?: Stage;
@@ -75,7 +70,6 @@ export function PipelineTable({
   const items = data?.items ?? [];
   const thumbs = useThumbLinks(items.map((i) => i.aweme_id));
   const counts = data?.counts_by_stage;
-  const allOn = items.length > 0 && items.every((i) => selected.has(i.aweme_id));
   const change = (patch: Partial<PipelineFilters>) => onFiltersChange({ ...filters, ...patch, offset: 0 });
 
   const totalAll = counts ? STAGES.reduce((sum, s) => sum + (counts[s] ?? 0), 0) : 0;
@@ -173,51 +167,7 @@ export function PipelineTable({
         </div>
       </div>
 
-      {filters.stage === 'rendered' ? (
-        <RenderedGrid items={items} loading={data === null} selected={selected} onToggle={onToggle} thumbs={thumbs} />
-      ) : (
-        <div className="relative overflow-x-auto rounded bg-surface-layer-1">
-          <table className="w-full min-w-[52rem] border-collapse text-left text-sm">
-            <thead>
-              <tr className="bg-surface-container-low font-mono text-[11px] uppercase tracking-wider text-text-muted">
-                <th scope="col" className="w-10 p-2 text-center">
-                  <input
-                    type="checkbox"
-                    aria-label="Chọn tất cả"
-                    checked={allOn}
-                    onChange={(e) =>
-                      onToggleAll(
-                        items.map((i) => i.aweme_id),
-                        e.target.checked,
-                      )
-                    }
-                    className="h-5 w-5 cursor-pointer"
-                  />
-                </th>
-                <th scope="col" className="p-2 font-semibold">Video</th>
-                <th scope="col" className="p-2 font-semibold">Collection</th>
-                <th scope="col" className="p-2 font-semibold">Gen</th>
-                <th scope="col" className="p-2 font-semibold">Giai đoạn</th>
-                <th scope="col" className="p-2 font-semibold">Ở giai đoạn này</th>
-                <th scope="col" className="p-2 font-semibold">Cập nhật</th>
-                <th scope="col" className="p-2 text-right font-semibold">Chi tiết</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border-subtle/60">
-              {items.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="p-4 text-text-secondary">
-                    {data ? 'Không có video nào khớp.' : 'Đang tải…'}
-                  </td>
-                </tr>
-              ) : (
-                items.map((item) => <Row key={item.aweme_id} item={item} thumb={thumbs[item.aweme_id]} checked={selected.has(item.aweme_id)} onToggle={onToggle} />)
-              )}
-            </tbody>
-          </table>
-        </div>
-
-      )}
+      <VideoGrid items={items} loading={data === null} selected={selected} onToggle={onToggle} onToggleAll={onToggleAll} thumbs={thumbs} />
 
       {data && data.total > PAGE_SIZE ? (
         <div className="flex items-center justify-between gap-2 text-xs text-text-secondary">
@@ -243,73 +193,5 @@ export function PipelineTable({
         </div>
       ) : null}
     </section>
-  );
-}
-
-function Row({ item, thumb, checked, onToggle }: { item: VideoListItem; thumb: string | undefined; checked: boolean; onToggle: (id: string) => void }) {
-  const duration = formatDuration(item.duration_ms);
-  return (
-    <tr data-testid="pipeline-row" data-aweme-id={item.aweme_id} className={`transition-colors hover:bg-surface-container ${checked ? 'bg-surface-container-high/60' : ''}`}>
-      <td className="p-2 text-center">
-        <input type="checkbox" aria-label={`Chọn ${item.aweme_id}`} checked={checked} onChange={() => onToggle(item.aweme_id)} className="h-5 w-5 cursor-pointer" />
-      </td>
-      <td className="max-w-sm p-2">
-        <div className="flex items-center gap-2">
-          <a href={`#/video/${item.aweme_id}`} tabIndex={-1} aria-hidden="true" className="shrink-0">
-            <SmallThumb url={thumb} />
-          </a>
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <a href={`#/video/${item.aweme_id}`} className="font-mono text-xs font-semibold text-secondary hover:underline">
-                {item.aweme_id}
-              </a>
-              <span className="max-w-[10rem] truncate rounded bg-surface-layer-2 px-1 font-mono text-[11px] text-text-muted">{item.channel ?? item.sec_user_id}</span>
-              {duration ? <span className="rounded bg-surface-layer-2 px-1 font-mono text-[11px] text-text-muted" title="Thời lượng video">{duration}</span> : null}
-            </div>
-            <p className="truncate text-xs text-text-primary" title={item.desc ?? undefined}>
-              {item.desc ?? '(không có mô tả)'}
-            </p>
-          </div>
-        </div>
-      </td>
-      <td data-testid="collection-cell" className="max-w-[12rem] p-2 text-xs">
-        <p className="truncate text-text-primary" title={item.collection.name}>
-          {item.collection.name}
-        </p>
-        {item.mix_episode !== null ? <p className="font-mono text-[11px] text-text-muted">Tập {item.mix_episode}</p> : null}
-      </td>
-      <td className="p-2">
-        <span className="rounded bg-surface-layer-2 px-1 font-mono text-[11px] text-text-primary">{item.current_gen === null ? '-' : `g${item.current_gen}`}</span>
-      </td>
-      <td className="p-2">
-        <div className="flex flex-col gap-1">
-          <StageBadge item={item} />
-          {item.mismatch_count !== null && item.mismatch_count > 0 ? (
-            <span className="inline-flex items-center gap-1 font-mono text-[11px] text-status-warning-text">
-              <Icon name="warning" size={11} />
-              {item.mismatch_count} cue lệch
-            </span>
-          ) : null}
-          {item.attention.length > 0 ? (
-            <span className="inline-flex items-center gap-1 text-[11px] text-status-error-text" title={item.attention.map((a) => a.reason).join('\n')}>
-              <Icon name="warning" size={11} />
-              <span aria-hidden="true">!</span>
-              <span className="sr-only">{item.attention.map((a) => a.reason).join('; ')}</span>
-            </span>
-          ) : null}
-        </div>
-      </td>
-      <td className="whitespace-nowrap p-2 font-mono text-xs text-text-secondary" title={formatDateTime(item.stage_since)}>
-        {relativeTime(item.stage_since)}
-      </td>
-      <td className="whitespace-nowrap p-2 font-mono text-xs text-text-muted" title={formatDateTime(item.updated_at)}>
-        {relativeTime(item.updated_at)} trước
-      </td>
-      <td className="p-2 text-right">
-        <a href={`#/video/${item.aweme_id}`} aria-label={`Chi tiết ${item.aweme_id}`} title="Xem chi tiết" className="inline-flex min-h-9 min-w-9 items-center justify-center rounded bg-surface-layer-2 text-text-primary hover:bg-surface-bright">
-          <Icon name="eye" />
-        </a>
-      </td>
-    </tr>
   );
 }

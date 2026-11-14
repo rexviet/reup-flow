@@ -32,9 +32,11 @@ Dòng `runs` (workflow đã kết thúc) thắng workflow mở nếu hai nguồn
 | Đã render | có MP4 và SRT của revision đã duyệt trong MinIO |
 | Đã đăng | admin đánh dấu đã đăng (kèm platform và link) |
 
-Khi lọc giai đoạn **Đã render**, danh sách hiện dạng lưới ảnh thay vì bảng: mỗi video là một thẻ với
-ảnh của bản render cuối (kèm mô tả, id, generation, thời lượng), bấm vào thẻ để mở chi tiết, ô chọn
-ở góc thẻ dùng cho thanh thao tác hàng loạt. Ảnh là một khung hình lấy ở giây thứ 1 của MP4 cuối, rộng
+Danh sách pipeline luôn hiện dạng lưới ảnh, với mọi bộ lọc: mỗi video là một thẻ với ảnh (kèm mô tả,
+collection và tập, id, generation, thời lượng), nhãn giai đoạn và cảnh báo (cue lệch, cần xử lý) ở góc
+phải trên, ô chọn ở góc trái trên dùng cho thanh thao tác hàng loạt, và ô "Chọn cả trang" phía trên
+lưới; bấm vào thẻ để mở chi tiết. Video đã render hoặc đã đăng dùng ảnh của bản render cuối, các video
+khác (và bản render chưa có ảnh) dùng thumbnail của video gốc. Ảnh bản render là một khung hình lấy ở giây thứ 1 của MP4 cuối, rộng
 480 px, do worker review trên máy tạo ngay sau khi render và lưu cạnh video (`<revision>.mp4` thành
 `<revision>.jpg`, không có cột nào trong database); dashboard lấy ảnh qua link ký loại `poster`. Video
 chưa có ảnh hiện ô "Chưa có ảnh"; "Render lại" tạo ảnh mới. Tạo ảnh lỗi không làm hỏng render. Mỗi lần
