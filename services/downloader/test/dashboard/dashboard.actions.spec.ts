@@ -6,6 +6,7 @@ import { actionBodySchema, type ActionBody } from '../../src/dashboard/dashboard
 import * as schema from '../../src/db/schema';
 import type { DashboardTemporal, WorkflowStatus } from '../../src/workspace/workspace.dashboard-reader';
 import { createScratchDatabase, type ScratchDatabase } from '../support/localization-db';
+import { channelCollection } from '../support/collections';
 
 jest.setTimeout(60_000);
 
@@ -58,8 +59,11 @@ describe('DashboardActionsService (real downloader and localization schemas)', (
     svc = new DashboardActionsService(pool, drizzle(pool, { schema }), new DashboardRepository(pool), temporal);
   });
 
-  const video = (id: string) =>
-    pool.query(`INSERT INTO videos (aweme_id, sec_user_id, create_time, status) VALUES ($1, 'ch', now(), 'done')`, [id]);
+  const video = async (id: string) =>
+    pool.query(
+      `INSERT INTO videos (aweme_id, sec_user_id, create_time, status, collection_id) VALUES ($1, 'ch', now(), 'done', $2)`,
+      [id, await channelCollection(pool, 'ch')],
+    );
   const outbox = (id: string, gen: number, state: string) =>
     pool.query(`INSERT INTO localization_outbox (aweme_id, generation, state) VALUES ($1, $2, $3)`, [id, gen, state]);
   const run = (id: string, gen: number, status: string, projectKey: string | null = 'review/p/head.json', outputKey: string | null = null) =>
@@ -122,8 +126,10 @@ describe('DashboardActionsService (real downloader and localization schemas)', (
 
     it('puts a failed download back in the queue with fresh attempts, once, and logs it', async () => {
       await pool.query(
-        `INSERT INTO videos (aweme_id, sec_user_id, create_time, status, attempts, last_error, lease_expires_at)
-         VALUES ('81', 'ch', now(), 'failed', 5, 'cdn 403', now())`,
+        `INSERT INTO videos (aweme_id, sec_user_id, create_time, status, attempts, last_error, lease_expires_at,
+                             collection_id)
+         VALUES ('81', 'ch', now(), 'failed', 5, 'cdn 403', now(), $1)`,
+        [await channelCollection(pool, 'ch')],
       );
       const res = await svc.run(body('retry_download', ['81']));
       expect(res.done).toEqual(['81']);

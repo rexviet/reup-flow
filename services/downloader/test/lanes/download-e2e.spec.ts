@@ -36,6 +36,7 @@ import {
   dropSchema,
   testSchemaName,
 } from '../support/db';
+import { channelCollection } from '../support/collections';
 import { FakeCdn } from '../support/fake-cdn';
 import { waitUntil } from '../support/streams';
 
@@ -97,11 +98,12 @@ async function seedProfileAndJob(): Promise<string> {
 }
 
 async function seedVideos(count: number): Promise<void> {
+  const collectionId = await channelCollection(pool, PROFILE);
   for (let i = 0; i < count; i += 1) {
     await pool.query(
-      `INSERT INTO videos (aweme_id, sec_user_id, create_time, play_addr, url_expires_at)
-       VALUES ($1, $2, now() - make_interval(secs => $3), $4, now() + interval '1 hour')`,
-      [awemeIdFor(i), PROFILE, count - i, cdn.url(`/${awemeIdFor(i)}.mp4`)],
+      `INSERT INTO videos (aweme_id, sec_user_id, create_time, play_addr, url_expires_at, collection_id)
+       VALUES ($1, $2, now() - make_interval(secs => $3), $4, now() + interval '1 hour', $5)`,
+      [awemeIdFor(i), PROFILE, count - i, cdn.url(`/${awemeIdFor(i)}.mp4`), collectionId],
     );
   }
 }

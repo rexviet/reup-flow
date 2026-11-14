@@ -10,12 +10,13 @@ docker compose exec -T postgres sh -c 'createdb -U "$POSTGRES_USER" "$1"' sh "$n
 run() { MIGRATION_TEST_DATABASE="$name" bash scripts/apply-migrations.sh; }
 assert_sql() { local got; got=$(printf '%s\n' "$1" | psql_); [ "$got" = "$2" ] || { echo "assertion failed: expected $2 got $got" >&2; exit 1; }; }
 run
-assert_sql 'SELECT count(*) FROM public.applied_migrations' 10
+assert_sql 'SELECT count(*) FROM public.applied_migrations' 12
 run
-assert_sql 'SELECT count(*) FROM public.applied_migrations' 10
+assert_sql 'SELECT count(*) FROM public.applied_migrations' 12
 
 # Dashboard migrations: outbox accepts 'held' only, and a down/up round trip works.
-printf "INSERT INTO public.profiles(sec_user_id) VALUES ('p'); INSERT INTO public.videos(aweme_id,sec_user_id,create_time) VALUES ('h0','p',now()),('h1','p',now()),('h2','p',now());\n" | psql_
+printf "INSERT INTO public.profiles(sec_user_id) VALUES ('p'); INSERT INTO public.collections(kind,external_id,sec_user_id,name) VALUES ('channel','p','p','p'); INSERT INTO public.videos(aweme_id,sec_user_id,create_time,collection_id) SELECT a,'p',now(),c.id FROM unnest(ARRAY['h0','h1','h2']) a, public.collections c;\n" | psql_
+printf "INSERT INTO localization.glossary(collection_id,term_zh,term_vi,source_aweme_id,workflow_id) SELECT id,'苹果','Apple','h0','w' FROM public.collections;\n" | psql_
 # The first held row starts the sequential queue and leaves 'pending'; the second stays held.
 printf "INSERT INTO public.localization_outbox(aweme_id,state) VALUES ('h0','held'),('h1','held');\n" | psql_
 if printf "INSERT INTO public.localization_outbox(aweme_id,state) VALUES ('h2','bogus');\n" | psql_ 2>/dev/null; then
@@ -25,13 +26,19 @@ if psql_ -1 < services/downloader/migrations/261112-dashboard-intake.down.sql 2>
   echo 'down unexpectedly passed with held rows' >&2; exit 1
 fi
 printf "DELETE FROM public.localization_outbox;\n" | psql_
+psql_ -1 < services/localization/migrations/261114-glossary-collection-scope.down.sql >/dev/null 2>&1
+psql_ -1 < services/downloader/migrations/261114-collections.down.sql >/dev/null 2>&1
 psql_ -1 < services/localization/migrations/261113-sequential-queue.down.sql >/dev/null 2>&1
 psql_ -1 < services/localization/migrations/261112-review-delivery.down.sql >/dev/null 2>&1
 psql_ -1 < services/downloader/migrations/261112-dashboard-intake.down.sql >/dev/null 2>&1
-assert_sql "SELECT count(*) FROM pg_tables WHERE (schemaname,tablename) IN (('public','review_decisions'),('localization','final_renders'),('public','auto_queue_inflight'))" 0
-printf "DELETE FROM public.applied_migrations WHERE name IN ('261112-dashboard-intake.sql','261112-review-delivery.sql','261113-sequential-queue.sql');\n" | psql_
+assert_sql "SELECT count(*) FROM pg_tables WHERE (schemaname,tablename) IN (('public','review_decisions'),('localization','final_renders'),('public','auto_queue_inflight'),('public','collections'),('public','folder_exports'))" 0
+assert_sql "SELECT channel_id || ':' || term_vi FROM localization.glossary" 'p:Apple'
+printf "DELETE FROM public.applied_migrations WHERE name IN ('261112-dashboard-intake.sql','261112-review-delivery.sql','261113-sequential-queue.sql','261114-collections.sql','261114-glossary-collection-scope.sql');\n" | psql_
 run
-assert_sql 'SELECT count(*) FROM public.applied_migrations' 10
+assert_sql 'SELECT count(*) FROM public.applied_migrations' 12
+# The re-applied backfill gives the existing videos their channel collection again.
+assert_sql "SELECT count(*) FROM public.videos v JOIN public.collections c ON c.id = v.collection_id WHERE c.kind = 'channel' AND c.external_id = 'p'" 3
+assert_sql "SELECT c.external_id || ':' || g.term_vi FROM localization.glossary g JOIN public.collections c ON c.id = g.collection_id" 'p:Apple'
 
 # The worker role (NOSUPERUSER) writes what it owns, reads decisions, and nothing more.
 printf "INSERT INTO public.studio_open_requests(aweme_id,generation) VALUES ('h1',1); INSERT INTO public.review_decisions(aweme_id,generation,decision,approved_revision) VALUES ('h1',1,'approved','rev1');\n" | psql_

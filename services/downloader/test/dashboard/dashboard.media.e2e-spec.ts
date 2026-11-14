@@ -22,6 +22,7 @@ import { DashboardMediaController } from '../../src/dashboard/dashboard.media.co
 import { signMediaToken } from '../../src/dashboard/media-token';
 import { PG_POOL } from '../../src/db/db.module';
 import { createScratchDatabase, type ScratchDatabase } from '../support/localization-db';
+import { channelCollection } from '../support/collections';
 import { fixedEnv } from '../support/fixed-env';
 
 jest.setTimeout(60_000);
@@ -109,11 +110,12 @@ beforeEach(async () => {
     `TRUNCATE videos, profiles, localization_outbox, localization.runs, localization.final_renders RESTART IDENTITY CASCADE`,
   );
   await pool.query(
-    `INSERT INTO videos (aweme_id, sec_user_id, create_time, status, storage_path)
-     VALUES ('100', 'ch', now(), 'done', 's3://${BUCKET}/source/a/1.mp4'),
-            ('101', 'ch', now(), 'done', 's3://other-bucket/source/a/1.mp4'),
-            ('102', 'ch', now(), 'done', 's3://${BUCKET}/work/private.mp4'),
-            ('103', 'ch', now(), 'done', 's3://${BUCKET}/source/../work/private.mp4')`,
+    `INSERT INTO videos (aweme_id, sec_user_id, create_time, status, storage_path, collection_id)
+     VALUES ('100', 'ch', now(), 'done', 's3://${BUCKET}/source/a/1.mp4', $1),
+            ('101', 'ch', now(), 'done', 's3://other-bucket/source/a/1.mp4', $1),
+            ('102', 'ch', now(), 'done', 's3://${BUCKET}/work/private.mp4', $1),
+            ('103', 'ch', now(), 'done', 's3://${BUCKET}/source/../work/private.mp4', $1)`,
+    [await channelCollection(pool, 'ch')],
   );
   await pool.query(
     `INSERT INTO localization.final_renders (aweme_id, generation, approved_revision, state, final_key, srt_key)

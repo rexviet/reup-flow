@@ -20,6 +20,8 @@ MIGRATIONS=(
   services/localization/migrations/261112-review-delivery.sql
   services/localization/migrations/261113-sequential-queue.sql
   services/localization/migrations/261114-auto-queue-switch.sql
+  services/downloader/migrations/261114-collections.sql
+  services/localization/migrations/261114-glossary-collection-scope.sql
 )
 psql_() {
   docker compose exec -T -e MIGRATION_TEST_DATABASE="${MIGRATION_TEST_DATABASE:-}" postgres sh -c \

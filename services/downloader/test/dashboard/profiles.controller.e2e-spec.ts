@@ -22,6 +22,7 @@ import {
   testSchemaName,
   truncateAll,
 } from '../support/db';
+import { channelCollection } from '../support/collections';
 import { fixedEnv } from '../support/fixed-env';
 
 jest.setTimeout(30_000);
@@ -84,7 +85,10 @@ describe('PATCH /api/profiles/:secUserId', () => {
 
   it('leaves already-held rows alone when the switch is turned on', async () => {
     await db.insert(profiles).values({ secUserId: 'p1' });
-    await db.insert(videos).values({ awemeId: 'v1', secUserId: 'p1', createTime: new Date(), status: 'downloading' });
+    const collectionId = await channelCollection(pool, 'p1');
+    await db
+      .insert(videos)
+      .values({ awemeId: 'v1', secUserId: 'p1', collectionId, createTime: new Date(), status: 'downloading' });
     await markDone(db, 'v1', 's3://bucket/v1.mp4');
     await patch('p1', { auto_localize: true });
     expect((await db.select().from(localizationOutbox))[0]!.state).toBe('held');

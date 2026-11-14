@@ -31,6 +31,7 @@ import {
   truncateAll,
 } from '../support/db';
 import { assertGenuineOverlap, runConcurrentlyHoldingLocks } from '../support/concurrency-harness';
+import { channelCollection } from '../support/collections';
 
 jest.setTimeout(60_000);
 
@@ -49,6 +50,8 @@ const CONCURRENCY_STATEMENT_TIMEOUT_MS = 500;
 
 let pool: Pool;
 let db: ReturnType<typeof testDb>;
+/** Channel collections of the two profiles every test here uses. */
+let collectionOf: Record<'profile-1' | 'profile-2', string>;
 
 /** Seeds `count` pending videos, oldest first, ids v0..v{count-1}. */
 async function seedPending(count: number): Promise<void> {
@@ -56,6 +59,7 @@ async function seedPending(count: number): Promise<void> {
     Array.from({ length: count }, (_, i) => ({
       awemeId: `v${i}`,
       secUserId: 'profile-1',
+      collectionId: collectionOf['profile-1'],
       createTime: new Date(Date.UTC(2026, 0, 1) + i * 60_000),
     })),
   );
@@ -90,6 +94,13 @@ beforeAll(async () => {
 afterAll(async () => {
   await pool.end();
   await dropSchema(SCHEMA);
+});
+
+beforeEach(async () => {
+  collectionOf = {
+    'profile-1': await channelCollection(pool, 'profile-1'),
+    'profile-2': await channelCollection(pool, 'profile-2'),
+  };
 });
 
 afterEach(async () => {
@@ -404,7 +415,12 @@ describe('listByProfile', () => {
     await seedPending(1);
     await db
       .insert(videos)
-      .values({ awemeId: 'other-profile-video', secUserId: 'profile-2', createTime: new Date() });
+      .values({
+        awemeId: 'other-profile-video',
+        secUserId: 'profile-2',
+        collectionId: collectionOf['profile-2'],
+        createTime: new Date(),
+      });
 
     const page = await listByProfile(db, 'profile-1', { limit: 20, offset: 0 });
 
@@ -418,7 +434,13 @@ describe('countByStatusForProfile', () => {
     await pool.query("UPDATE videos SET status = 'done' WHERE aweme_id IN ('v0', 'v1')");
     await db
       .insert(videos)
-      .values({ awemeId: 'other-profile-done', secUserId: 'profile-2', createTime: new Date(), status: 'done' });
+      .values({
+        awemeId: 'other-profile-done',
+        secUserId: 'profile-2',
+        collectionId: collectionOf['profile-2'],
+        createTime: new Date(),
+        status: 'done',
+      });
 
     const counts = await countByStatusForProfile(db, 'profile-1');
 
@@ -588,5 +610,35 @@ describe('upsertMany (phase 5)', () => {
     // repeated item from a non-event into a failed tick.
     expect(await upsertMany(db, [row('dup'), row('dup')], { urlTtlSeconds: 7200 })).toBe(1);
     expect(await countByStatusForProfile(db, 'profile-1')).toEqual({ pending: 1 });
+  });
+
+  it('puts every new video in its channel collection', async () => {
+    await upsertMany(db, [row('c1'), row('c2', { secUserId: 'profile-2' })], { urlTtlSeconds: 7200 });
+
+    expect((await readVideo('c1')).collectionId).toBe(collectionOf['profile-1']);
+    expect((await readVideo('c2')).collectionId).toBe(collectionOf['profile-2']);
+    expect((await readVideo('c1')).collectionManual).toBe(false);
+  });
+
+  it('creates a missing channel collection once, named after the channel', async () => {
+    await pool.query(`INSERT INTO profiles (sec_user_id, nickname) VALUES ('fresh', '  Kênh mới  ')`);
+
+    await upsertMany(db, [row('f1', { secUserId: 'fresh' })], { urlTtlSeconds: 7200 });
+    await upsertMany(db, [row('f2', { secUserId: 'fresh' }), row('f3', { secUserId: 'fresh' })], {
+      urlTtlSeconds: 7200,
+    });
+
+    const { rows } = await pool.query(
+      `SELECT c.name, count(v.*)::int AS videos FROM collections c JOIN videos v ON v.collection_id = c.id
+        WHERE c.kind = 'channel' AND c.external_id = 'fresh' GROUP BY c.id`,
+    );
+    expect(rows).toEqual([{ name: 'Kênh mới', videos: 3 }]);
+  });
+
+  it('refuses a video whose channel has no profile instead of leaving it without a collection', async () => {
+    await expect(
+      upsertMany(db, [row('ghost', { secUserId: 'no-such-profile' })], { urlTtlSeconds: 7200 }),
+    ).rejects.toThrow();
+    await expect(readVideo('ghost')).rejects.toThrow(/not found/);
   });
 });

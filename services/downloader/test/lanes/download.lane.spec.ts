@@ -31,6 +31,7 @@ import {
   testSchemaName,
   truncateAll,
 } from '../support/db';
+import { channelCollection } from '../support/collections';
 import { FakeCdn } from '../support/fake-cdn';
 
 jest.setTimeout(90_000);
@@ -107,9 +108,11 @@ interface SeedVideo {
 }
 
 async function seedVideo(v: SeedVideo): Promise<void> {
+  const secUserId = v.secUserId ?? PROFILE;
   await db.insert(videos).values({
     awemeId: v.awemeId,
-    secUserId: v.secUserId ?? PROFILE,
+    secUserId,
+    collectionId: await channelCollection(pool, secUserId),
     createTime: new Date(Date.UTC(2026, 0, 1)),
     playAddr: v.playAddr ?? null,
   });
@@ -486,16 +489,19 @@ describe('retry and giving up (§6.3)', () => {
       res.writeHead(200, { 'content-length': String(payload.length) }).end(payload);
     });
     // `bad` is older, so it is claimed first (claimOne orders by create_time).
+    const collectionId = await channelCollection(pool, PROFILE);
     await db.insert(videos).values([
       {
         awemeId: 'bad',
         secUserId: PROFILE,
+        collectionId,
         createTime: new Date(Date.UTC(2026, 0, 1)),
         playAddr: cdn.url('/bad.mp4'),
       },
       {
         awemeId: 'good',
         secUserId: PROFILE,
+        collectionId,
         createTime: new Date(Date.UTC(2026, 0, 2)),
         playAddr: cdn.url('/good.mp4'),
       },

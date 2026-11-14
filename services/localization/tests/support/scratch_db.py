@@ -16,6 +16,7 @@ MIGRATIONS = REPO / "services" / "downloader" / "migrations"
 INIT = (MIGRATIONS / "260824-init-schema.sql").read_text()
 OUTBOX = (MIGRATIONS / "261026-localization-outbox.sql").read_text()
 DASHBOARD_INTAKE = (MIGRATIONS / "261112-dashboard-intake.sql").read_text()
+COLLECTIONS = (MIGRATIONS / "261114-collections.sql").read_text()
 
 
 def admin_conninfo() -> str | None:

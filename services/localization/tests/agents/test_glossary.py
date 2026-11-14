@@ -15,9 +15,11 @@ from localization.activities.glossary import (
 
 
 def _rows(conn: psycopg.Connection) -> list[tuple]:
+    """Rows with the channel their collection belongs to."""
     return conn.execute(
-        "SELECT channel_id, term_zh, term_vi, source_aweme_id, workflow_id "
-        "FROM localization.glossary ORDER BY term_zh"
+        "SELECT c.external_id, g.term_zh, g.term_vi, g.source_aweme_id, g.workflow_id "
+        "FROM localization.glossary g JOIN public.collections c ON c.id = g.collection_id "
+        "WHERE c.kind = 'channel' ORDER BY g.term_zh"
     ).fetchall()
 
 
@@ -135,6 +137,24 @@ async def test_lookup_is_per_channel_and_by_term(glossary_db) -> None:
     everything = await store.lookup("chan_1", None)
     assert {r.term_zh for r in everything} == {"苹果", "华为"}
     assert await store.lookup("chan_3", None) == []
+
+
+async def test_terms_of_a_channel_land_in_its_channel_collection(glossary_db) -> None:
+    info, conn = glossary_db
+    store = GlossaryStore(info)
+    await _save(store, "苹果", "Apple", channel_id="chan_2")
+    assert conn.execute(
+        "SELECT c.kind, c.external_id FROM localization.glossary g "
+        "JOIN public.collections c ON c.id = g.collection_id"
+    ).fetchall() == [("channel", "chan_2")]
+
+
+async def test_a_channel_without_a_collection_is_an_error_not_an_orphan_term(glossary_db) -> None:
+    info, conn = glossary_db
+    store = GlossaryStore(info)
+    with pytest.raises(psycopg.errors.NotNullViolation):
+        await _save(store, "苹果", "Apple", channel_id="chan_3")
+    assert conn.execute("SELECT count(*) FROM localization.glossary").fetchone() == (0,)
 
 
 def test_check_term_accepts_an_ordinary_term() -> None:

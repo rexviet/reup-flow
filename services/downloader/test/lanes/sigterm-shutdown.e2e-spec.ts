@@ -29,6 +29,7 @@ import {
   testDb,
   testSchemaName,
 } from '../support/db';
+import { channelCollection } from '../support/collections';
 
 jest.setTimeout(120_000);
 
@@ -125,8 +126,8 @@ describe('SIGTERM releases a held lease before the process exits', () => {
   beforeAll(async () => {
     await pool.query('INSERT INTO profiles (sec_user_id) VALUES ($1)', [PROFILE]);
     await pool.query(
-      'INSERT INTO videos (aweme_id, sec_user_id, create_time, status) VALUES ($1, $2, now(), $3)',
-      [AWEME, PROFILE, 'pending'],
+      'INSERT INTO videos (aweme_id, sec_user_id, create_time, status, collection_id) VALUES ($1, $2, now(), $3, $4)',
+      [AWEME, PROFILE, 'pending', await channelCollection(pool, PROFILE)],
     );
 
     child = spawn(

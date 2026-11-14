@@ -1,4 +1,9 @@
-"""The per-channel glossary the Localizer reads and, within limits, extends.
+"""The glossary the Localizer reads and, within limits, extends.
+
+Terms are stored per collection. A run still names its channel, so every
+statement here resolves the channel to its channel collection (`CHANNEL_COLLECTION`).
+A channel without one is a data error: a write fails on the NOT NULL key instead
+of storing a term nobody will find.
 
 The agent writes here on the strength of text it read out of a video, and that
 text is untrusted. So a write is guarded three ways: it is refused when it looks
@@ -27,25 +32,30 @@ LOOKUP_LIMIT = 100
 
 _CONTROL_RE = re.compile(r"[\r\n\t\x00-\x1f\x7f]")
 
+# The channel collection of the channel named by the `channel_id` parameter.
+CHANNEL_COLLECTION = (
+    "(SELECT id FROM public.collections WHERE kind = 'channel' AND external_id = %(channel_id)s)"
+)
 # One statement: insert unless the run is at its limit; a conflict inserts nothing.
-UPSERT_SQL = """
+UPSERT_SQL = f"""
 INSERT INTO localization.glossary
-  (channel_id, term_zh, term_vi, note, source_aweme_id, workflow_id)
-SELECT %(channel_id)s, %(term_zh)s, %(term_vi)s, %(note)s, %(aweme_id)s, %(workflow_id)s
+  (collection_id, term_zh, term_vi, note, source_aweme_id, workflow_id)
+SELECT {CHANNEL_COLLECTION}, %(term_zh)s, %(term_vi)s, %(note)s, %(aweme_id)s, %(workflow_id)s
  WHERE (SELECT count(*) FROM localization.glossary WHERE workflow_id = %(workflow_id)s) < %(cap)s
-ON CONFLICT (channel_id, term_zh) DO NOTHING
+ON CONFLICT (collection_id, term_zh) DO NOTHING
 RETURNING term_vi
 """
-EXISTING_SQL = """
-SELECT term_vi FROM localization.glossary WHERE channel_id = %s AND term_zh = %s
+EXISTING_SQL = f"""
+SELECT term_vi FROM localization.glossary
+ WHERE collection_id = {CHANNEL_COLLECTION} AND term_zh = %(term_zh)s
 """
-LOOKUP_ALL_SQL = """
+LOOKUP_ALL_SQL = f"""
 SELECT term_zh, term_vi, note FROM localization.glossary
- WHERE channel_id = %s ORDER BY created_at, term_zh LIMIT %s
+ WHERE collection_id = {CHANNEL_COLLECTION} ORDER BY created_at, term_zh LIMIT %(limit)s
 """
-LOOKUP_TERMS_SQL = """
+LOOKUP_TERMS_SQL = f"""
 SELECT term_zh, term_vi, note FROM localization.glossary
- WHERE channel_id = %s AND term_zh = ANY(%s) ORDER BY term_zh
+ WHERE collection_id = {CHANNEL_COLLECTION} AND term_zh = ANY(%(terms)s) ORDER BY term_zh
 """
 
 
@@ -104,9 +114,13 @@ class GlossaryStore:
             self._conninfo, autocommit=True, row_factory=dict_row
         ) as conn:
             if terms:
-                cursor = await conn.execute(LOOKUP_TERMS_SQL, (channel_id, terms[:LOOKUP_LIMIT]))
+                cursor = await conn.execute(
+                    LOOKUP_TERMS_SQL, {"channel_id": channel_id, "terms": terms[:LOOKUP_LIMIT]}
+                )
             else:
-                cursor = await conn.execute(LOOKUP_ALL_SQL, (channel_id, LOOKUP_LIMIT))
+                cursor = await conn.execute(
+                    LOOKUP_ALL_SQL, {"channel_id": channel_id, "limit": LOOKUP_LIMIT}
+                )
             return [GlossaryRow(r["term_zh"], r["term_vi"], r["note"]) async for r in cursor]
 
     async def upsert(
@@ -138,7 +152,9 @@ class GlossaryStore:
             inserted = await (await conn.execute(UPSERT_SQL, params)).fetchone()
             if inserted is not None:
                 return UpsertOutcome("inserted", "saved")
-            existing = await (await conn.execute(EXISTING_SQL, (channel_id, term_zh))).fetchone()
+            existing = await (
+                await conn.execute(EXISTING_SQL, {"channel_id": channel_id, "term_zh": term_zh})
+            ).fetchone()
         if existing is not None:
             return UpsertOutcome(
                 "exists", "not changed: the channel already fixes this term", existing[0]

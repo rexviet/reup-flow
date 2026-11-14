@@ -1,6 +1,7 @@
 import type { Pool } from 'pg';
 import { DashboardRepository } from '../../src/dashboard/dashboard.repository';
 import { createScratchDatabase, type ScratchDatabase } from '../support/localization-db';
+import { channelCollection } from '../support/collections';
 
 describe('DashboardRepository (real downloader and localization schemas)', () => {
   let scratch: ScratchDatabase;
@@ -26,10 +27,11 @@ describe('DashboardRepository (real downloader and localization schemas)', () =>
     );
   });
 
-  const video = (id: string, sec: string, desc: string | null, createTime: string, status = 'done') =>
+  const video = async (id: string, sec: string, desc: string | null, createTime: string, status = 'done') =>
     pool.query(
-      `INSERT INTO videos (aweme_id, sec_user_id, "desc", create_time, status) VALUES ($1, $2, $3, $4, $5)`,
-      [id, sec, desc, createTime, status],
+      `INSERT INTO videos (aweme_id, sec_user_id, "desc", create_time, status, collection_id)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [id, sec, desc, createTime, status, await channelCollection(pool, sec)],
     );
 
   it('joins every source of one video: outbox, runs, decision, render, publication, review status', async () => {
@@ -164,8 +166,9 @@ describe('DashboardRepository (real downloader and localization schemas)', () =>
 
   it('lists 2000 videos with all joins comfortably inside the 500 ms budget', async () => {
     await pool.query(
-      `INSERT INTO videos (aweme_id, sec_user_id, create_time, status)
-       SELECT g::text, 'chA', now() - g * interval '1 minute', 'done' FROM generate_series(1, 2000) g`,
+      `INSERT INTO videos (aweme_id, sec_user_id, create_time, status, collection_id)
+       SELECT g::text, 'chA', now() - g * interval '1 minute', 'done', $1 FROM generate_series(1, 2000) g`,
+      [await channelCollection(pool, 'chA')],
     );
     await pool.query(
       `INSERT INTO localization_outbox (aweme_id, generation, state) SELECT g::text, 1, 'held' FROM generate_series(1, 2000) g`,

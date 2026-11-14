@@ -14,7 +14,9 @@ import type { Pool } from 'pg';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
+  collections,
   dashboardActions,
+  folderExports,
   jobs,
   localizationOutbox,
   profiles,
@@ -31,6 +33,7 @@ import {
   dropSchema,
   testSchemaName,
 } from '../support/db';
+import { channelCollection } from '../support/collections';
 
 jest.setTimeout(30_000);
 
@@ -46,9 +49,13 @@ const ALL_TABLES = [
   publications,
   studioOpenRequests,
   dashboardActions,
+  collections,
+  folderExports,
 ];
 const EXPECTED_TABLES = [
+  'collections',
   'dashboard_actions',
+  'folder_exports',
   'jobs',
   'localization_outbox',
   'profiles',
@@ -101,6 +108,8 @@ describe('phase 1: init migration and schema.ts agree', () => {
     ['publications', publications],
     ['studio_open_requests', studioOpenRequests],
     ['dashboard_actions', dashboardActions],
+    ['collections', collections],
+    ['folder_exports', folderExports],
   ])('%s columns match the migration', (tableName, table) => {
     it('has the same column set, types and nullability in both directions', async () => {
       const { rows } = await pool.query<{
@@ -142,11 +151,13 @@ describe('phase 1: init migration and schema.ts agree', () => {
       `SELECT indexname, indexdef FROM pg_indexes WHERE schemaname = $1`,
       [SCHEMA],
     );
-    // Primary-key indexes are created by the PK constraint, not by an
-    // index() call in schema.ts, so they are not part of this comparison.
-    const pkNames = new Set(
-      ALL_TABLES.map((t) => `${getTableConfig(t).name}_pkey`),
-    );
+    // Primary-key and unique-constraint indexes are created by their
+    // constraint, not by an index() call in schema.ts, so they are not part
+    // of this comparison.
+    const pkNames = new Set([
+      ...ALL_TABLES.map((t) => `${getTableConfig(t).name}_pkey`),
+      ...ALL_TABLES.flatMap((t) => getTableConfig(t).uniqueConstraints.map((u) => u.name!)),
+    ]);
     const actual = rows.filter((r) => !pkNames.has(r.indexname));
 
     expect(actual.map((r) => r.indexname).sort()).toEqual([...declared].sort());
@@ -161,6 +172,8 @@ describe('phase 1: init migration and schema.ts agree', () => {
       videos_downloading_lease_idx: "status = 'downloading'",
       jobs_enumerating_lease_idx: "status = 'enumerating'",
       localization_outbox_due_idx: "state = 'pending'",
+      folder_exports_open_idx: "state = ANY (ARRAY['pending', 'exporting'])",
+      folder_exports_one_open_idx: "state = ANY (ARRAY['pending', 'exporting'])",
     };
 
     const { rows } = await pool.query<{ indexname: string; indexdef: string }>(
@@ -190,6 +203,9 @@ describe('phase 1: init migration and schema.ts agree', () => {
       jobs_sec_user_id_idx: '(sec_user_id)',
       localization_outbox_due_idx: '(next_attempt_at)',
       dashboard_actions_aweme_idx: '(aweme_id, created_at DESC)',
+      videos_collection_recent_idx: '(collection_id, create_time DESC)',
+      folder_exports_open_idx: '(id)',
+      folder_exports_one_open_idx: '(aweme_id, generation)',
     };
 
     const { rows } = await pool.query<{ indexname: string; indexdef: string }>(
@@ -204,10 +220,24 @@ describe('phase 1: init migration and schema.ts agree', () => {
     }
   });
 
+  it('creates every unique constraint schema.ts declares', async () => {
+    const declared = ALL_TABLES.flatMap((t) =>
+      getTableConfig(t).uniqueConstraints.map((u) => u.name!),
+    );
+    const { rows } = await pool.query<{ conname: string }>(
+      `SELECT c.conname FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace
+        WHERE n.nspname = $1 AND c.contype = 'u'`,
+      [SCHEMA],
+    );
+    expect(rows.map((r) => r.conname).sort()).toEqual([...declared].sort());
+  });
+
   it('accepts held outbox state and rejects unknown states', async () => {
-    await pool.query(`INSERT INTO profiles (sec_user_id) VALUES ('p') ON CONFLICT DO NOTHING`);
+    const collection = await channelCollection(pool, 'p');
     await pool.query(
-      `INSERT INTO videos (aweme_id, sec_user_id, create_time) VALUES ('v-held', 'p', now()), ('v-bad', 'p', now())`,
+      `INSERT INTO videos (aweme_id, sec_user_id, create_time, collection_id)
+       VALUES ('v-held', 'p', now(), $1), ('v-bad', 'p', now(), $1)`,
+      [collection],
     );
     await pool.query(`INSERT INTO localization_outbox (aweme_id, state) VALUES ('v-held', 'held')`);
     await expect(
@@ -217,12 +247,13 @@ describe('phase 1: init migration and schema.ts agree', () => {
   });
 
   it('refuses to roll back while a held row exists', async () => {
+    const collection = await channelCollection(pool, 'p-held');
     await pool.query(
-      `INSERT INTO profiles (sec_user_id) VALUES ('p-held') ON CONFLICT DO NOTHING;
-       INSERT INTO videos (aweme_id, sec_user_id, create_time) VALUES ('v-held2', 'p-held', now())
-         ON CONFLICT DO NOTHING;
-       INSERT INTO localization_outbox (aweme_id, state) VALUES ('v-held2', 'held');`,
+      `INSERT INTO videos (aweme_id, sec_user_id, create_time, collection_id)
+       VALUES ('v-held2', 'p-held', now(), $1) ON CONFLICT DO NOTHING`,
+      [collection],
     );
+    await pool.query(`INSERT INTO localization_outbox (aweme_id, state) VALUES ('v-held2', 'held')`);
     // The down file opens its own transaction and aborts it on error; use a
     // dedicated client and roll back so no pooled connection stays aborted.
     const client = await pool.connect();

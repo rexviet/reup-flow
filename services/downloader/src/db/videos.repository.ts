@@ -1,7 +1,7 @@
 import { and, count, desc, eq, gt, inArray, isNotNull, lt, notExists, sql } from 'drizzle-orm';
 import type { Executor } from './executor';
 import { redactor } from '../redaction/redactor';
-import { jobs, localizationOutbox, videos, type Video } from './schema';
+import { collections, jobs, localizationOutbox, profiles, videos, type Video } from './schema';
 
 export interface ClaimOptions {
   /** How long a claim is valid before the reaper may hand it to someone else. */
@@ -138,6 +138,13 @@ export interface UpsertOptions {
  * carrying both a video and a 图文 image post inserts one `pending` row and one
  * `skipped` one. Absent, they mean `pending`/null -- unchanged for every caller
  * that never heard of image posts.
+ *
+ * Every new video goes into its channel's collection, created here on first
+ * use. The channel's profile must already exist (enumerate runs under a job
+ * that references it; the single-video path upserts it first); without one the
+ * NOT NULL `collection_id` rejects the page instead of storing a video that
+ * belongs nowhere. The two statements need no shared transaction: creating the
+ * collection is idempotent, so a retry after a failed insert reuses it.
  */
 export async function upsertMany(
   exec: Executor,
@@ -145,6 +152,8 @@ export async function upsertMany(
   opts: UpsertOptions,
 ): Promise<number> {
   if (rows.length === 0) return 0;
+
+  await ensureChannelCollections(exec, [...new Set(rows.map((row) => row.secUserId))]);
 
   const inserted = await exec
     .insert(videos)
@@ -161,12 +170,29 @@ export async function upsertMany(
         status: row.status ?? 'pending',
         lastError: row.lastError ?? null,
         urlExpiresAt: sql`now() + make_interval(secs => ${opts.urlTtlSeconds})`,
+        collectionId: sql`(SELECT ${collections.id} FROM ${collections}
+          WHERE ${collections.kind} = 'channel' AND ${collections.externalId} = ${row.secUserId})`,
       })),
     )
     .onConflictDoNothing()
     .returning({ awemeId: videos.awemeId });
 
   return inserted.length;
+}
+
+/**
+ * Gives each listed channel that has a profile its channel collection, named
+ * after the profile's nickname (or its id when there is none), like the
+ * migration's backfill. An existing collection is left exactly as it is.
+ */
+async function ensureChannelCollections(exec: Executor, secUserIds: string[]): Promise<void> {
+  await exec.execute(sql`
+    INSERT INTO ${collections} (kind, external_id, sec_user_id, name)
+    SELECT 'channel', ${profiles.secUserId}, ${profiles.secUserId},
+           coalesce(nullif(btrim(left(${profiles.nickname}, 200)), ''), left(${profiles.secUserId}, 200))
+      FROM ${profiles}
+     WHERE ${inArray(profiles.secUserId, secUserIds)}
+    ON CONFLICT (kind, external_id) DO NOTHING`);
 }
 
 /** One row by primary key, or `null`. */

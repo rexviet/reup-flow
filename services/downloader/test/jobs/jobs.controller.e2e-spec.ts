@@ -31,6 +31,7 @@ import {
   testSchemaName,
   truncateAll,
 } from '../support/db';
+import { channelCollection } from '../support/collections';
 import { fixedEnv } from '../support/fixed-env';
 import { FakeParser } from '../support/fake-parser';
 
@@ -237,9 +238,13 @@ describe('GET /api/jobs/:id', () => {
     const created = await authed(request(app.getHttpServer()).post('/api/jobs')).send({
       url: 'https://www.douyin.com/user/sec-detail',
     });
-    await db
-      .insert(videos)
-      .values({ awemeId: 'detail-v0', secUserId: 'sec-detail', createTime: new Date(), status: 'done' });
+    await db.insert(videos).values({
+      awemeId: 'detail-v0',
+      secUserId: 'sec-detail',
+      collectionId: await channelCollection(pool, 'sec-detail'),
+      createTime: new Date(),
+      status: 'done',
+    });
 
     const res = await authed(request(app.getHttpServer()).get(`/api/jobs/${created.body.job_id}`));
 
@@ -293,9 +298,14 @@ describe('POST /api/jobs/:id/retry', () => {
       url: 'https://www.douyin.com/user/sec-retry',
     });
     await pool.query("UPDATE jobs SET status = 'failed' WHERE id = $1", [created.body.job_id]);
-    await db
-      .insert(videos)
-      .values({ awemeId: 'retry-v0', secUserId: 'sec-retry', createTime: new Date(), status: 'failed', attempts: 3 });
+    await db.insert(videos).values({
+      awemeId: 'retry-v0',
+      secUserId: 'sec-retry',
+      collectionId: await channelCollection(pool, 'sec-retry'),
+      createTime: new Date(),
+      status: 'failed',
+      attempts: 3,
+    });
 
     const res = await authed(request(app.getHttpServer()).post(`/api/jobs/${created.body.job_id}/retry`));
 

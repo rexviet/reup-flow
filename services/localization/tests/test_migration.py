@@ -15,6 +15,9 @@ from dotenv import dotenv_values
 from psycopg import sql
 from psycopg.errors import CheckViolation
 
+from tests.support.scratch_db import COLLECTIONS, INIT
+from tests.support.scratch_db import MIGRATIONS as REPO_MIGRATIONS
+
 SERVICE = Path(__file__).resolve().parents[1]
 UP = (SERVICE / "migrations" / "261026-localization-core.sql").read_text()
 DOWN = (SERVICE / "migrations" / "261026-localization-core.down.sql").read_text()
@@ -169,3 +172,159 @@ def test_review_project_column_is_additive_and_down_preserves_legacy(scratch_db)
     assert scratch_db.execute("SELECT review_key FROM localization.runs").fetchone() == (
         "review/7001-g1.mp4",
     )
+
+
+# --- glossary scoped by collection -------------------------------------------
+
+SCOPE = (SERVICE / "migrations" / "261114-glossary-collection-scope.sql").read_text()
+SCOPE_DOWN = (SERVICE / "migrations" / "261114-glossary-collection-scope.down.sql").read_text()
+_GLOSSARY_INSERT = (
+    "INSERT INTO localization.glossary "
+    "(channel_id, term_zh, term_vi, source_aweme_id, workflow_id, created_at) "
+    "VALUES (%s, %s, %s, '1', 'video-1-g1', %s)"
+)
+
+
+def _legacy_glossary(conn: psycopg.Connection) -> None:
+    """Two channels with the glossary keyed by channel, as before collections."""
+    conn.execute(INIT)
+    conn.execute(UP)
+    conn.execute("INSERT INTO profiles (sec_user_id) VALUES ('sec-a'), ('sec-b')")
+    for channel, zh, vi in (
+        ("sec-a", "苹果", "Apple"),
+        ("sec-a", "华为", "Huawei"),
+        ("sec-b", "苹果", "quả táo"),
+    ):
+        conn.execute(_GLOSSARY_INSERT, (channel, zh, vi, "2026-11-01"))
+
+
+def _columns(conn: psycopg.Connection) -> dict[str, str]:
+    rows = conn.execute(
+        "SELECT column_name, data_type FROM information_schema.columns "
+        "WHERE table_schema = 'localization' AND table_name = 'glossary'"
+    ).fetchall()
+    return dict(rows)
+
+
+def _primary_key(conn: psycopg.Connection) -> str:
+    return conn.execute(
+        "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+        "WHERE conrelid = 'localization.glossary'::regclass AND contype = 'p'"
+    ).fetchone()[0]
+
+
+def test_glossary_moves_to_the_channel_collection_without_losing_a_row(
+    scratch_db: psycopg.Connection,
+) -> None:
+    _legacy_glossary(scratch_db)
+    scratch_db.execute(COLLECTIONS)
+    scratch_db.execute(SCOPE)
+
+    assert "channel_id" not in _columns(scratch_db)
+    assert _columns(scratch_db)["collection_id"] == "uuid"
+    assert _primary_key(scratch_db) == "PRIMARY KEY (collection_id, term_zh)"
+    rows = scratch_db.execute(
+        "SELECT c.kind, c.external_id, g.term_zh, g.term_vi FROM localization.glossary g "
+        "JOIN public.collections c ON c.id = g.collection_id ORDER BY 2, 3"
+    ).fetchall()
+    assert rows == [
+        ("channel", "sec-a", "华为", "Huawei"),
+        ("channel", "sec-a", "苹果", "Apple"),
+        ("channel", "sec-b", "苹果", "quả táo"),
+    ]
+
+
+def test_glossary_refuses_a_term_for_a_collection_that_does_not_exist(
+    scratch_db: psycopg.Connection,
+) -> None:
+    _legacy_glossary(scratch_db)
+    scratch_db.execute(COLLECTIONS)
+    scratch_db.execute(SCOPE)
+    with pytest.raises(psycopg.errors.ForeignKeyViolation):
+        scratch_db.execute(
+            "INSERT INTO localization.glossary "
+            "(collection_id, term_zh, term_vi, source_aweme_id, workflow_id) "
+            "VALUES (gen_random_uuid(), '孤', 'mồ côi', '1', 'w')"
+        )
+
+
+def test_glossary_rows_are_writable_by_the_worker_role_after_the_move(
+    scratch_db: psycopg.Connection,
+) -> None:
+    """The worker writes as `localization`: the foreign key to a table it does not
+    own must not turn its inserts into permission errors."""
+    _legacy_glossary(scratch_db)
+    scratch_db.execute(COLLECTIONS)
+    scratch_db.execute(SCOPE)
+    scratch_db.execute("SET ROLE localization")
+    scratch_db.execute(
+        "INSERT INTO localization.glossary "
+        "(collection_id, term_zh, term_vi, source_aweme_id, workflow_id) "
+        "SELECT id, '小米', 'Xiaomi', 'dashboard', 'dashboard' FROM public.collections "
+        "WHERE kind = 'channel' AND external_id = 'sec-b'"
+    )
+    scratch_db.execute("RESET ROLE")
+    assert scratch_db.execute("SELECT count(*) FROM localization.glossary").fetchone() == (4,)
+
+
+def test_glossary_move_stops_with_a_count_when_a_channel_has_no_collection(
+    scratch_db: psycopg.Connection,
+) -> None:
+    _legacy_glossary(scratch_db)
+    for zh in ("一", "二"):
+        scratch_db.execute(_GLOSSARY_INSERT, ("ghost", zh, "x", "2026-11-01"))
+    scratch_db.execute(COLLECTIONS)
+    with pytest.raises(psycopg.errors.RaiseException, match="2 glossary rows"):
+        scratch_db.execute(SCOPE)
+    scratch_db.execute("ROLLBACK")  # the script's own transaction is left aborted
+    assert "channel_id" in _columns(scratch_db)
+    assert scratch_db.execute("SELECT count(*) FROM localization.glossary").fetchone() == (5,)
+
+
+def test_glossary_down_keeps_the_channel_row_then_the_oldest_and_reports_what_it_drops(
+    scratch_db: psycopg.Connection,
+) -> None:
+    _legacy_glossary(scratch_db)
+    scratch_db.execute(COLLECTIONS)
+    scratch_db.execute(SCOPE)
+    scratch_db.execute(
+        "INSERT INTO public.collections (kind, external_id, sec_user_id, name) VALUES "
+        "('mix', 'mix-1', 'sec-a', 'Mix 1'), ('mix', 'mix-2', 'sec-a', 'Mix 2')"
+    )
+    scratch_db.execute("INSERT INTO public.collections (kind, name) VALUES ('manual', 'Tay')")
+
+    def term(collection_sql: str, zh: str, vi: str, created: str) -> None:
+        scratch_db.execute(
+            "INSERT INTO localization.glossary "
+            "(collection_id, term_zh, term_vi, source_aweme_id, workflow_id, created_at) "
+            "SELECT id, %s, %s, 'dashboard', 'dashboard', %s FROM public.collections "
+            f"WHERE {collection_sql}",
+            (zh, vi, created),
+        )
+
+    # Older than the channel's own row, but the channel's row still wins.
+    term("external_id = 'mix-1'", "苹果", "Táo mix", "2026-10-01")
+    # Only in mixes of sec-a: the oldest one survives as sec-a's term.
+    term("external_id = 'mix-2'", "成名", "Thành danh mới", "2026-11-05")
+    term("external_id = 'mix-1'", "成名", "Thành danh", "2026-11-02")
+    # A manual collection without a channel has nowhere to go.
+    term("kind = 'manual'", "孤", "mồ côi", "2026-11-03")
+
+    notices: list[str] = []
+    scratch_db.add_notice_handler(lambda d: notices.append(d.message_primary or ""))
+    scratch_db.execute(SCOPE_DOWN)
+
+    assert _columns(scratch_db)["channel_id"] == "text"
+    assert "collection_id" not in _columns(scratch_db)
+    assert _primary_key(scratch_db) == "PRIMARY KEY (channel_id, term_zh)"
+    assert scratch_db.execute(
+        "SELECT channel_id, term_zh, term_vi FROM localization.glossary ORDER BY 1, 2"
+    ).fetchall() == [
+        ("sec-a", "华为", "Huawei"),
+        ("sec-a", "成名", "Thành danh"),
+        ("sec-a", "苹果", "Apple"),
+        ("sec-b", "苹果", "quả táo"),
+    ]
+    assert any("dropped 3 rows" in n for n in notices), notices
+    # Nothing references collections any more, so the downloader side can roll back too.
+    scratch_db.execute((REPO_MIGRATIONS / "261114-collections.down.sql").read_text())

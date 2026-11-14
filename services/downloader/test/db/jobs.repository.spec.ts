@@ -32,6 +32,7 @@ import {
   testSchemaName,
   truncateAll,
 } from '../support/db';
+import { channelCollection } from '../support/collections';
 import { assertGenuineOverlap, runConcurrentlyHoldingLocks } from '../support/concurrency-harness';
 
 jest.setTimeout(60_000);
@@ -318,10 +319,12 @@ describe('checkpoint', () => {
 async function seedVideos(count: number): Promise<void> {
   await db.insert(profiles).values({ secUserId: 'profile-1' }).onConflictDoNothing();
   if (count === 0) return;
+  const collectionId = await channelCollection(pool, 'profile-1');
   await db.insert(videos).values(
     Array.from({ length: count }, (_, i) => ({
       awemeId: `aweme-${i}`,
       secUserId: 'profile-1',
+      collectionId,
       createTime: new Date(Date.UTC(2026, 0, 1) + i * 1000),
     })),
   );

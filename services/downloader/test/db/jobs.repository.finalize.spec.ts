@@ -27,6 +27,7 @@ import {
   testSchemaName,
   truncateAll,
 } from '../support/db';
+import { channelCollection } from '../support/collections';
 
 jest.setTimeout(60_000);
 
@@ -57,10 +58,12 @@ async function seed(status: string, videoStatuses: string[]): Promise<string> {
   await db.insert(profiles).values({ secUserId }).onConflictDoNothing();
   const [job] = await db.insert(jobs).values({ secUserId, status }).returning();
   if (videoStatuses.length > 0) {
+    const collectionId = await channelCollection(pool, secUserId);
     await db.insert(videos).values(
       videoStatuses.map((videoStatus, i) => ({
         awemeId: `${secUserId}-v${i}`,
         secUserId,
+        collectionId,
         createTime: new Date(Date.UTC(2026, 0, 1) + i * 1000),
         status: videoStatus,
       })),

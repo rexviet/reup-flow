@@ -23,6 +23,7 @@ import {
   testSchemaName,
   truncateAll,
 } from '../support/db';
+import { channelCollection } from '../support/collections';
 import { fixedEnv } from '../support/fixed-env';
 
 jest.setTimeout(30_000);
@@ -76,10 +77,12 @@ describe('GET /api/profiles/:secUserId/videos', () => {
   });
 
   it('lists a profiles videos newest first, paginated, snake_case, never lease_expires_at', async () => {
+    const sec1 = await channelCollection(pool, 'sec-1');
+    const sec2 = await channelCollection(pool, 'sec-2');
     await db.insert(videos).values([
-      { awemeId: 'v0', secUserId: 'sec-1', createTime: new Date(Date.UTC(2026, 0, 1)) },
-      { awemeId: 'v1', secUserId: 'sec-1', createTime: new Date(Date.UTC(2026, 0, 2)) },
-      { awemeId: 'other', secUserId: 'sec-2', createTime: new Date(Date.UTC(2026, 0, 3)) },
+      { awemeId: 'v0', secUserId: 'sec-1', collectionId: sec1, createTime: new Date(Date.UTC(2026, 0, 1)) },
+      { awemeId: 'v1', secUserId: 'sec-1', collectionId: sec1, createTime: new Date(Date.UTC(2026, 0, 2)) },
+      { awemeId: 'other', secUserId: 'sec-2', collectionId: sec2, createTime: new Date(Date.UTC(2026, 0, 3)) },
     ]);
 
     const res = await authed(request(app.getHttpServer()).get('/api/profiles/sec-1/videos'));
@@ -99,9 +102,10 @@ describe('GET /api/profiles/:secUserId/videos', () => {
   });
 
   it('filters by status', async () => {
+    const collectionId = await channelCollection(pool, 'sec-1');
     await db.insert(videos).values([
-      { awemeId: 'v0', secUserId: 'sec-1', createTime: new Date(), status: 'done' },
-      { awemeId: 'v1', secUserId: 'sec-1', createTime: new Date(), status: 'pending' },
+      { awemeId: 'v0', secUserId: 'sec-1', collectionId, createTime: new Date(), status: 'done' },
+      { awemeId: 'v1', secUserId: 'sec-1', collectionId, createTime: new Date(), status: 'pending' },
     ]);
 
     const res = await authed(

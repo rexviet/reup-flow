@@ -21,6 +21,7 @@ import {
   dropSchema,
   testSchemaName,
 } from '../support/db';
+import { channelCollection } from '../support/collections';
 import {
   getObjectBytes,
   listObjectKeys,
@@ -94,9 +95,9 @@ describe('migrate-local-storage-to-s3', () => {
       await writeFile(path, row.content);
     }
     await pool.query(
-      `INSERT INTO videos (aweme_id, sec_user_id, create_time, status, storage_path)
-       VALUES ($1, $2, now(), $3, $4)`,
-      [row.awemeId, row.secUserId, row.status, path],
+      `INSERT INTO videos (aweme_id, sec_user_id, create_time, status, storage_path, collection_id)
+       VALUES ($1, $2, now(), $3, $4, $5)`,
+      [row.awemeId, row.secUserId, row.status, path, await channelCollection(pool, row.secUserId)],
     );
     return path;
   }

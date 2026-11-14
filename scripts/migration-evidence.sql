@@ -91,8 +91,40 @@ BEGIN
     WHEN '261114-auto-queue-switch.sql' THEN expected := ARRAY[
       'public.auto_queue_settings.one:boolean','public.auto_queue_settings.enabled:boolean',
       'public.auto_queue_settings.updated_at:timestamp with time zone','public.auto_queue_settings_pkey'];
+    WHEN '261114-collections.sql' THEN expected := ARRAY[
+      'public.collections.id:uuid','public.collections.kind:text','public.collections.external_id:text',
+      'public.collections.sec_user_id:text','public.collections.name:text','public.collections.bgm_offset_db:real',
+      'public.collections.caption_text_color:text','public.collections.cover_color:text',
+      'public.collections.cover_opacity_pct:smallint','public.collections.save_subdir:text',
+      'public.collections.created_at:timestamp with time zone','public.collections.updated_at:timestamp with time zone',
+      'public.videos.collection_id:uuid','public.videos.mix_episode:integer','public.videos.collection_manual:boolean',
+      'public.jobs.collection_id:uuid',
+      'public.folder_exports.id:bigint','public.folder_exports.aweme_id:text','public.folder_exports.generation:integer',
+      'public.folder_exports.collection_id:uuid','public.folder_exports.target_subdir:text',
+      'public.folder_exports.file_stem:text','public.folder_exports.final_key:text','public.folder_exports.srt_key:text',
+      'public.folder_exports.state:text','public.folder_exports.claim:uuid',
+      'public.folder_exports.lease_expires_at:timestamp with time zone','public.folder_exports.error:text',
+      'public.folder_exports.files:jsonb','public.folder_exports.requested_at:timestamp with time zone',
+      'public.folder_exports.handled_at:timestamp with time zone',
+      'public.collections_pkey','public.folder_exports_pkey','public.videos_collection_recent_idx',
+      'public.folder_exports_open_idx','public.folder_exports_one_open_idx',
+      'public.collections@collections_kind_external_id_key','public.collections@collections_external_id_check',
+      'public.collections@collections_owner_check','public.folder_exports@folder_exports_file_stem_check',
+      'public.videos@videos_collection_id_fkey',
+      'public.jobs@jobs_collection_id_fkey'];
+    WHEN '261114-glossary-collection-scope.sql' THEN expected := ARRAY[
+      'localization.glossary.collection_id:uuid','localization.glossary@glossary_collection_id_fkey'];
     ELSE RAISE EXCEPTION 'Unknown migration %, reconcile manually', migration;
   END CASE;
+  -- After the glossary moved to collections, the core migration's glossary is
+  -- keyed by collection_id; either key is that migration's complete surface.
+  IF migration = '261026-localization-core.sql' AND EXISTS (
+    SELECT FROM pg_attribute WHERE attrelid = to_regclass('localization.glossary')
+      AND attname = 'collection_id' AND NOT attisdropped
+  ) THEN
+    expected := array_replace(expected, 'localization.glossary.channel_id:text',
+                              'localization.glossary.collection_id:uuid');
+  END IF;
   FOREACH item IN ARRAY expected LOOP
     parts := string_to_array(split_part(item, ':', 1), '.');
     IF position('@' in item) > 0 THEN

@@ -17,6 +17,7 @@ import {
   testSchemaName,
   truncateAll,
 } from '../support/db';
+import { channelCollection } from '../support/collections';
 
 jest.setTimeout(30_000);
 
@@ -26,10 +27,15 @@ const OTHER_SCHEMA = testSchemaName('outbox_other');
 let pool: Pool;
 let db: ReturnType<typeof testDb>;
 
-async function seedDownloading(testDbHandle: ReturnType<typeof testDb>, awemeId: string) {
+async function seedDownloading(
+  testDbHandle: ReturnType<typeof testDb>,
+  awemeId: string,
+  poolHandle: Pool = pool,
+) {
   await testDbHandle.insert(videos).values({
     awemeId,
     secUserId: 'profile-1',
+    collectionId: await channelCollection(poolHandle, 'profile-1'),
     createTime: new Date(Date.UTC(2026, 0, 1)),
     status: 'downloading',
   });
@@ -246,7 +252,7 @@ describe('overlapping runs', () => {
       const otherDb = testDb(otherPool);
 
       await seedDownloading(db, 'mine');
-      await seedDownloading(otherDb, 'theirs');
+      await seedDownloading(otherDb, 'theirs', otherPool);
       await markDone(db, 'mine', 's3://bucket/mine.mp4');
       await markDone(otherDb, 'theirs', 's3://bucket/theirs.mp4');
 

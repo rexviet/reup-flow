@@ -21,6 +21,7 @@ import {
   testSchemaName,
   truncateAll,
 } from '../support/db';
+import { channelCollection } from '../support/collections';
 import { FakeParser } from '../support/fake-parser';
 
 jest.setTimeout(30_000);
@@ -113,9 +114,10 @@ describe('retry', () => {
     fakeParser.respondWithEnvelope('sec-retry');
     const job = await service.createFromUrl('https://www.douyin.com/user/sec-retry');
     await pool.query("UPDATE jobs SET status = 'failed' WHERE id = $1", [job.id]);
+    const collectionId = await channelCollection(pool, 'sec-retry');
     await db.insert(videos).values([
-      { awemeId: 'r0', secUserId: 'sec-retry', createTime: new Date(), status: 'failed', attempts: 3 },
-      { awemeId: 'r1', secUserId: 'sec-retry', createTime: new Date(), status: 'done' },
+      { awemeId: 'r0', secUserId: 'sec-retry', collectionId, createTime: new Date(), status: 'failed', attempts: 3 },
+      { awemeId: 'r1', secUserId: 'sec-retry', collectionId, createTime: new Date(), status: 'done' },
     ]);
 
     const result = await service.retry(job.id);
@@ -165,7 +167,13 @@ describe('list / findById / profileVideoCounts', () => {
   it('counts videos by status for a profile (F7)', async () => {
     fakeParser.respondWithEnvelope('sec-counts');
     await service.createFromUrl('https://www.douyin.com/user/sec-counts');
-    await db.insert(videos).values({ awemeId: 'c0', secUserId: 'sec-counts', createTime: new Date(), status: 'done' });
+    await db.insert(videos).values({
+      awemeId: 'c0',
+      secUserId: 'sec-counts',
+      collectionId: await channelCollection(pool, 'sec-counts'),
+      createTime: new Date(),
+      status: 'done',
+    });
 
     expect(await service.profileVideoCounts('sec-counts')).toEqual({ done: 1 });
   });
