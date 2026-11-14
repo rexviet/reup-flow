@@ -12,7 +12,7 @@ import {
   TONE_CLASSES,
   TONE_ICONS,
 } from './format';
-import { RenderedGrid } from './RenderedGrid';
+import { RenderedGrid } from './VideoGrid';
 import { StageBadge } from './StageBadge';
 import { useThumbLinks } from './useMediaLinks';
 import { SmallThumb } from './VideoThumb';
