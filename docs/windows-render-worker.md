@@ -209,8 +209,15 @@ Mac vẫn tự render được trong lúc Windows chưa chứng minh được.
    cổng khác vẫn chỉ ở `127.0.0.1`.
 6. **Chỉ sau khi Windows đã render thành công một video** (mục 6): bỏ dấu `//` trước dòng
    `env: { REVIEW_WORKER_ROLES: 'studio' }` của `reup-review-worker` trong `ecosystem.config.cjs`
-   (G3), rồi `pm2 delete reup-review-worker && pm2 start ecosystem.config.cjs --only
-   reup-review-worker` (`pm2 reload` không đọc lại `env` của file cấu hình).
+   (G3), rồi khởi động lại riêng worker này (`pm2 reload` không đọc lại `env` của file cấu hình):
+
+   ```bash
+   pm2 delete reup-review-worker
+   REUP_NODE=$HOME/.nvm/versions/node/v24.14.0/bin/node pm2 start ecosystem.config.cjs --only reup-review-worker
+   ```
+
+   `REUP_NODE` là Node ≥ 22.13 mà `scripts/start-all.sh` vẫn truyền; thiếu nó pm2 dùng `node` của
+   PATH (trên Mac này là 22.12, quá cũ). Log khởi động phải có `roles studio`.
 7. Kiểm: `lsof -nP -iTCP:5433 -iTCP:9000 -sTCP:LISTEN` thấy `MAC_IP:5433`, `MAC_IP:9000` cùng các
    dòng `127.0.0.1`; không được có `*:5433`.
 
@@ -240,6 +247,22 @@ Bật đường dẫn dài (PowerShell quản trị, rồi khởi động lại)
 
 Đặt repo ở đường dẫn ngắn trên ổ nhanh (SSD/NVMe), ví dụ `C:\reup-flow`, không đặt trong OneDrive.
 
+**Ổ phải là NTFS và phải bật Developer Mode** (đã gặp khi chạy thật). Cả `pnpm install` lẫn
+HyperFrames (lúc tách khung hình video) đều tạo symlink thư mục:
+
+- Trên exFAT/FAT32 không có symlink: `pnpm install` lỗi `ERR_PNPM_EISDIR`, render lỗi
+  `EISDIR: illegal operation on a directory, symlink ...`. Kiểm định dạng ổ:
+  `Get-Volume | Select-Object DriveLetter, FileSystem`.
+- Trên NTFS, user thường chỉ tạo được symlink khi bật Developer Mode (không có thì lỗi `EPERM`).
+  Bật bằng PowerShell quản trị (hoặc Settings → *For developers* → *Developer Mode*):
+
+  ```powershell
+  reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock" /t REG_DWORD /f /v AllowDevelopmentWithoutDevLicense /d 1
+  ```
+
+Kiểm bằng một cửa sổ PowerShell **thường** (cửa sổ quản trị luôn tạo được symlink nên không chứng
+minh gì): `New-Item -ItemType SymbolicLink -Path C:\linktest -Target C:\Windows; Remove-Item C:\linktest`.
+
 ### 5.2 Mã nguồn và phụ thuộc
 
 ```powershell
@@ -248,6 +271,11 @@ git checkout <cùng nhánh/commit với Mac>      # hai bên phải cùng phiên
 cd services\localization; uv sync --frozen --no-dev
 cd spikes\hyperframes-review; pnpm install --frozen-lockfile
 ```
+
+Nếu repo buộc phải nằm trên ổ exFAT, `pnpm install --frozen-lockfile --config.node-linker=hoisted`
+cài được không cần symlink (lockfile không ghi `node-linker` nên vẫn `--frozen-lockfile` được), và
+`REVIEW_WORKER_DATA_ROOT` (mục 5.3) phải trỏ sang ổ NTFS, vì thư mục tạm của render nằm cạnh nó. Máy
+Windows hiện tại chạy đúng kiểu này: code ở `E:\reup-flow` (exFAT), dữ liệu ở `C:\reup-data`.
 
 Không cần `git submodule update` (submodule chỉ phục vụ parser). Nếu `uv sync` không tìm được wheel
 Windows cho `torch==2.5.1` từ index CPU, đó là khoảng trống cần xử lý (đưa `torch` và
@@ -277,7 +305,13 @@ FINAL_RENDER_WORKERS=8
 REVIEW_WORKER_MIN_FREE_GB=10
 ```
 
-Giới hạn quyền file: `icacls C:\reup-flow\.render-worker.env /inheritance:r /grant:r "$env:USERNAME:R"`.
+`REVIEW_WORKER_DATA_ROOT` phải nằm trên ổ NTFS: render chạy trong `<cha của nó>\review-render`
+và tạo symlink ở đó (mục 5.1).
+
+Giới hạn quyền file: `icacls C:\reup-flow\.render-worker.env /inheritance:r /grant:r "$env:USERNAME:R"`
+(không có tác dụng trên exFAT, vốn không có phân quyền). `.gitignore` chỉ chặn đúng tên
+`.render-worker.env`; bản sao lưu tên khác (ví dụ `.render-worker.env.bk`) **không** bị chặn, nên đừng
+để chúng trong repo.
 Không đưa vào: `OPENROUTER_API_KEY`, `API_KEY`, `POSTGRES_PASSWORD`, `MINIO_ROOT_*`, `LANGFUSE_*`,
 `REVIEW_S3_*`. `render-worker.ps1` từ chối khởi động nếu file có một trong các khóa này, hoặc
 thiếu `LOC_DATABASE_URL`, `S3_ENDPOINT`, `LOC_S3_ACCESS_KEY_ID`, `LOC_S3_SECRET_ACCESS_KEY`,
@@ -326,22 +360,40 @@ powershell -ExecutionPolicy Bypass -File scripts\render-worker.ps1        # G2
 Log đầu phải là `review worker started; data root ...; roles render; name render-worker-win;
 platform windows`. Dừng bằng Ctrl+C (hoặc Ctrl+Break): worker đợi render đang chạy tối đa 60 giây
 rồi trả dòng về `queued`. Renderer chạy trong process group riêng nên Ctrl+C không chạm tới nó;
-worker tự dừng nó bằng `taskkill /T /F`.
+worker tự dừng nó bằng `taskkill /T /F`. Ctrl+C rồi mà worker còn chạy thêm tới khoảng 60 giây là
+bình thường.
 
-Chạy nền và tự bật lại sau khởi động: **Task Scheduler** (không cần phần mềm ngoài):
+Mỗi render ghi vào log: `render <aweme>/g<gen>: started (attempt N)` khi nhận việc, tiến độ của
+HyperFrames dạng `35% Capturing frames` (đọc mỗi 15 giây, chỉ ghi khi đổi), `uploading 98.2 MB`, rồi
+`rendered in 3m12s` (hoặc `queued`/`failed`). Log chi tiết của chính renderer nằm ở
+`<cha của REVIEW_WORKER_DATA_ROOT>\review-render\final-render-*\render.log` trong lúc render (thư mục
+bị xóa khi xong); đọc bằng `Get-Content -Wait`, vì .NET `ReadAllText` bị chặn khi file đang được ghi.
 
-- Trigger: *At startup* (hoặc *At log on*). Run whether user is logged on or not nếu muốn chạy khi
-  chưa đăng nhập (cần mật khẩu tài khoản).
-- Action: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\reup-flow\scripts\render-worker.ps1`,
-  Start in `C:\reup-flow`.
-- Settings: *If the task fails, restart every 1 minute, up to 10 times*; bỏ giới hạn thời gian chạy
-  ("Stop the task if it runs longer than" tắt).
+**Chạy nền và tự bật lại khi đăng nhập: Task Scheduler.** Cách đang dùng trên máy Windows hiện tại
+(PowerShell, không cần quản trị; sửa đường dẫn nếu repo ở chỗ khác):
+
+```powershell
+$action = New-ScheduledTaskAction -Execute 'powershell.exe' `
+  -Argument '-NoProfile -ExecutionPolicy Bypass -File E:\reup-flow\scripts\render-worker.ps1' `
+  -WorkingDirectory 'E:\reup-flow'
+$trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
+$settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) `
+  -RestartCount 10 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew `
+  -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+Register-ScheduledTask -TaskName reup-render-worker -Action $action -Trigger $trigger `
+  -Principal $principal -Settings $settings -Force
+Start-ScheduledTask -TaskName reup-render-worker
+```
+
+- `Interactive`: task chạy trong phiên đang đăng nhập, mở một cửa sổ PowerShell hiện log trên màn
+  hình; **Ctrl+C trong cửa sổ đó dừng êm** (trả dòng về hàng đợi). Đổi lại, worker chỉ chạy khi user
+  đã đăng nhập. Chế độ "Run whether user is logged on or not" cần tài khoản có mật khẩu, và khi đó
+  không có cửa sổ log.
+- `ExecutionTimeLimit 0`: mặc định Task Scheduler dừng task sau 3 ngày.
+- `Stop-ScheduledTask` hoặc `schtasks /End` là kết thúc cưỡng bức: dòng đang render **không** về hàng
+  đợi ngay mà giữ `rendering` tới khi lease (75 phút) hết hạn. Muốn dừng êm thì Ctrl+C trong cửa sổ.
 - Tắt ngủ: `powercfg /change standby-timeout-ac 0` và `powercfg /change hibernate-timeout-ac 0`.
-
-Lưu ý: Task Scheduler dừng tác vụ bằng kết thúc cưỡng bức, nên render đang chạy **không** được trả về
-hàng đợi ngay; dòng giữ `rendering` đến khi lease (75 phút) hết hạn rồi được nhận lại (tối đa 3 lần
-thử). Nếu muốn dừng êm như Mac, chạy worker bằng NSSM (`nssm install`, đặt *Shutdown* gửi Ctrl+C với
-timeout 90 giây). Với tốc độ Windows mới, đây là chi phí chấp nhận được.
 
 Tăng tốc tùy chọn: thêm loại trừ Windows Defender cho `C:\reup-flow\data` và
 `%USERPROFILE%\.cache\hyperframes` (`Add-MpPreference -ExclusionPath ...`, cần quản trị), vì render
@@ -457,7 +509,26 @@ schtasks /End /TN "reup-render-worker"     # dừng cưỡng bức, dòng không
 schtasks /Query /TN "reup-render-worker"
 ```
 
-`render-worker.ps1` chỉ in log ra console, chưa ghi file, nên qua SSH chưa xem được log của task.
+`render-worker.ps1` chỉ in log ra console (cửa sổ trên màn hình Windows), chưa ghi file, nên qua SSH
+chưa xem được log của worker; tiến độ thì xem được qua heartbeat (mục 6, bước 4: `info->'current'`)
+hoặc `render.log` của renderer (mục 5.6).
+
+**Những chỗ đã vấp khi làm thật:**
+
+- **Tài khoản Windows không có mật khẩu:** Windows chặn mọi đăng nhập qua mạng bằng mật khẩu trống,
+  nên bước 2 không làm được. Cài key trực tiếp trên máy Windows (bước 3, dán nguyên dòng public key
+  vào lệnh `Add-Content ... -Encoding ascii`; không dùng `echo ... >` vì PowerShell 5.1 ghi UTF-16 và
+  sshd không đọc được).
+- **Phiên SSH của tài khoản admin chạy với quyền quản trị** (key, không qua UAC). Thử quyền của worker
+  (ví dụ tạo symlink) trong phiên SSH không chứng minh gì; chạy phép thử qua một scheduled task
+  `-RunLevel Limited`.
+- **Lệnh dài lồng nháy qua `ssh` vào PowerShell hay vỡ.** Viết script `.ps1` trên Mac, `scp` sang rồi
+  `ssh win "powershell -NoProfile -ExecutionPolicy Bypass -File C:\...\script.ps1"`.
+- **`git` ghi tiến trình ra stderr**; trong script có `$ErrorActionPreference = 'Stop'`, PowerShell
+  5.1 coi đó là lỗi và dừng script dù `git pull` đã xong. Gọi qua `cmd /c "git pull 2>&1"`.
+- **`scp` tới ổ khác ổ C:** `scp file win:E:/reup-flow/.render-worker.env`; viết lệnh trên **một
+  dòng** (xuống dòng giữa `user` và `@host` làm `scp` chép thành file tên `user` trên chính Mac).
+- Ngay sau khi vào, SSH đứng ở `C:\Users\<user>`; `cd E:\reup-flow` nếu repo ở ổ khác.
 
 ## 6. Kiểm chứng
 
@@ -501,8 +572,11 @@ schtasks /Query /TN "reup-render-worker"
 - Thư mục tạm `data\review-render\final-render-*` có thể còn sót nếu Chrome giữ file khi xóa; worker
   tự dọn thư mục cũ hơn lease khi khởi động (`clean_stale`).
 - Rollback về Mac: dừng tác vụ Windows, đặt lại `//` trước dòng `env` của `reup-review-worker`
-  trong `ecosystem.config.cjs` (vai trò về `all`), rồi `pm2 delete reup-review-worker && pm2 start
-  ecosystem.config.cjs --only reup-review-worker`. Không có migration hay dữ liệu cần hoàn tác. Muốn đóng LAN: gỡ
+  trong `ecosystem.config.cjs` (vai trò về `all`), rồi chạy lại hai lệnh `pm2 delete` / `REUP_NODE=...
+  pm2 start` ở mục 4, bước 6.
+- Mở hay đóng LAN tạo lại container `postgres`, cắt mọi kết nối đang mở. `nest` nay chỉ ghi cảnh báo
+  `idle Postgres connection dropped` rồi kết nối lại (trước đây nó thoát hẳn và dashboard báo 502
+  Bad Gateway cho tới khi `docker compose up -d --no-deps nest`). Không có migration hay dữ liệu cần hoàn tác. Muốn đóng LAN: gỡ
   `docker-compose.lan.yml` và `COMPOSE_FILE`, rồi `docker compose up -d --no-deps postgres minio`.
 - Nâng cấp: cập nhật hai máy cùng commit. HyperFrames ghim `0.8.77`; đổi ghim phải xác minh lại trên
   cả hai máy.
