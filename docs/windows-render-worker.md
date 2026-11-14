@@ -370,6 +370,95 @@ xác nhận cờ này tồn tại ở bản ghim 0.8.77. Cách làm:
    giây), chất lượng (SSIM so với bản Mac), thời gian. Bộ mã hóa phần cứng thường cho chất lượng thấp
    hơn x264 ở cùng bitrate; chỉ bật mặc định nếu chất lượng chấp nhận được.
 
+### 5.8 SSH từ Mac vào Windows (tùy chọn)
+
+Để điều khiển máy Windows từ Mac. Dùng OpenSSH Server có sẵn của Windows 10/11. Chưa thử trên máy
+Windows của dự án.
+
+**1. Cài và bật sshd** (PowerShell **quản trị**):
+
+```powershell
+Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
+Start-Service sshd
+Set-Service sshd -StartupType Automatic
+
+# Rule firewall (bản cài thường tự tạo); nếu lệnh đầu báo không có thì chạy lệnh thứ hai
+Get-NetFirewallRule -Name OpenSSH-Server-In-TCP | Select-Object Enabled, Profile
+New-NetFirewallRule -Name OpenSSH-Server-In-TCP -DisplayName 'OpenSSH Server (sshd)' `
+  -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22
+
+# PowerShell làm shell mặc định khi SSH vào (mặc định là cmd)
+New-ItemProperty -Path HKLM:\SOFTWARE\OpenSSH -Name DefaultShell `
+  -Value C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -PropertyType String -Force
+
+# Tên đăng nhập và IP
+whoami
+Get-NetIPAddress -AddressFamily IPv4 | Where-Object PrefixOrigin -eq Dhcp
+```
+
+`whoami` ra `desktop-abc\viet` thì tên đăng nhập SSH là `viet`. Với tài khoản Microsoft, tên đăng
+nhập là tên thư mục trong `C:\Users\`, mật khẩu là mật khẩu tài khoản Microsoft. Đặt DHCP
+reservation cho máy Windows để IP không đổi.
+
+**2. Thử bằng mật khẩu từ Mac:** `ssh viet@<WIN_IP>`.
+
+**3. Chuyển sang key.** `ssh-copy-id` không dùng được với Windows, nên làm tay. Trên Mac:
+
+```bash
+ls ~/.ssh/id_ed25519.pub || ssh-keygen -t ed25519
+scp ~/.ssh/id_ed25519.pub viet@<WIN_IP>:mac.pub   # vào thư mục home trên Windows
+```
+
+Trên Windows (PowerShell quản trị), trước hết xem tài khoản có thuộc nhóm Administrators không:
+
+```powershell
+([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole('Administrators')
+```
+
+Nếu `True` (thường gặp ở máy cá nhân): sshd **bỏ qua** `~\.ssh\authorized_keys` và chỉ đọc file
+chung. Quyền file phải chỉ gồm Administrators và SYSTEM, nếu không sshd lặng lẽ bỏ qua key (SID
+`S-1-5-32-544` thay cho chữ "Administrators" để chạy được cả trên Windows tiếng Việt):
+
+```powershell
+Get-Content $env:USERPROFILE\mac.pub | Add-Content $env:ProgramData\ssh\administrators_authorized_keys
+icacls.exe "$env:ProgramData\ssh\administrators_authorized_keys" /inheritance:r /grant "*S-1-5-32-544:F" /grant "SYSTEM:F"
+```
+
+Nếu `False`:
+
+```powershell
+New-Item -ItemType Directory -Force $env:USERPROFILE\.ssh
+Get-Content $env:USERPROFILE\mac.pub | Add-Content $env:USERPROFILE\.ssh\authorized_keys
+```
+
+`ssh viet@<WIN_IP>` không còn hỏi mật khẩu là key đã chạy.
+
+**4. Tắt đăng nhập bằng mật khẩu** (sau khi key đã chạy). `notepad $env:ProgramData\ssh\sshd_config`,
+đặt `PasswordAuthentication no`, rồi `Restart-Service sshd`. Giữ sẵn một phiên SSH đang mở trước khi
+restart để còn đường vào nếu cấu hình sai.
+
+**5. Tên tắt trên Mac**, thêm vào `~/.ssh/config`, sau đó dùng `ssh win`, `scp file win:`:
+
+```
+Host win
+  HostName <WIN_IP>
+  User viet
+  IdentityFile ~/.ssh/id_ed25519
+```
+
+**Điều khiển render worker qua SSH.** Không chạy `render-worker.ps1` trực tiếp trong phiên SSH: SSH
+ngắt thì worker chết theo, và dòng đang render giữ `rendering` tới khi lease 75 phút hết hạn. Để
+worker chạy bằng Task Scheduler (mục 5.6) và dùng SSH để bật, tắt, xem trạng thái (thay
+`reup-render-worker` bằng tên task đã đặt):
+
+```powershell
+schtasks /Run /TN "reup-render-worker"
+schtasks /End /TN "reup-render-worker"     # dừng cưỡng bức, dòng không về hàng đợi ngay
+schtasks /Query /TN "reup-render-worker"
+```
+
+`render-worker.ps1` chỉ in log ra console, chưa ghi file, nên qua SSH chưa xem được log của task.
+
 ## 6. Kiểm chứng
 
 1. Trên dashboard, duyệt một video thử, rồi trên Mac:
@@ -394,6 +483,17 @@ xác nhận cờ này tồn tại ở bản ghim 0.8.77. Cách làm:
 
 ## 7. Vận hành và rollback
 
+- **Không tắt hẳn `reup-review-worker` trên Mac để dồn render sang Windows.** Tắt hẳn thì Mac
+  ngừng nhận render, nhưng mất luôn nút "Mở Studio" trên dashboard, việc quét review mỗi 60 giây
+  và heartbeat `review-worker`. Sau 2 phút badge worker chuyển đỏ, VoiceStudio và đĩa thành
+  `unknown`; heartbeat `render-worker-win` không hiện trên dashboard. Đúng cách là chuyển Mac sang
+  vai trò `studio` (mục 4, bước 6): Mac vẫn làm mọi việc khác, chỉ không nhận render.
+- Trước khi Windows render thành công lần đầu, cứ để Mac ở `all`. Hai máy cùng nhận render vẫn
+  an toàn: mỗi dòng chỉ một máy claim được (`FOR UPDATE SKIP LOCKED`), máy nào rảnh trước thì làm.
+- Khi Mac ở `studio`, chỉ Windows render. Windows tắt thì dòng mới nằm `queued` mãi, không báo
+  lỗi; muốn Mac làm thay thì làm theo mục rollback bên dưới.
+- Đổi vai trò hoặc dừng worker Mac lúc đang render: worker đợi tối đa 60 giây, trả dòng về
+  `queued` mà không tính lần thử, rồi Windows nhận lại ở vòng kế tiếp.
 - Windows tắt hoặc mất mạng giữa render: dòng giữ `rendering` tới khi lease hết hạn (75 phút), rồi
   được nhận lại, tối đa 3 lần thử, sau đó `failed`. Dashboard không cho duyệt lại hay trả về khi đang
   `rendering`.
