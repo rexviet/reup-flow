@@ -1,7 +1,7 @@
 import { and, count, desc, eq, gt, inArray, isNotNull, lt, notExists, sql } from 'drizzle-orm';
 import type { Executor } from './executor';
 import { redactor } from '../redaction/redactor';
-import { collections, jobs, localizationOutbox, profiles, videos, type Video } from './schema';
+import { jobs, localizationOutbox, videos, type Video } from './schema';
 
 export interface ClaimOptions {
   /** How long a claim is valid before the reaper may hand it to someone else. */
@@ -91,6 +91,22 @@ export interface VideoUpsert {
   lastError?: string | null;
 }
 
+/**
+ * Where a new video goes, decided by `resolveCollections` before the insert:
+ * the collection, the video's episode when it belongs to a 合集, and whether a
+ * person chose the collection.
+ */
+export interface CollectionPlacement {
+  collectionId: string;
+  /** 1-based episode in the 合集; null or absent when unknown or not in one. */
+  mixEpisode?: number | null;
+  /** True when a person picked the collection; enumerate never moves such a video. */
+  collectionManual?: boolean;
+}
+
+/** A row `upsertMany` can store: the video plus its collection placement. */
+export type PlacedVideoUpsert = VideoUpsert & CollectionPlacement;
+
 export interface UpsertOptions {
   /** `URL_TTL_SECONDS`. How long the cached `play_addr` is assumed good for. */
   urlTtlSeconds: number;
@@ -139,21 +155,19 @@ export interface UpsertOptions {
  * `skipped` one. Absent, they mean `pending`/null -- unchanged for every caller
  * that never heard of image posts.
  *
- * Every new video goes into its channel's collection, created here on first
- * use. The channel's profile must already exist (enumerate runs under a job
- * that references it; the single-video path upserts it first); without one the
- * NOT NULL `collection_id` rejects the page instead of storing a video that
- * belongs nowhere. The two statements need no shared transaction: creating the
- * collection is idempotent, so a retry after a failed insert reuses it.
+ * Each row carries its collection placement, decided beforehand by
+ * `resolveCollections` (collections.repository.ts). This function creates no
+ * collection; a row without one is refused by the NOT NULL `collection_id`
+ * rather than stored belonging nowhere. A video that already exists keeps its
+ * collection here like every other column; `moveIntoMixes` is the one write
+ * that changes it.
  */
 export async function upsertMany(
   exec: Executor,
-  rows: VideoUpsert[],
+  rows: PlacedVideoUpsert[],
   opts: UpsertOptions,
 ): Promise<number> {
   if (rows.length === 0) return 0;
-
-  await ensureChannelCollections(exec, [...new Set(rows.map((row) => row.secUserId))]);
 
   const inserted = await exec
     .insert(videos)
@@ -170,8 +184,10 @@ export async function upsertMany(
         status: row.status ?? 'pending',
         lastError: row.lastError ?? null,
         urlExpiresAt: sql`now() + make_interval(secs => ${opts.urlTtlSeconds})`,
-        collectionId: sql`(SELECT ${collections.id} FROM ${collections}
-          WHERE ${collections.kind} = 'channel' AND ${collections.externalId} = ${row.secUserId})`,
+        // Explicit for the same reason as `status`: one column list serves
+        // every row of the statement.
+        mixEpisode: row.mixEpisode ?? null,
+        collectionManual: row.collectionManual ?? false,
       })),
     )
     .onConflictDoNothing()
@@ -180,19 +196,70 @@ export async function upsertMany(
   return inserted.length;
 }
 
+/** One video's 合集, as read from the item that was just enumerated. */
+export interface MixMove {
+  awemeId: string;
+  /** The 合集's collection. */
+  collectionId: string;
+  episode: number | null;
+}
+
 /**
- * Gives each listed channel that has a profile its channel collection, named
- * after the profile's nickname (or its id when there is none), like the
- * migration's backfill. An existing collection is left exactly as it is.
+ * Brings videos that were already stored into the 合集 their item names.
+ * Returns how many rows changed.
+ *
+ * `upsertMany` leaves an existing row alone (F7), so a video stored before its
+ * 合集 was known -- every video moved into its channel collection by the
+ * migration's backfill -- would otherwise never reach it. Two cases, one
+ * statement:
+ *
+ *   - MOVE: the video is still in its channel's default collection
+ *     (`channelCollectionId`) and nobody placed it by hand. It moves into the
+ *     合集 and takes the episode. A video a person placed, or one in any other
+ *     collection, stays where it is.
+ *   - FILL: the video is already in that 合集 but has no episode yet, and the
+ *     item now carries one. An episode it already has is kept.
+ *
+ * Rows that are new in this page match neither case: `upsertMany` stored them
+ * in the 合集 with their episode already.
  */
-async function ensureChannelCollections(exec: Executor, secUserIds: string[]): Promise<void> {
-  await exec.execute(sql`
-    INSERT INTO ${collections} (kind, external_id, sec_user_id, name)
-    SELECT 'channel', ${profiles.secUserId}, ${profiles.secUserId},
-           coalesce(nullif(btrim(left(${profiles.nickname}, 200)), ''), left(${profiles.secUserId}, 200))
-      FROM ${profiles}
-     WHERE ${inArray(profiles.secUserId, secUserIds)}
-    ON CONFLICT (kind, external_id) DO NOTHING`);
+export async function moveIntoMixes(
+  exec: Executor,
+  channelCollectionId: string,
+  moves: MixMove[],
+): Promise<number> {
+  if (moves.length === 0) return 0;
+
+  const values = sql.join(
+    moves.map((m) => sql`(${m.awemeId}, ${m.collectionId}::uuid, ${m.episode}::integer)`),
+    sql`, `,
+  );
+  const result = await exec.execute(sql`
+    UPDATE ${videos} AS v
+       SET collection_id = m.collection_id,
+           mix_episode = coalesce(m.episode, v.mix_episode)
+      FROM (VALUES ${values}) AS m (aweme_id, collection_id, episode)
+     WHERE v.aweme_id = m.aweme_id
+       AND (   (v.collection_manual = false AND v.collection_id = ${channelCollectionId}::uuid)
+            OR (v.collection_id = m.collection_id AND v.mix_episode IS NULL AND m.episode IS NOT NULL))`);
+  return result.rowCount ?? 0;
+}
+
+/**
+ * Files one video in a collection a person picked, marking it manual so that
+ * enumerate never moves it again. Returns whether the video exists.
+ */
+export async function placeByHand(
+  exec: Executor,
+  awemeId: string,
+  collectionId: string,
+): Promise<boolean> {
+  const rows = await exec
+    .update(videos)
+    .set({ collectionId, collectionManual: true })
+    .where(eq(videos.awemeId, awemeId))
+    .returning({ awemeId: videos.awemeId });
+  return rows.length > 0;
 }
 
 /** One row by primary key, or `null`. */

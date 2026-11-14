@@ -39,7 +39,7 @@ export class JobsController {
   @HttpCode(HttpStatus.CREATED)
   async create(@Body(new ZodValidationPipe(createJobSchema)) body: CreateJobDto): Promise<{ job_id: string }> {
     try {
-      const job = await this.jobsService.createFromUrl(body.url, body.auto_localize);
+      const job = await this.jobsService.createFromUrl(body.url, body.auto_localize, body.collection_id);
       return { job_id: job.id };
     } catch (err) {
       throw mapParserError(err);

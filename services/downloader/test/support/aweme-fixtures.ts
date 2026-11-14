@@ -110,6 +110,28 @@ export function awemeFixture(file: string): Aweme {
   return detail as Aweme;
 }
 
+/**
+ * The `.data.aweme_list` of `user-post-mix-page.json`: one real enumerate page
+ * of channel IM-薛珍珠 (`MIX_PAGE_CHANNEL`), ten episodes of the 合集 成名的代价
+ * (`MIX_PAGE_MIX_ID`) and one video with no `mix_info` (`MIX_PAGE_NO_MIX_ID`).
+ * Fails loudly when the list is missing, for the reason given on `awemeFixture`.
+ */
+export function mixPageItems(): Aweme[] {
+  const envelope: unknown = JSON.parse(readFileSync(join(DIR, 'user-post-mix-page.json'), 'utf8'));
+  const list = (envelope as { data?: { aweme_list?: unknown } }).data?.aweme_list;
+  if (!Array.isArray(list) || list.length === 0) {
+    throw new Error('user-post-mix-page.json has no .data.aweme_list -- every assertion would be vacuous');
+  }
+  return list as Aweme[];
+}
+
+export const MIX_PAGE_CHANNEL =
+  'MS4wLjABAAAAE_UjwhIrz5ADIJh_CmMo31N9BR7pfKz_NKzLf9djdAF-Amx02tIyIo221_zzPIjb';
+export const MIX_PAGE_MIX_ID = '7695338683825653823';
+export const MIX_PAGE_NO_MIX_ID = '7696076126451518735';
+/** Episode 1 of the 合集, also the item of `video-detail-mix.json`. */
+export const MIX_PAGE_EPISODE_1_ID = '7689288513854595771';
+
 /** `n` = 0, 1 or 2; see IMAGE_POST_FIXTURES. */
 export function imagePostAweme(n: 0 | 1 | 2): Aweme {
   return awemeFixture(IMAGE_POST_FIXTURES[n]);

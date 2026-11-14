@@ -17,6 +17,7 @@ import request from 'supertest';
 import { ApiKeyGuard } from '../../src/auth/api-key.guard';
 import { ConfigModule } from '../../src/config/config.module';
 import { DB } from '../../src/db/db.module';
+import { claimOne } from '../../src/db/jobs.repository';
 import { videos } from '../../src/db/schema';
 import { JobsController } from '../../src/jobs/jobs.controller';
 import { JobsService } from '../../src/jobs/jobs.service';
@@ -163,6 +164,44 @@ describe('POST /api/jobs', () => {
   it('rejects a missing url with 400', async () => {
     const res = await authed(request(app.getHttpServer()).post('/api/jobs')).send({});
     expect(res.status).toBe(400);
+  });
+
+  it('stores a hand-picked collection_id on the job, and the claimed job carries it', async () => {
+    fakeParser.respondWithEnvelope('sec-picked');
+    const { rows } = await pool.query<{ id: string }>(
+      `INSERT INTO collections (kind, name) VALUES ('manual', 'Chọn tay') RETURNING id`,
+    );
+    const picked = rows[0]!.id;
+
+    const res = await authed(request(app.getHttpServer()).post('/api/jobs')).send({
+      url: 'https://www.douyin.com/user/sec-picked',
+      collection_id: picked,
+    });
+
+    expect(res.status).toBe(201);
+    const claimed = await claimOne(db, { leaseSeconds: 300 });
+    expect(claimed).toMatchObject({ id: res.body.job_id, collectionId: picked });
+  });
+
+  it('answers 400 for a collection_id that names no collection, without asking the parser or creating a job', async () => {
+    const res = await authed(request(app.getHttpServer()).post('/api/jobs')).send({
+      url: 'https://www.douyin.com/user/sec-missing-collection',
+      collection_id: '00000000-0000-4000-8000-000000000000',
+    });
+
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(res.body)).toContain('00000000-0000-4000-8000-000000000000');
+    expect(fakeParser.requests).toHaveLength(0);
+    expect((await pool.query('SELECT 1 FROM jobs')).rows).toEqual([]);
+  });
+
+  it('rejects a collection_id that is not a uuid with 400', async () => {
+    const res = await authed(request(app.getHttpServer()).post('/api/jobs')).send({
+      url: 'https://www.douyin.com/user/x',
+      collection_id: 'not-a-uuid',
+    });
+    expect(res.status).toBe(400);
+    expect(fakeParser.requests).toHaveLength(0);
   });
 
   it('maps a parser 5xx (ParserUnavailableError) to 503', async () => {

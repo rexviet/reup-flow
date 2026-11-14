@@ -1,4 +1,10 @@
-import { BadGatewayException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadGatewayException,
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { ENV } from '../config/config.module';
 import type { Env } from '../config/env';
@@ -7,6 +13,11 @@ import { DB } from '../db/db.module';
 import * as jobsRepository from '../db/jobs.repository';
 import * as schema from '../db/schema';
 import * as videosRepository from '../db/videos.repository';
+import {
+  CollectionNotFoundError,
+  collectionExists,
+  intakeVideos,
+} from '../db/collections.repository';
 import { toVideoUpsert } from '../parser/aweme.mapper';
 import type { ParserClient } from '../parser/parser.client';
 import { PARSER_CLIENT } from '../parser/parser.module';
@@ -41,9 +52,18 @@ export class VideosService {
    * The parser call happens before any write, for the same reason as in
    * `createFromUrl`: no transaction is held open across a network round trip.
    */
-  async enqueueFromUrl(url: string, localizeFlag?: boolean): Promise<EnqueuedVideo> {
+  async enqueueFromUrl(
+    url: string,
+    localizeFlag?: boolean,
+    collectionId?: string,
+  ): Promise<EnqueuedVideo> {
     const awemeId = extractAwemeId(url);
     if (awemeId === null) throw new BadGatewayException('url does not name a video');
+    // Checked before the parser call so a bad pick costs no request. The check
+    // inside `intakeVideos` covers a collection removed in between.
+    if (collectionId !== undefined && !(await collectionExists(this.db, collectionId))) {
+      throw new BadRequestException(`collection ${collectionId} does not exist`);
+    }
 
     const aweme = await this.parser.fetchAwemeDetail(awemeId);
     if (aweme === null) throw new NotFoundException(`video ${awemeId} not found`);
@@ -57,11 +77,26 @@ export class VideosService {
       throw new BadGatewayException(`parser returned an unusable record for video ${awemeId}`);
     }
 
-    await this.db.transaction(async (tx) => {
-      await jobsRepository.upsertProfile(tx, row.secUserId);
-      await videosRepository.upsertMany(tx, [row], { urlTtlSeconds: this.env.URL_TTL_SECONDS });
-      if (localizeFlag !== undefined) await setLocalizeOnDone(tx, awemeId, localizeFlag);
-    });
+    try {
+      await this.db.transaction(async (tx) => {
+        await jobsRepository.upsertProfile(tx, row.secUserId);
+        // Hand-picked collection, else the video's 合集, else its channel.
+        const inserted = await intakeVideos(
+          tx,
+          { secUserId: row.secUserId, manualCollectionId: collectionId ?? null, rows: [row] },
+          { urlTtlSeconds: this.env.URL_TTL_SECONDS },
+        );
+        // The form's pick is for this very video, so it also applies to one
+        // already stored; a new one was inserted into the pick above.
+        if (collectionId !== undefined && inserted === 0) {
+          await videosRepository.placeByHand(tx, awemeId, collectionId);
+        }
+        if (localizeFlag !== undefined) await setLocalizeOnDone(tx, awemeId, localizeFlag);
+      });
+    } catch (err) {
+      if (err instanceof CollectionNotFoundError) throw new BadRequestException(err.message);
+      throw err;
+    }
     // A separate transaction on purpose: the flag above is already committed, so a
     // failure here leaves a retryable request, not a lost one.
     // Already downloaded and held: asking to localize now takes the same single

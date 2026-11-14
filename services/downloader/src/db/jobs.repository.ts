@@ -490,9 +490,14 @@ export async function upsertProfile(exec: Executor, secUserId: string): Promise<
 
 /** Inserts a new `pending` job. Caller (jobs.service.ts) is responsible for
  * having called `upsertProfile` first in the SAME transaction -- see the
- * note there. */
-export async function create(exec: Executor, secUserId: string): Promise<Job> {
-  const [job] = await exec.insert(jobs).values({ secUserId }).returning();
+ * note there. `collectionId` is the collection picked by hand for every new
+ * video the job brings in; `claimOne` returns it with the job. */
+export async function create(
+  exec: Executor,
+  secUserId: string,
+  collectionId: string | null = null,
+): Promise<Job> {
+  const [job] = await exec.insert(jobs).values({ secUserId, collectionId }).returning();
   // Postgres's own contract for a single-row RETURNING INSERT guarantees
   // exactly one row back; this is defensive against a future refactor that
   // turns this into a batch insert, not a case this can hit today.

@@ -44,5 +44,7 @@ export const createVideoSchema = z.object({
   /** true: localize as soon as it is downloaded; false: hold it once it finishes (a row already
    * pending is not taken back). Omitted follows the channel. */
   localize: z.boolean().optional(),
+  /** A collection picked by hand; it must exist. Omitted: the video's 合集, else its channel. */
+  collection_id: z.string().uuid('collection_id must be a valid UUID').optional(),
 });
 export type CreateVideoDto = z.infer<typeof createVideoSchema>;

@@ -19,7 +19,16 @@ import { ParserClient } from '../../src/parser/parser.client';
 import { PARSER_CLIENT } from '../../src/parser/parser.module';
 import { VideoEnqueueController } from '../../src/videos/video-enqueue.controller';
 import { VideosService } from '../../src/videos/videos.service';
-import { imagePostAweme, videoAweme, VIDEO_ID, IMAGE_POST_IDS } from '../support/aweme-fixtures';
+import {
+  awemeFixture,
+  imagePostAweme,
+  videoAweme,
+  IMAGE_POST_IDS,
+  MIX_PAGE_CHANNEL,
+  MIX_PAGE_EPISODE_1_ID,
+  MIX_PAGE_MIX_ID,
+  VIDEO_ID,
+} from '../support/aweme-fixtures';
 import {
   applyForwardMigration,
   createEmptySchema,
@@ -177,6 +186,117 @@ describe('POST /api/videos', () => {
     expect(await state()).toBe('pending');
     const { rows } = await pool.query('SELECT action FROM dashboard_actions');
     expect(rows).toEqual([{ action: 'localize' }]);
+  });
+
+  describe('collection', () => {
+    interface Placed {
+      kind: string;
+      external_id: string | null;
+      name: string;
+      mix_episode: number | null;
+      collection_manual: boolean;
+    }
+    async function placed(awemeId: string): Promise<Placed> {
+      const { rows } = await pool.query<Placed>(
+        `SELECT c.kind, c.external_id, c.name, v.mix_episode, v.collection_manual
+           FROM videos v JOIN collections c ON c.id = v.collection_id WHERE v.aweme_id = $1`,
+        [awemeId],
+      );
+      return rows[0]!;
+    }
+
+    it('puts a video with mix_info in its 合集 with its episode', async () => {
+      fakeParser.respondWithEnvelope({ aweme_detail: awemeFixture('video-detail-mix.json') });
+
+      const res = await post({ url: videoUrl(MIX_PAGE_EPISODE_1_ID) });
+
+      expect(res.status).toBe(202);
+      expect(await placed(MIX_PAGE_EPISODE_1_ID)).toEqual({
+        kind: 'mix',
+        external_id: MIX_PAGE_MIX_ID,
+        name: '成名的代价',
+        mix_episode: 1,
+        collection_manual: false,
+      });
+      const { rows } = await pool.query(
+        `SELECT name FROM collections WHERE kind = 'channel' AND external_id = $1`,
+        [MIX_PAGE_CHANNEL],
+      );
+      expect(rows).toEqual([{ name: 'IM-薛珍珠' }]);
+    });
+
+    it('puts a video without mix_info in its channel collection', async () => {
+      fakeParser.respondWithEnvelope({ aweme_detail: videoAweme() });
+
+      await post({ url: videoUrl(VIDEO_ID) });
+
+      expect(await placed(VIDEO_ID)).toMatchObject({ kind: 'channel', mix_episode: null, collection_manual: false });
+    });
+
+    it('puts the video in a hand-picked collection, marked manual', async () => {
+      const { rows } = await pool.query<{ id: string }>(
+        `INSERT INTO collections (kind, name) VALUES ('manual', 'Chọn tay') RETURNING id`,
+      );
+      fakeParser.respondWithEnvelope({ aweme_detail: awemeFixture('video-detail-mix.json') });
+
+      const res = await post({ url: videoUrl(MIX_PAGE_EPISODE_1_ID), collection_id: rows[0]!.id });
+
+      expect(res.status).toBe(202);
+      expect(await placed(MIX_PAGE_EPISODE_1_ID)).toMatchObject({
+        kind: 'manual',
+        name: 'Chọn tay',
+        collection_manual: true,
+      });
+    });
+
+    it('moves a video already stored into the collection picked for it, marked manual', async () => {
+      fakeParser.respondWithEnvelope({ aweme_detail: awemeFixture('video-detail-mix.json') });
+      await post({ url: videoUrl(MIX_PAGE_EPISODE_1_ID) });
+      const { rows } = await pool.query<{ id: string }>(
+        `INSERT INTO collections (kind, name) VALUES ('manual', 'Chọn tay') RETURNING id`,
+      );
+
+      const res = await post({ url: videoUrl(MIX_PAGE_EPISODE_1_ID), collection_id: rows[0]!.id });
+
+      expect(res.status).toBe(202);
+      expect(await placed(MIX_PAGE_EPISODE_1_ID)).toMatchObject({
+        kind: 'manual',
+        name: 'Chọn tay',
+        mix_episode: 1,
+        collection_manual: true,
+      });
+    });
+
+    it('leaves a stored video where it is when no collection is picked', async () => {
+      fakeParser.respondWithEnvelope({ aweme_detail: awemeFixture('video-detail-mix.json') });
+      await post({ url: videoUrl(MIX_PAGE_EPISODE_1_ID) });
+      await pool.query(
+        `UPDATE videos SET collection_manual = true, collection_id =
+           (SELECT id FROM collections WHERE kind = 'channel') WHERE aweme_id = $1`,
+        [MIX_PAGE_EPISODE_1_ID],
+      );
+
+      await post({ url: videoUrl(MIX_PAGE_EPISODE_1_ID) });
+
+      expect(await placed(MIX_PAGE_EPISODE_1_ID)).toMatchObject({ kind: 'channel', collection_manual: true });
+    });
+
+    it('answers 400 for a collection_id that names no collection, before asking the parser', async () => {
+      const res = await post({
+        url: videoUrl(VIDEO_ID),
+        collection_id: '00000000-0000-4000-8000-000000000000',
+      });
+
+      expect(res.status).toBe(400);
+      expect(fakeParser.requests).toHaveLength(0);
+      expect(await db.select().from(videos)).toHaveLength(0);
+    });
+
+    it('rejects a collection_id that is not a uuid with 400', async () => {
+      const res = await post({ url: videoUrl(VIDEO_ID), collection_id: 'nope' });
+      expect(res.status).toBe(400);
+      expect(fakeParser.requests).toHaveLength(0);
+    });
   });
 
   it('rejects a non-boolean localize with 400 and never calls the parser', async () => {

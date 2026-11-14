@@ -1,7 +1,8 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { DB } from '../db/db.module';
 import { setProfileAutoLocalize } from '../dashboard/intake.repository';
+import { collectionExists } from '../db/collections.repository';
 import * as jobsRepository from '../db/jobs.repository';
 import type { Page, PageOptions } from '../db/jobs.repository';
 import * as schema from '../db/schema';
@@ -38,7 +39,13 @@ export class JobsService {
    * that transaction, a lock) for no reason -- there is nothing to roll back
    * about a read that talks to nothing but the parser.
    */
-  async createFromUrl(url: string, autoLocalize?: boolean): Promise<Job> {
+  async createFromUrl(url: string, autoLocalize?: boolean, collectionId?: string): Promise<Job> {
+    // A hand-picked collection must exist; checked before the parser call so a
+    // bad pick costs no request and creates no job. The foreign key on
+    // `jobs.collection_id` stops one removed in between.
+    if (collectionId !== undefined && !(await collectionExists(this.db, collectionId))) {
+      throw new BadRequestException(`collection ${collectionId} does not exist`);
+    }
     const secUserId = await this.parser.resolveSecUserId(url);
     return this.db.transaction(async (tx) => {
       await jobsRepository.upsertProfile(tx, secUserId);
@@ -47,7 +54,7 @@ export class JobsService {
       if (autoLocalize !== undefined) {
         await setProfileAutoLocalize(tx, secUserId, autoLocalize);
       }
-      const job = await jobsRepository.create(tx, secUserId);
+      const job = await jobsRepository.create(tx, secUserId, collectionId ?? null);
       // PHASE 7 -- somebody is asking for this profile again, so nobody's
       // earlier cancel applies to it any more.
       //

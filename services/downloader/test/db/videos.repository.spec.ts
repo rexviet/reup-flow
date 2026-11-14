@@ -474,6 +474,7 @@ describe('upsertMany (phase 5)', () => {
     createTime: new Date(Date.UTC(2026, 0, 2)),
     durationMs: 15_000,
     playAddr: `https://cdn.example/${awemeId}.mp4`,
+    collectionId: collectionOf[(overrides.secUserId as 'profile-2' | undefined) ?? 'profile-1'],
     ...overrides,
   });
 
@@ -612,33 +613,50 @@ describe('upsertMany (phase 5)', () => {
     expect(await countByStatusForProfile(db, 'profile-1')).toEqual({ pending: 1 });
   });
 
-  it('puts every new video in its channel collection', async () => {
-    await upsertMany(db, [row('c1'), row('c2', { secUserId: 'profile-2' })], { urlTtlSeconds: 7200 });
+  it('writes the collection, episode and manual flag each row carries', async () => {
+    await upsertMany(
+      db,
+      [
+        row('c1'),
+        row('c2', { secUserId: 'profile-2', mixEpisode: 4, collectionManual: true }),
+      ],
+      { urlTtlSeconds: 7200 },
+    );
 
-    expect((await readVideo('c1')).collectionId).toBe(collectionOf['profile-1']);
-    expect((await readVideo('c2')).collectionId).toBe(collectionOf['profile-2']);
-    expect((await readVideo('c1')).collectionManual).toBe(false);
+    expect(await readVideo('c1')).toMatchObject({
+      collectionId: collectionOf['profile-1'],
+      mixEpisode: null,
+      collectionManual: false,
+    });
+    expect(await readVideo('c2')).toMatchObject({
+      collectionId: collectionOf['profile-2'],
+      mixEpisode: 4,
+      collectionManual: true,
+    });
   });
 
-  it('creates a missing channel collection once, named after the channel', async () => {
-    await pool.query(`INSERT INTO profiles (sec_user_id, nickname) VALUES ('fresh', '  Kênh mới  ')`);
+  it('creates no collection itself: assignment is decided before the insert', async () => {
+    // A channel with a profile but no channel collection yet.
+    await pool.query(`INSERT INTO profiles (sec_user_id) VALUES ('bare')`);
+    const before = (await pool.query('SELECT count(*)::int AS n FROM collections')).rows[0].n;
 
-    await upsertMany(db, [row('f1', { secUserId: 'fresh' })], { urlTtlSeconds: 7200 });
-    await upsertMany(db, [row('f2', { secUserId: 'fresh' }), row('f3', { secUserId: 'fresh' })], {
+    await upsertMany(db, [row('n1', { secUserId: 'bare', collectionId: collectionOf['profile-1'] })], {
       urlTtlSeconds: 7200,
     });
 
-    const { rows } = await pool.query(
-      `SELECT c.name, count(v.*)::int AS videos FROM collections c JOIN videos v ON v.collection_id = c.id
-        WHERE c.kind = 'channel' AND c.external_id = 'fresh' GROUP BY c.id`,
-    );
-    expect(rows).toEqual([{ name: 'Kênh mới', videos: 3 }]);
+    expect((await readVideo('n1')).collectionId).toBe(collectionOf['profile-1']);
+
+    expect((await pool.query('SELECT count(*)::int AS n FROM collections')).rows[0].n).toBe(before);
   });
 
-  it('refuses a video whose channel has no profile instead of leaving it without a collection', async () => {
+  it('refuses a row without a collection instead of storing a video that belongs nowhere', async () => {
+    // The profile-less channel is now refused by `resolveCollections`, before
+    // any row is built; this is the last line: `collection_id` is NOT NULL.
     await expect(
-      upsertMany(db, [row('ghost', { secUserId: 'no-such-profile' })], { urlTtlSeconds: 7200 }),
-    ).rejects.toThrow();
+      upsertMany(db, [row('ghost', { collectionId: undefined as unknown as string })], {
+        urlTtlSeconds: 7200,
+      }),
+    ).rejects.toMatchObject({ cause: { code: '23502', column: 'collection_id' } });
     await expect(readVideo('ghost')).rejects.toThrow(/not found/);
   });
 });

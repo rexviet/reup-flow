@@ -1,6 +1,6 @@
 import type { Executor } from '../db/executor';
 import * as jobsRepository from '../db/jobs.repository';
-import * as videosRepository from '../db/videos.repository';
+import { intakeVideos } from '../db/collections.repository';
 import type { Job } from '../db/schema';
 import { ParserRejectedError } from '../parser/parser.errors';
 import { probeCookie, type ProbeSource } from '../parser/f4-probe';
@@ -315,9 +315,14 @@ export class EnumerateLane extends LaneRunner {
       const usable = rows.filter((row): row is NonNullable<typeof row> => row !== null);
       dropped += rows.length - usable.length;
       imagePosts += usable.filter((row) => row.status === 'skipped').length;
-      inserted += await videosRepository.upsertMany(this.db, usable, {
-        urlTtlSeconds: this.opts.urlTtlSeconds,
-      });
+      // Collections first, then the rows (see `intakeVideos`). Not one
+      // transaction: creating a collection is idempotent, so a crash between
+      // the two leaves an empty collection the re-run reuses.
+      inserted += await intakeVideos(
+        this.db,
+        { secUserId: job.secUserId, manualCollectionId: job.collectionId, rows: usable },
+        { urlTtlSeconds: this.opts.urlTtlSeconds },
+      );
 
       // Counts what Douyin SENT, not what was inserted. Both later uses need
       // that: it is the progress figure an operator watches, and it is the

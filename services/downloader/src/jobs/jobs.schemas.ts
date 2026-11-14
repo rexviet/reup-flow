@@ -59,6 +59,8 @@ export const createJobSchema = z.object({
     }),
   /** Omitted keeps the channel's current switch. */
   auto_localize: z.boolean().optional(),
+  /** A collection picked by hand for every new video of the job; it must exist. */
+  collection_id: z.string().uuid('collection_id must be a valid UUID').optional(),
 });
 export type CreateJobDto = z.infer<typeof createJobSchema>;
 
