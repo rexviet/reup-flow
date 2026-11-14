@@ -46,14 +46,16 @@ write_policy downloader <<JSON
 ]}
 JSON
 
-# localization: read source/*, read-write work/ cache/ review/, write-only output/.
-# The render runs in the localization media worker with this user: it reads the spec,
-# the source copy and the dubbed track under work/ and writes work/*/render-*.mp4.
+# localization: read source/*, read-write work/ cache/ review/, read and write (never
+# delete) output/. The render runs in the localization media worker with this user: it
+# reads the spec, the source copy and the dubbed track under work/ and writes
+# work/*/render-*.mp4. The Mac review worker reads a legacy final from output/ to save it
+# into a collection folder.
 write_policy localization <<JSON
 {"Version":"2012-10-17","Statement":[
  {"Effect":"Allow","Action":["s3:GetObject"],"Resource":["$BUCKET_ARN/source/*"]},
  {"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject","s3:AbortMultipartUpload","s3:ListMultipartUploadParts"],"Resource":["$BUCKET_ARN/work/*","$BUCKET_ARN/cache/*","$BUCKET_ARN/review/*"]},
- {"Effect":"Allow","Action":["s3:PutObject","s3:AbortMultipartUpload","s3:ListMultipartUploadParts"],"Resource":["$BUCKET_ARN/output/*"]},
+ {"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:AbortMultipartUpload","s3:ListMultipartUploadParts"],"Resource":["$BUCKET_ARN/output/*"]},
  {"Effect":"Allow","Action":["s3:ListBucket"],"Resource":["$BUCKET_ARN"],"Condition":{"StringLike":{"s3:prefix":["source/*","work/*","cache/*","review/*","output/*"]}}},
  {"Effect":"Allow","Action":["s3:ListBucketMultipartUploads"],"Resource":["$BUCKET_ARN"]}
 ]}

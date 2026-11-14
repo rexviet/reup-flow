@@ -97,6 +97,7 @@ describe("docker-compose.yml localization infra", () => {
     command?: unknown;
     mem_limit?: unknown;
     shm_size?: unknown;
+    volumes?: string[];
   };
   const services: Record<string, Service> = compose.services;
 
@@ -417,6 +418,12 @@ describe("docker-compose.yml localization infra", () => {
     const pulls = dockerfile.split("\n").filter((l) => /^(FROM|COPY --from=)/.test(l));
     expect(pulls.length).toBeGreaterThanOrEqual(2);
     for (const line of pulls) expect(line).toMatch(/@sha256:[0-9a-f]{64}/);
+  });
+
+  it("minio-init runs the checked-out init.sh, so a policy edit applies on the next `up` without a rebuild", () => {
+    // The image COPYs init.sh, and `docker compose up` reuses a cached image: without this
+    // mount an edited policy would silently not apply until someone ran `build`.
+    expect(services["minio-init"].volumes).toContain("./infra/minio/init.sh:/init.sh:ro");
   });
 
   it("one-shot init services never restart, and dependents wait for them to COMPLETE", () => {
