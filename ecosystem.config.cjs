@@ -77,6 +77,9 @@ module.exports = {
       // before the worker can wait for it and return the row to the queue.
       treekill: false,
       time: true,
+      // When a Windows PC renders instead (docs/windows-render-worker.md), stop rendering
+      // here, but only after the PC has rendered one video successfully:
+      // env: { REVIEW_WORKER_ROLES: 'studio' },
     },
   ],
 };

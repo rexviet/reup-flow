@@ -16,5 +16,9 @@ export function workerEnv(config, root, base, { node, hyperframes }) {
   env.REVIEW_WORKER_NODE = node;
   env.HYPERFRAMES_BIN = hyperframes;
   env.REVIEW_WORKER_STUDIO_SCRIPT = join(root, 'scripts/review-studio-request.mjs');
+  // Set in pm2's env (ecosystem.config.cjs) to split work with a Windows render machine;
+  // unset, the worker does everything under the name the dashboard reads.
+  for (const key of ['REVIEW_WORKER_ROLES', 'REVIEW_WORKER_NAME', 'FINAL_RENDER_GPU'])
+    if (base[key] !== undefined) env[key] = base[key];
   return env;
 }

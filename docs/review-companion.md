@@ -170,9 +170,10 @@ làm bốn việc mỗi vòng 5 giây, đều trên máy này:
   tạm `data/review-render/` (không phải `data/review/`), chạy `hyperframes render -q delivery`
   rồi upload `output/review/<aweme>/g<gen>/<revision>.mp4` và `.srt`. Studio đang mở, bridge
   đang ghi hay chỉnh sửa chưa lưu đều không ảnh hưởng bản render. Mỗi render có timeout cứng
-  30 phút, lease 45 phút (gia hạn mỗi 5 phút) và tối đa 3 lần thử; thư mục tạm luôn bị xóa.
+  60 phút, lease 75 phút (gia hạn mỗi 5 phút) và tối đa 3 lần thử; thư mục tạm luôn bị xóa.
   Dưới `REVIEW_WORKER_MIN_FREE_GB` (mặc định 5) đĩa trống thì worker không nhận việc và ghi lý
   do vào heartbeat. `FINAL_RENDER_WORKERS` (mặc định 2) là số Chrome của một render.
+  `FINAL_RENDER_GPU=true` thêm `--gpu` vào lệnh render (mặc định tắt).
 - **Quét review.** Mỗi 60 giây ghi `localization.review_status`: số cue, số mismatch và
   project có chỉnh sửa chưa lưu hay không. Chỉ đọc: không materialize, không ghi marker (host
   và container bridge không có khóa file chung đáng tin cậy, nên chỉ bridge ghi marker).
@@ -182,11 +183,17 @@ làm bốn việc mỗi vòng 5 giây, đều trên máy này:
 - **Heartbeat** vào `localization.host_workers` (tên `review-worker`): đĩa trống, tình trạng
   VoiceStudio và render đang chạy. Dừng worker thì dashboard báo `down` sau 2 phút.
 
+Có thể chia các việc này giữa hai máy bằng `REVIEW_WORKER_ROLES`: `all` (mặc định), `render`
+(chỉ render) hoặc `studio` (mọi việc trừ render). `REVIEW_WORKER_NAME` đổi tên heartbeat (mặc
+định `review-worker`, tên dashboard đọc). Máy Windows chỉ render chạy `render` dưới tên
+`render-worker-win`; khi đó worker Mac chuyển sang `studio` qua `env` của app trong
+`ecosystem.config.cjs`. Cách cài: [windows-render-worker](windows-render-worker.md).
+
 `pm2 stop reup-review-worker` (hoặc reload) khiến worker đợi render đang chạy tối đa 60 giây,
 rồi trả dòng về `queued`, kill cả process group của renderer. `kill_timeout` của app là 90 giây
 vì pm2 mặc định chỉ đợi khoảng 1,6 giây, và `treekill: false` để pm2 không kill cả cây tiến
 trình ngay (renderer chết trước khi worker kịp trả dòng về hàng đợi). Worker dừng thì dòng
-`rendering` giữ nguyên tới khi lease hết hạn (45 phút) hoặc worker chạy lại; trong lúc đó
+`rendering` giữ nguyên tới khi lease hết hạn (75 phút) hoặc worker chạy lại; trong lúc đó
 dashboard chưa cho duyệt lại hay trả về. `reup-review-auto-open` chỉ mở project mới khi không có
 Studio nào đang mở, nên không đóng project vừa mở từ dashboard.
 

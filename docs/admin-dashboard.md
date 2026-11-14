@@ -93,6 +93,9 @@ tươi), worker review trên máy (heartbeat; quá 2 phút là `down`) và đĩa
 Tắt `reup-voice-worker` thì `stt` và `tts` đỏ; tắt VoiceStudio thì badge VoiceStudio đỏ (khi worker
 review còn chạy). Tắt worker review thì badge worker đỏ, còn VoiceStudio và đĩa chuyển `unknown` vì
 số liệu cũ không được hiện như sự thật.
+Badge chỉ đọc heartbeat tên `review-worker` (worker trên Mac). Một máy render Windows
+([windows-render-worker](windows-render-worker.md)) ghi heartbeat riêng tên `render-worker-win`,
+chưa hiện trên dashboard; xem bằng `select name, seen_at from localization.host_workers`.
 
 ## Giới hạn
 

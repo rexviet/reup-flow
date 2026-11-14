@@ -4,6 +4,8 @@ dist/
 # Copies and variants of the env file (backups) hold the same secrets; only the example is tracked.
 .env.*
 !.env.example
+# The Windows render machine's settings (database and storage credentials).
+.render-worker.env
 /data/
 
 # Local Python venv for the parser fork's test runner.

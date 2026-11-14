@@ -89,4 +89,14 @@ test('worker environment adds the render settings and drops nothing the host nee
   assert.equal(env.REVIEW_WORKER_STUDIO_SCRIPT, '/repo/scripts/review-studio-request.mjs');
   assert.match(env.LOC_DATABASE_URL, /@127\.0\.0\.1:5433\//);
   assert.equal(env.VOICESTUDIO_URL, 'http://127.0.0.1:3900');
+  assert.equal(env.REVIEW_WORKER_ROLES, undefined);
+  assert.equal(env.REVIEW_WORKER_NAME, undefined);
+});
+
+test('worker environment passes the role split on from pm2', () => {
+  const config = { services: { 'worker-agents': { environment: {} } } };
+  const env = workerEnv(config, '/repo', { PATH: '/bin', REVIEW_WORKER_ROLES: 'studio' },
+    { node: '/n/node', hyperframes: '/h/hyperframes.mjs' });
+  assert.equal(env.REVIEW_WORKER_ROLES, 'studio');
+  assert.equal(env.REVIEW_WORKER_NAME, undefined);
 });
