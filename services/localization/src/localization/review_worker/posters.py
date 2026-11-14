@@ -7,6 +7,7 @@ because its picture could not be made.
 """
 
 import logging
+import os
 import shutil
 import subprocess
 import tempfile
@@ -26,13 +27,34 @@ def poster_key(final_key: str) -> str | None:
     return final_key[: -len(".mp4")] + ".jpg" if final_key.endswith(".mp4") else None
 
 
-def make_poster(video: Path, out: Path) -> bool:
-    """One frame, a second in (the first frame of a render is often black), at `POSTER_WIDTH`
-    wide. A video shorter than a second gives its first frame."""
-    ffmpeg = shutil.which("ffmpeg")
-    if ffmpeg is None:
-        log.warning("no ffmpeg on PATH, no poster made")
-        return False
+# Directories where ffmpeg is usually installed on a Mac, for a PATH that lost them (pm2 started
+# from a bare shell falls back to /usr/bin:/bin).
+FFMPEG_FALLBACK_DIRS = ("/opt/homebrew/bin", "/usr/local/bin")
+# The worker only ever reads local MP4 files: no network protocol, no other demuxer.
+INPUT_FORMATS = "mov,mp4,m4a,3gp,3g2,mj2"
+
+
+def find_ffmpeg(configured: str | None = None) -> str | None:
+    """`configured` (FFMPEG_BIN, an absolute path) when it is an executable file, else ffmpeg
+    on PATH, else in the usual install directories; None when there is none."""
+    if configured:
+        path = Path(configured)
+        if path.is_absolute() and path.is_file() and os.access(path, os.X_OK):
+            return str(path)
+        log.warning("FFMPEG_BIN is not an executable file; looking for ffmpeg on PATH")
+    found = shutil.which("ffmpeg")
+    if found is None:
+        found = shutil.which("ffmpeg", path=os.pathsep.join(FFMPEG_FALLBACK_DIRS))
+    return found
+
+
+def cut_frame(
+    video: Path, out: Path, *, ffmpeg: str, width: int, quality: int, timeout_s: float
+) -> bool:
+    """One frame of the local file `video` as a JPEG `width` wide: a second in (the first
+    frame is often black), else the first frame for a video shorter than that. ffmpeg reads
+    only that file (no URL, no protocol but `file`, no demuxer but MP4's) and is killed after
+    `timeout_s` per attempt."""
     for seek in ("1", "0"):
         try:
             subprocess.run(
@@ -42,6 +64,10 @@ def make_poster(video: Path, out: Path) -> bool:
                     "-y",
                     "-v",
                     "error",
+                    "-protocol_whitelist",
+                    "file",
+                    "-format_whitelist",
+                    INPUT_FORMATS,
                     "-ss",
                     seek,
                     "-i",
@@ -49,20 +75,31 @@ def make_poster(video: Path, out: Path) -> bool:
                     "-frames:v",
                     "1",
                     "-vf",
-                    f"scale={POSTER_WIDTH}:-2",
+                    f"scale={width}:-2",
                     "-q:v",
-                    "4",
+                    str(quality),
                     str(out),
                 ],  # fmt: skip
                 check=True,
                 capture_output=True,
-                timeout=FFMPEG_TIMEOUT_S,
+                timeout=timeout_s,
             )
         except (OSError, subprocess.SubprocessError):
             continue
         if out.is_file() and out.stat().st_size > 0:
             return True
     return False
+
+
+def make_poster(video: Path, out: Path) -> bool:
+    """The poster of a rendered video, `POSTER_WIDTH` wide."""
+    ffmpeg = find_ffmpeg(os.environ.get("FFMPEG_BIN"))
+    if ffmpeg is None:
+        log.warning("no ffmpeg found, no poster made")
+        return False
+    return cut_frame(
+        video, out, ffmpeg=ffmpeg, width=POSTER_WIDTH, quality=4, timeout_s=FFMPEG_TIMEOUT_S
+    )
 
 
 DENIED_CODES = ("403", "AccessDenied")

@@ -331,3 +331,21 @@ describe('VideoDetail collection and save to folder', () => {
     expect(screen.queryByTestId('folder-hint')).toBeNull();
   });
 });
+
+describe('VideoDetail thumbnail', () => {
+  it('shows the video thumbnail in the header, and a placeholder when there is none', async () => {
+    vi.mocked(client.getThumbLinks).mockResolvedValue([
+      { aweme_id: '7001', kind: 'thumb', available: true, url: '/api/dashboard/media/thumb-7001', expires_at: new Date(Date.now() + 900_000).toISOString() },
+    ]);
+    render(<VideoDetail awemeId="7001" />);
+    await flush();
+    expect(client.getThumbLinks).toHaveBeenCalledWith(['7001']);
+    const header = screen.getByRole('banner');
+    const image = within(header).getByTestId('video-thumb');
+    expect(image).toHaveAttribute('src', '/api/dashboard/media/thumb-7001');
+    await act(async () => {
+      image.dispatchEvent(new Event('error'));
+    });
+    expect(within(header).getByTestId('thumb-placeholder')).toBeInTheDocument();
+  });
+});

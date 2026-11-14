@@ -1,9 +1,10 @@
 """python -m localization.review_worker.main
 
 One loop every 5 seconds: heartbeat, Studio open requests, every 60 seconds a cover
-relayout and a scan of the videos awaiting review, save-to-folder requests and, when the
-disk allows, one final render at a time. Studio requests, folder exports and the render each
-run on their own thread, so none of them holds up the heartbeat or another.
+relayout and a scan of the videos awaiting review, save-to-folder requests, a thumbnail of
+one downloaded video and, when the disk allows, one final render at a time. Studio requests,
+folder exports, thumbnails and the render each run on their own thread, so none of them holds
+up the heartbeat or another.
 
 `REVIEW_WORKER_ROLES` splits this between machines: a Windows PC that only renders runs
 `render` (no Studio, no scan of its empty `data/review`); the Mac then runs `studio`.
@@ -30,6 +31,7 @@ from localization.review_worker import (
     posters,
     review_scan,
     studio_requests,
+    thumbnails,
 )
 from localization.review_worker.config import WorkerConfig
 from localization.storage.object_store import ObjectStore
@@ -59,6 +61,11 @@ class Worker:
         self.thread: threading.Thread | None = None
         self.studio_thread: threading.Thread | None = None
         self.export_thread: threading.Thread | None = None
+        self.thumb_thread: threading.Thread | None = None
+        self.thumbs = thumbnails.Thumbnailer(
+            store, cfg.work_root / "thumbs", min_free_gb=cfg.min_free_gb,
+            ffmpeg_bin=cfg.ffmpeg_bin,
+        )  # fmt: skip
         self.export_disk_low = False
         self.current: dict | None = None
         self.last_scan = float("-inf")
@@ -99,6 +106,19 @@ class Worker:
         except Exception as exc:  # noqa: BLE001
             # A claimed row's lease runs out and the row is claimed again.
             log.error("folder exports failed: %s", type(exc).__name__)
+        finally:
+            if conn is not None:
+                conn.close()
+
+    def _thumb_thread(self) -> None:
+        conn = None
+        try:
+            conn = self.connector(self.cfg)
+            self.thumbs.run_pass(conn, self.stopping)
+        except Exception as exc:  # noqa: BLE001
+            # A refused query or an unreachable store holds for every video: wait, say it once.
+            self.thumbs.idle()
+            self.thumbs.warn_once("video thumbnails failed: %s", type(exc).__name__)
         finally:
             if conn is not None:
                 conn.close()
@@ -159,6 +179,7 @@ class Worker:
             self.studio_thread.start()
         if self.cfg.export_root is not None:
             self._export_work()
+        self._thumb_work()
         if time.monotonic() - self.last_scan >= SCAN_EVERY_S:
             self.last_scan = time.monotonic()
             # Before the scan, so that the status it records is the new revision's.
@@ -187,6 +208,17 @@ class Worker:
         )
         self.export_thread.start()
 
+    def _thumb_work(self) -> None:
+        # A download and an ffmpeg run per video: never on the loop, and never beside a render.
+        if self.thumb_thread is not None and self.thumb_thread.is_alive():
+            return
+        if self.rendering() or not self.thumbs.due():
+            return
+        self.thumb_thread = threading.Thread(
+            target=self._thumb_thread, name="thumbnails", daemon=True
+        )
+        self.thumb_thread.start()
+
     def _claim(self, conn) -> None:
         row = final_render.claim(conn, self.cfg)
         if not row:
@@ -214,6 +246,10 @@ class Worker:
                 self.thread.join(30)
         if self.studio_thread is not None:
             self.studio_thread.join(5)
+        if self.thumb_thread is not None:
+            # It checks `stopping` between videos; one cut is bounded by the ffmpeg timeout,
+            # and its temp files are removed by the next start if the process ends first.
+            self.thumb_thread.join(5)
         if self.export_thread is not None:
             # An unfinished export keeps its lease; once that runs out, the next drain removes
             # its temp file and claims the row again.

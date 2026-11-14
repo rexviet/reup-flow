@@ -14,7 +14,15 @@ import type { Readable } from 'node:stream';
 import { ENV } from '../config/config.module';
 import type { Env } from '../config/env';
 import { PG_POOL } from '../db/db.module';
-import { MEDIA_KINDS, MEDIA_TOKEN_TTL_MS, signMediaToken, verifyMediaToken, type MediaKind } from './media-token';
+import {
+  MEDIA_KINDS,
+  MEDIA_TOKEN_TTL_MS,
+  signMediaToken,
+  verifyMediaToken,
+  windowedExpiry,
+  type GenerationMediaKind,
+  type MediaKind,
+} from './media-token';
 
 const log = new Logger('DashboardMedia');
 
@@ -64,7 +72,9 @@ export class S3MediaReader implements MediaReader {
       // MinIO answers 403 for a missing object when the credential has no ListBucket there.
       if (name === 'NoSuchKey' || name === 'NotFound' || http === 404) return null;
       if (name === 'AccessDenied' || http === 403) {
-        // Also what a missing policy looks like, so say so instead of a silent 404.
+        // Also what a missing policy looks like, so say so instead of a silent 404. Not for a
+        // thumbnail: one that is not made yet is the normal case, and a list asks for dozens.
+        if (key.startsWith(THUMB_PREFIX)) return null;
         log.warn(`media read denied for key ${key}: the downloader policy may lack s3:GetObject there`);
         return null;
       }
@@ -89,6 +99,8 @@ export function createS3MediaReader(env: Env): MediaReader | null {
   return new S3MediaReader(client, env.S3_BUCKET);
 }
 
+const THUMB_PREFIX = 'output/thumbs/';
+const AWEME_ID = /^\d{1,32}$/;
 const SOURCE_KEY = /^source\/[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/;
 const noDotSegments = (key: string): boolean => key.split('/').every((s) => s !== '.' && s !== '..');
 
@@ -106,10 +118,11 @@ export interface ResolvedKey {
 }
 
 /**
- * Rebuilds the object key from the database and accepts only the three known shapes:
- * `source/...` of this bucket, `output/review/<aweme>/g<gen>/<file>`, and the legacy
- * `output/<aweme>.mp4`. A key anywhere else in the bucket is never served, whatever a
- * row says.
+ * Rebuilds the object key from the database (or, for a thumbnail, from the checked video id)
+ * and accepts only the known shapes: `source/...` of this bucket,
+ * `output/review/<aweme>/g<gen>/<file>`, the legacy `output/<aweme>.mp4`, and
+ * `output/thumbs/<aweme>.jpg`. A key anywhere else in the bucket is never served, whatever a
+ * row says, and a kind this function does not know resolves to nothing.
  */
 export async function resolveMediaKey(
   pool: Pool,
@@ -129,8 +142,17 @@ export async function resolveMediaKey(
     const key = match[2];
     return SOURCE_KEY.test(key) && noDotSegments(key) ? { key, ext: 'mp4' } : null;
   }
-
-  return resolveRenderKey(pool, awemeId, generation, kind);
+  if (kind === 'thumb') {
+    // Written by the review worker from the source video; no row says it exists, so a missing
+    // one is a 404 when it is opened.
+    return AWEME_ID.test(awemeId) ? { key: `${THUMB_PREFIX}${awemeId}.jpg`, ext: 'jpg' } : null;
+  }
+  if (kind === 'final' || kind === 'srt' || kind === 'poster') {
+    return resolveRenderKey(pool, awemeId, generation, kind);
+  }
+  const unknown: never = kind;
+  log.warn(`refused to resolve unknown media kind ${String(unknown)}`);
+  return null;
 }
 
 /**
@@ -144,7 +166,7 @@ export async function resolveRenderKey(
   db: Pick<Pool | PoolClient, 'query'>,
   awemeId: string,
   generation: number,
-  kind: Exclude<MediaKind, 'source'>,
+  kind: Exclude<GenerationMediaKind, 'source'>,
 ): Promise<ResolvedKey | null> {
   const reviewDir = `output/review/${awemeId}/g${generation}/`;
   const { rows } = await db.query(
@@ -185,6 +207,16 @@ export interface MediaStream {
   object: MediaObject;
   filename: string;
   contentType: string;
+  kind: MediaKind;
+}
+
+/** A link of `POST media-links/batch`: signed without checking that the file exists. */
+export interface BatchMediaLink {
+  aweme_id: string;
+  kind: MediaKind;
+  available: true;
+  url: string;
+  expires_at: string;
 }
 
 /** Only a single `bytes=a-b` range is forwarded; anything else is a plain full read. */
@@ -212,7 +244,7 @@ export class DashboardMediaService {
   }
 
   /** One signed URL per requested kind that exists; the rest come back `available: false`. */
-  async links(awemeId: string, generation: number, kinds: readonly MediaKind[]): Promise<{ links: MediaLink[] }> {
+  async links(awemeId: string, generation: number, kinds: readonly GenerationMediaKind[]): Promise<{ links: MediaLink[] }> {
     const secret = this.secret();
     const expiresAtMs = this.clock() + MEDIA_TOKEN_TTL_MS;
     const links: MediaLink[] = [];
@@ -230,6 +262,25 @@ export class DashboardMediaService {
         expires_at: new Date(expiresAtMs).toISOString(),
         ...(resolved.note ? { note: resolved.note } : {}),
       });
+    }
+    return { links };
+  }
+
+  /**
+   * Thumbnail links for a page of videos in one request. Only signed: whether each file exists is
+   * found out when the browser opens it (404, and the page shows a placeholder). The expiry is
+   * rounded to a window, so the same video gets the same URL until the window ends.
+   */
+  batchLinks(awemeIds: readonly string[], kinds: readonly 'thumb'[]): { links: BatchMediaLink[] } {
+    const secret = this.secret();
+    const expiresAtMs = windowedExpiry(this.clock());
+    const expires_at = new Date(expiresAtMs).toISOString();
+    const links: BatchMediaLink[] = [];
+    for (const awemeId of new Set(awemeIds)) {
+      for (const kind of new Set(kinds)) {
+        const token = signMediaToken(secret, { awemeId, generation: 0, kind, expiresAtMs });
+        links.push({ aweme_id: awemeId, kind, available: true, url: `/api/dashboard/media/${token}`, expires_at });
+      }
     }
     return { links };
   }
@@ -259,10 +310,11 @@ export class DashboardMediaService {
     if (!object) throw new NotFoundException('Không có tệp này.');
     return {
       object,
-      filename: `${claims.awemeId}-g${claims.generation}.${resolved.ext}`,
+      filename: claims.kind === 'thumb' ? `${claims.awemeId}-thumb.jpg` : `${claims.awemeId}-g${claims.generation}.${resolved.ext}`,
       // From the file kind, never from the object's metadata: uploads set none, and a stored
       // type must not decide what the dashboard's origin serves.
       contentType: MEDIA_CONTENT_TYPES[resolved.ext],
+      kind: claims.kind,
     };
   }
 }

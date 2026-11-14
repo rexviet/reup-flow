@@ -18,9 +18,11 @@ export function workerEnv(config, root, base, { node, hyperframes }) {
   env.REVIEW_WORKER_STUDIO_SCRIPT = join(root, 'scripts/review-studio-request.mjs');
   // Set in pm2's env (ecosystem.config.cjs) to split work with a Windows render machine;
   // unset, the worker does everything under the name the dashboard reads. The export root is
-  // where "save to folder" writes on this Mac; unset, those requests wait.
+  // where "save to folder" writes on this Mac; unset, those requests wait. FFMPEG_BIN (an
+  // absolute path) is the ffmpeg of posters and thumbnails; unset, the worker looks on PATH and
+  // then in /opt/homebrew/bin and /usr/local/bin, so a bare pm2 PATH still finds it.
   for (const key of ['REVIEW_WORKER_ROLES', 'REVIEW_WORKER_NAME', 'FINAL_RENDER_GPU',
-    'REVIEW_WORKER_EXPORT_ROOT'])
+    'REVIEW_WORKER_EXPORT_ROOT', 'FFMPEG_BIN'])
     if (base[key] !== undefined) env[key] = base[key];
   return env;
 }

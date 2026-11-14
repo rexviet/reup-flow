@@ -14,6 +14,8 @@ import {
 } from './format';
 import { RenderedGrid } from './RenderedGrid';
 import { StageBadge } from './StageBadge';
+import { useThumbLinks } from './useMediaLinks';
+import { SmallThumb } from './VideoThumb';
 
 export interface PipelineFilters {
   stage?: Stage;
@@ -71,6 +73,7 @@ export function PipelineTable({
   }, [debounced]);
 
   const items = data?.items ?? [];
+  const thumbs = useThumbLinks(items.map((i) => i.aweme_id));
   const counts = data?.counts_by_stage;
   const allOn = items.length > 0 && items.every((i) => selected.has(i.aweme_id));
   const change = (patch: Partial<PipelineFilters>) => onFiltersChange({ ...filters, ...patch, offset: 0 });
@@ -171,7 +174,7 @@ export function PipelineTable({
       </div>
 
       {filters.stage === 'rendered' ? (
-        <RenderedGrid items={items} loading={data === null} selected={selected} onToggle={onToggle} />
+        <RenderedGrid items={items} loading={data === null} selected={selected} onToggle={onToggle} thumbs={thumbs} />
       ) : (
         <div className="relative overflow-x-auto rounded bg-surface-layer-1">
           <table className="w-full min-w-[52rem] border-collapse text-left text-sm">
@@ -208,7 +211,7 @@ export function PipelineTable({
                   </td>
                 </tr>
               ) : (
-                items.map((item) => <Row key={item.aweme_id} item={item} checked={selected.has(item.aweme_id)} onToggle={onToggle} />)
+                items.map((item) => <Row key={item.aweme_id} item={item} thumb={thumbs[item.aweme_id]} checked={selected.has(item.aweme_id)} onToggle={onToggle} />)
               )}
             </tbody>
           </table>
@@ -243,24 +246,31 @@ export function PipelineTable({
   );
 }
 
-function Row({ item, checked, onToggle }: { item: VideoListItem; checked: boolean; onToggle: (id: string) => void }) {
+function Row({ item, thumb, checked, onToggle }: { item: VideoListItem; thumb: string | undefined; checked: boolean; onToggle: (id: string) => void }) {
   const duration = formatDuration(item.duration_ms);
   return (
     <tr data-testid="pipeline-row" data-aweme-id={item.aweme_id} className={`transition-colors hover:bg-surface-container ${checked ? 'bg-surface-container-high/60' : ''}`}>
       <td className="p-2 text-center">
         <input type="checkbox" aria-label={`Chọn ${item.aweme_id}`} checked={checked} onChange={() => onToggle(item.aweme_id)} className="h-5 w-5 cursor-pointer" />
       </td>
-      <td className="max-w-xs p-2">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <a href={`#/video/${item.aweme_id}`} className="font-mono text-xs font-semibold text-secondary hover:underline">
-            {item.aweme_id}
+      <td className="max-w-sm p-2">
+        <div className="flex items-center gap-2">
+          <a href={`#/video/${item.aweme_id}`} tabIndex={-1} aria-hidden="true" className="shrink-0">
+            <SmallThumb url={thumb} />
           </a>
-          <span className="max-w-[10rem] truncate rounded bg-surface-layer-2 px-1 font-mono text-[11px] text-text-muted">{item.channel ?? item.sec_user_id}</span>
-          {duration ? <span className="rounded bg-surface-layer-2 px-1 font-mono text-[11px] text-text-muted" title="Thời lượng video">{duration}</span> : null}
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <a href={`#/video/${item.aweme_id}`} className="font-mono text-xs font-semibold text-secondary hover:underline">
+                {item.aweme_id}
+              </a>
+              <span className="max-w-[10rem] truncate rounded bg-surface-layer-2 px-1 font-mono text-[11px] text-text-muted">{item.channel ?? item.sec_user_id}</span>
+              {duration ? <span className="rounded bg-surface-layer-2 px-1 font-mono text-[11px] text-text-muted" title="Thời lượng video">{duration}</span> : null}
+            </div>
+            <p className="truncate text-xs text-text-primary" title={item.desc ?? undefined}>
+              {item.desc ?? '(không có mô tả)'}
+            </p>
+          </div>
         </div>
-        <p className="truncate text-xs text-text-primary" title={item.desc ?? undefined}>
-          {item.desc ?? '(không có mô tả)'}
-        </p>
       </td>
       <td data-testid="collection-cell" className="max-w-[12rem] p-2 text-xs">
         <p className="truncate text-text-primary" title={item.collection.name}>

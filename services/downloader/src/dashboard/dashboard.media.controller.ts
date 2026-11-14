@@ -4,7 +4,13 @@ import { pipeline } from 'node:stream';
 import { SignedMedia } from '../auth/signed-media.decorator';
 import { ZodValidationPipe } from '../jobs/zod-validation.pipe';
 import { DashboardMediaService } from './dashboard.media';
-import { mediaLinksSchema, mediaQuerySchema, type MediaLinksBody } from './dashboard.schemas';
+import {
+  mediaLinksBatchSchema,
+  mediaLinksSchema,
+  mediaQuerySchema,
+  type MediaLinksBatchBody,
+  type MediaLinksBody,
+} from './dashboard.schemas';
 
 const log = new Logger('DashboardMedia');
 
@@ -19,6 +25,13 @@ export class DashboardMediaController {
     return this.media.links(body.aweme_id, body.generation, body.kinds);
   }
 
+  /** Thumbnail links for up to 100 videos (a page of the list); needs the API key. */
+  @Post('media-links/batch')
+  @HttpCode(HttpStatus.OK)
+  batchLinks(@Body(new ZodValidationPipe(mediaLinksBatchSchema)) body: MediaLinksBatchBody) {
+    return this.media.batchLinks(body.aweme_ids, body.kinds);
+  }
+
   /** Authorized by the signature in the URL instead of the API key; see `SignedMedia`. */
   @Get('media/:token')
   @SignedMedia()
@@ -28,11 +41,13 @@ export class DashboardMediaController {
     @Headers('range') range: string | undefined,
     @Res() res: Response,
   ): Promise<void> {
-    const { object, filename, contentType } = await this.media.open(token, range);
+    const { object, filename, contentType, kind } = await this.media.open(token, range);
     res.status(object.status);
     res.setHeader('Content-Type', contentType);
     res.setHeader('Accept-Ranges', 'bytes');
-    res.setHeader('Cache-Control', 'private, no-store');
+    // A thumbnail's URL stays the same for a whole token window, so the browser may keep it
+    // that long instead of fetching it again for every page view; videos are never stored.
+    res.setHeader('Cache-Control', kind === 'thumb' ? 'private, max-age=600' : 'private, no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     if (object.contentLength !== undefined) res.setHeader('Content-Length', String(object.contentLength));
     if (object.contentRange) res.setHeader('Content-Range', object.contentRange);

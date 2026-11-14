@@ -128,6 +128,10 @@ class ObjectStore:
         self._client = client
         self._bucket = bucket
 
+    @property
+    def bucket(self) -> str:
+        return self._bucket
+
     @classmethod
     def from_settings(cls, settings: Settings) -> "ObjectStore":
         if settings.loc_s3_access_key_id is None or settings.loc_s3_secret_access_key is None:

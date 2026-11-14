@@ -1,4 +1,11 @@
-import { MEDIA_KINDS, signMediaToken, verifyMediaToken, MEDIA_TOKEN_TTL_MS } from '../../src/dashboard/media-token';
+import {
+  MEDIA_KINDS,
+  MEDIA_TOKEN_TTL_MS,
+  MEDIA_TOKEN_WINDOW_MS,
+  signMediaToken,
+  verifyMediaToken,
+  windowedExpiry,
+} from '../../src/dashboard/media-token';
 
 const SECRET = 's'.repeat(40);
 const NOW = 1_800_000_000_000;
@@ -32,5 +39,30 @@ describe('media token', () => {
 
   it.each([undefined, null, 42, '', 'abc', 'a.b.c', 'a'.repeat(600)])('rejects garbage %p', (value) => {
     expect(verifyMediaToken(SECRET, value, NOW)).toBeNull();
+  });
+
+  it('a thumb token is verified like the others', () => {
+    expect(MEDIA_KINDS).toContain('thumb');
+    const given = { ...claims, generation: 0, kind: 'thumb' as const };
+    expect(verifyMediaToken(SECRET, signMediaToken(SECRET, given), NOW)).toEqual(given);
+  });
+});
+
+describe('windowed expiry', () => {
+  it('lies at least the TTL ahead, on a window boundary, less than one window past the TTL', () => {
+    for (const now of [NOW, NOW + 1, NOW + 123_456, NOW + MEDIA_TOKEN_WINDOW_MS - 1]) {
+      const at = windowedExpiry(now);
+      expect(at % MEDIA_TOKEN_WINDOW_MS).toBe(0);
+      expect(at).toBeGreaterThanOrEqual(now + MEDIA_TOKEN_TTL_MS);
+      expect(at).toBeLessThan(now + MEDIA_TOKEN_TTL_MS + MEDIA_TOKEN_WINDOW_MS);
+    }
+  });
+
+  it('gives the same token, hence the same URL, to every request in one window', () => {
+    const sign = (now: number) =>
+      signMediaToken(SECRET, { awemeId: '123', generation: 0, kind: 'thumb', expiresAtMs: windowedExpiry(now) });
+    const start = Math.ceil(NOW / MEDIA_TOKEN_WINDOW_MS) * MEDIA_TOKEN_WINDOW_MS;
+    expect(sign(start + 1)).toBe(sign(start + MEDIA_TOKEN_WINDOW_MS - 1));
+    expect(sign(start + 1)).not.toBe(sign(start + MEDIA_TOKEN_WINDOW_MS + 1));
   });
 });

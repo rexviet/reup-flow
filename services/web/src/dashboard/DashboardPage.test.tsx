@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as client from '../api/client';
 import { DashboardPage } from './DashboardPage';
+import { LIST_POLL_MS } from './useDashboard';
 import { collection, emptyAttention, emptyChannels, health, item, list } from './test-fixtures';
 
 vi.mock('../api/client');
@@ -321,6 +322,73 @@ describe('DashboardPage rendered videos as pictures', () => {
     await openRendered();
     await userEvent.click(screen.getByLabelText('Chọn 7102'));
     expect(within(screen.getByRole('toolbar')).getByRole('button', { name: 'Đánh dấu đã đăng' })).toBeInTheDocument();
+  });
+});
+
+describe('DashboardPage thumbnails', () => {
+  const thumbLinks = async (ids: string[]) =>
+    ids.map((id) => ({ aweme_id: id, kind: 'thumb' as const, available: true as const, url: `/api/dashboard/media/thumb-${id}`, expires_at: new Date(Date.now() + 900_000).toISOString() }));
+  const rowOf = (id: string) => screen.getAllByTestId('pipeline-row').find((r) => r.getAttribute('data-aweme-id') === id)!;
+
+  it('shows a thumbnail in every row from one request, and a placeholder when it fails to load', async () => {
+    vi.mocked(client.getThumbLinks).mockImplementation(thumbLinks);
+    render(<DashboardPage />);
+    await flush();
+    expect(client.getThumbLinks).toHaveBeenCalledTimes(1);
+    expect(client.getThumbLinks).toHaveBeenCalledWith(['7001', '7002', '7003']);
+    for (const id of ['7001', '7002', '7003']) expect(within(rowOf(id)).getByTestId('video-thumb')).toHaveAttribute('src', `/api/dashboard/media/thumb-${id}`);
+    // Not downloaded yet, or not made yet: the link answers 404 and the row keeps a placeholder.
+    await act(async () => {
+      within(rowOf('7002')).getByTestId('video-thumb').dispatchEvent(new Event('error'));
+    });
+    expect(within(rowOf('7002')).queryByTestId('video-thumb')).toBeNull();
+    expect(within(rowOf('7002')).getByTestId('thumb-placeholder')).toBeInTheDocument();
+    // The duration badge stays next to the title.
+    expect(within(rowOf('7001')).getByTitle('Thời lượng video')).toBeInTheDocument();
+  });
+
+  it('keeps placeholders while links cannot be had', async () => {
+    vi.mocked(client.getThumbLinks).mockRejectedValue(new Error('offline'));
+    render(<DashboardPage />);
+    await flush();
+    expect(screen.getAllByTestId('thumb-placeholder')).toHaveLength(3);
+  });
+
+  it('does not ask again on each poll, only for the videos a new page brings', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      vi.mocked(client.getThumbLinks).mockImplementation(thumbLinks);
+      render(<DashboardPage />);
+      await flush();
+      const polls = vi.mocked(client.getDashboardVideos).mock.calls.length;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(LIST_POLL_MS * 3);
+      });
+      expect(vi.mocked(client.getDashboardVideos).mock.calls.length).toBeGreaterThan(polls);
+      expect(client.getThumbLinks).toHaveBeenCalledTimes(1);
+
+      vi.mocked(client.getDashboardVideos).mockResolvedValue(list([held, item({ aweme_id: '7020', stage: 'held', revision: null })]));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(LIST_POLL_MS);
+      });
+      expect(client.getThumbLinks).toHaveBeenCalledTimes(2);
+      expect(client.getThumbLinks).toHaveBeenLastCalledWith(['7020']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a rendered card without a poster shows the source thumbnail', async () => {
+    vi.mocked(client.getThumbLinks).mockImplementation(thumbLinks);
+    vi.mocked(client.getMediaLinks).mockResolvedValue([{ kind: 'poster', available: false }]);
+    const done = item({ aweme_id: '7030', stage: 'rendered' });
+    vi.mocked(client.getDashboardVideos).mockResolvedValue(list([review, done]));
+    render(<DashboardPage />);
+    await flush();
+    vi.mocked(client.getDashboardVideos).mockResolvedValue(list([done]));
+    await userEvent.click(screen.getByTestId('chip-rendered'));
+    await flush();
+    expect(within(screen.getByTestId('rendered-card')).getByTestId('video-thumb')).toHaveAttribute('src', '/api/dashboard/media/thumb-7030');
   });
 });
 

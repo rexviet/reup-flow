@@ -109,6 +109,13 @@ test('worker environment passes the save-to-folder root on from pm2', () => {
   assert.equal(env.REVIEW_WORKER_EXPORT_ROOT, '/Users/me/Movies/reup');
 });
 
+test('worker environment passes an explicit ffmpeg on, and leaves it unset otherwise', () => {
+  const config = { services: { 'worker-agents': { environment: {} } } };
+  const tools = { node: '/n/node', hyperframes: '/h/hyperframes.mjs' };
+  assert.equal(workerEnv(config, '/repo', { PATH: '/bin', FFMPEG_BIN: '/opt/ff/ffmpeg' }, tools).FFMPEG_BIN, '/opt/ff/ffmpeg');
+  assert.equal(workerEnv(config, '/repo', { PATH: '/bin' }, tools).FFMPEG_BIN, undefined);
+});
+
 test('pm2 hands the export root to the review worker only when it is set', async () => {
   const { createRequire } = await import('node:module');
   const load = value => {

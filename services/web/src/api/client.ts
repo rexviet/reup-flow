@@ -3,6 +3,7 @@ import type {
   ActionResult,
   AttentionResponse,
   AutoQueueStatus,
+  BatchMediaLink,
   ChannelListResponse,
   CollectionItem,
   CollectionListResponse,
@@ -186,6 +187,15 @@ export async function getMediaLinks(awemeId: string, generation: number, kinds: 
     body: JSON.stringify({ aweme_id: awemeId, generation, kinds }),
   });
   return res.links.map((l) => (l.url ? { ...l, url: `${baseUrl()}${l.url}` } : l));
+}
+
+/** Thumbnail links of up to 100 videos (the server's limit), prefixed like `getMediaLinks`. */
+export async function getThumbLinks(awemeIds: string[]): Promise<BatchMediaLink[]> {
+  const res = await request<{ links: BatchMediaLink[] }>('/api/dashboard/media-links/batch', {
+    method: 'POST',
+    body: JSON.stringify({ aweme_ids: awemeIds, kinds: ['thumb'] }),
+  });
+  return res.links.map((l) => ({ ...l, url: `${baseUrl()}${l.url}` }));
 }
 
 export async function setAutoLocalize(secUserId: string, autoLocalize: boolean): Promise<void> {

@@ -359,7 +359,8 @@ export interface ActionResult {
   skipped: Array<{ aweme_id: string; reason: string }>;
 }
 
-export type MediaKind = 'source' | 'final' | 'srt' | 'poster';
+/** `thumb` is the still of the source video: one per video, asked for a page at a time (`getThumbLinks`). */
+export type MediaKind = 'source' | 'final' | 'srt' | 'poster' | 'thumb';
 export interface MediaLink {
   kind: MediaKind;
   available: boolean;
@@ -367,6 +368,19 @@ export interface MediaLink {
   expires_at?: string;
   /** Set by the server for a file that predates generations (the old `output/<aweme>.mp4`). */
   note?: string;
+}
+
+/**
+ * One link of `POST /api/dashboard/media-links/batch`: signed without checking the file exists
+ * (a thumbnail not made yet answers 404). `expires_at` is rounded to a 10-minute window, so the
+ * URL stays the same, and cacheable, until then.
+ */
+export interface BatchMediaLink {
+  aweme_id: string;
+  kind: 'thumb';
+  available: true;
+  url: string;
+  expires_at: string;
 }
 
 /**

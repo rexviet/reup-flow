@@ -15,7 +15,8 @@ import {
   type StageTone,
 } from './format';
 import { StageBadge } from './StageBadge';
-import { useMediaLinks } from './useMediaLinks';
+import { useMediaLinks, useThumbLinks } from './useMediaLinks';
+import { SmallThumb } from './VideoThumb';
 import { useVideoActions, type ActionTarget } from './useVideoActions';
 import { VideoPlayer } from './VideoPlayer';
 import { useCollections, useVideoDetail } from './useDashboard';
@@ -123,6 +124,7 @@ function Loaded({
   const mayHaveFinal = render?.final_ready === true || stage === 'rendered' || stage === 'published';
   const kinds: MediaKind[] = ['source', ...(mayHaveFinal ? (['final'] as const) : []), ...(render?.srt_ready ? (['srt'] as const) : [])];
   const media = useMediaLinks(awemeId, gen, kinds);
+  const thumb = useThumbLinks([awemeId])[awemeId];
 
   const [returnNote, setReturnNote] = useState('');
   const [postUrl, setPostUrl] = useState('');
@@ -171,40 +173,43 @@ function Loaded({
 
   return (
     <>
-      <header className="card flex flex-col gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <h1 className="font-mono text-lg font-bold tracking-tight text-text-primary">{video.aweme_id}</h1>
-          {gen !== null ? <span className="rounded bg-primary-container px-1.5 py-0.5 font-mono text-[11px] font-semibold text-on-primary-container">g{gen}</span> : null}
-          <StageBadge testId="detail-stage" item={{ stage, step: d.step, unknown: d.unknown }} />
-          {d.review_status?.mismatchCount ? (
-            <span className="inline-flex items-center gap-1 rounded bg-status-error-bg px-1.5 py-0.5 font-mono text-[11px] font-semibold text-status-error-text">
-              <Icon name="warning" size={12} />
-              {d.review_status.mismatchCount} cue lệch
+      <header className="card flex items-start gap-3">
+        <SmallThumb url={thumb} size="md" />
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="font-mono text-lg font-bold tracking-tight text-text-primary">{video.aweme_id}</h1>
+            {gen !== null ? <span className="rounded bg-primary-container px-1.5 py-0.5 font-mono text-[11px] font-semibold text-on-primary-container">g{gen}</span> : null}
+            <StageBadge testId="detail-stage" item={{ stage, step: d.step, unknown: d.unknown }} />
+            {d.review_status?.mismatchCount ? (
+              <span className="inline-flex items-center gap-1 rounded bg-status-error-bg px-1.5 py-0.5 font-mono text-[11px] font-semibold text-status-error-text">
+                <Icon name="warning" size={12} />
+                {d.review_status.mismatchCount} cue lệch
+              </span>
+            ) : null}
+            <span className="inline-flex max-w-full items-center gap-1 break-all rounded bg-surface-container px-1.5 py-0.5 font-mono text-xs text-text-primary">
+              <Icon name="user" size={12} />
+              {d.channel?.nickname ?? d.channel?.sec_user_id}
             </span>
-          ) : null}
-          <span className="inline-flex max-w-full items-center gap-1 break-all rounded bg-surface-container px-1.5 py-0.5 font-mono text-xs text-text-primary">
-            <Icon name="user" size={12} />
-            {d.channel?.nickname ?? d.channel?.sec_user_id}
-          </span>
-          {d.collection ? (
-            <span
-              data-testid="detail-collection"
-              title={COLLECTION_KIND_LABELS[d.collection.kind] ?? d.collection.kind}
-              className="inline-flex max-w-full items-center gap-1 break-all rounded bg-surface-container px-1.5 py-0.5 text-xs text-text-primary"
-            >
-              <Icon name="tag" size={12} />
-              {collectionText(d.collection, video.mix_episode)}
-            </span>
+            {d.collection ? (
+              <span
+                data-testid="detail-collection"
+                title={COLLECTION_KIND_LABELS[d.collection.kind] ?? d.collection.kind}
+                className="inline-flex max-w-full items-center gap-1 break-all rounded bg-surface-container px-1.5 py-0.5 text-xs text-text-primary"
+              >
+                <Icon name="tag" size={12} />
+                {collectionText(d.collection, video.mix_episode)}
+              </span>
+            ) : null}
+          </div>
+          <p className="text-sm text-text-primary">{video.desc ?? '(không có mô tả)'}</p>
+          {stale ? <p className="text-xs text-status-warning-text">Mất kết nối, đang hiện dữ liệu cũ.</p> : null}
+          {d.sources.postgres === 'down' || d.sources.temporal === 'down' ? (
+            <p role="alert" className="rounded bg-status-warning-bg p-2 text-xs text-status-warning-text">
+              {d.sources.postgres === 'down' ? 'Một phần dữ liệu Postgres không đọc được. ' : ''}
+              {d.sources.temporal === 'down' ? 'Không đọc được Temporal nên chưa có timeline.' : ''}
+            </p>
           ) : null}
         </div>
-        <p className="text-sm text-text-primary">{video.desc ?? '(không có mô tả)'}</p>
-        {stale ? <p className="text-xs text-status-warning-text">Mất kết nối, đang hiện dữ liệu cũ.</p> : null}
-        {d.sources.postgres === 'down' || d.sources.temporal === 'down' ? (
-          <p role="alert" className="rounded bg-status-warning-bg p-2 text-xs text-status-warning-text">
-            {d.sources.postgres === 'down' ? 'Một phần dữ liệu Postgres không đọc được. ' : ''}
-            {d.sources.temporal === 'down' ? 'Không đọc được Temporal nên chưa có timeline.' : ''}
-          </p>
-        ) : null}
       </header>
 
       {(d.attention ?? []).length > 0 ? (

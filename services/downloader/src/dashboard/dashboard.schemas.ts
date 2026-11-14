@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { STAGES } from './dashboard.stage';
-import { MEDIA_KINDS } from './media-token';
+import { GENERATION_MEDIA_KINDS } from './media-token';
 
 /** A TikTok/Douyin video id: digits only, as the workspace validates it. */
 export const AWEME_ID = /^\d{1,32}$/;
@@ -64,10 +64,21 @@ export const mediaLinksSchema = z
   .object({
     aweme_id: z.string().regex(AWEME_ID),
     generation: z.number().int().min(0).max(999_999_999),
-    kinds: z.array(z.enum(MEDIA_KINDS)).min(1).max(MEDIA_KINDS.length),
+    kinds: z.array(z.enum(GENERATION_MEDIA_KINDS)).min(1).max(GENERATION_MEDIA_KINDS.length),
   })
   .strict();
 export type MediaLinksBody = z.infer<typeof mediaLinksSchema>;
+
+/** The kinds a page of videos asks for at once; each is the same for every generation. */
+export const BATCH_MEDIA_KINDS = ['thumb'] as const;
+
+export const mediaLinksBatchSchema = z
+  .object({
+    aweme_ids: awemeIdsSchema,
+    kinds: z.array(z.enum(BATCH_MEDIA_KINDS)).min(1).max(BATCH_MEDIA_KINDS.length),
+  })
+  .strict();
+export type MediaLinksBatchBody = z.infer<typeof mediaLinksBatchSchema>;
 
 export const mediaQuerySchema = z.object({ download: booleanFlag.optional() }).strict();
 

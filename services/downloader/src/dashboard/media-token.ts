@@ -1,10 +1,27 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
-export const MEDIA_KINDS = ['source', 'final', 'srt', 'poster'] as const;
+/** The files of one generation of a video. */
+export const GENERATION_MEDIA_KINDS = ['source', 'final', 'srt', 'poster'] as const;
+/**
+ * `thumb` is the still of the source video, the same for every generation, so its tokens carry
+ * generation 0 and the server rebuilds its key from the video id alone.
+ */
+export const MEDIA_KINDS = [...GENERATION_MEDIA_KINDS, 'thumb'] as const;
 export type MediaKind = (typeof MEDIA_KINDS)[number];
+export type GenerationMediaKind = (typeof GENERATION_MEDIA_KINDS)[number];
 
 /** A link lives long enough to watch a video, and no longer. */
 export const MEDIA_TOKEN_TTL_MS = 10 * 60 * 1000;
+/** Thumbnail links expire on the next boundary of this window after the TTL. */
+export const MEDIA_TOKEN_WINDOW_MS = 10 * 60 * 1000;
+
+/**
+ * An expiry at least the TTL away, rounded up to the window, so every link signed for the same
+ * file within one window is the same URL and the browser can serve it from its cache.
+ */
+export function windowedExpiry(nowMs: number): number {
+  return Math.ceil((nowMs + MEDIA_TOKEN_TTL_MS) / MEDIA_TOKEN_WINDOW_MS) * MEDIA_TOKEN_WINDOW_MS;
+}
 
 export interface MediaClaims {
   awemeId: string;

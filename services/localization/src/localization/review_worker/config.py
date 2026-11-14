@@ -10,8 +10,9 @@ from pathlib import Path
 
 from localization.config import ConfigError
 
-# `render`: claim and render approved revisions. `studio`: Studio open requests, review scans
-# and the poster backfill, which need this machine's `data/review` and Studio.
+# `render`: claim and render approved revisions. `studio`: Studio open requests, review scans,
+# the poster backfill and the video thumbnails, which need this machine's `data/review` and
+# Studio (thumbnails only need storage, but run beside the other background work).
 ROLES = frozenset({"render", "studio"})
 DEFAULT_NAME = "review-worker"  # the name the dashboard reads
 NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,62}")
@@ -61,6 +62,8 @@ class WorkerConfig:
     max_attempts: int = 3
     # Save-to-folder writes only under this directory; None leaves those requests pending.
     export_root: Path | None = None
+    # Absolute path of ffmpeg for posters and thumbnails; None looks it up on PATH.
+    ffmpeg_bin: str | None = None
 
     @classmethod
     def from_environ(cls, env: Mapping[str, str] | None = None) -> "WorkerConfig":
@@ -90,6 +93,9 @@ class WorkerConfig:
         # and Studio requests; until it is there, each export fails with a sentence instead.
         if export and not Path(export).is_absolute():
             raise ConfigError("REVIEW_WORKER_EXPORT_ROOT must be an absolute path")
+        ffmpeg = env.get("FFMPEG_BIN", "").strip()
+        if ffmpeg and not Path(ffmpeg).is_absolute():
+            raise ConfigError("FFMPEG_BIN must be an absolute path")
         if not NAME.fullmatch(name):
             raise ConfigError("REVIEW_WORKER_NAME must be lowercase letters, digits and dashes")
         return cls(
@@ -106,4 +112,5 @@ class WorkerConfig:
             studio_script=Path(studio) if studio else None,
             voicestudio_url=env.get("VOICESTUDIO_URL"),
             export_root=Path(export) if export else None,
+            ffmpeg_bin=ffmpeg or None,
         )

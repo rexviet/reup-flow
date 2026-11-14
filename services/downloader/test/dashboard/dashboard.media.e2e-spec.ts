@@ -16,10 +16,11 @@ import {
   DashboardMediaService,
   MEDIA_READER,
   RangeNotSatisfiableError,
+  resolveMediaKey,
   type MediaReader,
 } from '../../src/dashboard/dashboard.media';
 import { DashboardMediaController } from '../../src/dashboard/dashboard.media.controller';
-import { signMediaToken } from '../../src/dashboard/media-token';
+import { signMediaToken, type MediaKind } from '../../src/dashboard/media-token';
 import { PG_POOL } from '../../src/db/db.module';
 import { createScratchDatabase, type ScratchDatabase } from '../support/localization-db';
 import { channelCollection } from '../support/collections';
@@ -75,6 +76,7 @@ async function boot(env: Partial<Env>, withReader: boolean): Promise<INestApplic
     ['output/review/100/g3/final.srt', Buffer.from('1\n00:00:00,000 --> 00:00:01,000\nxin chao\n')],
     ['output/review/100/g3/final.jpg', Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00])],
     ['output/100.mp4', VIDEO],
+    ['output/thumbs/100.jpg', Buffer.from([0xff, 0xd8, 0xff, 0xdb, 0x01])],
   ]);
   reader = new MemoryReader(objects);
   const fullEnv = fixedEnv({ API_KEY, DASHBOARD_MEDIA_SECRET: SIGNING_KEY, STORAGE_BACKEND: 's3', ...env });
@@ -140,6 +142,8 @@ describe('POST /api/dashboard/media-links', () => {
 
   it('rejects an unknown kind and a bad body with 400', async () => {
     expect((await link({ aweme_id: '100', generation: 3, kinds: ['thumbnail'] })).status).toBe(400);
+    // The thumbnail belongs to no generation: it is asked for in batches only.
+    expect((await link({ aweme_id: '100', generation: 3, kinds: ['thumb'] })).status).toBe(400);
     expect((await link({ aweme_id: 'abc', generation: 3, kinds: ['final'] })).status).toBe(400);
     expect((await link({ aweme_id: '100', generation: 3, kinds: [] })).status).toBe(400);
   });
@@ -262,6 +266,76 @@ describe('GET /api/dashboard/media/:token', () => {
     const url = await tokenUrl('final');
     await pool.query(`DELETE FROM localization.final_renders WHERE aweme_id = '100'`);
     expect((await request(app.getHttpServer()).get(url)).status).toBe(404);
+  });
+});
+
+const batch = (body: object) =>
+  request(app.getHttpServer()).post('/api/dashboard/media-links/batch').set('X-Api-Key', API_KEY).send(body);
+
+describe('POST /api/dashboard/media-links/batch', () => {
+  it('needs the API key', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/api/dashboard/media-links/batch')
+      .send({ aweme_ids: ['100'], kinds: ['thumb'] });
+    expect(res.status).toBe(401);
+  });
+
+  it('takes 1 to 100 video ids and only the thumb kind', async () => {
+    const ids = (n: number) => Array.from({ length: n }, (_, i) => String(1000 + i));
+    expect((await batch({ aweme_ids: ids(100), kinds: ['thumb'] })).status).toBe(200);
+    expect((await batch({ aweme_ids: ids(101), kinds: ['thumb'] })).status).toBe(400);
+    expect((await batch({ aweme_ids: [], kinds: ['thumb'] })).status).toBe(400);
+    expect((await batch({ aweme_ids: ['../1'], kinds: ['thumb'] })).status).toBe(400);
+    expect((await batch({ aweme_ids: ['100'], kinds: ['final'] })).status).toBe(400);
+    expect((await batch({ aweme_ids: ['100'], kinds: ['thumb'], generation: 3 })).status).toBe(400);
+  });
+
+  it('signs one link per video, the same URL on every request within the window', async () => {
+    const first = await batch({ aweme_ids: ['100', '7009', '100'], kinds: ['thumb'] });
+    expect(first.status).toBe(200);
+    expect(first.body.links.map((l: { aweme_id: string; kind: string }) => [l.aweme_id, l.kind])).toEqual([
+      ['100', 'thumb'],
+      ['7009', 'thumb'],
+    ]);
+    const expires = Date.parse(first.body.links[0].expires_at);
+    expect(expires % (10 * 60 * 1000)).toBe(0);
+    const again = await batch({ aweme_ids: ['100'], kinds: ['thumb'] });
+    // Equal unless the two requests straddle a window boundary.
+    if (Date.parse(again.body.links[0].expires_at) === expires) {
+      expect(again.body.links[0].url).toBe(first.body.links[0].url);
+    }
+  });
+
+  it('serves the thumbnail as a cacheable image and a missing one as 404', async () => {
+    const { body } = await batch({ aweme_ids: ['100', '7009'], kinds: ['thumb'] });
+    const res = await request(app.getHttpServer()).get(body.links[0].url).buffer(true).parse(collect as never);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toBe('image/jpeg');
+    expect(res.headers['cache-control']).toBe('private, max-age=600');
+    expect((res.body as Buffer).subarray(0, 3)).toEqual(Buffer.from([0xff, 0xd8, 0xff]));
+    expect(reader.opened).toEqual(['output/thumbs/100.jpg']);
+    expect((await request(app.getHttpServer()).get(body.links[1].url)).status).toBe(404);
+    // Videos stay uncached.
+    const video = await request(app.getHttpServer()).get((await link({ aweme_id: '100', generation: 3, kinds: ['final'] })).body.links[0].url);
+    expect(video.headers['cache-control']).toBe('private, no-store');
+  });
+
+  it('a thumb token never resolves to the render, whatever generation it names', async () => {
+    reader.opened.length = 0;
+    const token = signMediaToken(SIGNING_KEY, { awemeId: '101', generation: 1, kind: 'thumb', expiresAtMs: Date.now() + 60_000 });
+    expect((await request(app.getHttpServer()).get(`/api/dashboard/media/${token}`)).status).toBe(404);
+    expect(reader.opened).toEqual(['output/thumbs/101.jpg']);
+    await expect(resolveMediaKey(pool, BUCKET, '100', 3, 'thumb')).resolves.toEqual({ key: 'output/thumbs/100.jpg', ext: 'jpg' });
+  });
+
+  it('a kind the resolver does not know resolves to nothing', async () => {
+    await expect(resolveMediaKey(pool, BUCKET, '100', 3, 'thumbnail' as MediaKind)).resolves.toBeNull();
+    await expect(resolveMediaKey(pool, BUCKET, '100', 3, 'final_key' as MediaKind)).resolves.toBeNull();
+  });
+
+  it('answers 401 for an expired thumb token', async () => {
+    const token = signMediaToken(SIGNING_KEY, { awemeId: '100', generation: 0, kind: 'thumb', expiresAtMs: Date.now() - 1000 });
+    expect((await request(app.getHttpServer()).get(`/api/dashboard/media/${token}`)).status).toBe(401);
   });
 });
 

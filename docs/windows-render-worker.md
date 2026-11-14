@@ -50,7 +50,7 @@ gọi `final_render.claim` rồi `render_claimed`:
 | Python 3.12 + gói `localization` | `uv sync --frozen --no-dev` (kéo cả torch CPU dù render không dùng; lockfile có wheel Windows của torch 2.5.1 hay không chưa kiểm chứng) | `pyproject.toml` |
 | Node ≥ 22.13 + `hyperframes@0.8.77` | `pnpm install --frozen-lockfile` trong `services/localization/spikes/hyperframes-review`; `HYPERFRAMES_BIN` trỏ tới `node_modules\hyperframes\bin\hyperframes.mjs` | `scripts/review-studio.mjs` (`cli()`) |
 | Chrome headless | HyperFrames tự tải `chrome-headless-shell` vào `%USERPROFILE%\.cache\hyperframes\chrome` lần đầu | `docs/review-companion.md` |
-| ffmpeg trên PATH | poster (`posters.py`) và renderer | `posters.py` |
+| ffmpeg trên PATH (hoặc `FFMPEG_BIN`, đường dẫn tuyệt đối) | poster (`posters.py`), thumbnail video (`thumbnails.py`, chỉ vai trò `studio`) và renderer | `posters.py` (`find_ffmpeg`) |
 | Font | không cần cài: font nằm trong manifest của revision | `repository.export_revision` |
 
 Không cần: Temporal, Redis, nest, parser, Langfuse, VoiceStudio, Docker, `data/review` của Mac.
@@ -110,7 +110,7 @@ Bảng dưới là phạm vi ban đầu của từng bản vá.
 
 | # | Việc | File |
 |---|---|---|
-| G1 | **Vai trò worker**: `REVIEW_WORKER_ROLES` (`render` hoặc `all`; mặc định `all` để Mac không đổi). `render` bỏ qua Studio requests, review scan, poster backfill. Tên heartbeat từ `REVIEW_WORKER_NAME` (mặc định `review-worker`; Windows dùng `render-worker-win`). | `review_worker/main.py`, `heartbeat.py` |
+| G1 | **Vai trò worker**: `REVIEW_WORKER_ROLES` (`render` hoặc `all`; mặc định `all` để Mac không đổi). `render` bỏ qua Studio requests, review scan, poster backfill và thumbnail video (`output/thumbs/<aweme>.jpg`). Tên heartbeat từ `REVIEW_WORKER_NAME` (mặc định `review-worker`; Windows dùng `render-worker-win`). | `review_worker/main.py`, `heartbeat.py` |
 | G2 | **Script khởi chạy PowerShell** `scripts/render-worker.ps1`: nạp `.render-worker.env`, chạy `python -m localization.review_worker.main`, thay cho `review-worker.mjs`. | mới |
 | G3 | **Tắt render ở Mac**: vai trò `studio` (không claim render) cho `reup-review-worker` trên Mac. | `main.py`, `ecosystem.config.cjs`/`review-worker-env.mjs` |
 | G4 | **`docker-compose.lan.yml`** thêm `${LAN_BIND_IP}:5433:5432` cho `postgres` và `${LAN_BIND_IP}:9000:9000` cho `minio`. | mới |
