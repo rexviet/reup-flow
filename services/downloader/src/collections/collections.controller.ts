@@ -11,7 +11,7 @@ import {
   type UpdateCollectionBody,
 } from './collections.schemas';
 import { CollectionsService } from './collections.service';
-import { glossaryTermSchema, pyStrip, type GlossaryTerm } from './glossary-term';
+import { glossaryTermSchema, normalizeTerm, type GlossaryTerm } from './glossary-term';
 
 const termPipe = new ZodValidationPipe(glossaryTermSchema);
 
@@ -61,7 +61,7 @@ export class CollectionsController {
   @Delete(':id/glossary/:term_zh')
   @HttpCode(HttpStatus.NO_CONTENT)
   deleteTerm(@Param(new ZodValidationPipe(glossaryParamsSchema)) params: { id: string; term_zh: string }) {
-    // Stored terms are stripped (here and by the worker), so the key is too.
-    return this.collections.deleteTerm(params.id, pyStrip(params.term_zh));
+    // Stored terms are stripped and NFC'd (here and by the worker), so the key is too.
+    return this.collections.deleteTerm(params.id, normalizeTerm(params.term_zh));
   }
 }

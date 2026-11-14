@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { checkTerm, glossaryTermSchema } from '../../src/collections/glossary-term';
+import { checkTerm, glossaryTermSchema, TERM_MAX_CHARS } from '../../src/collections/glossary-term';
 
 interface SharedCase {
   name: string;
@@ -43,11 +43,18 @@ describe('glossaryTermSchema (what PUT stores)', () => {
   });
 
   // `check_term` itself applies no normalisation, which is what the shared cases pin down.
-  // The worker's `GlossaryStore.upsert` does NFC its terms before storing them; whether the
-  // dashboard should too is an open product decision, so this pins the current behaviour.
-  it('stores the text without NFC normalisation', () => {
-    const decomposed = 'Ca\u0301';
-    expect(glossaryTermSchema.parse({ term_zh: '卡', term_vi: decomposed }).term_vi).toBe(decomposed);
+  // The worker's `GlossaryStore.upsert` NFCs both terms (not the note) after stripping, so a
+  // term typed in decomposed form lands on the same row the agent would write.
+  it('stores both terms in NFC, as the worker does, and leaves the note as typed', () => {
+    const parsed = glossaryTermSchema.parse({ term_zh: ' 豈 ', term_vi: ' Cá ', note: 'Cá' });
+    expect(parsed).toEqual({ term_zh: '豈', term_vi: 'Cá', note: 'Cá' });
+  });
+
+  it('counts the length limit on the NFC form, so decomposed Vietnamese is not refused early', () => {
+    const composed = 'ệ'.repeat(TERM_MAX_CHARS);
+    const decomposed = composed.normalize('NFD');
+    expect([...decomposed].length).toBeGreaterThan(TERM_MAX_CHARS);
+    expect(glossaryTermSchema.parse({ term_zh: '卡', term_vi: decomposed }).term_vi).toBe(composed);
   });
 
   it.each(CASES.filter((c) => c.reason !== null).map((c) => [c.name, c] as const))(

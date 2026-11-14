@@ -152,11 +152,19 @@ export function checkTerm(termZh: string, termVi: string, note: string | null): 
 }
 
 /**
- * A term as `PUT /api/collections/:id/glossary/:term_zh` stores it. Surrounding
- * whitespace is stripped and a blank note becomes null, as the worker's
- * `GlossaryStore.upsert` does. The plan leaves out NFC normalisation; note that
- * `upsert` does apply NFC before `check_term` (which itself applies none), so a
- * term typed in decomposed form is stored differently from the agent's.
+ * A glossary term as the worker's `GlossaryStore.upsert` keys it: stripped, then NFC.
+ * The note gets no NFC there, so it gets none here either.
+ */
+export function normalizeTerm(text: string): string {
+  return pyStrip(text).normalize('NFC');
+}
+
+/**
+ * A term as `PUT /api/collections/:id/glossary/:term_zh` stores it, normalised exactly
+ * as the worker's `GlossaryStore.upsert` does before `check_term`: both terms stripped
+ * and NFC'd, the note stripped, a blank note null. A term typed in decomposed form
+ * therefore lands on the same row the agent writes, and the length limit counts the
+ * NFC form.
  *
  * The raw size caps only stop absurd input before the term rules run; the rules
  * themselves set the real limits.
@@ -177,7 +185,7 @@ export const glossaryTermSchema = z
   })
   .transform((v) => {
     const note = v.note == null ? null : pyStrip(v.note);
-    return { term_zh: pyStrip(v.term_zh), term_vi: pyStrip(v.term_vi), note: note === '' ? null : note };
+    return { term_zh: normalizeTerm(v.term_zh), term_vi: normalizeTerm(v.term_vi), note: note === '' ? null : note };
   })
   .superRefine((v, ctx) => {
     const problem = checkTerm(v.term_zh, v.term_vi, v.note);

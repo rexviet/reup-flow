@@ -320,6 +320,23 @@ describe('collection glossary', () => {
     expect((await glossaryRows(b)).map((r) => r.term_vi)).toEqual(['Apple B']);
   });
 
+  it('PUT stores the terms in NFC, so a decomposed term overrides the row the agent wrote', async () => {
+    await term(a, '豈', 'Apple', 'video-7001-g1', '7001');
+    const res = await send('put', `/api/collections/${a}/glossary/${encodeURIComponent('豈')}`, {
+      term_vi: 'Táo',
+    });
+    expect(res.status).toBe(200);
+    expect(await glossaryRows(a)).toEqual([
+      { term_zh: '豈', term_vi: 'Táo', note: null, source_aweme_id: 'dashboard', workflow_id: 'dashboard' },
+    ]);
+  });
+
+  it('DELETE finds the term when the path names it in a non-NFC form', async () => {
+    await term(a, '豈', 'Apple');
+    expect((await send('delete', `/api/collections/${a}/glossary/${encodeURIComponent('豈')}`)).status).toBe(204);
+    expect(await glossaryRows(a)).toEqual([]);
+  });
+
   it('DELETE answers 404 for a term that is not there', async () => {
     expect((await send('delete', `/api/collections/${a}/glossary/${encodeURIComponent('苹果')}`)).status).toBe(404);
     expect((await send('delete', `/api/collections/${MISSING}/glossary/x`)).status).toBe(404);

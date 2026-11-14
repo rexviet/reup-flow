@@ -48,8 +48,9 @@ lọc video theo collection; action `save_to_folder` ghi dòng `folder_exports`.
 - `save_subdir`: đường dẫn tương đối, mỗi đoạn khác rỗng, `.` và `..`, không có NUL, tối đa 512.
 - Glossary: cùng luật với `check_term` trong `activities/glossary.py:70-93`: độ dài
   (`TERM_MAX_CHARS`, `NOTE_MAX_CHARS`), ký tự điều khiển (`_CONTROL_RE`), link, email, số điện thoại
-  (`find_contacts`), và luật chữ số (`term_vi` không có chữ số mà `term_zh` không có). Không thêm
-  chuẩn hóa NFC, vì phía Python không chuẩn hóa. <!-- red-team: check_term -->
+  (`find_contacts`), và luật chữ số (`term_vi` không có chữ số mà `term_zh` không có). Hai thuật ngữ
+  được bỏ khoảng trắng rồi chuẩn hóa NFC trước khi kiểm, giống `GlossaryStore.upsert`; ghi chú không
+  NFC. <!-- red-team: check_term -->
 
 ## Related Code Files
 
@@ -102,8 +103,8 @@ lọc video theo collection; action `save_to_folder` ghi dòng `folder_exports`.
   dùng chung với link media.
 - Bản sao `check_term` (`src/collections/glossary-term.ts`) mô phỏng `re` Unicode của Python và bảng
   code point chưa gán của Unicode 15.0 (`python-unassigned.ts`, test Python kiểm bảng này).
-- Chưa quyết: plan ghi Python không chuẩn hóa NFC, nhưng `GlossaryStore.upsert` có NFC trước
-  `check_term`. PUT hiện không NFC theo plan; cần người dùng chọn (xem review M1).
+- NFC: plan từng ghi Python không chuẩn hóa NFC, nhưng `GlossaryStore.upsert` có NFC trước
+  `check_term`. Người dùng chọn đồng bộ: PUT và DELETE giờ NFC hai thuật ngữ (commit `fix` sau phase 6).
 - Cho phase 5: cân nhắc chạy lại `check_term` khi đọc glossary. Cho phase 6: shape `files` tương đối,
   không lộ đường dẫn máy trong `error`. Cho phase 7: gửi `generation` từ trang chi tiết.
 - Review: [code-reviewer-261114-1745-collections-phase-04](../reports/code-reviewer-261114-1745-collections-phase-04.md).
