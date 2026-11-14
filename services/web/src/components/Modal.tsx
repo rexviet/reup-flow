@@ -42,18 +42,19 @@ export function Modal({ title, onClose, children }: ModalProps) {
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
-      className="m-auto max-h-[90vh] w-[min(42rem,calc(100vw-2rem))] overflow-hidden rounded-lg bg-surface-container-low p-0 text-text-primary shadow-xl backdrop:bg-black/60"
+      className="m-auto max-h-[90vh] w-[min(56rem,calc(100vw-2rem))] overflow-hidden rounded-lg bg-surface-container-low p-0 text-text-primary shadow-xl backdrop:bg-black/60"
     >
       <div className="flex max-h-[90vh] flex-col gap-3 p-4">
-        <div className="flex items-center justify-between gap-2">
-          <h3 id={titleId} className="text-sm font-semibold text-text-primary">
+        <div className="flex items-start justify-between gap-2">
+          {/* A title with no space in it (a channel id) still wraps instead of widening the box. */}
+          <h3 id={titleId} className="min-w-0 break-all text-sm font-semibold text-text-primary">
             {title}
           </h3>
           <button type="button" onClick={onClose} aria-label="Đóng" className="inline-flex min-h-8 min-w-8 items-center justify-center rounded text-text-muted hover:text-text-primary">
             <Icon name="close" size={14} />
           </button>
         </div>
-        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">{children}</div>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto overflow-x-hidden">{children}</div>
       </div>
     </dialog>
   );

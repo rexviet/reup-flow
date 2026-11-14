@@ -172,7 +172,7 @@ function CollectionEditor({ collection, onSaved, onClose }: { collection: Collec
 /** One labelled control with its error beside it, tied to the control so a screen reader reads both. */
 function Field({ id, label, error, hint, children }: { id: string; label: string; error?: string; hint?: string; children: ReactNode }) {
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex min-w-0 flex-col gap-1">
       <label htmlFor={id} className="text-xs text-text-secondary">
         {label}
       </label>
@@ -366,9 +366,11 @@ function SettingsForm({ collection, onSaved }: { collection: CollectionItem; onS
           />
         </div>
       </Field>
-      <fieldset className="flex flex-col gap-3 sm:col-span-2 sm:flex-row">
+      {/* A fieldset is min-content wide by default; min-w-0 lets it shrink to the dialog. */}
+      <fieldset className="flex min-w-0 flex-col gap-3 sm:col-span-2 md:flex-row">
         <legend className="mb-1 text-xs font-medium text-text-secondary">Vị trí hộp nền</legend>
-        <div className="shrink-0">
+        {/* Beside the fields on a wide dialog, so the box can be watched while typing. */}
+        <div className="min-w-0 md:w-3/5">
           <CoverPreview
             collectionId={collection.id}
             offsetPct={parsed.cover_offset_pct.value}
@@ -378,7 +380,7 @@ function SettingsForm({ collection, onSaved }: { collection: CollectionItem; onS
             opacityPct={opacity}
           />
         </div>
-        <div className="flex flex-1 flex-col gap-3">
+        <div className="grid min-w-0 gap-3 sm:grid-cols-3 md:flex-1 md:grid-cols-1 md:content-start">
           {GEOMETRY_FIELDS.map((field) => {
             const id = `collection-${field}`;
             const { label, hint } = GEOMETRY[field];

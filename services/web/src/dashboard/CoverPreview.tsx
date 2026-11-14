@@ -70,8 +70,9 @@ export function CoverPreview({ collectionId, offsetPct, widthPct, heightPct, col
     <figure className="flex flex-col gap-1">
       <div
         data-testid="cover-preview-frame"
-        className="relative h-72 max-w-full overflow-hidden rounded bg-black"
-        style={{ aspectRatio: `${data.width} / ${data.height}` }}
+        className="relative mx-auto max-w-full overflow-hidden rounded bg-black"
+        // A landscape frame takes the dialog's width; a portrait one a height that fits on screen.
+        style={{ aspectRatio: `${data.width} / ${data.height}`, ...(data.width >= data.height ? { width: '100%' } : { height: 'min(60vh, 32rem)' }) }}
       >
         {data.source_url ? (
           <video
