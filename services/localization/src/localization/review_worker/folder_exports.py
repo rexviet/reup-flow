@@ -42,8 +42,15 @@ STEM = re.compile(r"(E[0-9]{2,}-)?[0-9]+")
 NAME = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9._-]*")
 CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 SUBDIR_MAX = 512
-DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC
-PART_FLAGS = os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW | os.O_CLOEXEC
+# POSIX only: Windows has none of these, and the module is imported by every worker,
+# including the Windows render PC, which must still start. Exports run only where all three
+# exist (the Mac); elsewhere `drain` refuses instead of writing without O_NOFOLLOW.
+SUPPORTED = all(hasattr(os, flag) for flag in ("O_DIRECTORY", "O_NOFOLLOW", "O_CLOEXEC"))
+O_DIRECTORY = getattr(os, "O_DIRECTORY", 0)
+O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
+O_CLOEXEC = getattr(os, "O_CLOEXEC", 0)
+DIR_FLAGS = os.O_RDONLY | O_DIRECTORY | O_CLOEXEC
+PART_FLAGS = os.O_CREAT | os.O_EXCL | os.O_WRONLY | O_NOFOLLOW | O_CLOEXEC
 
 # SKIP LOCKED: the lock lives only as long as this one autocommit statement, which is all
 # it needs; a second claimer passes over the row instead of waiting and then re-checking
@@ -145,7 +152,7 @@ def open_target(root: Path, parts: list[str], *, create: bool) -> int:
                 with contextlib.suppress(FileExistsError):
                     os.mkdir(part, 0o755, dir_fd=fd)
             try:
-                child = os.open(part, DIR_FLAGS | os.O_NOFOLLOW, dir_fd=fd)
+                child = os.open(part, DIR_FLAGS | O_NOFOLLOW, dir_fd=fd)
             except OSError as exc:
                 if exc.errno in (errno.ELOOP, errno.ENOTDIR):
                     raise ExportRejected(
@@ -241,6 +248,9 @@ def drain(conn, store, root: Path, *, min_free_gb: float, stopping: threading.Ev
 
     First removes the temp files of exports whose lease ran out, which are the rows about
     to be claimed again: their worker was stopped or killed mid-download."""
+    if not SUPPORTED:
+        log.warning("folder exports need POSIX O_NOFOLLOW; not exporting on this platform")
+        return 0
     removed = clean_stale(conn, root)
     if removed:
         log.info("removed %s stale export temp file(s)", removed)
