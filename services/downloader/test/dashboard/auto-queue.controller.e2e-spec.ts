@@ -11,6 +11,7 @@ import { ApiKeyGuard } from '../../src/auth/api-key.guard';
 import { ConfigModule } from '../../src/config/config.module';
 import { AutoQueueController } from '../../src/dashboard/auto-queue.controller';
 import { PG_POOL } from '../../src/db/db.module';
+import { channelCollection } from '../support/collections';
 import { fixedEnv } from '../support/fixed-env';
 import { createScratchDatabase, type ScratchDatabase } from '../support/localization-db';
 
@@ -42,13 +43,17 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  await pool.query(`TRUNCATE videos, profiles, localization_outbox, auto_queue_inflight, dashboard_actions CASCADE`);
+  await pool.query(`TRUNCATE videos, collections, profiles, localization_outbox, auto_queue_inflight, dashboard_actions CASCADE`);
   await pool.query(`UPDATE auto_queue_settings SET enabled = true`);
   await pool.query(`INSERT INTO profiles (sec_user_id) VALUES ('ch')`);
 });
 
 async function hold(id: string): Promise<void> {
-  await pool.query(`INSERT INTO videos (aweme_id, sec_user_id, create_time, status) VALUES ($1, 'ch', now(), 'done')`, [id]);
+  const collection = await channelCollection(pool, 'ch');
+  await pool.query(
+    `INSERT INTO videos (aweme_id, sec_user_id, create_time, status, collection_id) VALUES ($1, 'ch', now(), 'done', $2)`,
+    [id, collection],
+  );
   await pool.query(`INSERT INTO localization_outbox (aweme_id, state) VALUES ($1, 'held')`, [id]);
 }
 
