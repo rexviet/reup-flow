@@ -12,15 +12,18 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from localization.activities.assemble_audio import (
+    MAX_MUSIC_GAIN_DB,
     VOICE_UNDER_MUSIC_DB,
     AssembleAudioActivity,
     balance_music_gain,
     build_filter_graph,
     check_length,
+    music_gain_db,
     parse_loudnorm,
 )
 from localization.activities.script_document import read_script
 from localization.contracts import (
+    CollectionSnapshot,
     DubSegment,
     DubSegmentsDocument,
     IngestResult,
@@ -456,3 +459,99 @@ def test_the_voice_sits_under_the_music_whatever_the_music_level(
     voice = integrated_lufs(work / "balance-voice.wav")
     heard = integrated_lufs(work / "balance-music.wav")
     assert abs((voice - heard) - VOICE_UNDER_MUSIC_DB) < 0.5
+
+
+# --- the collection's music offset -------------------------------------------------
+
+
+def with_offset(offset_db: float):
+    return SPEC.model_copy(
+        update={
+            "collection": CollectionSnapshot(
+                id="0b6f3c1e-2d4a-4f8e-9a51-7c2e8d9f0a13", name="x", bgm_offset_db=offset_db
+            )
+        }
+    )
+
+
+async def music_against_voice_db(store, spec) -> float:
+    """How loud the music is where nobody speaks, against the voice: loudness
+    normalisation moves both together, so only the music's own gain changes this."""
+    ref, segments_key, prep = build(store, [(1000, 2.0, 1.0)])
+    result = await ActivityEnvironment().run(
+        activity(store).assemble_audio, spec, ref, segments_key, prep, 0
+    )
+    path = Path(tempfile.mkdtemp()) / "dubbed.wav"
+    store.download_file(result.audio_key, path, produced_by="test")
+    samples = decode(path)
+    return db(level(samples, 4500, 7500, MUSIC_HZ) / level(samples, 1200, 2800, VOICE_HZ))
+
+
+async def test_the_collection_offset_lowers_the_music_by_that_many_db(store) -> None:
+    plain = await music_against_voice_db(store, SPEC)
+    quieter = await music_against_voice_db(store, with_offset(-6.0))
+    assert quieter - plain == pytest.approx(-6.0, abs=1.0)
+
+
+async def test_a_collection_without_an_offset_leaves_the_music_as_the_balance_sets_it(
+    store,
+) -> None:
+    plain = await music_against_voice_db(store, SPEC)
+    unset = SPEC.model_copy(
+        update={"collection": CollectionSnapshot(id=with_offset(0).collection.id, name="x")}
+    )
+    assert await music_against_voice_db(store, unset) == pytest.approx(plain, abs=0.3)
+
+
+async def test_the_offset_reaches_a_track_where_nobody_speaks(store) -> None:
+    """Nothing is spoken (the balance gives 0 at once), yet the music still moves
+    against the original vocals that are kept."""
+
+    async def music_against_singing(spec) -> float:
+        ref, key, prep = build(store, [])
+        sung_line = segment(5, "lời", start_ms=1000, slot_ms=3000)
+        put_script(store, [sung_line.model_copy(update={"keep_original": True})], version=2)
+        sung = DubSegment(
+            id=5,
+            text_vi="lời",
+            duration_ms=0,
+            stretch_ratio=1.0,
+            overflow_unresolved=False,
+            keep_original=True,
+        )
+        store.put_bytes(
+            key,
+            DubSegmentsDocument(aweme_id="7001", script_version=2, segments=(sung,))
+            .model_dump_json()
+            .encode(),
+        )
+        store.put_bytes(
+            prep.vocals_key, make_wav(VIDEO_MS / 1000, frequency=SINGING_HZ, amplitude=0.5)
+        )
+        result = await ActivityEnvironment().run(
+            activity(store).assemble_audio, spec, ref, key, prep, 0
+        )
+        path = Path(tempfile.mkdtemp()) / "out.wav"
+        store.download_file(result.audio_key, path, produced_by="test")
+        samples = decode(path)
+        return db(level(samples, 1300, 3700, MUSIC_HZ) / level(samples, 1300, 3700, SINGING_HZ))
+
+    plain = await music_against_singing(SPEC)
+    quieter = await music_against_singing(with_offset(-6.0))
+    assert quieter - plain == pytest.approx(-6.0, abs=1.0)
+
+
+@pytest.mark.parametrize(
+    ("balance", "offset", "total"),
+    [
+        (0.0, -6.0, -6.0),
+        (-3.5, 2.0, -1.5),
+        (20.0, 10.0, MAX_MUSIC_GAIN_DB),
+        (-20.0, -10.0, -MAX_MUSIC_GAIN_DB),
+        (0.0, 30.0, MAX_MUSIC_GAIN_DB),
+    ],
+)
+def test_the_offset_is_added_to_the_balance_and_the_sum_is_held_within_bounds(
+    balance, offset, total
+) -> None:
+    assert music_gain_db(balance, offset) == total

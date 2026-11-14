@@ -324,6 +324,61 @@
     "bgm": {
       "$ref": "#/$defs/ReviewAsset"
     },
+    "bgm_offset_db": {
+      "anyOf": [
+        {
+          "maximum": 24.0,
+          "minimum": -24.0,
+          "multipleOf": 0.5,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Bgm Offset Db"
+    },
+    "caption_color": {
+      "anyOf": [
+        {
+          "pattern": "^#[0-9a-f]{6}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Caption Color"
+    },
+    "cover_color": {
+      "anyOf": [
+        {
+          "pattern": "^#[0-9a-f]{6}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cover Color"
+    },
+    "cover_opacity_pct": {
+      "anyOf": [
+        {
+          "maximum": 100,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cover Opacity Pct"
+    },
     "cues": {
       "items": {
         "$ref": "#/$defs/ReviewCue"

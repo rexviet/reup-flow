@@ -249,6 +249,12 @@ def balance_music_gain(
     return gain
 
 
+def music_gain_db(balance_db: float, offset_db: float) -> float:
+    """The gain the music gets: what the balance sets, moved by the collection's offset,
+    held within the same bounds as the balance itself."""
+    return max(-MAX_MUSIC_GAIN_DB, min(MAX_MUSIC_GAIN_DB, balance_db + offset_db))
+
+
 def render(
     *,
     bgm: Path,
@@ -263,15 +269,21 @@ def render(
     vocals: Path | None = None,
     kept: list[tuple[int, int]] | None = None,
     under: float = 0.0,
+    music_offset_db: float = 0.0,
 ) -> None:
     """`vocals` is the original vocals, laid back in over the `kept` spans and, when
-    `under` is above 0, quietly under the dubbed voice everywhere else."""
+    `under` is above 0, quietly under the dubbed voice everywhere else.
+    `music_offset_db` (the collection's setting) moves the music from where the
+    balance puts it, also when nothing is spoken and the balance gives 0."""
     if kept and vocals is None:
         raise ValueError("kept spans need the original vocals")
     if vocals is None:
         under = 0.0
-    music_gain = balance_music_gain(
-        bgm=bgm, clips=clips, placements=placements, duration_ms=duration_ms, work=work
+    music_gain = music_gain_db(
+        balance_music_gain(
+            bgm=bgm, clips=clips, placements=placements, duration_ms=duration_ms, work=work
+        ),
+        music_offset_db,
     )
     graph = work / "graph.txt"
     graph.write_text(build_filter_graph(placements, duration_ms, kept, under, music_gain))
@@ -372,7 +384,10 @@ class AssembleAudioActivity:
         out_key = work_key_for(spec, round, "dubbed.wav")
         root = Path(tempfile.mkdtemp(prefix="assemble-"))
         try:
-            digest = await run_blocking(self._build, root, doc, starts, ingest, out_key, kept)
+            offset = spec.collection.bgm_offset_db if spec.collection else None
+            digest = await run_blocking(
+                self._build, root, doc, starts, ingest, out_key, kept, offset or 0.0
+            )
         finally:
             shutil.rmtree(root, ignore_errors=True)
         return DubbedAudio(
@@ -391,6 +406,7 @@ class AssembleAudioActivity:
         ingest: IngestResult,
         out_key: str,
         kept: list[tuple[int, int]] | None = None,
+        music_offset_db: float = 0.0,
     ) -> str:
         bgm = root / "bgm.wav"
         omitted = any(s.status == "unresolved" for s in doc.segments)
@@ -451,6 +467,7 @@ class AssembleAudioActivity:
             vocals=vocals,
             kept=kept,
             under=self._under,
+            music_offset_db=music_offset_db,
         )
         check_length(out, ingest.duration_ms)
         digest = hashlib.sha256(out.read_bytes()).hexdigest()

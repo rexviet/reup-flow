@@ -169,7 +169,7 @@ async def load_context(deps: LocalizerDeps, ports: LocalizerPorts) -> LocalizerC
     spoken = normalise(" ".join(s.text for s in segments))
     terms = tuple(
         TermContext(term_zh=t.term_zh, term_vi=t.term_vi, note=t.note)
-        for t in await ports.lookup_terms(deps.channel_id, [])
+        for t in await ports.lookup_terms(deps.glossary_scope(), [])
         if (needle := normalise(t.term_zh.strip())) and needle in spoken
     )
     return LocalizerContext(

@@ -20,9 +20,17 @@ from localization.contracts import (
 from localization.storage.object_store import work_key_for
 from tests.support.inputs import make_input
 
+# The worker's configured cover, which a collection's partial cover setting completes.
+COVER_COLOR, COVER_OPACITY = "#101010", 0.92
 
-def project_inputs(store, tmp_path: Path, generation=1, text="Xin chào", segment_id=17):
-    spec = make_input(generation=generation).model_copy(update={"delivery_mode": "review_project"})
+
+def project_inputs(
+    store, tmp_path: Path, generation=1, text="Xin chào", segment_id=17, collection=None
+):
+    """`collection`: the CollectionSnapshot the run was dispatched with, if any."""
+    spec = make_input(generation=generation).model_copy(
+        update={"delivery_mode": "review_project", "collection": collection}
+    )
     store.put_bytes(spec.video_key, f"source-{generation}".encode())
     snapshot = store.capture_source(spec.video_key, f"work/7001/g{generation}/r0/source.mp4")
     spec = spec.model_copy(update={"source_snapshot": snapshot})
@@ -83,7 +91,13 @@ def project_inputs(store, tmp_path: Path, generation=1, text="Xin chào", segmen
     store.put_bytes(subs_key, subs.model_dump_json().encode())
     font = tmp_path / "font.ttf"
     font.write_bytes(DEFAULT_CAPTION_FONT.read_bytes())
-    builder = ReviewProjectActivity(store, font_path=str(font), model="tts-model")
+    builder = ReviewProjectActivity(
+        store,
+        font_path=str(font),
+        model="tts-model",
+        cover_color=COVER_COLOR,
+        cover_opacity=COVER_OPACITY,
+    )
     dub = DubbedAudio(
         audio_key=audio_key,
         audio_sha256=hashlib.sha256(b"mixed-track").hexdigest(),

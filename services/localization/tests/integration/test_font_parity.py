@@ -125,7 +125,7 @@ def render(tmp_path_factory: pytest.TempPathFactory):
         source_key="work/7001/r0/source.mp4",
         meter=meter,
         cover_color="#101010",
-        cover_opacity=0.92,
+        cover_opacity_pct=92,
     )
     out = work / "out.mp4"
     scratch = work / "scratch"

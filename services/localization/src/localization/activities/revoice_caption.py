@@ -171,6 +171,8 @@ class RevoiceActivities:
                 target=self.target,
                 peak=self.peak,
                 allow_silence=True,
+                # The collection's offset, as the first mix of the project had it.
+                music_offset_db=base.bgm_offset_db or 0.0,
             )
             check_length(out, base.duration_ms)
             mixed = self.repo.asset(base, out.read_bytes(), ".wav")

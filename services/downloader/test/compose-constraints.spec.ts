@@ -252,6 +252,9 @@ describe("docker-compose.yml localization infra", () => {
       "LOUDNESS_LUFS",
       "TRUE_PEAK_DBTP",
       "CAPTION_FONT_PATH",
+      // A collection's partial cover is completed with these in the review project.
+      "COVER_COLOR",
+      "COVER_OPACITY",
       "VOICE_CHECK_ENABLED", "VOICE_CHECK_MIN_SPEECH_SHARE", "VOICE_CHECK_CONCURRENCY",
       "AD_GATE_ENABLED", "AD_GATE_THRESHOLD", "TRACE_AGENT_CONTENT",
     ],
@@ -351,6 +354,17 @@ describe("docker-compose.yml localization infra", () => {
     for (const name of ["localization-starter", "worker-agents", "worker-media"]) {
       expect(keys(name)).not.toContain("S3_ACCESS_KEY_ID");
       expect(keys(name)).not.toContain("S3_SECRET_ACCESS_KEY");
+    }
+  });
+
+  it("the agents worker gets the same cover setting as the media worker", () => {
+    // The media worker paints the cover in rendered videos; the agents worker builds
+    // review projects, which complete a collection's partial cover with it. Without it
+    // there the review flow silently falls back to the code default.
+    const env = (name: string) => services[name].environment ?? {};
+    for (const k of ["COVER_COLOR", "COVER_OPACITY"]) {
+      expect(env("worker-agents")[k]).toBeDefined();
+      expect(env("worker-agents")[k]).toEqual(env("worker-media")[k]);
     }
   });
 

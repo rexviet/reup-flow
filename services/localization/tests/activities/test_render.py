@@ -305,12 +305,37 @@ def test_old_cover_specs_keep_their_hash_and_timed_covers_have_a_new_one(rendere
     spec = rendered["spec"]
     original = spec.model_dump(mode="json")
     original["cover"].pop("only_with_captions", None)
+    for caption in original["captions"]:
+        caption.pop("caption_color")  # unset, as in every spec written before it existed
     expected = json.dumps(original, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     assert canonical_spec_json(spec) == expected
     timed = spec.model_copy(update={
         "cover": spec.cover.model_copy(update={"only_with_captions": True}),
     })
     assert spec_sha256(timed) != spec_sha256(spec)
+
+
+def _text_colours(image: Image.Image, box: dict) -> tuple[int, int]:
+    """(yellow, white) text pixels in the box: bright red and green, with blue either
+    gone (yellow) or bright too (white). The cover under them is dark blue."""
+    data = image.crop((box["x"], box["y"], box["x"] + box["w"], box["y"] + box["h"])).tobytes()
+    pixels = list(zip(data[0::3], data[1::3], data[2::3], strict=True))
+    yellow = sum(r > 200 and g > 200 and b < 90 for r, g, b in pixels)
+    white = sum(r > 200 and g > 200 and b > 200 for r, g, b in pixels)
+    return yellow, white
+
+
+@pytest.mark.parametrize("colour", ["#ffff00", None])
+def test_the_text_is_drawn_in_the_caption_colour_and_white_without_one(tmp_path, colour) -> None:
+    source, audio = make_media(tmp_path, source_s=3, audio_s=3)
+    spec = make_spec(audio, captions=[{**c, "caption_color": colour} for c in CAPTIONS])
+    out = tmp_path / "coloured.mp4"
+    render_file(spec, source=source, audio=audio, font_path=FONT, out=out, work_dir=tmp_path)
+    yellow, white = _text_colours(frame(out, 15), COVER)
+    if colour is None:
+        assert white > 500 and yellow < white / 20, (yellow, white)
+    else:
+        assert yellow > 500 and white < yellow / 20, (yellow, white)
 
 
 def test_the_text_casts_a_soft_shadow(rendered) -> None:

@@ -22,7 +22,14 @@ from localization.starter.outbox_starter import (
 )
 from tests.support.prep_fakes import PrepFakes
 from tests.support.prep_worker import prep_workers
-from tests.support.scratch_db import DASHBOARD_INTAKE, INIT, OUTBOX, scratch_database
+from tests.support.scratch_db import (
+    COLLECTIONS,
+    DASHBOARD_INTAKE,
+    INIT,
+    OUTBOX,
+    add_channel_collection,
+    scratch_database,
+)
 from tests.support.stub_server import Scenario, StubServer
 
 BUCKET = "reup-media"
@@ -30,7 +37,7 @@ BUCKET = "reup-media"
 
 @pytest.fixture
 def db() -> Iterator[tuple[str, psycopg.Connection]]:
-    yield from scratch_database(INIT, OUTBOX)
+    yield from scratch_database(INIT, OUTBOX, COLLECTIONS)
 
 
 def add_video(
@@ -41,11 +48,19 @@ def add_video(
     channel: str = "chan_1",
     generation: int = 1,
     due_in_seconds: int = 0,
+    collection: str | None = None,
 ) -> None:
+    """The video in `collection`, else in its channel's collection."""
+    collection = collection or add_channel_collection(conn, channel)
     conn.execute(
-        "INSERT INTO videos (aweme_id, sec_user_id, create_time, storage_path, status) "
-        "VALUES (%s, %s, now(), %s, 'done')",
-        (aweme_id, channel, path if path is not None else f"s3://{BUCKET}/source/{aweme_id}.mp4"),
+        "INSERT INTO videos (aweme_id, sec_user_id, create_time, storage_path, status, "
+        "collection_id) VALUES (%s, %s, now(), %s, 'done', %s)",
+        (
+            aweme_id,
+            channel,
+            path if path is not None else f"s3://{BUCKET}/source/{aweme_id}.mp4",
+            collection,
+        ),
     )
     conn.execute(
         "INSERT INTO localization_outbox (aweme_id, generation, next_attempt_at) "
@@ -312,7 +327,7 @@ async def test_a_row_without_a_video_is_rejected(
 
 
 async def test_a_held_row_is_never_claimed() -> None:
-    for info, conn in scratch_database(INIT, OUTBOX, DASHBOARD_INTAKE):
+    for info, conn in scratch_database(INIT, OUTBOX, DASHBOARD_INTAKE, COLLECTIONS):
         add_video(conn, "7100")
         conn.execute("UPDATE localization_outbox SET state = 'held' WHERE aweme_id = '7100'")
         before = row(conn, "7100")
@@ -468,6 +483,75 @@ async def test_the_input_carries_the_video_channel_and_generation(
     }
 
 
+async def test_the_input_carries_the_collection_settings_read_at_dispatch(
+    db: tuple[str, psycopg.Connection], temporal_client: Client, env: Env
+) -> None:
+    info, conn = db
+    collection = add_channel_collection(
+        conn,
+        "chan_1",
+        name="成名的代价",
+        bgm_offset_db=-6.5,
+        caption_text_color="#00ff88",
+        cover_color="#202020",
+        cover_opacity_pct=80,
+    )
+    add_video(conn, "7001", collection=collection)
+    assert await starter(info, temporal_client, env).run_once() == Outcome.DISPATCHED
+    expected = {
+        "id": collection,
+        "name": "成名的代价",
+        "bgm_offset_db": -6.5,
+        "caption_color": "#00ff88",
+        "cover_color": "#202020",
+        "cover_opacity_pct": 80,
+    }
+    assert (await started_input(temporal_client, workflow_id("7001", 1)))["collection"] == expected
+    # Editing the collection afterwards changes runs dispatched afterwards, never this one.
+    conn.execute(
+        "UPDATE collections SET caption_text_color = '#ffffff', bgm_offset_db = 3 WHERE id = %s",
+        (collection,),
+    )
+    add_video(conn, "7002", collection=collection)
+    assert await starter(info, temporal_client, env).run_once() == Outcome.DISPATCHED
+    assert (await started_input(temporal_client, workflow_id("7001", 1)))["collection"] == expected
+    later = (await started_input(temporal_client, workflow_id("7002", 1)))["collection"]
+    assert (later["caption_color"], later["bgm_offset_db"]) == ("#ffffff", 3.0)
+
+
+async def test_a_collection_without_settings_leaves_every_setting_to_the_default(
+    db: tuple[str, psycopg.Connection], temporal_client: Client, env: Env
+) -> None:
+    info, conn = db
+    add_video(conn, "7001", channel="MS4wLjAB-xyz_1")
+    assert await starter(info, temporal_client, env).run_once() == Outcome.DISPATCHED
+    got = (await started_input(temporal_client, workflow_id("7001", 1)))["collection"]
+    assert got["name"] == "MS4wLjAB-xyz_1"
+    assert {k: got[k] for k in got if k not in ("id", "name")} == {
+        "bgm_offset_db": None,
+        "caption_color": None,
+        "cover_color": None,
+        "cover_opacity_pct": None,
+    }
+
+
+async def test_a_canary_carries_the_collection_settings_too(
+    db: tuple[str, psycopg.Connection], temporal_client: Client, env: Env
+) -> None:
+    from pathlib import Path
+
+    info, conn = db
+    conn.execute(
+        (Path(__file__).parents[2] / "migrations/261026-localization-core.sql").read_text()
+    )
+    collection = add_channel_collection(conn, "chan_1", caption_text_color="#00ff88")
+    add_video(conn, "7001", collection=collection)
+    spec = await starter(info, temporal_client, env).start_canary("7001", 2)
+    assert spec.collection is not None
+    assert (spec.collection.id, spec.collection.caption_color) == (collection, "#00ff88")
+    await temporal_client.get_workflow_handle(workflow_id("7001", 2)).terminate()
+
+
 # --- the voice must exist ---------------------------------------------------------------
 
 
@@ -612,6 +696,17 @@ async def test_any_id_dispatches_for_a_provider_without_a_list(
     assert (got["voice"]["provider"], got["voice"]["voice_id"]) == ("openai_compat", "alloy")
 
 
+# A video row as VIDEO_SQL returns it, for a collection that sets nothing.
+NO_SETTINGS = dict(
+    collection_id="0b6f3c1e-2d4a-4f8e-9a51-7c2e8d9f0a13",
+    collection_name="channel",
+    bgm_offset_db=None,
+    caption_text_color=None,
+    cover_color=None,
+    cover_opacity_pct=None,
+)
+
+
 @pytest.mark.parametrize("provider", ["voicestudio", "zerotts", "vbee", "openai_compat"])
 def test_delivery_selection_is_frozen_only_for_the_voice_studio_pipeline(provider):
     from localization.contracts import VoiceRef
@@ -623,7 +718,11 @@ def test_delivery_selection_is_frozen_only_for_the_voice_studio_pipeline(provide
         settings,
         voice,
         Claimed("7001", 2, 1),
-        dict(sec_user_id="channel", storage_path=f"s3://{settings.s3_bucket}/source/7001.mp4"),
+        dict(
+            sec_user_id="channel",
+            storage_path=f"s3://{settings.s3_bucket}/source/7001.mp4",
+            **NO_SETTINGS,
+        ),
     )
     assert spec.delivery_mode == (
         "review_project" if provider in ("voicestudio", "zerotts") else "legacy_render"
@@ -635,7 +734,11 @@ def test_delivery_selection_is_frozen_only_for_the_voice_studio_pipeline(provide
             rollback,
             voice,
             Claimed("7001", 3, 1),
-            dict(sec_user_id="channel", storage_path=f"s3://{settings.s3_bucket}/source/7001.mp4"),
+            dict(
+                sec_user_id="channel",
+                storage_path=f"s3://{settings.s3_bucket}/source/7001.mp4",
+                **NO_SETTINGS,
+            ),
         ).delivery_mode
         == "legacy_render"
     )

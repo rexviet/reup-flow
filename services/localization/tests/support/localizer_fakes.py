@@ -27,6 +27,7 @@ from temporalio import activity
 
 from localization.activities.glossary import MAX_WRITES_PER_RUN, check_term
 from localization.agents.localizer import (
+    GlossaryScope,
     SaveResult,
     SegmentView,
     TermView,
@@ -65,18 +66,23 @@ class FakePorts:
         self.calls["on_screen_spans"] += 1
         return self.spans
 
-    async def lookup_terms(self, channel_id: str, terms: list[str]) -> Sequence[TermView]:
+    @staticmethod
+    def owner(scope: GlossaryScope) -> str:
+        """The glossary key: the run's collection, else (an older input) its channel."""
+        return scope.collection_id or scope.channel_id
+
+    async def lookup_terms(self, scope: GlossaryScope, terms: list[str]) -> Sequence[TermView]:
         self.calls["lookup_terms"] += 1
         return [
             TermView(zh, vi, None)
-            for (channel, zh), vi in self.glossary.items()
-            if channel == channel_id and (not terms or zh in terms)
+            for (owner, zh), vi in self.glossary.items()
+            if owner == self.owner(scope) and (not terms or zh in terms)
         ]
 
     async def save_term(
         self,
         *,
-        channel_id: str,
+        scope: GlossaryScope,
         term_zh: str,
         term_vi: str,
         note: str | None,
@@ -87,11 +93,12 @@ class FakePorts:
         reason = check_term(term_zh, term_vi, note)
         if reason is not None:
             return SaveResult("rejected", f"not saved: {reason}")
-        if (channel_id, term_zh) in self.glossary:
-            return SaveResult("exists", "not changed", self.glossary[(channel_id, term_zh)])
+        key = (self.owner(scope), term_zh)
+        if key in self.glossary:
+            return SaveResult("exists", "not changed", self.glossary[key])
         if self.saved_by[workflow_id] >= MAX_WRITES_PER_RUN:
             return SaveResult("limit", "not saved: limit")
-        self.glossary[(channel_id, term_zh)] = term_vi
+        self.glossary[key] = term_vi
         self.saved_by[workflow_id] += 1
         return SaveResult("inserted", "saved")
 

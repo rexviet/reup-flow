@@ -3,6 +3,7 @@ capped, and a write the guard refuses leaves no row."""
 
 import asyncio
 import json
+import logging
 import re
 import unicodedata
 from pathlib import Path
@@ -11,6 +12,7 @@ import psycopg
 import pytest
 
 from localization.activities.glossary import (
+    LOOKUP_LIMIT,
     MAX_WRITES_PER_RUN,
     TERM_MAX_CHARS,
     GlossaryStore,
@@ -29,12 +31,36 @@ def _rows(conn: psycopg.Connection) -> list[tuple]:
 
 async def _save(store: GlossaryStore, term_zh: str, term_vi: str, **kw):
     params = {
+        "collection_id": None,
         "channel_id": "chan_1",
         "note": None,
         "aweme_id": "7001",
         "workflow_id": "video-7001-g1",
     }
     return await store.upsert(term_zh=term_zh, term_vi=term_vi, **{**params, **kw})
+
+
+async def _lookup(store: GlossaryStore, terms, *, collection_id=None, channel_id="chan_1"):
+    return await store.lookup(collection_id=collection_id, channel_id=channel_id, terms=terms)
+
+
+def _mix(conn: psycopg.Connection, mix_id: str, channel: str = "chan_1") -> str:
+    """A 合集 collection of `channel`; returns its id."""
+    return conn.execute(
+        "INSERT INTO collections (kind, external_id, sec_user_id, name) "
+        "VALUES ('mix', %s, %s, %s) RETURNING id::text",
+        (mix_id, channel, mix_id),
+    ).fetchone()[0]
+
+
+def _dashboard_term(conn, collection_id: str, term_zh: str, term_vi: str, note=None) -> None:
+    """A term a person set on the dashboard (phase 4 writes them this way)."""
+    conn.execute(
+        "INSERT INTO localization.glossary "
+        "(collection_id, term_zh, term_vi, note, source_aweme_id, workflow_id) "
+        "VALUES (%s, %s, %s, %s, 'dashboard', 'dashboard')",
+        (collection_id, term_zh, term_vi, note),
+    )
 
 
 async def test_the_same_term_written_twice_is_one_row_and_the_first_value_stays(
@@ -136,11 +162,11 @@ async def test_lookup_is_per_channel_and_by_term(glossary_db) -> None:
     await _save(store, "苹果", "Apple")
     await _save(store, "华为", "Huawei")
     await _save(store, "苹果", "Táo khuyết", channel_id="chan_2")
-    some = await store.lookup("chan_1", ["苹果"])
+    some = await _lookup(store, ["苹果"])
     assert [(r.term_zh, r.term_vi) for r in some] == [("苹果", "Apple")]
-    everything = await store.lookup("chan_1", None)
+    everything = await _lookup(store, None)
     assert {r.term_zh for r in everything} == {"苹果", "华为"}
-    assert await store.lookup("chan_3", None) == []
+    assert await _lookup(store, None, channel_id="chan_3") == []
 
 
 async def test_terms_of_a_channel_land_in_its_channel_collection(glossary_db) -> None:
@@ -153,12 +179,139 @@ async def test_terms_of_a_channel_land_in_its_channel_collection(glossary_db) ->
     ).fetchall() == [("channel", "chan_2")]
 
 
-async def test_a_channel_without_a_collection_is_an_error_not_an_orphan_term(glossary_db) -> None:
+async def test_a_channel_without_a_collection_stores_no_orphan_term(glossary_db) -> None:
+    """An old input whose channel has no channel collection: nothing is stored, and the
+    agent is told so instead of the activity failing on a write a retry cannot fix."""
     info, conn = glossary_db
     store = GlossaryStore(info)
-    with pytest.raises(psycopg.errors.NotNullViolation):
-        await _save(store, "苹果", "Apple", channel_id="chan_3")
+    outcome = await _save(store, "苹果", "Apple", channel_id="chan_3")
+    assert (outcome.status, outcome.message) == (
+        "rejected",
+        "not saved: this video's channel has no collection",
+    )
     assert conn.execute("SELECT count(*) FROM localization.glossary").fetchone() == (0,)
+
+
+async def test_a_write_for_a_collection_that_does_not_exist_is_refused_by_the_key(
+    glossary_db, caplog
+) -> None:
+    info, conn = glossary_db
+    gone = "0b6f3c1e-2d4a-4f8e-9a51-7c2e8d9f0a13"
+    with caplog.at_level(logging.WARNING, logger="localization.activities.glossary"):
+        outcome = await _save(GlossaryStore(info), "苹果", "Apple", collection_id=gone)
+    assert (outcome.status, outcome.message) == (
+        "rejected",
+        "not saved: this video's collection no longer exists",
+    )
+    # An operator can see that this run's glossary went nowhere.
+    assert any(gone in r.getMessage() for r in caplog.records), caplog.records
+    assert conn.execute("SELECT count(*) FROM localization.glossary").fetchone() == (0,)
+    # The foreign key, not this code, is what refuses it: the same row written directly
+    # by the worker role fails the same way.
+    with pytest.raises(psycopg.errors.ForeignKeyViolation):
+        async with await psycopg.AsyncConnection.connect(info, autocommit=True) as worker:
+            await worker.execute(
+                "INSERT INTO localization.glossary (collection_id, term_zh, term_vi, "
+                "source_aweme_id, workflow_id) VALUES (%s, 'x', 'y', '1', 'w')",
+                (gone,),
+            )
+
+
+async def test_terms_of_one_collection_never_reach_another(glossary_db) -> None:
+    info, conn = glossary_db
+    store = GlossaryStore(info)
+    first, second = _mix(conn, "mix_a"), _mix(conn, "mix_b")
+    assert (await _save(store, "薛珍珠", "Tiết Trân Châu", collection_id=first)).status == (
+        "inserted"
+    )
+    assert await _lookup(store, None, collection_id=second) == []
+    assert await _lookup(store, ["薛珍珠"], collection_id=second) == []
+    # Nor the channel the two collections belong to.
+    assert await _lookup(store, None) == []
+    found = await _lookup(store, ["薛珍珠"], collection_id=first)
+    assert [(r.term_zh, r.term_vi) for r in found] == [("薛珍珠", "Tiết Trân Châu")]
+    # The same term means something else in the second collection: both are kept.
+    assert (await _save(store, "薛珍珠", "Châu Nhi", collection_id=second)).status == "inserted"
+    assert [r.term_vi for r in await _lookup(store, None, collection_id=second)] == ["Châu Nhi"]
+
+
+async def test_a_run_with_a_collection_uses_it_and_not_its_channel(glossary_db) -> None:
+    info, conn = glossary_db
+    store = GlossaryStore(info)
+    mix = _mix(conn, "mix_a")
+    await _save(store, "苹果", "Apple")
+    outcome = await _save(store, "苹果", "Táo", collection_id=mix)
+    assert outcome.status == "inserted"
+    assert conn.execute(
+        "SELECT c.kind, g.term_vi FROM localization.glossary g "
+        "JOIN public.collections c ON c.id = g.collection_id ORDER BY c.kind"
+    ).fetchall() == [("channel", "Apple"), ("mix", "Táo")]
+
+
+async def test_an_input_from_before_collections_reads_its_channel_collection(glossary_db) -> None:
+    """A run started before the migration (or "Go on" on one) carries only its channel."""
+    info, conn = glossary_db
+    channel_collection = conn.execute(
+        "SELECT id::text FROM collections WHERE kind = 'channel' AND external_id = 'chan_2'"
+    ).fetchone()[0]
+    _dashboard_term(conn, channel_collection, "华为", "Huawei")
+    found = await _lookup(GlossaryStore(info), None, channel_id="chan_2")
+    assert [(r.term_zh, r.term_vi) for r in found] == [("华为", "Huawei")]
+
+
+async def test_the_agent_never_overwrites_a_term_a_person_set(glossary_db) -> None:
+    info, conn = glossary_db
+    mix = _mix(conn, "mix_a")
+    _dashboard_term(conn, mix, "薛珍珠", "Tiết Trân Châu", note="tên nhân vật chính")
+    outcome = await _save(GlossaryStore(info), "薛珍珠", "Xue Zhenzhu", collection_id=mix)
+    assert (outcome.status, outcome.existing) == ("exists", "Tiết Trân Châu")
+    assert conn.execute(
+        "SELECT term_vi, note, workflow_id, source_aweme_id FROM localization.glossary"
+    ).fetchall() == [("Tiết Trân Châu", "tên nhân vật chính", "dashboard", "dashboard")]
+
+
+async def test_terms_a_person_set_come_first_when_the_glossary_is_long(glossary_db) -> None:
+    info, conn = glossary_db
+    mix = _mix(conn, "mix_a")
+    for i in range(LOOKUP_LIMIT):
+        conn.execute(
+            "INSERT INTO localization.glossary (collection_id, term_zh, term_vi, "
+            "source_aweme_id, workflow_id, created_at) "
+            "VALUES (%s, %s, %s, '1', 'video-1-g1', now() - interval '1 day')",
+            (mix, f"词{i:03d}", f"từ {i}"),
+        )
+    _dashboard_term(conn, mix, "薛珍珠", "Tiết Trân Châu")
+    found = await _lookup(GlossaryStore(info), None, collection_id=mix)
+    assert len(found) == LOOKUP_LIMIT
+    assert found[0].term_zh == "薛珍珠"
+
+
+async def test_a_stored_term_the_guard_refuses_is_not_shown_when_the_agent_repeats_it(
+    glossary_db,
+) -> None:
+    """The reply to a repeated term shows the stored text to the model; a stored text the
+    guard refuses is held back, and the term is still not overwritten."""
+    info, conn = glossary_db
+    mix = _mix(conn, "mix_a")
+    _dashboard_term(conn, mix, "店铺", "cửa hàng", note="ghé shop-xyz.vn")
+    outcome = await _save(GlossaryStore(info), "店铺", "tiệm", collection_id=mix)
+    assert (outcome.status, outcome.existing) == ("exists", None)
+    assert conn.execute("SELECT term_vi, workflow_id FROM localization.glossary").fetchall() == [
+        ("cửa hàng", "dashboard")
+    ]
+
+
+async def test_a_stored_term_the_guard_refuses_is_never_read_back(glossary_db) -> None:
+    """Terms reach the table by other ways than this store (the dashboard's own copy of
+    the guard, a hand-written row); what the guard refuses never reaches the prompt."""
+    info, conn = glossary_db
+    mix = _mix(conn, "mix_a")
+    _dashboard_term(conn, mix, "店铺", "cửa hàng", note="ghé shop-xyz.vn")
+    _dashboard_term(conn, mix, "手机", "gọi 0912345678")
+    _dashboard_term(conn, mix, "苹果", "Apple")
+    store = GlossaryStore(info)
+    assert [r.term_zh for r in await _lookup(store, None, collection_id=mix)] == ["苹果"]
+    assert await _lookup(store, ["店铺", "手机"], collection_id=mix) == []
 
 
 def test_check_term_accepts_an_ordinary_term() -> None:

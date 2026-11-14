@@ -227,7 +227,11 @@ def queue_specs(
             store, RunStore(database_url), LangfuseScores.from_settings(settings)
         )
         project = ReviewProjectActivity(
-            store, font_path=settings.caption_font_path, model=settings.tts_model
+            store,
+            font_path=settings.caption_font_path,
+            model=settings.tts_model,
+            cover_color=settings.cover_color,
+            cover_opacity=settings.cover_opacity,
         )
         # The agents' model requests (`llm`) and tools (`io`, and the Dubber's
         # `synthesize` on `tts`) are activities of the agents; their plugins register

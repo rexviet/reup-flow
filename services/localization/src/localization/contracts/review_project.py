@@ -5,6 +5,7 @@ from typing import Annotated, Literal
 from pydantic import Field, model_validator
 
 from localization.contracts.base import Contract
+from localization.contracts.collection import HexColor, MusicOffsetDb, OpacityPct
 from localization.contracts.geometry import BBox, NonNegativeInt, PositiveInt
 from localization.contracts.ids import AwemeId, Sha256, SourceKey, StorageKey
 from localization.contracts.voice import VoiceRef
@@ -82,6 +83,14 @@ class ReviewProjectManifest(Contract):
     cues: tuple[ReviewCue, ...]
     source_region: BBox | None
     source_cues: tuple[tuple[NonNegativeInt, NonNegativeInt], ...]
+    # The run's collection settings, so every revision (a Studio save, a revoice) is
+    # drawn and mixed as the first was. A project written before them has none: its
+    # captions are yellow and its source mask the white blur it always had.
+    caption_color: HexColor | None = None
+    # Both set or both unset: a project resolves the worker's defaults when it is built.
+    cover_color: HexColor | None = None
+    cover_opacity_pct: OpacityPct | None = None
+    bgm_offset_db: MusicOffsetDb | None = None
 
     @model_validator(mode="after")
     def _closed_dependencies(self) -> "ReviewProjectManifest":
@@ -137,6 +146,8 @@ class ReviewProjectManifest(Contract):
             raise ValueError("video differs from captured source")
         if len({c.id for c in self.cues}) != len(self.cues):
             raise ValueError("duplicate cue ID")
+        if (self.cover_color is None) != (self.cover_opacity_pct is None):
+            raise ValueError("cover colour and opacity are set together")
         return self
 
 

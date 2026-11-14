@@ -28,8 +28,10 @@ class StallsAfterTheFirstWrite(FakePorts):
         self._store = store
         self._marker = marker
 
-    async def save_term(self, **kw) -> SaveResult:  # type: ignore[override]
-        outcome = await self._store.upsert(**kw)
+    async def save_term(self, *, scope, **kw) -> SaveResult:  # type: ignore[override]
+        outcome = await self._store.upsert(
+            collection_id=scope.collection_id, channel_id=scope.channel_id, **kw
+        )
         if not self._marker.exists():
             self._marker.write_text("written")
             await asyncio.sleep(600)

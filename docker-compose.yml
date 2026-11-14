@@ -567,6 +567,10 @@ services:
       ORIGINAL_VOICE_GAIN: ${ORIGINAL_VOICE_GAIN:-0.25}
       # The Jev review measures captions with the font the render draws with.
       CAPTION_FONT_PATH: ${CAPTION_FONT_PATH:-/assets/fonts/BeVietnamPro-SemiBold.ttf}
+      # A collection that sets only part of its cover gets the rest from here in its
+      # review project, as the media worker does for rendered videos.
+      COVER_COLOR: ${COVER_COLOR:-#101010}
+      COVER_OPACITY: ${COVER_OPACITY:-0.92}
     volumes:
       - ./assets/fonts:/assets/fonts:ro
     depends_on:

@@ -98,6 +98,7 @@ __all__ = [
     "VoiceStudioSettings",
 ]
 
+from localization.contracts.collection import DEFAULT_CAPTION_COLOR, CollectionSnapshot
 from localization.contracts.review_project import (
     ProjectRef,
     ReviewAsset,
@@ -109,5 +110,5 @@ from localization.contracts.review_project import (
 
 __all__ += [
     "ProjectRef", "ReviewAsset", "ReviewCue", "ReviewHead",
-    "ReviewProjectManifest", "SourceSnapshot",
+    "ReviewProjectManifest", "SourceSnapshot", "DEFAULT_CAPTION_COLOR", "CollectionSnapshot",
 ]

@@ -126,10 +126,10 @@ def test_the_media_worker_lays_captions_out_with_the_configured_font_and_cover()
         if fn.__temporal_activity_definition.name == "layout_captions"  # type: ignore[attr-defined]
     )
     held = layout.__self__  # type: ignore[attr-defined]
-    assert (held._font_path, held._cover_color, held._cover_opacity) == (  # noqa: SLF001
+    assert (held._font_path, held._cover_color, held._cover_opacity_pct) == (  # noqa: SLF001
         "/fonts/x.ttf",
         "#abcdef",
-        0.5,
+        50,
     )
 
 
@@ -505,6 +505,19 @@ def test_voice_studio_worker_enables_speech_chunking(provider,chunked):
 
 def test_review_project_activities_are_served_on_io():
     assert {"capture_review_source", "build_review_project"} <= _registered(Settings())["io"]
+
+
+def test_the_review_project_completes_a_collection_cover_with_the_configured_one() -> None:
+    settings = Settings(cover_color="#ABCDEF", cover_opacity=0.5)
+    specs = queue_specs("agents", settings, STORE, PROVIDERS)  # type: ignore[arg-type]
+    build = next(
+        fn
+        for spec in specs
+        for fn in spec.activities
+        if fn.__temporal_activity_definition.name == "build_review_project"  # type: ignore[attr-defined]
+    )
+    held = build.__self__  # type: ignore[attr-defined]
+    assert (held._cover_color, held._cover_opacity_pct) == ("#abcdef", 50)  # noqa: SLF001
 
 
 def test_the_voice_role_serves_only_the_speech_queues() -> None:

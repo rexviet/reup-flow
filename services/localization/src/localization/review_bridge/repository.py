@@ -113,7 +113,17 @@ class Repository:
             font_path.write_bytes(self.read_asset(base.font))
             source = apply_visual(
                 project_html(
-                    cues, base.video, mixed, base.font, subtitles, base, font_path=font_path
+                    cues,
+                    base.video,
+                    mixed,
+                    base.font,
+                    subtitles,
+                    base,
+                    font_path=font_path,
+                    # The collection's look, as the first revision was drawn.
+                    caption_color=base.caption_color,
+                    cover_color=base.cover_color,
+                    cover_opacity_pct=base.cover_opacity_pct,
                 ),
                 visual,
             )

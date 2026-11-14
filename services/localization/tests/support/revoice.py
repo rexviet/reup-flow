@@ -8,6 +8,10 @@ from localization.review_bridge.service import Service
 from tests.support.review_project import project_inputs
 from tests.support.tts_fakes import make_wav
 
+# The project's music, apart from the voices (440 Hz for the revoiced line, 220 Hz for
+# the others).
+MUSIC_HZ = 1000
+
 
 class CueTts:
     def __init__(self, duration=1.1, fail=False):
@@ -24,7 +28,11 @@ class CueTts:
         return make_wav(self.duration, frequency=440)
 
 
-def audio_project(store, tmp_path, *, duration=1.1, blank=False, fail=False):
+def audio_project(
+    store, tmp_path, *, duration=1.1, blank=False, fail=False, music=0.0, settings=None
+):
+    """`music`: the amplitude of the project's music (silent by default). `settings`:
+    collection settings the manifest carries, as `build_review_project` writes them."""
     builder, spec, dub, ingest, subs = project_inputs(
         store, tmp_path, text="" if blank else "Xin chào"
     )
@@ -54,7 +62,8 @@ def audio_project(store, tmp_path, *, duration=1.1, blank=False, fail=False):
             "clip": old_clip,
         }
     )
-    base = base.model_copy(update={"bgm": repo.asset(base, make_wav(2, amplitude=0), ".wav")})
+    bgm = make_wav(2, frequency=MUSIC_HZ, amplitude=music)
+    base = base.model_copy(update={"bgm": repo.asset(base, bgm, ".wav"), **(settings or {})})
     prepared = repo.prepare(base, (original, second), {})
     repo.activate(prepared, etag)
     repo.materialize("7001", 1)

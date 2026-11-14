@@ -5,7 +5,7 @@ import asyncio
 from collections.abc import Sequence
 
 from localization.activities.glossary import GlossaryStore
-from localization.agents.localizer import SaveResult, SegmentView, TermView
+from localization.agents.localizer import GlossaryScope, SaveResult, SegmentView, TermView
 from localization.contracts import SubtitleDocument, TranscriptDocument
 from localization.storage.object_store import ObjectStore
 from localization.text.slots import slots_ms
@@ -55,14 +55,16 @@ class StorePorts:
         doc = await asyncio.to_thread(read_subtitle_document, self._store, subtitle_key)
         return [(c.start_ms, c.end_ms) for c in doc.cues]
 
-    async def lookup_terms(self, channel_id: str, terms: list[str]) -> Sequence[TermView]:
-        rows = await self._glossary.lookup(channel_id, terms or None)
+    async def lookup_terms(self, scope: GlossaryScope, terms: list[str]) -> Sequence[TermView]:
+        rows = await self._glossary.lookup(
+            collection_id=scope.collection_id, channel_id=scope.channel_id, terms=terms or None
+        )
         return [TermView(r.term_zh, r.term_vi, r.note) for r in rows]
 
     async def save_term(
         self,
         *,
-        channel_id: str,
+        scope: GlossaryScope,
         term_zh: str,
         term_vi: str,
         note: str | None,
@@ -70,7 +72,8 @@ class StorePorts:
         workflow_id: str,
     ) -> SaveResult:
         outcome = await self._glossary.upsert(
-            channel_id=channel_id,
+            collection_id=scope.collection_id,
+            channel_id=scope.channel_id,
             term_zh=term_zh,
             term_vi=term_vi,
             note=note,

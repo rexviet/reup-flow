@@ -25,6 +25,7 @@ from temporalio.exceptions import ApplicationError
 
 from localization.activities.script_document import read_script
 from localization.contracts import (
+    DEFAULT_CAPTION_COLOR,
     BBox,
     Caption,
     Cover,
@@ -380,7 +381,11 @@ def check_renderable(ingest: IngestResult) -> None:
 
 
 def build_captions(
-    spans: list[tuple[int, int, int, str]], meter: FontMeter, box: BBox, px: int = CAPTION_PX
+    spans: list[tuple[int, int, int, str]],
+    meter: FontMeter,
+    box: BBox,
+    px: int = CAPTION_PX,
+    color: str = DEFAULT_CAPTION_COLOR,
 ) -> tuple[Caption, ...]:
     max_width = box.w * (1 - 2 * BOX_PADDING)
     captions: list[Caption] = []
@@ -396,6 +401,7 @@ def build_captions(
                     end_ms=b,
                     text="\n".join(piece.lines),
                     font_px=piece.size,
+                    caption_color=color,
                 )
             )
     return tuple(captions)
@@ -411,7 +417,8 @@ def lay_out(
     source_key: str,
     meter: FontMeter,
     cover_color: str,
-    cover_opacity: float,
+    cover_opacity_pct: int,
+    caption_color: str = DEFAULT_CAPTION_COLOR,
 ) -> EditSpec:
     spans = caption_spans(script, doc, ingest.duration_ms)
     cover = None
@@ -425,7 +432,7 @@ def lay_out(
         # The black box that is drawn is the box the captions are laid out in: a cover
         # shorter than two lines of caption would leave a caption's text outside it.
         cover = Cover(
-            region=box, color=cover_color, opacity_pct=round(cover_opacity * 100),
+            region=box, color=cover_color, opacity_pct=cover_opacity_pct,
             only_with_captions=True,
         )
     else:
@@ -442,7 +449,7 @@ def lay_out(
         duration_ms=ingest.duration_ms,
         cover=cover,
         caption_box=box,
-        captions=build_captions(spans, meter, box, caption_px(ingest.height)),
+        captions=build_captions(spans, meter, box, caption_px(ingest.height), caption_color),
         font=Path(meter.path).name,
         font_sha256=meter.sha256,
     )
@@ -488,7 +495,7 @@ class LayoutCaptionsActivity:
         self._store = store
         self._font_path = font_path
         self._cover_color = cover_color
-        self._cover_opacity = cover_opacity
+        self._cover_opacity_pct = round(cover_opacity * 100)
 
     @activity.defn(name="layout_captions")
     async def layout_captions(
@@ -527,6 +534,9 @@ class LayoutCaptionsActivity:
         source_key = work_key_for(spec, 0, "source.mp4")
         if spec.source_snapshot is None:
             self._store.copy(spec.video_key, source_key, produced_by="ingest")
+        # The collection's settings, each one it leaves unset from the worker's defaults.
+        collection = spec.collection
+        cover_opacity_pct = collection.cover_opacity_pct if collection else None
         try:
             edit_spec = lay_out(
                 script=script,
@@ -536,8 +546,11 @@ class LayoutCaptionsActivity:
                 dub=dub,
                 source_key=source_key,
                 meter=_meter(self._font_path),
-                cover_color=self._cover_color,
-                cover_opacity=self._cover_opacity,
+                cover_color=(collection and collection.cover_color) or self._cover_color,
+                cover_opacity_pct=(
+                    self._cover_opacity_pct if cover_opacity_pct is None else cover_opacity_pct
+                ),
+                caption_color=(collection and collection.caption_color) or DEFAULT_CAPTION_COLOR,
             )
         except ValidationError as exc:
             # The same inputs fail the same way (too many captions, say).

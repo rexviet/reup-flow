@@ -34,11 +34,13 @@ from localization.config import DEFAULT_CAPTION_FONT
 from localization.contracts import (
     BBox,
     Caption,
+    CollectionSnapshot,
     DubbedAudio,
     DubSegment,
     DubSegmentsDocument,
     EditSpec,
     IngestResult,
+    LocalizationInput,
     LocalizedScriptRef,
     SubtitleTrack,
 )
@@ -249,9 +251,9 @@ def layout(store: ObjectStore) -> LayoutCaptionsActivity:
     return LayoutCaptionsActivity(store, font_path=FONT, cover_color="#101010", cover_opacity=0.92)
 
 
-async def run(store, ref, subs, dub, *, prep=None, round: int = 1):
+async def run(store, ref, subs, dub, *, prep=None, round: int = 1, spec=SPEC):
     ref_out = await ActivityEnvironment().run(
-        layout(store).layout_captions, SPEC, ref, subs, prep or ingest(), dub, round
+        layout(store).layout_captions, spec, ref, subs, prep or ingest(), dub, round
     )
     stored = EditSpec.model_validate_json(store.get_bytes(ref_out.spec_key, produced_by="test"))
     return ref_out, stored
@@ -289,6 +291,46 @@ async def test_the_drawn_cover_is_the_box_the_captions_are_laid_out_in(
     assert spec.caption_box == expected
     assert spec.cover.region == spec.caption_box
     assert spec.caption_box.h >= MIN_BOX_HEIGHT
+
+
+def in_collection(**settings) -> LocalizationInput:
+    snapshot = CollectionSnapshot(id="0b6f3c1e-2d4a-4f8e-9a51-7c2e8d9f0a13", name="x", **settings)
+    return SPEC.model_copy(update={"collection": snapshot})
+
+
+@pytest.mark.parametrize(
+    ("spec", "colour"),
+    [
+        (SPEC, "#ffff00"),  # an input from before collections
+        (in_collection(), "#ffff00"),  # a collection that sets no colour
+        (in_collection(caption_color="#00ff88"), "#00ff88"),
+    ],
+)
+async def test_every_caption_is_written_with_the_collection_colour_else_yellow(
+    store: ObjectStore, spec, colour: str
+) -> None:
+    ref, subs, dub = await stage(store, ["Xin chào", "Một câu dài hơn để phải chia làm hai dòng"])
+    _, laid_out = await run(store, ref, subs, dub, spec=spec)
+    assert laid_out.captions
+    assert {c.caption_color for c in laid_out.captions} == {colour}
+
+
+@pytest.mark.parametrize(
+    ("settings", "cover"),
+    [
+        ({}, ("#101010", 92)),  # the worker's configured cover
+        ({"cover_color": "#2a2a2a", "cover_opacity_pct": 60}, ("#2a2a2a", 60)),
+        ({"cover_color": "#2a2a2a"}, ("#2a2a2a", 92)),  # each unset part keeps its default
+        ({"cover_opacity_pct": 0}, ("#101010", 0)),
+    ],
+)
+async def test_the_cover_is_the_collection_cover_with_the_worker_defaults_for_the_rest(
+    store: ObjectStore, settings, cover
+) -> None:
+    ref, subs, dub = await stage(store, ["Xin chào"])
+    _, laid_out = await run(store, ref, subs, dub, spec=in_collection(**settings))
+    assert laid_out.cover is not None
+    assert (laid_out.cover.color, laid_out.cover.opacity_pct) == cover
 
 
 async def test_without_a_burned_in_subtitle_there_is_no_cover(store: ObjectStore) -> None:

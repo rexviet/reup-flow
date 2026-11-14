@@ -5,8 +5,9 @@ from temporalio.testing import ActivityEnvironment
 
 from localization.activities.ffmpeg import probe_duration_ms
 from localization.review_bridge.models import SaveCue
-from tests.support.audio import RATE, decode, level, tone_span_ms
-from tests.support.revoice import audio_project, reserve
+from localization.storage.object_store import ObjectStore
+from tests.support.audio import RATE, db, decode, level, tone_span_ms
+from tests.support.revoice import MUSIC_HZ, audio_project, reserve
 
 
 @pytest.mark.parametrize("blank", [False, True])
@@ -216,3 +217,45 @@ async def test_revoice_uses_existing_vbee_resolver_and_provider_routing(review_s
     assert (await env.run(activities.commit, key, candidate))["status"] == "completed"
     assert vbee.calls == [("Giọng mới", "vbee")] and not default.calls
     assert "private-test-voice" not in repo.read_json(key)["hash"]
+
+
+async def _revoiced_music_against_voice(store, tmp_path, offset) -> float:
+    """Revoice the first line and measure the music, where nobody speaks, against the
+    line after it: loudness normalisation moves both together."""
+    settings = (
+        {}
+        if offset is None
+        else {
+            "bgm_offset_db": offset,
+            "caption_color": "#00ff88",
+            "cover_color": "#202020",
+            "cover_opacity_pct": 80,
+        }
+    )
+    tmp_path.mkdir()
+    service, acts, _ = audio_project(store, tmp_path, music=0.25, settings=settings)
+    key = reserve(service)
+    env = ActivityEnvironment()
+    candidate = await env.run(acts.mix, key, await env.run(acts.synthesize, key))
+    assert (await env.run(acts.commit, key, candidate))["status"] == "completed"
+    current = service.repo.current("7001", 1)[1]
+    assert current.operation_id == "revoice-test-123456"
+    assert {k: getattr(current, k) for k in settings} == settings
+    if settings:
+        # The revoiced revision is drawn as the collection says, as the first was.
+        html = service.repo.read_asset(current.html).decode()
+        assert "color:#00ff88;" in html
+        assert ".source-mask{background:rgba(32,32,32,0.8)}" in html
+    path = tmp_path / "revoiced.wav"
+    path.write_bytes(service.repo.read_asset(current.mixed_audio))
+    samples = decode(path)
+    return db(level(samples, 1100, 1350, MUSIC_HZ) / level(samples, 1450, 1850, 220))
+
+
+async def test_revoicing_a_line_keeps_the_collection_music_offset(review_store, tmp_path):
+    client = review_store._client  # noqa: SLF001
+    client.create_bucket(Bucket="review-test-plain")
+    plain_store = ObjectStore(client, "review-test-plain")
+    plain = await _revoiced_music_against_voice(plain_store, tmp_path / "plain", None)
+    quieter = await _revoiced_music_against_voice(review_store, tmp_path / "offset", -6.0)
+    assert quieter - plain == pytest.approx(-6.0, abs=1.0)

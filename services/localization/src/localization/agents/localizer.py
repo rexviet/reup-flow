@@ -23,6 +23,7 @@ from pydantic_ai.messages import ModelResponse, ToolCallPart
 from pydantic_ai.models import Model, ModelRequestContext
 
 from localization.contracts.base import Contract
+from localization.contracts.collection import CollectionId
 from localization.contracts.ids import AwemeId, ChannelId, StorageKey
 from localization.contracts.models import LocalizedLines
 from localization.text.glyphs import foreign_chars, foreign_chars_note
@@ -93,11 +94,14 @@ class IdWindow(Contract):
 class LocalizerDeps(Contract):
     """Keys and numbers only: nothing in here is video content. `segment_count` and
     `window` say which ids the output must cover (ids are 0..segment_count-1, or the
-    window within them); `workflow_id` and `aweme_id` are recorded on glossary rows."""
+    window within them); `workflow_id` and `aweme_id` are recorded on glossary rows.
+    `collection_id` is whose glossary the run uses; None for an input written before
+    collections, whose glossary is its channel's."""
 
     aweme_id: AwemeId
     workflow_id: str = Field(min_length=1, max_length=256)
     channel_id: ChannelId
+    collection_id: CollectionId | None = None
     transcript_key: StorageKey
     subtitle_key: StorageKey
     source_video_key: StorageKey | None = None
@@ -106,11 +110,23 @@ class LocalizerDeps(Contract):
     contextual: bool = False
     window: IdWindow | None = None
 
+    def glossary_scope(self) -> "GlossaryScope":
+        return GlossaryScope(collection_id=self.collection_id, channel_id=self.channel_id)
+
     def expected_ids(self) -> range:
         first, last = 0, self.segment_count - 1
         if self.window is not None:
             first, last = max(first, self.window.first_id), min(last, self.window.last_id)
         return range(first, last + 1)
+
+
+@dataclass(frozen=True)
+class GlossaryScope:
+    """Whose glossary a run reads and extends: its collection, or for an input that
+    names none, its channel (the store resolves it to the channel's collection)."""
+
+    collection_id: str | None
+    channel_id: str
 
 
 @dataclass(frozen=True)
@@ -148,12 +164,12 @@ class LocalizerPorts(Protocol):
 
     async def on_screen_spans(self, subtitle_key: str) -> Sequence[tuple[int, int]]: ...
 
-    async def lookup_terms(self, channel_id: str, terms: list[str]) -> Sequence[TermView]: ...
+    async def lookup_terms(self, scope: GlossaryScope, terms: list[str]) -> Sequence[TermView]: ...
 
     async def save_term(
         self,
         *,
-        channel_id: str,
+        scope: GlossaryScope,
         term_zh: str,
         term_vi: str,
         note: str | None,
@@ -250,7 +266,7 @@ async def read_onscreen_text(ctx: RunContext[LocalizerDeps]) -> str:
 async def glossary_lookup(ctx: RunContext[LocalizerDeps], terms: list[str]) -> str:
     """The channel glossary entries for these Chinese terms (empty list: the
     channel's first 100 entries). Use returned terms exactly."""
-    found = await _bound().lookup_terms(ctx.deps.channel_id, terms)
+    found = await _bound().lookup_terms(ctx.deps.glossary_scope(), terms)
     if not found:
         return "No glossary entries."
     lines = [f"{t.term_zh} → {t.term_vi}" + (f" ({t.note})" if t.note else "") for t in found]
@@ -272,7 +288,7 @@ async def glossary_upsert(
     if not needle or not any(needle in normalise(s.text) for s in seen):
         return "not saved: term_zh does not occur in this video's transcript"
     result = await _bound().save_term(
-        channel_id=deps.channel_id,
+        scope=deps.glossary_scope(),
         term_zh=term_zh,
         term_vi=term_vi,
         note=note,

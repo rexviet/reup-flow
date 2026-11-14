@@ -37,6 +37,19 @@
     "Caption": {
       "additionalProperties": false,
       "properties": {
+        "caption_color": {
+          "anyOf": [
+            {
+              "pattern": "^#[0-9a-f]{6}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Caption Color"
+        },
         "end_ms": {
           "minimum": 0,
           "title": "End Ms",

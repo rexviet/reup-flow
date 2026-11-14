@@ -19,6 +19,33 @@ DASHBOARD_INTAKE = (MIGRATIONS / "261112-dashboard-intake.sql").read_text()
 COLLECTIONS = (MIGRATIONS / "261114-collections.sql").read_text()
 
 
+def add_channel_collection(
+    conn: psycopg.Connection, channel: str, name: str | None = None, **settings: object
+) -> str:
+    """The channel's profile and channel collection, as after the collections backfill,
+    with these collection columns set. Returns the collection id; a second call for the
+    same channel returns the first one's collection and changes nothing."""
+    conn.execute(
+        "INSERT INTO profiles (sec_user_id) VALUES (%s) ON CONFLICT DO NOTHING", (channel,)
+    )
+    columns = {"kind": "channel", "external_id": channel, "sec_user_id": channel}
+    columns |= {"name": name or channel, **settings}
+    conn.execute(
+        sql.SQL(
+            "INSERT INTO collections ({}) VALUES ({}) ON CONFLICT (kind, external_id) DO NOTHING"
+        ).format(
+            sql.SQL(", ").join(map(sql.Identifier, columns)),
+            sql.SQL(", ").join(sql.Placeholder() * len(columns)),
+        ),
+        list(columns.values()),
+    )
+    row = conn.execute(
+        "SELECT id::text FROM collections WHERE kind = 'channel' AND external_id = %s", (channel,)
+    ).fetchone()
+    assert row is not None
+    return row[0]
+
+
 def admin_conninfo() -> str | None:
     env = dict(os.environ)
     if not env.get("POSTGRES_USER") or not env.get("POSTGRES_PASSWORD"):

@@ -3,7 +3,8 @@
 Each caption is drawn once, as the review project draws it: the lines exactly as the
 layout split them ("\\n", never rewrapped), each centred on its own, the block centred in
 the caption box, `font_px` with the layout's line height (28 px at 20 px) and outline (4 px
-at 20 px), in proportion to the font size, white, with a black outline. Line widths come from
+at 20 px), in proportion to the font size, in the caption's colour (white for a spec written
+before captions had one), with a black outline. Line widths come from
 the layout's own `FontMeter`, so a line is centred on the width it was fitted with.
 
 The captions are then turned into one image stream: one picture per stretch of frames in
@@ -25,6 +26,9 @@ from localization.contracts import BBox, Caption
 # Text is drawn at this many times its size and reduced, so glyphs land at fractional
 # positions and are smoothed the way the browser smoothed them.
 SUPERSAMPLE = 4
+# What a caption without a colour is drawn in: specs written before captions had one
+# were drawn white, and a render of one must stay what it was.
+OLD_CAPTION_COLOR = "#ffffff"
 
 
 class Cancelled(Exception):
@@ -97,9 +101,10 @@ class CaptionPainter:
         text, ring = fill.reduce(SUPERSAMPLE), outline.reduce(SUPERSAMPLE)
         image = Image.new("RGBA", text.size, (0, 0, 0, 0))
         image.putalpha(ring)
-        white = Image.new("RGBA", text.size, (255, 255, 255, 0))
-        white.putalpha(text)
-        return Placed(Image.alpha_composite(image, white), x0, y0)
+        colour = caption.caption_color or OLD_CAPTION_COLOR
+        glyphs = Image.new("RGBA", text.size, (*bytes.fromhex(colour[1:]), 0))
+        glyphs.putalpha(text)
+        return Placed(Image.alpha_composite(image, glyphs), x0, y0)
 
 
 def frame_at(ms: int, fps: int) -> int:

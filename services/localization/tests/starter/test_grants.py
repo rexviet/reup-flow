@@ -16,7 +16,13 @@ from localization.starter.outbox_starter import (
     RELEASED_SQL,
     VIDEO_SQL,
 )
-from tests.support.scratch_db import COLLECTIONS, INIT, OUTBOX, scratch_database
+from tests.support.scratch_db import (
+    COLLECTIONS,
+    INIT,
+    OUTBOX,
+    add_channel_collection,
+    scratch_database,
+)
 
 GRANTS = (
     Path(__file__).resolve().parents[2] / "migrations" / "261026-outbox-starter-grants.sql"
@@ -25,11 +31,14 @@ GRANTS = (
 
 @pytest.fixture
 def db() -> Iterator[psycopg.Connection]:
-    for _, conn in scratch_database(INIT, OUTBOX, GRANTS):
-        conn.execute("INSERT INTO profiles (sec_user_id) VALUES ('c')")
+    for _, conn in scratch_database(INIT, OUTBOX, GRANTS, COLLECTIONS):
+        collection = add_channel_collection(
+            conn, "c", name="Kênh", caption_text_color="#00ff88", cover_opacity_pct=80
+        )
         conn.execute(
-            "INSERT INTO videos (aweme_id, sec_user_id, create_time, storage_path, status) "
-            "VALUES ('1', 'c', now(), 's3://b/source/1.mp4', 'done')"
+            "INSERT INTO videos (aweme_id, sec_user_id, create_time, storage_path, status, "
+            "collection_id) VALUES ('1', 'c', now(), 's3://b/source/1.mp4', 'done', %s)",
+            (collection,),
         )
         conn.execute("INSERT INTO localization_outbox (aweme_id) VALUES ('1')")
         yield conn
@@ -38,7 +47,11 @@ def db() -> Iterator[psycopg.Connection]:
 def test_the_starter_can_run_every_statement_it_uses(db: psycopg.Connection) -> None:
     db.execute("SET ROLE localization")
     assert db.execute(CLAIM_SQL, {"minutes": 5}).fetchone() is not None
-    assert db.execute(VIDEO_SQL, ("1",)).fetchone() == ("s3://b/source/1.mp4", "c")
+    video = db.execute(VIDEO_SQL, ("1",)).fetchone()
+    assert video is not None
+    assert video[:2] == ("s3://b/source/1.mp4", "c")
+    # The collection's settings are read by the same role, in the same statement.
+    assert video[3:] == ("Kênh", None, "#00ff88", None, 80)
     db.execute(DISPATCHED_SQL, ("video-1-g1", "1", 1))
     db.execute(REJECTED_SQL, ("x", "1", 1))
     db.execute(RELEASED_SQL, {"error": "e", "delay": 30, "aweme_id": "1", "generation": 1})

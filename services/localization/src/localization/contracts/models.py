@@ -9,6 +9,7 @@ from typing import Annotated, Literal
 from pydantic import ConfigDict, Field, model_validator
 
 from localization.contracts.base import Contract
+from localization.contracts.collection import CollectionSnapshot, HexColor, OpacityPct
 from localization.contracts.geometry import BBox, NonNegativeInt, PositiveInt
 from localization.contracts.ids import AwemeId, ChannelId, Sha256, SourceKey, StorageKey
 from localization.contracts.review_project import SourceSnapshot
@@ -46,6 +47,9 @@ class LineMetadata(Contract):
 class LocalizationInput(Contract):
     delivery_mode: DeliveryMode = "legacy_render"
     source_snapshot: SourceSnapshot | None = None
+    # The video's collection settings, read when the run was dispatched. None for an
+    # input written before collections existed: its glossary is its channel's.
+    collection: CollectionSnapshot | None = None
     aweme_id: AwemeId
     channel_id: ChannelId
     generation: NonNegativeInt
@@ -372,9 +376,6 @@ class LocalizationResult(Contract):
 # --- Render -----------------------------------------------------------------
 
 
-HexColor = Annotated[str, Field(pattern=r"^#[0-9a-f]{6}$")]
-
-
 class Cover(Contract):
     """Region painted over the burned-in source subtitle. The colour and opacity are
     part of the spec (and so of its hash): a render made with another colour is not
@@ -383,7 +384,7 @@ class Cover(Contract):
 
     region: BBox
     color: HexColor
-    opacity_pct: Annotated[int, Field(ge=0, le=100)]
+    opacity_pct: OpacityPct
     # Old stored specs painted the cover throughout the video. New layouts tie it
     # to caption frames; the explicit flag gives those renders a distinct hash.
     only_with_captions: bool = False
@@ -397,6 +398,9 @@ class Caption(Contract):
     # draws exactly those lines at exactly this size.
     text: Text
     font_px: PositiveInt
+    # The colour of the text. Specs written before it existed have none and are drawn
+    # white; the hash leaves an unset colour out, so they keep their hash.
+    caption_color: HexColor | None = None
 
     @model_validator(mode="after")
     def _ends_after_it_starts(self) -> "Caption":

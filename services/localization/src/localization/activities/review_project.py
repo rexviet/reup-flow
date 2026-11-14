@@ -22,6 +22,8 @@ from localization.activities.layout_captions import (
 from localization.activities.script_document import read_script
 from localization.activities.srt_document import srt_document
 from localization.contracts import (
+    DEFAULT_CAPTION_COLOR,
+    CollectionSnapshot,
     DubbedAudio,
     DubSegmentsDocument,
     IngestResult,
@@ -65,8 +67,31 @@ def checksum(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def project_html(cues, video, mixed, font, subtitles, ingest, *, font_path) -> bytes:
-    """Escaped text and fixed markup; no caption/reason becomes executable script."""
+def _mask_style(cover_color: str | None, cover_opacity_pct: int | None) -> str:
+    """The source mask: a solid box in the collection's cover colour at its opacity, or,
+    for a project without one, the white blur every project had before."""
+    if cover_color is None or cover_opacity_pct is None:
+        return "background:rgba(255,255,255,.25);backdrop-filter:blur(12px)"
+    red, green, blue = bytes.fromhex(cover_color[1:])
+    return f"background:rgba({red},{green},{blue},{cover_opacity_pct / 100:g})"
+
+
+def project_html(
+    cues,
+    video,
+    mixed,
+    font,
+    subtitles,
+    ingest,
+    *,
+    font_path,
+    caption_color: str | None = None,
+    cover_color: str | None = None,
+    cover_opacity_pct: int | None = None,
+) -> bytes:
+    """Escaped text and fixed markup; no caption/reason becomes executable script. The
+    colours are the collection's, validated as `HexColor` by the manifest; a project
+    without them is drawn as before (yellow text, white blur)."""
     duration = ingest.duration_ms / 1000
     video_name, mix_name, font_name = (Path(a.key).name for a in (video, mixed, font))
     # The caption and source mask share one vertical box. Measure the actual bundled
@@ -101,6 +126,7 @@ def project_html(cues, video, mixed, font, subtitles, ingest, *, font_path) -> b
             raise ValueError(f"caption box exceeds the frame at {px}px")
         fitted[c.id], boxes[c.id] = fit, box_style(width, box_height)
     geometry = "".join(f"#cue-{identity}{{{box}}}" for identity, box in boxes.items())
+    text_color = caption_color or DEFAULT_CAPTION_COLOR
     style = f"""
 @font-face{{font-family:Review;src:url('{font_name}')}}
 body{{margin:0;background:#181818}}#review{{position:relative;overflow:hidden;
@@ -109,9 +135,9 @@ width:{ingest.width}px;height:{ingest.height}px}}video{{width:100%;height:100%}}
 box-sizing:border-box}}
 .caption{{top:{top}px;height:{height}px;padding:4px 8px;
 display:flex;align-items:center;justify-content:center;font:{px}px/{gap}px Review,sans-serif;
-color:#ffff00;text-align:center;white-space:pre;-webkit-text-stroke:{stroke}px #000;
+color:{text_color};text-align:center;white-space:pre;-webkit-text-stroke:{stroke}px #000;
 paint-order:stroke fill}}
-.source-mask{{background:rgba(255,255,255,.25);backdrop-filter:blur(12px)}}
+.source-mask{{{_mask_style(cover_color, cover_opacity_pct)}}}
 {geometry}
 """
     # Contiguous spans keep the box visible through gaps. Only a long caption's
@@ -170,10 +196,40 @@ data-track-index="3"></audio>
 
 
 class ReviewProjectActivity:
-    def __init__(self, store: ObjectStore, *, font_path: str, model: str) -> None:
+    def __init__(
+        self,
+        store: ObjectStore,
+        *,
+        font_path: str,
+        model: str,
+        cover_color: str,
+        cover_opacity: float,
+    ) -> None:
+        """`cover_color` and `cover_opacity` are the worker's configured cover: they
+        complete a collection that sets only one part of its cover."""
         self._store = store
         self._font_path = font_path
         self._model = model
+        self._cover_color = cover_color
+        self._cover_opacity_pct = round(cover_opacity * 100)
+
+    def _settings(self, collection: CollectionSnapshot | None) -> dict:
+        """The collection's settings as the manifest keeps them. The cover is resolved
+        here, so every later revision draws the same one without the worker's config."""
+        if collection is None:
+            return {}
+        cover = {}
+        if collection.cover_color is not None or collection.cover_opacity_pct is not None:
+            opacity = collection.cover_opacity_pct
+            cover = {
+                "cover_color": collection.cover_color or self._cover_color,
+                "cover_opacity_pct": self._cover_opacity_pct if opacity is None else opacity,
+            }
+        return {
+            "caption_color": collection.caption_color,
+            "bgm_offset_db": collection.bgm_offset_db,
+            **cover,
+        }
 
     @activity.defn(name="capture_review_source")
     async def capture_review_source(self, spec: LocalizationInput) -> SourceSnapshot:
@@ -307,6 +363,7 @@ class ReviewProjectActivity:
                     audio.model_copy(update={"tts_key": clip.key if clip else None})
                 )
             revision = uuid.uuid4().hex
+            settings = self._settings(spec.collection)
             manifest = ReviewProjectManifest(
                 aweme_id=spec.aweme_id,
                 generation=spec.generation,
@@ -334,7 +391,16 @@ class ReviewProjectActivity:
                 subtitles=asset_bytes(source_subs.model_dump_json().encode(), ".json"),
                 html=asset_bytes(
                     project_html(
-                        cues, video, mixed, font, source_subs, ingest, font_path=self._font_path
+                        cues,
+                        video,
+                        mixed,
+                        font,
+                        source_subs,
+                        ingest,
+                        font_path=self._font_path,
+                        caption_color=settings.get("caption_color"),
+                        cover_color=settings.get("cover_color"),
+                        cover_opacity_pct=settings.get("cover_opacity_pct"),
                     ),
                     ".html",
                 ),
@@ -342,6 +408,7 @@ class ReviewProjectActivity:
                 cues=tuple(cues),
                 source_region=source_subs.region,
                 source_cues=tuple((c.start_ms, c.end_ms) for c in source_subs.cues),
+                **settings,
             )
             data = manifest.model_dump_json().encode()
             key = f"review/{spec.aweme_id}/g{spec.generation}/r{revision}/manifest.json"

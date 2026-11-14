@@ -571,29 +571,31 @@ class VideoLocalizationWorkflow:
             self._rate = await workflow.execute_activity(
                 "voice_rate", spec.voice, result_type=float, **VOICE_RATE
             )
-        rate = self._rate
         transcript_key = prep.transcript.transcript_key
         subtitle_key = prep.subtitles.subtitle_key
-        lines = await run_localizer(
-            LocalizerDeps(
-                aweme_id=spec.aweme_id,
-                workflow_id=workflow.info().workflow_id,
-                channel_id=spec.channel_id,
-                transcript_key=transcript_key,
-                subtitle_key=subtitle_key,
-                source_video_key=(
-                    spec.source_snapshot.snapshot_key if spec.source_snapshot else None
-                ),
-                syllables_per_sec=rate,
-                segment_count=prep.transcript.segment_count,
-                contextual=self._contextual,
-            )
-        )
+        lines = await run_localizer(self._localizer_deps(spec, prep))
         return await workflow.execute_activity(
             "assemble_script",
             args=[spec, transcript_key, subtitle_key, lines, 0, 1],
             result_type=ScriptResult,
             **ASSEMBLE_SCRIPT,
+        )
+
+    def _localizer_deps(self, spec: LocalizationInput, prep: PrepResult) -> LocalizerDeps:
+        """What the Localizer is run with, the first time and on a rerun alike. The
+        glossary is the run's collection's, or for an input from before collections,
+        its channel's."""
+        return LocalizerDeps(
+            aweme_id=spec.aweme_id,
+            workflow_id=workflow.info().workflow_id,
+            channel_id=spec.channel_id,
+            collection_id=spec.collection.id if spec.collection else None,
+            transcript_key=prep.transcript.transcript_key,
+            subtitle_key=prep.subtitles.subtitle_key,
+            source_video_key=spec.source_snapshot.snapshot_key if spec.source_snapshot else None,
+            syllables_per_sec=self._rate,
+            segment_count=prep.transcript.segment_count,
+            contextual=self._contextual,
         )
 
     def _start_rate(self, spec: LocalizationInput) -> workflow.ActivityHandle:
@@ -1082,22 +1084,7 @@ class VideoLocalizationWorkflow:
         folder of `round_no`. Transcript, subtitles, ingest and the clips already
         spoken are not touched."""
         if route.rerun == "localize":
-            lines = await run_localizer(
-                LocalizerDeps(
-                    aweme_id=spec.aweme_id,
-                    workflow_id=workflow.info().workflow_id,
-                    channel_id=spec.channel_id,
-                    transcript_key=prep.transcript.transcript_key,
-                    subtitle_key=prep.subtitles.subtitle_key,
-                    source_video_key=(
-                        spec.source_snapshot.snapshot_key if spec.source_snapshot else None
-                    ),
-                    syllables_per_sec=self._rate,
-                    segment_count=prep.transcript.segment_count,
-                    contextual=self._contextual,
-                ),
-                route.notes,
-            )
+            lines = await run_localizer(self._localizer_deps(spec, prep), route.notes)
             fresh = await workflow.execute_activity(
                 "assemble_script",
                 args=[

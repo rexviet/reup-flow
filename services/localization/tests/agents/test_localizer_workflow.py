@@ -19,6 +19,7 @@ from localization.activities.localizer_ports import StorePorts
 from localization.agents.localizer import FITTING_REQUEST_BUDGET, SaveResult, SegmentView
 from localization.agents.temporal import USAGE_LIMITS
 from localization.contracts import (
+    CollectionSnapshot,
     LocalizationResult,
     LocalizedScript,
     SubtitleCue,
@@ -45,11 +46,11 @@ SUBTITLE_KEY = work_key("7001", 0, "subtitles.json")
 SCRIPT_KEY = work_key("7001", 0, "script.v1.json")
 
 
-async def run_workflow(client: Client, prep: PrepFakes, localizing: LocalizerFakes):
+async def run_workflow(client: Client, prep: PrepFakes, localizing: LocalizerFakes, spec=None):
     async with prep_workers(client, prep, localizing):
         handle = await client.start_workflow(
             "VideoLocalizationWorkflow",
-            make_input(),
+            spec or make_input(),
             id=f"video-7001-g1-{uuid.uuid4()}",
             task_queue="workflows",
             result_type=LocalizationResult,
@@ -100,6 +101,39 @@ async def test_model_requests_run_on_llm_tools_on_io_and_the_pure_tool_runs_in_t
     assert acts[("voice_rate", "tts")] == 1
     assert acts[("assemble_script", "io")] == 1
     assert {q for name, q in acts if name.startswith("agent__")} <= {"llm", "io"}
+
+
+async def test_a_run_reads_and_extends_the_glossary_of_its_collection(
+    temporal_client: Client,
+) -> None:
+    collection = "0b6f3c1e-2d4a-4f8e-9a51-7c2e8d9f0a13"
+    spec = make_input().model_copy(
+        update={"collection": CollectionSnapshot(id=collection, name="成名的代价")}
+    )
+    ports = FakePorts(glossary={("chan_1", "苹果"): "Apple", (collection, "苹果"): "Táo"})
+    localizing = LocalizerFakes(
+        ports=ports,
+        model=ScriptedModel(
+            tool_calls=(
+                ("glossary_lookup", {"terms": ["苹果"]}),
+                ("glossary_upsert", {"term_zh": "手机", "term_vi": "điện thoại"}),
+            )
+        ),
+    )
+    handle, result = await run_workflow(temporal_client, PrepFakes(), localizing, spec)
+    assert isinstance(result, LocalizationResult), result
+    assert ports.glossary[(collection, "手机")] == "điện thoại"
+    assert ("chan_1", "手机") not in ports.glossary
+    # What the lookup answered is the collection's term, not the channel's.
+    replies = []
+    for e in (await handle.fetch_history()).events:
+        if e.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED:
+            for p in e.activity_task_completed_event_attributes.result.payloads:
+                if p.metadata.get("encoding") == b"json/plain":
+                    replies.append(json.dumps(json.loads(p.data), ensure_ascii=False))
+    text = " ".join(replies)
+    assert "苹果 → Táo" in text
+    assert "Apple" not in text
 
 
 async def test_the_stage_comes_after_preparation_and_the_voice_rate_is_known_before_the_agent(
@@ -265,8 +299,10 @@ async def test_a_tool_retried_after_its_write_committed_adds_no_second_glossary_
     attempts: Counter = Counter()
 
     class LosesTheFirstAck(FakePorts):
-        async def save_term(self, **kw):  # type: ignore[override]
-            outcome = await store.upsert(**kw)
+        async def save_term(self, *, scope, **kw):  # type: ignore[override]
+            outcome = await store.upsert(
+                collection_id=scope.collection_id, channel_id=scope.channel_id, **kw
+            )
             attempts["save_term"] += 1
             if attempts["save_term"] == 1:
                 # The row is in; the worker dies before it can say so.

@@ -36,7 +36,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 
 from localization.config import ConfigError, Settings, load_settings, voice_ref_from_settings
-from localization.contracts import LocalizationInput, VoiceRef
+from localization.contracts import CollectionSnapshot, LocalizationInput, VoiceRef
 from localization.contracts.ids import validate_aweme_id, validate_channel_id, validate_source_key
 from localization.contracts.vbee_flow import VBEE_CONFIGURED_VOICE
 from localization.contracts.voice import REVIEW_PROVIDERS, VbeeSettings, ZeroTtsSettings
@@ -73,7 +73,15 @@ UPDATE localization_outbox
 RETURNING aweme_id, generation, dispatch_attempts
 """
 
-VIDEO_SQL = "SELECT storage_path, sec_user_id FROM videos WHERE aweme_id = %s"
+# The video and its collection's settings, read in one statement when the run is
+# dispatched: the input carries them, so editing the collection later never changes a
+# run already started. Every video has a collection (`collection_id` is NOT NULL).
+VIDEO_SQL = """
+SELECT v.storage_path, v.sec_user_id, c.id::text AS collection_id, c.name AS collection_name,
+       c.bgm_offset_db, c.caption_text_color, c.cover_color, c.cover_opacity_pct
+  FROM videos v JOIN collections c ON c.id = v.collection_id
+ WHERE v.aweme_id = %s
+"""
 
 # Every settle is conditional on the row still being the one that was claimed: an
 # operator who bumped `generation` to run the video again must not be overwritten.
@@ -300,6 +308,14 @@ class OutboxStarter:
                     settings.localization_delivery_mode
                     if voice.provider in REVIEW_PROVIDERS
                     else "legacy_render"
+                ),
+                collection=CollectionSnapshot(
+                    id=row["collection_id"],
+                    name=row["collection_name"],
+                    bgm_offset_db=row["bgm_offset_db"],
+                    caption_color=row["caption_text_color"],
+                    cover_color=row["cover_color"],
+                    cover_opacity_pct=row["cover_opacity_pct"],
                 ),
                 aweme_id=claimed.aweme_id,
                 channel_id=validate_channel_id(row["sec_user_id"]),
