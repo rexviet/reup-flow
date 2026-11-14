@@ -49,6 +49,11 @@ MIN_FRAMES_TO_JUDGE = 4
 # within a few pixels on most frames, so this is a margin, not a correction.
 REGION_PAD_V = 0.13
 REGION_PAD_H = 0.02
+# Burned-in subtitles are centred. A box whose centre is further than this fraction of
+# the frame's width from the middle is other text: a disclaimer, a watermark, a name
+# card. A disclaimer kept in one corner for most of a video once outvoted the real
+# subtitles, which only show while someone speaks.
+MAX_CENTRE_OFFSET = 0.15
 # Longest side of a frame sent to the vision model.
 OCR_MAX_SIDE = 1024
 # Frames extracted to disk at once: four OCR batches.
@@ -90,6 +95,10 @@ def _consensus(boxes: Sequence[BBox | None]) -> list[int]:
     return best
 
 
+def _centred(box: BBox, width: int) -> bool:
+    return abs(box.x + box.w / 2 - width / 2) <= MAX_CENTRE_OFFSET * width
+
+
 def _median_rows(members: Sequence[BBox]) -> tuple[float, float]:
     return (
         statistics.median(b.y for b in members),
@@ -111,7 +120,9 @@ def locate(
     frames whose boxes share one row (see `_consensus`). Its top and bottom are the
     medians of those boxes, so one off frame cannot stretch it; its width is their
     union, the widest real line. It is padded a little, inside the frame. The cues
-    are the runs of those same frames, joined across gaps of up to `MAX_GAP_MS`."""
+    are the runs of those same frames, joined across gaps of up to `MAX_GAP_MS`.
+    Boxes that are not centred (see `MAX_CENTRE_OFFSET`) take no part."""
+    boxes = [b if b is not None and _centred(b, width) else None for b in boxes]
     frames = _consensus(boxes)
     if len(frames) < MIN_BAND_FRAMES:
         return None, ()

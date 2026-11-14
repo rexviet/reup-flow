@@ -801,6 +801,21 @@ def test_the_larger_of_two_lines_wins_whatever_its_position() -> None:
     assert region is not None and region.y + region.h <= 1296 + 70 + 20
 
 
+def test_a_corner_disclaimer_seen_more_often_does_not_outvote_the_centred_subtitles() -> None:
+    """A 1920x1080 drama kept "剧情演绎需要 请勿模仿" top left for most of the video: 697
+    frames against 370 of real subtitles, which only show while someone speaks."""
+    disclaimer = BBox(x=41, y=24, w=422, h=28)
+    subtitle = BBox(x=744, y=896, w=431, h=94)
+    region, cues = locate([disclaimer] * 7 + [subtitle] * 4, 1920, 1080, 0)
+    assert region is not None and region.y > 800
+    assert [(c.start_ms, c.end_ms) for c in cues] == [(3500, 5500)]
+
+
+def test_off_centre_text_alone_gives_no_region() -> None:
+    corner = BBox(x=41, y=24, w=422, h=28)
+    assert locate([corner] * 5, 1920, 1080, 0) == (None, ())
+
+
 def test_boxes_at_the_frame_edges_give_a_region_inside_the_frame() -> None:
     top, bottom = _box(0, h=40, x=0, w=1080), _box(1880, h=40, x=0, w=1080)
     for box in (top, bottom):
