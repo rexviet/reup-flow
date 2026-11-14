@@ -390,6 +390,10 @@ Start-ScheduledTask -TaskName reup-render-worker
   hình; **Ctrl+C trong cửa sổ đó dừng êm** (trả dòng về hàng đợi). Đổi lại, worker chỉ chạy khi user
   đã đăng nhập. Chế độ "Run whether user is logged on or not" cần tài khoản có mật khẩu, và khi đó
   không có cửa sổ log.
+- **Click vào cửa sổ log từng làm treo render** (đã gặp): QuickEdit của console Windows tạm dừng
+  mọi lần ghi ra cửa sổ khi đang chọn chữ (tiêu đề bắt đầu bằng "Select"), luồng render của worker
+  treo ở dòng log kế tiếp nên không gia hạn lease, trong khi HyperFrames vẫn chạy. `render-worker.ps1`
+  nay tắt QuickEdit khi khởi động; với cửa sổ mở bằng bản cũ, bấm Esc để chạy tiếp.
 - `ExecutionTimeLimit 0`: mặc định Task Scheduler dừng task sau 3 ngày.
 - `Stop-ScheduledTask` hoặc `schtasks /End` là kết thúc cưỡng bức: dòng đang render **không** về hàng
   đợi ngay mà giữ `rendering` tới khi lease (75 phút) hết hạn. Muốn dừng êm thì Ctrl+C trong cửa sổ.

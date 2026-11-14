@@ -63,6 +63,26 @@ if (-not (Test-Path -LiteralPath $Python)) {
   throw "render worker: $Python is missing; run 'uv sync --frozen --no-dev' in services\localization"
 }
 
+# QuickEdit off for this console: with it on, a click in the window pauses every write to it,
+# and the worker's render thread then hangs on its next log line (no lease renewal, no timeout
+# check) while the renderer keeps going. Other input flags stay, so Ctrl+C still works. Without a
+# console (SSH, no window) GetConsoleMode fails and nothing changes.
+try {
+  Add-Type -Namespace ReupRenderWorker -Name Console -MemberDefinition @'
+[DllImport("kernel32.dll")] public static extern IntPtr GetStdHandle(int nStdHandle);
+[DllImport("kernel32.dll")] public static extern bool GetConsoleMode(IntPtr handle, out uint mode);
+[DllImport("kernel32.dll")] public static extern bool SetConsoleMode(IntPtr handle, uint mode);
+'@
+  $ConsoleIn = [ReupRenderWorker.Console]::GetStdHandle(-10)  # STD_INPUT_HANDLE
+  [uint32]$Mode = 0
+  if ([ReupRenderWorker.Console]::GetConsoleMode($ConsoleIn, [ref]$Mode)) {
+    # Clear ENABLE_QUICK_EDIT_MODE (64); ENABLE_EXTENDED_FLAGS (128) makes the change apply.
+    $null = [ReupRenderWorker.Console]::SetConsoleMode($ConsoleIn, [uint32](($Mode - ($Mode -band 64)) -bor 128))
+  }
+} catch {
+  Write-Warning "render worker: could not turn QuickEdit off ($($_.Exception.Message)); do not click in this window"
+}
+
 # Same console, so Ctrl+C (and Ctrl+Break) reach the worker; WaitForExit keeps this script
 # from returning while the worker is still giving its render back.
 $Worker = Start-Process -FilePath $Python -ArgumentList '-m', 'localization.review_worker.main' `
