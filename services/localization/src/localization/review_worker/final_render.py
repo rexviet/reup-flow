@@ -3,6 +3,7 @@ projection, upload the MP4 and SRT, and record the result under the claim token.
 
 import contextlib
 import logging
+import re
 import shutil
 import subprocess
 import tempfile
@@ -174,6 +175,26 @@ def kill_group(proc: subprocess.Popen, process: ProcessControl | None = None) ->
     (process or current_platform().process).terminate_tree(proc)
 
 
+# HyperFrames draws a bar and then e.g. "  10%  Extracting video frames", rewritten with \r.
+PROGRESS = re.compile(r"(\d{1,3})%\s+(\S.*?)\s*$")
+ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+
+
+def progress_line(path: Path, size: int = 8192) -> str | None:
+    """The renderer's latest "NN%  stage" line, or None before it prints one."""
+    try:
+        with path.open("rb") as stream:
+            stream.seek(max(0, path.stat().st_size - size))
+            text = stream.read().decode("utf-8", "replace")
+    except OSError:
+        return None
+    for line in reversed(re.split(r"[\r\n]+", ANSI.sub("", text))):
+        match = PROGRESS.search(line)
+        if match and int(match.group(1)) <= 100:
+            return f"{match.group(1)}% {match.group(2)}"[:160]
+    return None
+
+
 def run_cli(
     command: list[str],
     *,
@@ -185,13 +206,16 @@ def run_cli(
     renew: Callable[[], bool],
     cancelled: threading.Event,
     process: ProcessControl | None = None,
+    progress: Callable[[str], None] | None = None,
+    progress_every_s: float = 15,
 ) -> None:
     """Run the renderer in its own process group; kill the group on timeout, lost
-    claim or cancellation."""
+    claim or cancellation. `progress` gets the renderer's latest stage when it changes."""
     process = process or current_platform().process
     with log_path.open("wb") as out:
         proc = process.spawn(command, cwd=cwd, env=env, stdout=out)
-    started = last_renew = time.monotonic()
+    started = last_renew = last_progress = time.monotonic()
+    shown = None
     try:
         while True:
             try:
@@ -200,6 +224,12 @@ def run_cli(
             except subprocess.TimeoutExpired:
                 pass
             now = time.monotonic()
+            if progress is not None and now - last_progress >= progress_every_s:
+                last_progress = now
+                line = progress_line(log_path)
+                if line is not None and line != shown:
+                    shown = line
+                    progress(line)
             if cancelled.is_set():
                 raise Cancelled()
             if now - started > timeout_s:
@@ -284,6 +314,7 @@ def render_claimed(
                 conn.execute(RENEW_SQL, {**ids, "lease": cfg.lease_minutes}).rowcount == 1
             ),
             cancelled=cancelled,
+            progress=lambda line: log.info("render %s/g%s: %s", aweme, gen, line),
         )
         if not output.is_file() or output.stat().st_size == 0:
             raise RuntimeError("Render không tạo ra tệp MP4.")
@@ -293,6 +324,7 @@ def render_claimed(
         if conn.execute(RENEW_SQL, {**ids, "lease": cfg.lease_minutes}).rowcount != 1:
             raise ClaimLost()
         final_key, srt_key = output_keys(aweme, gen, revision)
+        log.info("render %s/g%s: uploading %.1f MB", aweme, gen, output.stat().st_size / 1e6)
         store.put_file(final_key, output, content_type="video/mp4")
         store.put_bytes(
             srt_key, (folder / "captions.srt").read_bytes(), content_type="application/x-subrip"

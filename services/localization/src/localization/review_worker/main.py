@@ -84,13 +84,16 @@ class Worker:
 
     def _render_thread(self, row: dict) -> None:
         conn = None
+        started = time.monotonic()
         try:
             conn = final_render.Session(lambda: self.connector(self.cfg))
             outcome = self.render(
                 row, conn=conn, store=self.store, repo=self.repo, cfg=self.cfg,
                 cancelled=self.cancelled,
             )  # fmt: skip
-            log.info("render %s/g%s: %s", row["aweme_id"], row["generation"], outcome)
+            elapsed = int(time.monotonic() - started)
+            log.info("render %s/g%s: %s in %dm%02ds", row["aweme_id"], row["generation"],
+                     outcome, elapsed // 60, elapsed % 60)  # fmt: skip
         except Exception as exc:  # noqa: BLE001
             # The lease expires and the row is claimed again, up to the attempt limit.
             log.error("render %s/g%s crashed: %s", row["aweme_id"], row["generation"],
@@ -147,6 +150,8 @@ class Worker:
             "state": "rendering",
             "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         }
+        log.info("render %s/g%s: started (attempt %s)", row["aweme_id"], row["generation"],
+                 row["attempts"])  # fmt: skip
         self.thread = threading.Thread(
             target=self._render_thread, args=(row,), name="final-render", daemon=True
         )

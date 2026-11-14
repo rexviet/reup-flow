@@ -324,3 +324,30 @@ def test_children_left_behind_by_a_finished_renderer_are_killed(tmp_path):
     child = int((tmp_path / "log").read_text().split()[0])
     time.sleep(0.3)
     assert not alive(child)
+
+
+def test_progress_line_reads_the_latest_stage_through_bars_and_carriage_returns(tmp_path):
+    log = tmp_path / "render.log"
+    log.write_text(
+        "[INFO] Compiled composition metadata {}\n"
+        "  ██░░  10%  Extracting video frames\r"
+        "  ███░  35%  Capturing frames\x1b[0K\r\n"
+        '[INFO] [Render:trace] {"phase":"capture","status":"checkpoint"}\n',
+        encoding="utf-8",
+    )
+    assert final_render.progress_line(log) == "35% Capturing frames"
+    assert final_render.progress_line(tmp_path / "missing.log") is None
+    (tmp_path / "empty.log").write_text("[INFO] starting\n")
+    assert final_render.progress_line(tmp_path / "empty.log") is None
+
+
+def test_run_cli_reports_each_new_stage_once(tmp_path):
+    script = (
+        "import sys,time\n"
+        "e='10%  Extracting video frames'\n"
+        "for p in (e, e, '60%  Encoding'):\n"
+        "    sys.stdout.write('  ## '+p+'\\r'); sys.stdout.flush(); time.sleep(1.2)\n"
+    )
+    seen = []
+    cli(script, tmp_path, progress=seen.append, progress_every_s=0)
+    assert seen == ["10% Extracting video frames", "60% Encoding"]

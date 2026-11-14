@@ -245,3 +245,15 @@ def test_studio_role_never_claims_a_render(db, cfg, project, monkeypatch):
     assert db.admin.execute("SELECT name FROM localization.host_workers").fetchone()["name"] == (
         "review-worker"
     )
+
+
+def test_claim_and_finish_are_logged(db, cfg, project, caplog):
+    repo, revision = project
+    db.approve("7001", 1, revision)
+    worker = make_worker(db, cfg, repo.store, render=lambda row, **kw: "rendered")
+    with caplog.at_level("INFO", logger="review_worker"):
+        worker.tick()
+        worker.thread.join(5)
+    messages = [r.getMessage() for r in caplog.records]
+    assert "render 7001/g1: started (attempt 1)" in messages
+    assert any(m.startswith("render 7001/g1: rendered in 0m0") for m in messages)
