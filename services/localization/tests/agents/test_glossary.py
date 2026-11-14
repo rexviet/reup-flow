@@ -2,6 +2,10 @@
 capped, and a write the guard refuses leaves no row."""
 
 import asyncio
+import json
+import re
+import unicodedata
+from pathlib import Path
 
 import psycopg
 import pytest
@@ -159,3 +163,55 @@ async def test_a_channel_without_a_collection_is_an_error_not_an_orphan_term(glo
 
 def test_check_term_accepts_an_ordinary_term() -> None:
     assert check_term("苹果", "Apple", "hãng điện thoại") is None
+
+
+# The dashboard checks a term a person sets with its own copy of `check_term`
+# (services/downloader/src/collections/glossary-term.ts). Both test suites read
+# this one file, so the two copies cannot drift apart unnoticed.
+_SHARED_CASES = json.loads(
+    (Path(__file__).resolve().parents[4] / "contracts" / "glossary-term-cases.json").read_text(
+        encoding="utf-8"
+    )
+)
+
+
+@pytest.mark.parametrize("case", _SHARED_CASES, ids=[c["name"] for c in _SHARED_CASES])
+def test_check_term_matches_the_shared_cases(case: dict) -> None:
+    assert check_term(case["term_zh"], case["term_vi"], case["note"]) == case["reason"]
+
+
+def _unassigned_ranges() -> list[tuple[int, int]]:
+    """Python's own unassigned (Cn) code points, as inclusive ranges."""
+    ranges: list[tuple[int, int]] = []
+    start = None
+    for cp in range(0x110000):
+        unassigned = unicodedata.category(chr(cp)) == "Cn"
+        if unassigned and start is None:
+            start = cp
+        elif not unassigned and start is not None:
+            ranges.append((start, cp - 1))
+            start = None
+    if start is not None:
+        ranges.append((start, 0x10FFFF))
+    return ranges
+
+
+def test_the_dashboard_copy_knows_which_code_points_this_python_leaves_unassigned() -> None:
+    """The dashboard's check runs on Node's newer Unicode and treats these code points
+    the way this Python does. A Python upgrade changes the set, and this fails until the
+    table in python-unassigned.ts is regenerated."""
+    table = (
+        Path(__file__).resolve().parents[3]
+        / "downloader"
+        / "src"
+        / "collections"
+        / "python-unassigned.ts"
+    ).read_text(encoding="utf-8")
+    version = re.search(r"PYTHON_UNICODE_VERSION = '([^']+)'", table)
+    assert version is not None and version.group(1) == unicodedata.unidata_version
+    body = "".join(re.findall(r"^  '(.*)'(?: \+|;)$", table, re.MULTILINE))
+    listed = [
+        (int(a, 16), int(b or a, 16))
+        for a, b in re.findall(r"\\u\{([0-9a-f]+)\}(?:-\\u\{([0-9a-f]+)\})?", body)
+    ]
+    assert listed == _unassigned_ranges()

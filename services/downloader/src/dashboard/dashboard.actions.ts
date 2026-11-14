@@ -1,11 +1,12 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { Pool, PoolClient } from 'pg';
 import type { Executor } from '../db/executor';
 import { DB, PG_POOL } from '../db/db.module';
 import type { DashboardTemporal } from '../workspace/workspace.dashboard-reader';
 import { DASHBOARD_TEMPORAL } from '../workspace/workspace.tokens';
 import { DashboardRepository, stageFactsOf, type VideoRecord } from './dashboard.repository';
-import type { ActionBody } from './dashboard.schemas';
+import { resolveRenderKey } from './dashboard.media';
+import type { ActionBody, MoveCollectionBody } from './dashboard.schemas';
 import { computeStage, currentGeneration, type OpenGeneration } from './dashboard.stage';
 import { localize } from './intake.repository';
 
@@ -31,6 +32,15 @@ const SKIP = {
   temporalDown: 'Temporal không đọc được',
   rejected: 'Input hỏng, chạy lại không giúp được',
 } as const;
+
+/**
+ * The file name a saved video gets: `E{episode:02d}-{aweme_id}` while the video is in a 合集
+ * collection and has an episode, else `{aweme_id}`. A video moved by hand out of its 合集
+ * keeps its episode number but is no longer in a 合集, so it gets the plain name.
+ */
+export function fileStemOf(awemeId: string, collectionKind: string, mixEpisode: number | null): string {
+  return collectionKind === 'mix' && mixEpisode !== null ? `E${String(mixEpisode).padStart(2, '0')}-${awemeId}` : awemeId;
+}
 
 /** Thrown inside a transaction to roll it back and report why nothing was done. */
 class Skip extends Error {}
@@ -94,6 +104,54 @@ export class DashboardActionsService {
     return result;
   }
 
+  /**
+   * Puts videos in a collection by hand. Each is marked `collection_manual`, so enumerate never
+   * moves it again; only runs and renders started later use the new collection's settings, and an
+   * export already queued keeps the folder it captured. The target is locked against deletion
+   * (`FOR KEY SHARE`) for the whole transaction, so it cannot vanish between the check and the move.
+   */
+  async moveCollection(body: MoveCollectionBody): Promise<ActionResult> {
+    const ids = [...new Set(body.aweme_ids)];
+    const client = await this.pool.connect();
+    let broken: Error | undefined;
+    try {
+      await client.query('BEGIN');
+      try {
+        const target = await client.query(`SELECT 1 FROM collections WHERE id = $1 FOR KEY SHARE`, [body.collection_id]);
+        if (target.rows.length === 0) throw new NotFoundException(`collection ${body.collection_id} not found`);
+        // Locks the rows first, so `from` is the collection each video really left.
+        const { rows } = await client.query<{ aweme_id: string; from: string }>(
+          `WITH old AS (
+             SELECT aweme_id, collection_id FROM videos WHERE aweme_id = ANY($1::text[]) FOR UPDATE
+           )
+           UPDATE videos v SET collection_id = $2, collection_manual = true
+             FROM old WHERE v.aweme_id = old.aweme_id
+           RETURNING v.aweme_id, old.collection_id AS "from"`,
+          [ids, body.collection_id],
+        );
+        const from = new Map(rows.map((r) => [r.aweme_id, r.from]));
+        for (const id of ids) {
+          const left = from.get(id);
+          if (left === undefined) continue;
+          await this.log(client, id, 'move_collection', { from_collection_id: left, to_collection_id: body.collection_id });
+        }
+        await client.query('COMMIT');
+        return {
+          done: ids.filter((id) => from.has(id)),
+          skipped: ids.filter((id) => !from.has(id)).map((id) => ({ aweme_id: id, reason: SKIP.notFound })),
+        };
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      }
+    } catch (err) {
+      if (!(err instanceof NotFoundException)) broken = err instanceof Error ? err : new Error('transaction failed');
+      throw err;
+    } finally {
+      client.release(broken);
+    }
+  }
+
   /** `null` means done; a string is why the video was skipped. */
   private async one(
     body: ActionBody,
@@ -103,6 +161,11 @@ export class DashboardActionsService {
   ): Promise<string | null> {
     if (body.action === 'localize') return this.localize(awemeId);
     if (body.action === 'retry_download') return this.retryDownload(awemeId);
+    // A named generation is saved whether or not it is still the current one.
+    if (body.action === 'save_to_folder' && body.generation !== undefined) {
+      const generation = body.generation;
+      return this.tx((c) => this.saveToFolder(c, awemeId, generation));
+    }
 
     const record = await this.repo.video(awemeId);
     if (!record) return SKIP.notFound;
@@ -133,6 +196,8 @@ export class DashboardActionsService {
       }
       case 'open_studio':
         return this.tx((c) => this.openStudio(c, awemeId, gen));
+      case 'save_to_folder':
+        return this.tx((c) => this.saveToFolder(c, awemeId, gen));
       default:
         return 'Thao tác không hợp lệ.';
     }
@@ -454,5 +519,46 @@ export class DashboardActionsService {
     );
     if (inserted.rowCount !== 1) throw new Skip('Đã có yêu cầu mở Studio đang chờ.');
     await this.log(c, awemeId, 'open_studio', { generation: gen });
+  }
+
+  /**
+   * Queues a request for the Mac worker to save this generation's final (and SRT) into the
+   * video's collection folder. Folder, file name and storage keys are captured now, so a later
+   * rename or move does not redirect it. Keys are resolved exactly as the media links resolve
+   * them, so only a file in this generation's review folder, or its legacy output, can be named.
+   * The partial unique index on open requests makes a second click (even a concurrent one) a
+   * no-op rather than a second export.
+   */
+  private async saveToFolder(c: PoolClient, awemeId: string, gen: number): Promise<void> {
+    const placed = await c.query<{ collection_id: string; kind: string; name: string; save_subdir: string | null; mix_episode: number | null }>(
+      `SELECT c.id AS collection_id, c.kind, c.name, c.save_subdir, v.mix_episode
+         FROM videos v JOIN collections c ON c.id = v.collection_id
+        WHERE v.aweme_id = $1
+          FOR SHARE OF v FOR KEY SHARE OF c`,
+      [awemeId],
+    );
+    const video = placed.rows[0];
+    if (!video) throw new Skip(SKIP.notFound);
+    if (video.save_subdir === null) {
+      throw new Skip(`Collection «${video.name}» chưa có thư mục lưu; hãy đặt thư mục cho collection trước.`);
+    }
+    const final = await resolveRenderKey(c, awemeId, gen, 'final');
+    if (!final) throw new Skip(`Generation ${gen} chưa có bản cuối đã render.`);
+    // A legacy final has no SRT; an SRT is only taken beside a final from the review folder.
+    const srt = final.key.startsWith('output/review/') ? await resolveRenderKey(c, awemeId, gen, 'srt') : null;
+    const fileStem = fileStemOf(awemeId, video.kind, video.mix_episode);
+    const inserted = await c.query(
+      `INSERT INTO folder_exports (aweme_id, generation, collection_id, target_subdir, file_stem, final_key, srt_key)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (aweme_id, generation) WHERE state IN ('pending', 'exporting') DO NOTHING`,
+      [awemeId, gen, video.collection_id, video.save_subdir, fileStem, final.key, srt?.key ?? null],
+    );
+    if (inserted.rowCount !== 1) throw new Skip('Đã có yêu cầu lưu thư mục đang chờ hoặc đang lưu.');
+    await this.log(c, awemeId, 'save_to_folder', {
+      generation: gen,
+      collection_id: video.collection_id,
+      target_subdir: video.save_subdir,
+      file_stem: fileStem,
+    });
   }
 }

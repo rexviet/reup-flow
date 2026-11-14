@@ -41,7 +41,7 @@ Nguồn quyết định: [brainstorm](../reports/brainstorm-261114-1114-collecti
 | 1 | [Đọc 合集 từ dữ liệu Douyin](./phase-01-start.md) | Completed |
 | 2 | [Schema collection và backfill](./phase-02-collections-schema-and-backfill.md) | Completed |
 | 3 | [Gán collection lúc tải](./phase-03-assign-collection-at-intake.md) | Completed |
-| 4 | [API collection và yêu cầu lưu thư mục](./phase-04-collections-api-and-export-request.md) | Pending |
+| 4 | [API collection và yêu cầu lưu thư mục](./phase-04-collections-api-and-export-request.md) | Completed |
 | 5 | [Setting theo lượt chạy trong localization](./phase-05-run-settings-in-localization.md) | Pending |
 | 6 | [Worker lưu thư mục trên Mac](./phase-06-mac-folder-export-worker.md) | Pending |
 | 7 | [Giao diện collection trên dashboard](./phase-07-dashboard-collections-ui.md) | Pending |

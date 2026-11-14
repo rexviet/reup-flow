@@ -104,6 +104,54 @@ describe('DashboardRepository (real downloader and localization schemas)', () =>
     expect(await ids('\\')).toEqual([]);
   });
 
+  it('gives each video its collection and episode, and filters by collection', async () => {
+    await video('1', 'chA', 'a', '2026-11-01T00:00:00Z');
+    await video('2', 'chA', 'b', '2026-11-02T00:00:00Z');
+    const channel = await channelCollection(pool, 'chA');
+    const mix = (
+      await pool.query<{ id: string }>(
+        `INSERT INTO collections (kind, external_id, sec_user_id, name) VALUES ('mix', 'm1', 'chA', '成名的代价') RETURNING id`,
+      )
+    ).rows[0].id;
+    await pool.query(`UPDATE videos SET collection_id = $1, mix_episode = 4 WHERE aweme_id = '2'`, [mix]);
+
+    expect(await repo.video('2')).toMatchObject({
+      collection: { id: mix, name: '成名的代价', kind: 'mix' },
+      mixEpisode: 4,
+    });
+    expect(await repo.video('1')).toMatchObject({
+      collection: { id: channel, name: 'chA', kind: 'channel' },
+      mixEpisode: null,
+    });
+    expect((await repo.videos({ collection: mix })).map((v) => v.awemeId)).toEqual(['2']);
+    expect((await repo.videos({ collection: channel })).map((v) => v.awemeId)).toEqual(['1']);
+    expect(await repo.videos({ collection: '00000000-0000-4000-8000-000000000000' })).toEqual([]);
+  });
+
+  it('reads the newest folder export of a video, whichever generation it named', async () => {
+    await video('1', 'chA', 'a', '2026-11-01T00:00:00Z');
+    const collectionId = await channelCollection(pool, 'chA');
+    expect(await repo.latestFolderExport('1')).toBeNull();
+    await pool.query(
+      `INSERT INTO folder_exports (aweme_id, generation, collection_id, target_subdir, file_stem, final_key, srt_key,
+                                   state, error, files, requested_at, handled_at)
+       VALUES ('1', 1, $1, 'Phim', '1', 'output/1.mp4', NULL, 'failed', 'disk full', NULL, now() - interval '1 hour', now()),
+              ('1', 2, $1, 'Phim', '1', 'output/review/1/g2/final.mp4', 'output/review/1/g2/final.srt',
+               'done', NULL, '["Phim/1.mp4", "Phim/1.srt"]', now(), now())`,
+      [collectionId],
+    );
+    expect(await repo.latestFolderExport('1')).toEqual({
+      generation: 2,
+      state: 'done',
+      targetSubdir: 'Phim',
+      fileStem: '1',
+      files: ['Phim/1.mp4', 'Phim/1.srt'],
+      error: null,
+      requestedAt: expect.any(String),
+      handledAt: expect.any(String),
+    });
+  });
+
   it('treats hostile input as data', async () => {
     await video('1', 'chA', 'x', '2026-11-01T00:00:00Z');
     expect(await repo.videos({ q: "'; DROP TABLE videos; --" })).toEqual([]);

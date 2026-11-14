@@ -68,13 +68,15 @@ describe('/api/dashboard', () => {
       'channel=',
       `q=${'x'.repeat(101)}`,
       'unknown=1',
+      'collection=not-a-uuid',
+      'collection=',
     ])('rejects ?%s with 400', async (qs) => {
       await get(`/api/dashboard/videos?${qs}`).expect(400);
     });
 
     it('parses a full valid query', async () => {
       seen.length = 0;
-      await get('/api/dashboard/videos?stage=awaiting_review&channel=c1&q=50%25_&from=2026-11-01&to=2026-11-30T00:00:00Z&attention=true&limit=10&offset=5').expect(200);
+      await get('/api/dashboard/videos?stage=awaiting_review&channel=c1&q=50%25_&from=2026-11-01&to=2026-11-30T00:00:00Z&attention=true&limit=10&offset=5&collection=0A1B2C3D-0000-4000-8000-000000000000').expect(200);
       expect(seen[0]).toMatchObject({
         stage: 'awaiting_review',
         channel: 'c1',
@@ -84,6 +86,7 @@ describe('/api/dashboard', () => {
         attention: true,
         limit: 10,
         offset: 5,
+        collection: '0a1b2c3d-0000-4000-8000-000000000000',
       });
     });
   });

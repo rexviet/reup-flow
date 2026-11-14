@@ -7,6 +7,7 @@ import type { WorkflowInspection } from '../workspace/workspace.temporal';
 import {
   type BlockedJobRow,
   type ChannelRow,
+  type FolderExportRow,
   type RenderRow,
   DashboardRepository,
   stageFactsOf,
@@ -26,7 +27,15 @@ import type { VideoFilter, VideosQuery } from './dashboard.schemas';
 
 export type DashboardStore = Pick<
   DashboardRepository,
-  'videos' | 'video' | 'llmCosts' | 'runDetails' | 'recentActions' | 'latestStudioRequest' | 'channels' | 'blockedJobs'
+  | 'videos'
+  | 'video'
+  | 'llmCosts'
+  | 'runDetails'
+  | 'recentActions'
+  | 'latestStudioRequest'
+  | 'latestFolderExport'
+  | 'channels'
+  | 'blockedJobs'
 >;
 
 export interface Sources {
@@ -132,6 +141,8 @@ function listItem(a: Assessed) {
     aweme_id: record.awemeId,
     sec_user_id: record.secUserId,
     channel: record.nickname,
+    collection: record.collection,
+    mix_episode: record.mixEpisode,
     desc: record.desc === null ? null : record.desc.slice(0, MAX_DESC_CHARS),
     create_time: record.createTime,
     duration_ms: record.durationMs,
@@ -209,6 +220,7 @@ export class DashboardService {
   async list(query: VideosQuery) {
     const { videos, sources } = await this.assess({
       channel: query.channel,
+      collection: query.collection,
       q: query.q,
       from: query.from,
       to: query.to,
@@ -303,11 +315,12 @@ export class DashboardService {
     const { record, result } = found;
     const gen = result.currentGen;
 
-    const [costs, runDetails, actions, studio] = await Promise.all([
+    const [costs, runDetails, actions, studio, folderExport] = await Promise.all([
       attempt(() => this.store.llmCosts(awemeId)),
       attempt(() => this.store.runDetails(awemeId)),
       attempt(() => this.store.recentActions(awemeId)),
       attempt(() => this.store.latestStudioRequest(awemeId)),
+      attempt(() => this.store.latestFolderExport(awemeId)),
     ]);
     const runRow = record.runs.find((r) => r.generation === gen);
     const workflowId = runRow?.workflowId ?? `video-${awemeId}-g${gen}`;
@@ -346,7 +359,9 @@ export class DashboardService {
         download_status: record.videoStatus,
         download_attempts: record.downloadAttempts,
         download_error: record.downloadError,
+        mix_episode: record.mixEpisode,
       },
+      collection: record.collection,
       channel: { sec_user_id: record.secUserId, nickname: record.nickname, auto_localize: record.autoLocalize },
       current_gen: gen,
       stage: result.stage,
@@ -390,6 +405,7 @@ export class DashboardService {
       render: gen === null ? null : renderView(forGen(record.renders, gen)),
       publication: gen === null ? null : forGen(record.publications, gen),
       studio_request: studio ?? null,
+      folder_export: folderExportView(folderExport ?? null),
       dashboard_actions: (actions ?? []).map((a) => ({
         id: a.id,
         action: a.action,
@@ -397,7 +413,7 @@ export class DashboardService {
         created_at: a.createdAt,
       })),
       sources: {
-        postgres: costs === undefined || runDetails === undefined || actions === undefined || studio === undefined ? 'down' : 'ok',
+        postgres: [costs, runDetails, actions, studio, folderExport].includes(undefined) ? 'down' : 'ok',
         temporal: temporalDown ? 'down' : 'ok',
       } satisfies Sources,
     };
@@ -415,6 +431,22 @@ function renderView(r: RenderRow | null) {
       rendered_at: r.renderedAt,
       final_ready: r.finalKey !== null,
       srt_ready: r.srtKey !== null,
+    }
+  );
+}
+
+/** The newest save-to-folder request: waiting, saving, saved (with its files) or failed (with why). */
+function folderExportView(f: FolderExportRow | null) {
+  return (
+    f && {
+      generation: f.generation,
+      state: f.state,
+      target_subdir: f.targetSubdir,
+      file_stem: f.fileStem,
+      files: f.files,
+      error: f.error,
+      requested_at: f.requestedAt,
+      handled_at: f.handledAt,
     }
   );
 }

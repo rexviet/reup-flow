@@ -24,6 +24,8 @@ const record = (awemeId: string, over: Partial<VideoRecord> = {}): VideoRecord =
   renders: [],
   publications: [],
   reviewStatus: [],
+  collection: { id: 'col-a', name: 'Kênh A', kind: 'channel' },
+  mixEpisode: null,
   ...over,
 });
 
@@ -47,13 +49,14 @@ function store(records: VideoRecord[] | Error, extra: Partial<DashboardStore> = 
       read(
         records instanceof Error
           ? records
-          : records.filter((r) => (filter?.awemeId === undefined || r.awemeId === filter.awemeId) && (filter?.channel === undefined || r.secUserId === filter.channel)),
+          : records.filter((r) => (filter?.awemeId === undefined || r.awemeId === filter.awemeId) && (filter?.channel === undefined || r.secUserId === filter.channel) && (filter?.collection === undefined || r.collection.id === filter.collection)),
       ),
     video: async (id) => (await read(records instanceof Error ? records : records.find((r) => r.awemeId === id) ?? null)),
     llmCosts: async () => [],
     runDetails: async () => [],
     recentActions: async () => [],
     latestStudioRequest: async () => null,
+    latestFolderExport: async () => null,
     channels: async () => [],
     blockedJobs: async () => [],
     ...extra,
@@ -205,6 +208,20 @@ describe('DashboardService.list', () => {
     expect(calls).toBe(1);
   });
 
+  it('gives each row its collection and episode, and filters by collection', async () => {
+    const mix = { id: 'col-m', name: '成名的代价', kind: 'mix' };
+    const records = [record('1'), record('2', { collection: mix, mixEpisode: 3 })];
+    const all = await svc(store(records), temporal()).list(query());
+    expect(all.items.find((i) => i.aweme_id === '2')).toMatchObject({ collection: mix, mix_episode: 3 });
+    expect(all.items.find((i) => i.aweme_id === '1')).toMatchObject({
+      collection: { id: 'col-a', name: 'Kênh A', kind: 'channel' },
+      mix_episode: null,
+    });
+    const filtered = await svc(store(records), temporal()).list(query({ collection: 'col-m' }));
+    expect(filtered.items.map((i) => i.aweme_id)).toEqual(['2']);
+    expect(filtered.total).toBe(1);
+  });
+
   it('truncates a long description', async () => {
     const out = await svc(store([record('1', { desc: 'x'.repeat(5000) })]), temporal()).list(query());
     expect(out.items[0].desc).toHaveLength(200);
@@ -275,6 +292,42 @@ describe('DashboardService.detail', () => {
     expect(out.render).toMatchObject({ state: 'queued', final_ready: true, srt_ready: false });
     expect(JSON.stringify(out)).not.toContain('k/final.mp4');
     expect(out.sources).toEqual({ postgres: 'ok', temporal: 'ok' });
+  });
+
+  it('shows the collection, the episode and the newest folder export without its storage keys', async () => {
+    const mix = { id: 'col-m', name: '成名的代价', kind: 'mix' };
+    const folderExport = {
+      generation: 2,
+      state: 'failed',
+      targetSubdir: 'Phim/成名的代价',
+      fileStem: 'E03-1',
+      files: null,
+      error: 'disk full',
+      requestedAt: '2026-11-12T00:00:00.000Z',
+      handledAt: '2026-11-12T00:01:00.000Z',
+    };
+    const s = store([record('1', { collection: mix, mixEpisode: 3 })], { latestFolderExport: async () => folderExport });
+    const out = (await svc(s, temporal()).detail('1')) as Detail;
+    expect(out.collection).toEqual(mix);
+    expect(out.video.mix_episode).toBe(3);
+    expect(out.folder_export).toEqual({
+      generation: 2,
+      state: 'failed',
+      target_subdir: 'Phim/成名的代价',
+      file_stem: 'E03-1',
+      files: null,
+      error: 'disk full',
+      requested_at: '2026-11-12T00:00:00.000Z',
+      handled_at: '2026-11-12T00:01:00.000Z',
+    });
+    expect(out.sources.postgres).toBe('ok');
+  });
+
+  it('marks postgres down when only the folder export could not be read', async () => {
+    const s = store([record('1')], { latestFolderExport: async () => down() });
+    const out = (await svc(s, temporal()).detail('1')) as Detail;
+    expect(out.folder_export).toBeNull();
+    expect(out.sources.postgres).toBe('down');
   });
 
   it('is 404 only when postgres answered and the video does not exist', async () => {

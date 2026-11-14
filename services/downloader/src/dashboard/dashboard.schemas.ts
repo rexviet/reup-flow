@@ -34,6 +34,11 @@ export const videosQuerySchema = z
     from: isoInstant.optional(),
     to: isoUpperBound.optional(),
     attention: booleanFlag.optional(),
+    collection: z
+      .string()
+      .uuid()
+      .transform((v) => v.toLowerCase())
+      .optional(),
     limit: z.coerce.number().int().min(1).max(200).default(50),
     offset: z.coerce.number().int().min(0).max(1_000_000).default(0),
   })
@@ -47,6 +52,7 @@ export interface VideoFilter {
   from?: string;
   to?: string;
   awemeId?: string;
+  collection?: string;
 }
 
 /** `%` and `_` are LIKE wildcards; a search for them must match them literally. */
@@ -77,6 +83,7 @@ export const ACTIONS = [
   'mark_published',
   'mark_unpublished',
   'open_studio',
+  'save_to_folder',
 ] as const;
 export type DashboardAction = (typeof ACTIONS)[number];
 
@@ -88,7 +95,11 @@ export const actionBodySchema = z
     post_url: z.string().url().max(2048).regex(/^https?:\/\//).optional(),
     platform: z.string().min(1).max(50).optional(),
     revision: z.string().min(1).max(200).optional(),
-    /** The generation the admin was looking at; the action is skipped when it is no longer current. */
+    /**
+     * The generation the admin was looking at; the action is skipped when it is no longer current.
+     * `save_to_folder` instead saves exactly this generation, current or not, when it was rendered;
+     * without it, the current one.
+     */
     generation: z.number().int().min(0).max(999_999_999).optional(),
     confirm_mismatch: z.boolean().optional(),
   })
@@ -102,5 +113,16 @@ export const actionBodySchema = z
     if ((v.action === 'open_studio' || v.action === 'approve') && new Set(v.aweme_ids).size !== 1) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['aweme_ids'], message: `${v.action} takes exactly one video` });
     }
+    // `save_to_folder` saves the generation it names, and one number cannot be right for several
+    // videos; a bulk save leaves it out and each video saves its current generation.
+    if (v.action === 'save_to_folder' && v.generation !== undefined && new Set(v.aweme_ids).size !== 1) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['generation'], message: 'a generation names exactly one video' });
+    }
   });
 export type ActionBody = z.infer<typeof actionBodySchema>;
+
+/** `PATCH /api/dashboard/videos/collection`: put videos in a collection by hand. */
+export const moveCollectionBodySchema = z
+  .object({ aweme_ids: awemeIdsSchema, collection_id: z.string().uuid() })
+  .strict();
+export type MoveCollectionBody = z.infer<typeof moveCollectionBodySchema>;

@@ -1,8 +1,9 @@
 import { drizzle } from 'drizzle-orm/node-postgres';
 import type { Pool } from 'pg';
 import { DashboardActionsService } from '../../src/dashboard/dashboard.actions';
+import { NotFoundException } from '@nestjs/common';
 import { DashboardRepository } from '../../src/dashboard/dashboard.repository';
-import { actionBodySchema, type ActionBody } from '../../src/dashboard/dashboard.schemas';
+import { actionBodySchema, moveCollectionBodySchema, type ActionBody } from '../../src/dashboard/dashboard.schemas';
 import * as schema from '../../src/db/schema';
 import type { DashboardTemporal, WorkflowStatus } from '../../src/workspace/workspace.dashboard-reader';
 import { createScratchDatabase, type ScratchDatabase } from '../support/localization-db';
@@ -51,7 +52,7 @@ describe('DashboardActionsService (real downloader and localization schemas)', (
   beforeEach(async () => {
     await pool.query(
       `TRUNCATE videos, jobs, profiles, localization_outbox, review_decisions, publications,
-                studio_open_requests, dashboard_actions,
+                studio_open_requests, dashboard_actions, folder_exports, collections,
                 localization.runs, localization.final_renders, localization.review_status
          RESTART IDENTITY CASCADE`,
     );
@@ -655,6 +656,320 @@ describe('DashboardActionsService (real downloader and localization schemas)', (
       const res = await svc.run(body('open_studio', ['60']));
       expect(res.done).toEqual([]);
       expect(await one('SELECT 1 FROM studio_open_requests')).toBeUndefined();
+    });
+  });
+
+  describe('save_to_folder', () => {
+    const FINAL = (id: string, gen: number) => `output/review/${id}/g${gen}/final.mp4`;
+    const SRT = (id: string, gen: number) => `output/review/${id}/g${gen}/final.srt`;
+    const collection = async (kind: 'mix' | 'manual' | 'channel', saveSubdir: string | null, name = 'Bộ sưu tập') => {
+      if (kind === 'channel') {
+        const id = await channelCollection(pool, 'ch');
+        await pool.query(`UPDATE collections SET save_subdir = $2, name = $3 WHERE id = $1`, [id, saveSubdir, name]);
+        return id;
+      }
+      await channelCollection(pool, 'ch');
+      const { rows } = await pool.query<{ id: string }>(
+        `INSERT INTO collections (kind, external_id, sec_user_id, name, save_subdir)
+         VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+        [kind, kind === 'mix' ? `mix-${name}` : null, kind === 'mix' ? 'ch' : null, name, saveSubdir],
+      );
+      return rows[0].id;
+    };
+    const place = (id: string, collectionId: string, episode: number | null) =>
+      pool.query(`UPDATE videos SET collection_id = $2, mix_episode = $3 WHERE aweme_id = $1`, [id, collectionId, episode]);
+    const rendered = (id: string, gen: number, state = 'rendered', finalKey: string | null = FINAL(id, gen), srtKey: string | null = SRT(id, gen)) =>
+      pool.query(
+        `INSERT INTO localization.final_renders (aweme_id, generation, approved_revision, state, final_key, srt_key)
+         VALUES ($1, $2, 'rev', $3, $4, $5)`,
+        [id, gen, state, finalKey, srtKey],
+      );
+    const exports = async (id: string) =>
+      (
+        await pool.query(
+          `SELECT generation, collection_id, target_subdir, file_stem, final_key, srt_key, state
+             FROM folder_exports WHERE aweme_id = $1 ORDER BY id`,
+          [id],
+        )
+      ).rows;
+    const save = (id: string, generation?: number) =>
+      svc.run(body('save_to_folder', [id], generation === undefined ? {} : { generation }));
+
+    it('queues the rendered final and its SRT with the folder and the file name captured', async () => {
+      await video('300');
+      const mix = await collection('mix', 'Phim/成名的代价');
+      await place('300', mix, 3);
+      await outbox('300', 1, 'dispatched');
+      await run('300', 1, 'rendered');
+      await rendered('300', 1);
+      const res = await save('300', 1);
+      expect(res).toEqual({ done: ['300'], skipped: [] });
+      expect(await exports('300')).toEqual([
+        {
+          generation: 1,
+          collection_id: mix,
+          target_subdir: 'Phim/成名的代价',
+          file_stem: 'E03-300',
+          final_key: FINAL('300', 1),
+          srt_key: SRT('300', 1),
+          state: 'pending',
+        },
+      ]);
+      expect(await logged('300')).toEqual(['save_to_folder']);
+      expect((await one(`SELECT detail FROM dashboard_actions WHERE aweme_id = '300'`))?.detail).toEqual({
+        generation: 1,
+        collection_id: mix,
+        target_subdir: 'Phim/成名的代价',
+        file_stem: 'E03-300',
+      });
+    });
+
+    it('uses the episode prefix only for a 合集 collection, and pads to two digits but no further', async () => {
+      const mix = await collection('mix', 'Phim');
+      const manual = await collection('manual', 'Tay');
+      const channel = await collection('channel', 'Kênh');
+      const cases: Array<[string, string, number | null, string]> = [
+        ['301', mix, 7, 'E07-301'],
+        ['302', mix, 123, 'E123-302'],
+        ['303', mix, null, '303'],
+        // Moved by hand out of its 合集: keeps its episode number, but is no longer "in a 合集".
+        ['304', manual, 7, '304'],
+        ['305', channel, 7, '305'],
+        ['306', channel, null, '306'],
+      ];
+      for (const [id, collectionId, episode] of cases) {
+        await video(id);
+        await place(id, collectionId, episode);
+        await run(id, 1, 'rendered');
+        await rendered(id, 1);
+      }
+      for (const [id, , , stem] of cases) {
+        expect(await save(id, 1)).toEqual({ done: [id], skipped: [] });
+        expect((await exports(id)).map((e) => e.file_stem)).toEqual([stem]);
+      }
+    });
+
+    it('refuses a generation that has no rendered final', async () => {
+      await video('310');
+      await place('310', await collection('channel', 'Kênh'), null);
+      await run('310', 1, 'ready_for_review');
+      await rendered('310', 1, 'rendering', null, null);
+      const res = await save('310', 1);
+      expect(res.done).toEqual([]);
+      expect(res.skipped[0].reason).toContain('bản cuối');
+      expect(await save('310', 2)).toMatchObject({ done: [] });
+      expect(await exports('310')).toEqual([]);
+      expect(await logged('310')).toEqual([]);
+    });
+
+    it('accepts an older generation that was rendered while a newer one is running', async () => {
+      await video('311');
+      await place('311', await collection('channel', 'Kênh'), null);
+      await run('311', 1, 'rendered');
+      await rendered('311', 1);
+      await outbox('311', 2, 'dispatched');
+      await run('311', 2, 'running');
+      temporal.open = ['video-311-g2'];
+      expect(await save('311', 1)).toEqual({ done: ['311'], skipped: [] });
+      expect((await exports('311')).map((e) => [e.generation, e.final_key])).toEqual([[1, FINAL('311', 1)]]);
+    });
+
+    it('without a generation uses the current one', async () => {
+      await video('312');
+      await place('312', await collection('channel', 'Kênh'), null);
+      await outbox('312', 2, 'dispatched');
+      await run('312', 1, 'rendered');
+      await run('312', 2, 'rendered');
+      await rendered('312', 1);
+      await rendered('312', 2);
+      expect(await save('312')).toEqual({ done: ['312'], skipped: [] });
+      expect((await exports('312')).map((e) => e.generation)).toEqual([2]);
+    });
+
+    it('takes a legacy final only when that generation recorded it, and it has no SRT', async () => {
+      await video('313');
+      await video('314');
+      const channel = await collection('channel', 'Kênh');
+      await place('313', channel, null);
+      await place('314', channel, null);
+      await run('313', 1, 'done', null, 'output/313.mp4');
+      // The output key names another file, so it is not this video's legacy final.
+      await run('314', 1, 'done', null, 'output/other.mp4');
+      expect(await save('313', 1)).toEqual({ done: ['313'], skipped: [] });
+      expect((await exports('313')).map((e) => [e.final_key, e.srt_key, e.file_stem])).toEqual([
+        ['output/313.mp4', null, '313'],
+      ]);
+      expect((await save('314', 1)).done).toEqual([]);
+      expect(await save('313', 2)).toMatchObject({ done: [] });
+      expect(await exports('314')).toEqual([]);
+    });
+
+    it('never queues a stored key outside the generation review folder', async () => {
+      await video('315');
+      await place('315', await collection('channel', 'Kênh'), null);
+      await run('315', 1, 'rendered');
+      await rendered('315', 1, 'rendered', 'output/review/999/g1/final.mp4', 'source/secret.srt');
+      expect((await save('315', 1)).done).toEqual([]);
+      expect(await exports('315')).toEqual([]);
+    });
+
+    it('drops an SRT key outside the review folder but keeps a valid final', async () => {
+      await video('316');
+      await place('316', await collection('channel', 'Kênh'), null);
+      await run('316', 1, 'rendered');
+      await rendered('316', 1, 'rendered', FINAL('316', 1), '../etc/passwd');
+      expect((await save('316', 1)).done).toEqual(['316']);
+      expect((await exports('316')).map((e) => e.srt_key)).toEqual([null]);
+    });
+
+    it('says which collection has no folder, and queues nothing', async () => {
+      await video('317');
+      await place('317', await collection('manual', null, 'Gom tay'), null);
+      await run('317', 1, 'rendered');
+      await rendered('317', 1);
+      const res = await save('317', 1);
+      expect(res.done).toEqual([]);
+      expect(res.skipped[0].reason).toContain('Gom tay');
+      expect(res.skipped[0].reason).toContain('thư mục');
+      expect(await exports('317')).toEqual([]);
+    });
+
+    it('a second click while one request is open adds no row; a new one is accepted once it settled', async () => {
+      await video('318');
+      await place('318', await collection('channel', 'Kênh'), null);
+      await run('318', 1, 'rendered');
+      await rendered('318', 1);
+      expect((await save('318', 1)).done).toEqual(['318']);
+      const again = await save('318', 1);
+      expect(again.done).toEqual([]);
+      expect(again.skipped[0].reason).toContain('đang chờ');
+      await pool.query(`UPDATE folder_exports SET state = 'exporting' WHERE aweme_id = '318'`);
+      expect((await save('318', 1)).done).toEqual([]);
+      expect(await exports('318')).toHaveLength(1);
+      expect(await logged('318')).toEqual(['save_to_folder']);
+      await pool.query(`UPDATE folder_exports SET state = 'done' WHERE aweme_id = '318'`);
+      expect((await save('318', 1)).done).toEqual(['318']);
+      expect((await exports('318')).map((e) => e.state)).toEqual(['done', 'pending']);
+    });
+
+    it('a click racing an uncommitted request waits for it and then adds no row', async () => {
+      await video('319');
+      const collectionId = await collection('channel', 'Kênh');
+      await place('319', collectionId, null);
+      await run('319', 1, 'rendered');
+      await rendered('319', 1);
+      // The other click has inserted its row but not committed, so a "no open row" read
+      // cannot see it; only the unique index on open requests can stop the second one.
+      const other = await pool.connect();
+      try {
+        await other.query('BEGIN');
+        await other.query(
+          `INSERT INTO folder_exports (aweme_id, generation, collection_id, target_subdir, file_stem, final_key)
+           VALUES ('319', 1, $1, 'Kênh', '319', $2)`,
+          [collectionId, FINAL('319', 1)],
+        );
+        const racing = save('319', 1);
+        const deadline = Date.now() + 10_000;
+        for (;;) {
+          const waiting = await pool.query(
+            `SELECT 1 FROM pg_stat_activity
+              WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%folder_exports%'`,
+          );
+          if (waiting.rows.length > 0) break;
+          if (Date.now() > deadline) throw new Error('the second click never waited on the first');
+          await new Promise((r) => setTimeout(r, 20));
+        }
+        await other.query('COMMIT');
+        const res = await racing;
+        expect(res.done).toEqual([]);
+        expect(res.skipped[0].reason).toContain('đang chờ');
+      } finally {
+        other.release();
+      }
+      expect(await exports('319')).toHaveLength(1);
+      expect(await logged('319')).toEqual([]);
+    });
+
+    it('reports an unknown video as skipped', async () => {
+      expect(await save('999', 1)).toEqual({ done: [], skipped: [{ aweme_id: '999', reason: 'Không có video này.' }] });
+    });
+
+    it('validates the body: a generation is a whole number and names one video', () => {
+      expect(actionBodySchema.safeParse({ action: 'save_to_folder', aweme_ids: ['1'], generation: 1 }).success).toBe(true);
+      expect(actionBodySchema.safeParse({ action: 'save_to_folder', aweme_ids: ['1', '2'] }).success).toBe(true);
+      expect(actionBodySchema.safeParse({ action: 'save_to_folder', aweme_ids: ['1'], generation: 1.5 }).success).toBe(false);
+      // One generation number cannot be right for several videos.
+      expect(actionBodySchema.safeParse({ action: 'save_to_folder', aweme_ids: ['1', '2'], generation: 1 }).success).toBe(false);
+    });
+  });
+
+  describe('moveCollection', () => {
+    const target = async (name = 'Đích') =>
+      (await pool.query<{ id: string }>(`INSERT INTO collections (kind, name) VALUES ('manual', $1) RETURNING id`, [name]))
+        .rows[0].id;
+    const placement = async (id: string) =>
+      one<{ collection_id: string; collection_manual: boolean; mix_episode: number | null }>(
+        `SELECT collection_id, collection_manual, mix_episode FROM videos WHERE aweme_id = $1`,
+        [id],
+      );
+
+    it('moves each video, marks it placed by hand and logs where it came from', async () => {
+      await video('400');
+      await video('401');
+      const from = await channelCollection(pool, 'ch');
+      await pool.query(`UPDATE videos SET mix_episode = 2 WHERE aweme_id = '401'`);
+      const to = await target();
+      const res = await svc.moveCollection({ aweme_ids: ['400', '401', '400', '999'], collection_id: to });
+      expect(res).toEqual({ done: ['400', '401'], skipped: [{ aweme_id: '999', reason: 'Không có video này.' }] });
+      expect(await placement('400')).toEqual({ collection_id: to, collection_manual: true, mix_episode: null });
+      // The episode is kept: moving back into the 合集 would need it again.
+      expect(await placement('401')).toEqual({ collection_id: to, collection_manual: true, mix_episode: 2 });
+      const detail = (await one(`SELECT action, detail FROM dashboard_actions WHERE aweme_id = '400'`)) as {
+        action: string;
+        detail: unknown;
+      };
+      expect(detail).toEqual({ action: 'move_collection', detail: { from_collection_id: from, to_collection_id: to } });
+      expect(await logged('999')).toEqual([]);
+    });
+
+    it('answers 404 for a collection that does not exist and changes nothing', async () => {
+      await video('402');
+      const before = await placement('402');
+      await expect(
+        svc.moveCollection({ aweme_ids: ['402'], collection_id: '00000000-0000-4000-8000-000000000000' }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(await placement('402')).toEqual(before);
+      expect(await logged('402')).toEqual([]);
+    });
+
+    it('does not touch an export already queued: it keeps the folder it captured', async () => {
+      await video('403');
+      const from = await channelCollection(pool, 'ch');
+      await pool.query(`UPDATE collections SET save_subdir = 'Cũ' WHERE id = $1`, [from]);
+      await run('403', 1, 'rendered');
+      await pool.query(
+        `INSERT INTO localization.final_renders (aweme_id, generation, approved_revision, state, final_key)
+         VALUES ('403', 1, 'rev', 'rendered', 'output/review/403/g1/final.mp4')`,
+      );
+      expect((await svc.run(body('save_to_folder', ['403'], { generation: 1 }))).done).toEqual(['403']);
+      await svc.moveCollection({ aweme_ids: ['403'], collection_id: await target() });
+      expect((await one(`SELECT target_subdir, collection_id FROM folder_exports WHERE aweme_id = '403'`))).toEqual({
+        target_subdir: 'Cũ',
+        collection_id: from,
+      });
+    });
+
+    it('validates the body', () => {
+      const id = '00000000-0000-4000-8000-000000000000';
+      expect(moveCollectionBodySchema.safeParse({ aweme_ids: ['1'], collection_id: id }).success).toBe(true);
+      expect(moveCollectionBodySchema.safeParse({ aweme_ids: [], collection_id: id }).success).toBe(false);
+      expect(moveCollectionBodySchema.safeParse({ aweme_ids: ['1'], collection_id: 'x' }).success).toBe(false);
+      expect(moveCollectionBodySchema.safeParse({ aweme_ids: ['1'] }).success).toBe(false);
+      expect(moveCollectionBodySchema.safeParse({ aweme_ids: ['1'], collection_id: id, extra: 1 }).success).toBe(false);
+      expect(
+        moveCollectionBodySchema.safeParse({ aweme_ids: Array.from({ length: 101 }, (_, i) => String(i)), collection_id: id })
+          .success,
+      ).toBe(false);
     });
   });
 

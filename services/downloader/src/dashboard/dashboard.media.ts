@@ -9,7 +9,7 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 import type { Readable } from 'node:stream';
 import { ENV } from '../config/config.module';
 import type { Env } from '../config/env';
@@ -130,8 +130,24 @@ export async function resolveMediaKey(
     return SOURCE_KEY.test(key) && noDotSegments(key) ? { key, ext: 'mp4' } : null;
   }
 
+  return resolveRenderKey(pool, awemeId, generation, kind);
+}
+
+/**
+ * The rendered final, its SRT or its poster for one generation: a key from
+ * `final_renders` only when it lies in that generation's review folder, else the
+ * legacy `output/<aweme>.mp4` when that generation's run recorded exactly it.
+ * Shared by the media links and by "save to folder", so both only ever hand out
+ * the same files. Takes a transaction's client as well as the pool.
+ */
+export async function resolveRenderKey(
+  db: Pick<Pool | PoolClient, 'query'>,
+  awemeId: string,
+  generation: number,
+  kind: Exclude<MediaKind, 'source'>,
+): Promise<ResolvedKey | null> {
   const reviewDir = `output/review/${awemeId}/g${generation}/`;
-  const { rows } = await pool.query(
+  const { rows } = await db.query(
     `SELECT final_key, srt_key FROM localization.final_renders
       WHERE aweme_id = $1 AND generation = $2 AND state = 'rendered'`,
     [awemeId, generation],
@@ -146,7 +162,7 @@ export async function resolveMediaKey(
     }
   }
   if (kind === 'final') {
-    const legacy = await pool.query(
+    const legacy = await db.query(
       `SELECT 1 FROM localization.runs WHERE aweme_id = $1 AND generation = $2 AND output_key = $3`,
       [awemeId, generation, `output/${awemeId}.mp4`],
     );

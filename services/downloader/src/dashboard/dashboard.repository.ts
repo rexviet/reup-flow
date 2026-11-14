@@ -84,6 +84,9 @@ export interface VideoRecord {
   renders: RenderRow[];
   publications: PublicationRow[];
   reviewStatus: ReviewStatusRow[];
+  collection: { id: string; name: string; kind: string };
+  /** The episode within its 合集; kept when the video is moved out of it by hand. */
+  mixEpisode: number | null;
 }
 
 export function stageFactsOf(r: VideoRecord): StageFacts {
@@ -143,6 +146,19 @@ export interface StudioRequestRow {
   handledAt: string | null;
 }
 
+/** A request to save a video into its collection's folder; storage keys stay server side. */
+export interface FolderExportRow {
+  generation: number;
+  state: string;
+  targetSubdir: string;
+  fileStem: string;
+  /** The files written, once `done`. */
+  files: unknown;
+  error: string | null;
+  requestedAt: string;
+  handledAt: string | null;
+}
+
 export interface ChannelRow {
   secUserId: string;
   nickname: string | null;
@@ -177,6 +193,7 @@ export interface HostWorkerRow {
 const SELECT_VIDEOS = `
   SELECT v.aweme_id, v.sec_user_id, v."desc", v.create_time, v.duration_ms,
          v.status AS video_status, v.attempts AS download_attempts, v.last_error AS download_error,
+         v.mix_episode, c.id AS collection_id, c.name AS collection_name, c.kind AS collection_kind,
          p.nickname, COALESCE(p.auto_localize, false) AS auto_localize,
          CASE WHEN o.aweme_id IS NULL THEN NULL ELSE json_build_object(
            'generation', o.generation, 'state', o.state, 'dispatchedAt', o.dispatched_at,
@@ -208,6 +225,7 @@ const SELECT_VIDEOS = `
              ORDER BY s.generation)
            FROM localization.review_status s WHERE s.aweme_id = v.aweme_id), '[]'::json) AS review_status
     FROM videos v
+    JOIN collections c ON c.id = v.collection_id
     LEFT JOIN profiles p ON p.sec_user_id = v.sec_user_id
     LEFT JOIN localization_outbox o ON o.aweme_id = v.aweme_id`;
 
@@ -231,6 +249,8 @@ function toRecord(r: Record<string, any>): VideoRecord {
     renders: r.renders,
     publications: r.publications,
     reviewStatus: r.review_status,
+    collection: { id: r.collection_id, name: r.collection_name, kind: r.collection_kind },
+    mixEpisode: r.mix_episode,
   };
 }
 
@@ -248,6 +268,7 @@ export class DashboardRepository {
     };
     if (filter.awemeId !== undefined) where.push(`v.aweme_id = ${bind(filter.awemeId)}`);
     if (filter.channel !== undefined) where.push(`v.sec_user_id = ${bind(filter.channel)}`);
+    if (filter.collection !== undefined) where.push(`v.collection_id = ${bind(filter.collection)}::uuid`);
     if (filter.from !== undefined) where.push(`v.create_time >= ${bind(filter.from)}::timestamptz`);
     if (filter.to !== undefined) where.push(`v.create_time <= ${bind(filter.to)}::timestamptz`);
     if (filter.q !== undefined) {
@@ -322,6 +343,28 @@ export class DashboardRepository {
       ? {
           generation: Number(r.generation),
           state: r.state,
+          error: r.error,
+          requestedAt: r.requested_at.toISOString(),
+          handledAt: r.handled_at ? r.handled_at.toISOString() : null,
+        }
+      : null;
+  }
+
+  /** The newest request to save this video into a folder, whichever generation it named. */
+  async latestFolderExport(awemeId: string): Promise<FolderExportRow | null> {
+    const { rows } = await this.pool.query(
+      `SELECT generation, state, target_subdir, file_stem, files, error, requested_at, handled_at
+         FROM folder_exports WHERE aweme_id = $1 ORDER BY requested_at DESC, id DESC LIMIT 1`,
+      [awemeId],
+    );
+    const r = rows[0];
+    return r
+      ? {
+          generation: r.generation,
+          state: r.state,
+          targetSubdir: r.target_subdir,
+          fileStem: r.file_stem,
+          files: r.files,
           error: r.error,
           requestedAt: r.requested_at.toISOString(),
           handledAt: r.handled_at ? r.handled_at.toISOString() : null,

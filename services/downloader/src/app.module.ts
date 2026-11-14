@@ -15,6 +15,7 @@ import { LanesModule } from "./lanes/lanes.module";
 import { TemporalModule } from "./temporal/temporal.module";
 import { DashboardModule } from "./dashboard/dashboard.module";
 import { WorkspaceModule } from "./workspace/workspace.module";
+import { CollectionsModule } from "./collections/collections.module";
 
 /**
  * `ApiKeyGuard` is registered here as `APP_GUARD` -- the one place that
@@ -56,6 +57,7 @@ import { WorkspaceModule } from "./workspace/workspace.module";
     CookieModule,
     WorkspaceModule,
     DashboardModule,
+    CollectionsModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ApiKeyGuard }],
