@@ -87,9 +87,11 @@ class AnswerOnlyModel(WrapperModel):
             }
             return await self.wrapped.request(messages, plain, model_request_parameters)  # type: ignore[arg-type]
         response = await self.wrapped.request(messages, model_settings, model_request_parameters)
-        if response.finish_reason == "length":
-            raise ModelAPIError(
-                self.model_name,
-                f"the answer was cut off at {(model_settings or {}).get('max_tokens')} tokens",
-            )
+        cap = (model_settings or {}).get("max_tokens")
+        # Some providers report a cut-off answer as finished: a model that looped until
+        # the cap came back with `tool_call`, its arguments truncated mid-string. An
+        # answer that spent the whole cap is treated as cut off whatever the reason says.
+        spent_cap = cap is not None and response.usage.output_tokens >= cap
+        if response.finish_reason == "length" or spent_cap:
+            raise ModelAPIError(self.model_name, f"the answer was cut off at {cap} tokens")
         return response

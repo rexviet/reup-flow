@@ -13,6 +13,7 @@ from pydantic_ai.exceptions import ModelAPIError
 from pydantic_ai.messages import ModelRequest
 from pydantic_ai.models import ModelRequestParameters
 from pydantic_ai.models.function import AgentInfo, FunctionModel
+from pydantic_ai.usage import RequestUsage
 from temporalio.exceptions import ApplicationError
 
 from localization.agents import answer_only as ao
@@ -95,6 +96,28 @@ async def test_an_answer_cut_off_at_the_cap_is_a_model_error_temporal_retries() 
         raise info.value
     assert wrapped.value.non_retryable is False
     assert wrapped.value.type == "ModelAPIError" and wrapped.value.type not in _PERMANENT
+
+
+async def test_an_answer_that_spent_the_cap_is_cut_off_whatever_its_finish_reason() -> None:
+    """A provider reported a looping answer stopped at the cap as `tool_call`."""
+    looped = ModelResponse(
+        parts=[TextPart("á á á")],
+        finish_reason="tool_call",
+        usage=RequestUsage(output_tokens=ao.answer_cap(4)),
+    )
+    model = ao.AnswerOnlyModel(Recording(looped).model(), reasoning_off=True)
+    with pytest.raises(ModelAPIError, match="cut off at 2700 tokens"):
+        await model.request(MESSAGES, ao.answer_only_settings(4), PARAMS)
+
+
+async def test_an_answer_under_the_cap_passes() -> None:
+    short = ModelResponse(
+        parts=[TextPart("ok")],
+        finish_reason="tool_call",
+        usage=RequestUsage(output_tokens=ao.answer_cap(4) - 1),
+    )
+    model = ao.AnswerOnlyModel(Recording(short).model(), reasoning_off=True)
+    assert await model.request(MESSAGES, ao.answer_only_settings(4), PARAMS) is short
 
 
 async def test_a_cut_off_answer_is_not_judged_when_the_cap_was_taken_off() -> None:
