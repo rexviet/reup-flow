@@ -495,6 +495,9 @@ async def test_the_input_carries_the_collection_settings_read_at_dispatch(
         caption_text_color="#00ff88",
         cover_color="#202020",
         cover_opacity_pct=80,
+        cover_offset_pct=-4,
+        cover_width_pct=100,
+        cover_height_pct=12,
     )
     add_video(conn, "7001", collection=collection)
     assert await starter(info, temporal_client, env).run_once() == Outcome.DISPATCHED
@@ -505,6 +508,9 @@ async def test_the_input_carries_the_collection_settings_read_at_dispatch(
         "caption_color": "#00ff88",
         "cover_color": "#202020",
         "cover_opacity_pct": 80,
+        "cover_offset_pct": -4,
+        "cover_width_pct": 100,
+        "cover_height_pct": 12,
     }
     assert (await started_input(temporal_client, workflow_id("7001", 1)))["collection"] == expected
     # Editing the collection afterwards changes runs dispatched afterwards, never this one.
@@ -532,6 +538,9 @@ async def test_a_collection_without_settings_leaves_every_setting_to_the_default
         "caption_color": None,
         "cover_color": None,
         "cover_opacity_pct": None,
+        "cover_offset_pct": None,
+        "cover_width_pct": None,
+        "cover_height_pct": None,
     }
 
 
@@ -704,6 +713,9 @@ NO_SETTINGS = dict(
     caption_text_color=None,
     cover_color=None,
     cover_opacity_pct=None,
+    cover_offset_pct=None,
+    cover_width_pct=None,
+    cover_height_pct=None,
 )
 
 

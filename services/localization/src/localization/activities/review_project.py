@@ -10,6 +10,7 @@ from pathlib import Path
 
 from temporalio import activity
 
+from localization.activities.cover_geometry import CoverGeometry, place_cover
 from localization.activities.layout_captions import (
     FontMeter,
     caption_px,
@@ -88,16 +89,28 @@ def project_html(
     caption_color: str | None = None,
     cover_color: str | None = None,
     cover_opacity_pct: int | None = None,
+    geometry: CoverGeometry | None = None,
 ) -> bytes:
     """Escaped text and fixed markup; no caption/reason becomes executable script. The
     colours are the collection's, validated as `HexColor` by the manifest; a project
-    without them is drawn as before (yellow text, white blur)."""
+    without them is drawn as before (yellow text, white blur). `geometry` is where the
+    collection puts the cover box; without it the box is the one found from the source."""
     duration = ingest.duration_ms / 1000
     video_name, mix_name, font_name = (Path(a.key).name for a in (video, mixed, font))
     # The caption and source mask share one vertical box. Measure the actual bundled
     # font, including padding/outline, instead of letting the browser wrap beyond it.
     top = subtitles.region.y if subtitles.region is not None else round(ingest.height * 0.8)
     height = subtitles.region.h if subtitles.region is not None else round(ingest.height * 0.14)
+    geometry = geometry or CoverGeometry()
+    cover = place_cover(ingest.height, top, height, 60, geometry)
+    top, height = cover.top, cover.height
+    # A long caption widens its own box up to 90% of the frame, or to the collection's
+    # width when that is wider.
+    if geometry.width_pct is None:
+        base_width, max_width = ingest.width * 0.6, ingest.width * 0.9
+    else:
+        base_width = ingest.width * geometry.width_pct / 100
+        max_width = ingest.width * max(90, geometry.width_pct) / 100
     meter = FontMeter(str(font_path))
     px = caption_px(ingest.height)
     gap, stroke = line_gap_px(px), stroke_px(px)
@@ -110,35 +123,36 @@ def project_html(
             f"top:{max(0, bottom - box_height)}px;height:{box_height}px"
         )
 
-    default_box = box_style(ingest.width * 0.6, height)
+    default_box = box_style(base_width, height)
     fitted, boxes = {}, {}
     visible = sorted((c for c in cues if c.text_vi.strip()), key=lambda c: c.start_ms)
     for c in visible:
         longest = max(meter.width(word, px) for word in c.text_vi.split())
-        width = max(ingest.width * 0.6, min(ingest.width * 0.9, longest + 16))
+        width = max(base_width, min(max_width, longest + 16))
         while True:
             fit = fit_at_size(c.text_vi, meter, width - 16, px)
-            if len(fit.lines) <= 2 or width >= ingest.width * 0.9:
+            if len(fit.lines) <= 2 or width >= max_width:
                 break
-            width = min(ingest.width * 0.9, width + 16)
+            width = min(max_width, width + 16)
         box_height = max(height, len(fit.lines) * gap + 8)
         if box_height > ingest.height:
             raise ValueError(f"caption box exceeds the frame at {px}px")
         fitted[c.id], boxes[c.id] = fit, box_style(width, box_height)
-    geometry = "".join(f"#cue-{identity}{{{box}}}" for identity, box in boxes.items())
+    cue_boxes = "".join(f"#cue-{identity}{{{box}}}" for identity, box in boxes.items())
     text_color = caption_color or DEFAULT_CAPTION_COLOR
+    left_width = f"left:{(100 - cover.width_pct) / 2:g}%;width:{cover.width_pct:g}%;"
     style = f"""
 @font-face{{font-family:Review;src:url('{font_name}')}}
 body{{margin:0;background:#181818}}#review{{position:relative;overflow:hidden;
 width:{ingest.width}px;height:{ingest.height}px}}video{{width:100%;height:100%}}
-.caption,.source-mask{{position:absolute;left:20%;width:60%;
+.caption,.source-mask{{position:absolute;{left_width}
 box-sizing:border-box}}
 .caption{{top:{top}px;height:{height}px;padding:4px 8px;
 display:flex;align-items:center;justify-content:center;font:{px}px/{gap}px Review,sans-serif;
 color:{text_color};text-align:center;white-space:pre;-webkit-text-stroke:{stroke}px #000;
 paint-order:stroke fill}}
 .source-mask{{{_mask_style(cover_color, cover_opacity_pct)}}}
-{geometry}
+{cue_boxes}
 """
     # Contiguous spans keep the box visible through gaps. Only a long caption's
     # own span expands; a long line elsewhere must not widen every other caption.
@@ -225,10 +239,17 @@ class ReviewProjectActivity:
                 "cover_color": collection.cover_color or self._cover_color,
                 "cover_opacity_pct": self._cover_opacity_pct if opacity is None else opacity,
             }
+        # Only the geometry the collection sets: a manifest without it keeps the automatic box.
+        geometry = {
+            name: value
+            for name in ("cover_offset_pct", "cover_width_pct", "cover_height_pct")
+            if (value := getattr(collection, name)) is not None
+        }
         return {
             "caption_color": collection.caption_color,
             "bgm_offset_db": collection.bgm_offset_db,
             **cover,
+            **geometry,
         }
 
     @activity.defn(name="capture_review_source")
@@ -401,6 +422,11 @@ class ReviewProjectActivity:
                         caption_color=settings.get("caption_color"),
                         cover_color=settings.get("cover_color"),
                         cover_opacity_pct=settings.get("cover_opacity_pct"),
+                        geometry=CoverGeometry(
+                            offset_pct=settings.get("cover_offset_pct"),
+                            width_pct=settings.get("cover_width_pct"),
+                            height_pct=settings.get("cover_height_pct"),
+                        ),
                     ),
                     ".html",
                 ),

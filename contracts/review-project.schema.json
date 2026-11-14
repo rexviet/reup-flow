@@ -365,6 +365,34 @@
       "default": null,
       "title": "Cover Color"
     },
+    "cover_height_pct": {
+      "anyOf": [
+        {
+          "maximum": 50,
+          "minimum": 3,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cover Height Pct"
+    },
+    "cover_offset_pct": {
+      "anyOf": [
+        {
+          "maximum": 50,
+          "minimum": -50,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cover Offset Pct"
+    },
     "cover_opacity_pct": {
       "anyOf": [
         {
@@ -378,6 +406,20 @@
       ],
       "default": null,
       "title": "Cover Opacity Pct"
+    },
+    "cover_width_pct": {
+      "anyOf": [
+        {
+          "maximum": 100,
+          "minimum": 20,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cover Width Pct"
     },
     "cues": {
       "items": {

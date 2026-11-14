@@ -8,6 +8,7 @@ import uuid
 from pathlib import Path
 from types import SimpleNamespace
 
+from localization.activities.cover_geometry import CoverGeometry
 from localization.activities.review_project import (
     archive_html_dependencies,
     asset_filename,
@@ -98,12 +99,24 @@ class Repository:
         raise ValueError("cyclic revision ancestry")
 
     def prepare(
-        self, base, cues, visual, *, revision=None, operation=None, mixed=None, studio_files=None
+        self,
+        base,
+        cues,
+        visual,
+        *,
+        revision=None,
+        operation=None,
+        mixed=None,
+        studio_files=None,
+        geometry: CoverGeometry | None = None,
     ):
+        """`geometry` replaces the cover box `base` keeps (a cover relayout); without it the
+        new revision draws the box as `base` does."""
         # Source masks and native timing stay generated, while visual edits use cue IDs.
         from localization.review_bridge.visual import apply_visual
 
         mixed = mixed or base.mixed_audio
+        geometry = CoverGeometry.of(base) if geometry is None else geometry
         subtitles = SimpleNamespace(
             region=base.source_region,
             cues=[SimpleNamespace(start_ms=s, end_ms=e) for s, e in base.source_cues],
@@ -124,6 +137,7 @@ class Repository:
                     caption_color=base.caption_color,
                     cover_color=base.cover_color,
                     cover_opacity_pct=base.cover_opacity_pct,
+                    geometry=geometry,
                 ),
                 visual,
             )
@@ -137,6 +151,9 @@ class Repository:
                 "html": self.asset(base, source, ".html"),
                 "srt": self.asset(base, srt_document(cues), ".srt"),
                 "studio_files": base.studio_files if studio_files is None else studio_files,
+                "cover_offset_pct": geometry.offset_pct,
+                "cover_width_pct": geometry.width_pct,
+                "cover_height_pct": geometry.height_pct,
             }
         )
         candidate = ReviewProjectManifest.model_validate(candidate.model_dump())

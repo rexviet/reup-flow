@@ -30,6 +30,11 @@ MusicOffsetDb = Annotated[
 CollectionId = Annotated[
     str, Field(pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 ]
+# Where the cover box goes, as whole percentages of the frame (`activities.cover_geometry`):
+# the shift of its centre (of the height, positive is down), its width and its height.
+CoverOffsetPct = Annotated[int, Field(ge=-50, le=50)]
+CoverWidthPct = Annotated[int, Field(ge=20, le=100)]
+CoverHeightPct = Annotated[int, Field(ge=3, le=50)]
 # The caption colour of a run whose collection sets none, in both delivery modes.
 DEFAULT_CAPTION_COLOR = "#ffff00"
 
@@ -44,3 +49,7 @@ class CollectionSnapshot(Contract):
     caption_color: HexColor | None = None
     cover_color: HexColor | None = None
     cover_opacity_pct: OpacityPct | None = None
+    # `None` keeps the box found from the source subtitles.
+    cover_offset_pct: CoverOffsetPct | None = None
+    cover_width_pct: CoverWidthPct | None = None
+    cover_height_pct: CoverHeightPct | None = None

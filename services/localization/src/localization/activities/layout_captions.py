@@ -23,6 +23,7 @@ from pydantic import ValidationError
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from localization.activities.cover_geometry import CoverGeometry, place_cover_region
 from localization.activities.script_document import read_script
 from localization.contracts import (
     DEFAULT_CAPTION_COLOR,
@@ -419,15 +420,20 @@ def lay_out(
     cover_color: str,
     cover_opacity_pct: int,
     caption_color: str = DEFAULT_CAPTION_COLOR,
+    geometry: CoverGeometry | None = None,
 ) -> EditSpec:
+    """`geometry` is where the collection puts the box (cover and captions alike); without
+    it the box is the one grown from the detected subtitle, or the safe zone."""
+    geometry = geometry or CoverGeometry()
     spans = caption_spans(script, doc, ingest.duration_ms)
     cover = None
     # A cover hides the burned-in text so the caption can stand in its place. With no
     # caption to draw it would only hide the picture behind that text.
     if subtitles.region is not None and spans:
         check_cover_plausible(subtitles.region, ingest.width, ingest.height)
+        grown = grow_cover(subtitles.region, ingest.width, ingest.height)
         box = caption_box_for(
-            grow_cover(subtitles.region, ingest.width, ingest.height), ingest.height
+            place_cover_region(ingest.width, ingest.height, grown, geometry), ingest.height
         )
         # The black box that is drawn is the box the captions are laid out in: a cover
         # shorter than two lines of caption would leave a caption's text outside it.
@@ -436,7 +442,9 @@ def lay_out(
             only_with_captions=True,
         )
     else:
-        box = safe_zone(ingest.width, ingest.height)
+        box = place_cover_region(
+            ingest.width, ingest.height, safe_zone(ingest.width, ingest.height), geometry
+        )
     check_glyph_coverage(spans, meter)
     return EditSpec(
         source_key=source_key,
@@ -551,6 +559,7 @@ class LayoutCaptionsActivity:
                     self._cover_opacity_pct if cover_opacity_pct is None else cover_opacity_pct
                 ),
                 caption_color=(collection and collection.caption_color) or DEFAULT_CAPTION_COLOR,
+                geometry=CoverGeometry.of(collection),
             )
         except ValidationError as exc:
             # The same inputs fail the same way (too many captions, say).

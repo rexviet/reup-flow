@@ -89,3 +89,30 @@ def test_a_partial_cover_setting_is_completed_from_the_worker_cover(
     assert (manifest.cover_color, manifest.cover_opacity_pct) == cover[:2]
     assert f".source-mask{{background:{cover[2]}}}" in html
     assert "backdrop-filter" not in html
+
+
+def test_the_project_draws_the_cover_box_where_the_collection_puts_it(
+    review_store, tmp_path
+) -> None:
+    """The detected band is 290..330 on a 360 px frame: 3% lower is 11 px lower, and the
+    box spans the whole width. Caption and mask share the box."""
+    manifest, html = build(
+        review_store, tmp_path, snapshot(cover_offset_pct=3, cover_width_pct=100)
+    )
+    assert (manifest.cover_offset_pct, manifest.cover_width_pct, manifest.cover_height_pct) == (
+        3,
+        100,
+        None,
+    )
+    assert ".caption,.source-mask{position:absolute;left:0%;width:100%;" in html
+    assert ".caption{top:301px;height:40px;" in html
+    assert 'style="left:0%;width:100%;top:301px;height:40px"' in html
+
+
+def test_a_set_height_is_a_share_of_the_frame_around_the_same_centre(
+    review_store, tmp_path
+) -> None:
+    manifest, html = build(review_store, tmp_path, snapshot(cover_height_pct=20))
+    # 20% of 360 is 72 px, centred on 310 as the detected band was.
+    assert ".caption{top:274px;height:72px;" in html
+    assert ".caption,.source-mask{position:absolute;left:20%;width:60%;" in html

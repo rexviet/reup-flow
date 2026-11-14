@@ -33,7 +33,12 @@ GRANTS = (
 def db() -> Iterator[psycopg.Connection]:
     for _, conn in scratch_database(INIT, OUTBOX, GRANTS, COLLECTIONS):
         collection = add_channel_collection(
-            conn, "c", name="Kênh", caption_text_color="#00ff88", cover_opacity_pct=80
+            conn,
+            "c",
+            name="Kênh",
+            caption_text_color="#00ff88",
+            cover_opacity_pct=80,
+            cover_width_pct=100,
         )
         conn.execute(
             "INSERT INTO videos (aweme_id, sec_user_id, create_time, storage_path, status, "
@@ -51,7 +56,7 @@ def test_the_starter_can_run_every_statement_it_uses(db: psycopg.Connection) -> 
     assert video is not None
     assert video[:2] == ("s3://b/source/1.mp4", "c")
     # The collection's settings are read by the same role, in the same statement.
-    assert video[3:] == ("Kênh", None, "#00ff88", None, 80)
+    assert video[3:] == ("Kênh", None, "#00ff88", None, 80, None, 100, None)
     db.execute(DISPATCHED_SQL, ("video-1-g1", "1", 1))
     db.execute(REJECTED_SQL, ("x", "1", 1))
     db.execute(RELEASED_SQL, {"error": "e", "delay": 30, "aweme_id": "1", "generation": 1})

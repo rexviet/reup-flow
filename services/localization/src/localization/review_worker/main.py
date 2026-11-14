@@ -1,9 +1,9 @@
 """python -m localization.review_worker.main
 
-One loop every 5 seconds: heartbeat, Studio open requests, a scan every 60 seconds,
-save-to-folder requests and, when the disk allows, one final render at a time. Studio
-requests, folder exports and the render each run on their own thread, so none of them holds
-up the heartbeat or another.
+One loop every 5 seconds: heartbeat, Studio open requests, every 60 seconds a cover
+relayout and a scan of the videos awaiting review, save-to-folder requests and, when the
+disk allows, one final render at a time. Studio requests, folder exports and the render each
+run on their own thread, so none of them holds up the heartbeat or another.
 
 `REVIEW_WORKER_ROLES` splits this between machines: a Windows PC that only renders runs
 `render` (no Studio, no scan of its empty `data/review`); the Mac then runs `studio`.
@@ -23,6 +23,7 @@ from localization import platform
 from localization.config import load_settings
 from localization.review_bridge.repository import Repository
 from localization.review_worker import (
+    cover_relayout,
     final_render,
     folder_exports,
     heartbeat,
@@ -160,6 +161,8 @@ class Worker:
             self._export_work()
         if time.monotonic() - self.last_scan >= SCAN_EVERY_S:
             self.last_scan = time.monotonic()
+            # Before the scan, so that the status it records is the new revision's.
+            cover_relayout.relayout(conn, self.repo)
             review_scan.scan(conn, self.repo)
 
     def _export_work(self) -> None:

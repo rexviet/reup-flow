@@ -16,7 +16,11 @@ MIGRATIONS = REPO / "services" / "downloader" / "migrations"
 INIT = (MIGRATIONS / "260824-init-schema.sql").read_text()
 OUTBOX = (MIGRATIONS / "261026-localization-outbox.sql").read_text()
 DASHBOARD_INTAKE = (MIGRATIONS / "261112-dashboard-intake.sql").read_text()
-COLLECTIONS = (MIGRATIONS / "261114-collections.sql").read_text()
+# The collections table as the code reads it: the table and the columns added to it since.
+COLLECTIONS = "\n".join(
+    (MIGRATIONS / name).read_text()
+    for name in ("261114-collections.sql", "261114-collection-cover-geometry.sql")
+)
 
 
 def add_channel_collection(

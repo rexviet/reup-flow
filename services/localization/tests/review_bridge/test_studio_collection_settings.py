@@ -75,3 +75,35 @@ def test_a_project_from_before_collections_saves_as_it_always_looked(
     )
     assert "color:#ffff00;" in html
     assert "background:rgba(255,255,255,.25);backdrop-filter:blur(12px)" in html
+
+
+GEOMETRY = dict(cover_offset_pct=3, cover_width_pct=100, cover_height_pct=None)
+BOX = ".caption,.source-mask{position:absolute;left:0%;width:100%;"
+
+
+def test_a_studio_save_keeps_the_collection_cover_box(review_store, tmp_path) -> None:
+    collection = CollectionSnapshot(id="0b6f3c1e-2d4a-4f8e-9a51-7c2e8d9f0a13", name="x", **GEOMETRY)
+    service = studio(review_store, tmp_path, collection)
+    save_text(service, "Câu đã sửa")
+    manifest, html = current(service)
+    assert {k: getattr(manifest, k) for k in GEOMETRY} == GEOMETRY
+    assert BOX in html and ".caption{top:301px;height:40px;" in html
+
+
+def test_a_new_revision_can_be_drawn_with_another_cover_box(review_store, tmp_path) -> None:
+    from localization.activities.cover_geometry import CoverGeometry
+
+    service = studio(review_store, tmp_path)
+    repo = service.repo
+    _, base, _ = repo.current("7001", 1)
+    candidate = repo.prepare(
+        base, base.cues, {}, operation="cover-relayout", geometry=CoverGeometry(3, 100, None)
+    )
+    assert {k: getattr(candidate, k) for k in GEOMETRY} == GEOMETRY
+    assert candidate.parent_revision_id == base.revision_id
+    assert candidate.operation_id == "cover-relayout"
+    assert BOX in repo.read_asset(candidate.html).decode()
+    # Back to the automatic box: the geometry leaves the manifest again.
+    automatic = repo.prepare(candidate, candidate.cues, {}, geometry=CoverGeometry())
+    assert (automatic.cover_offset_pct, automatic.cover_width_pct) == (None, None)
+    assert repo.read_asset(automatic.html) == repo.read_asset(base.html)

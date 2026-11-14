@@ -78,7 +78,8 @@ RETURNING aweme_id, generation, dispatch_attempts
 # run already started. Every video has a collection (`collection_id` is NOT NULL).
 VIDEO_SQL = """
 SELECT v.storage_path, v.sec_user_id, c.id::text AS collection_id, c.name AS collection_name,
-       c.bgm_offset_db, c.caption_text_color, c.cover_color, c.cover_opacity_pct
+       c.bgm_offset_db, c.caption_text_color, c.cover_color, c.cover_opacity_pct,
+       c.cover_offset_pct, c.cover_width_pct, c.cover_height_pct
   FROM videos v JOIN collections c ON c.id = v.collection_id
  WHERE v.aweme_id = %s
 """
@@ -316,6 +317,9 @@ class OutboxStarter:
                     caption_color=row["caption_text_color"],
                     cover_color=row["cover_color"],
                     cover_opacity_pct=row["cover_opacity_pct"],
+                    cover_offset_pct=row["cover_offset_pct"],
+                    cover_width_pct=row["cover_width_pct"],
+                    cover_height_pct=row["cover_height_pct"],
                 ),
                 aweme_id=claimed.aweme_id,
                 channel_id=validate_channel_id(row["sec_user_id"]),

@@ -5,7 +5,14 @@ from typing import Annotated, Literal
 from pydantic import Field, model_validator
 
 from localization.contracts.base import Contract
-from localization.contracts.collection import HexColor, MusicOffsetDb, OpacityPct
+from localization.contracts.collection import (
+    CoverHeightPct,
+    CoverOffsetPct,
+    CoverWidthPct,
+    HexColor,
+    MusicOffsetDb,
+    OpacityPct,
+)
 from localization.contracts.geometry import BBox, NonNegativeInt, PositiveInt
 from localization.contracts.ids import AwemeId, Sha256, SourceKey, StorageKey
 from localization.contracts.voice import VoiceRef
@@ -91,6 +98,11 @@ class ReviewProjectManifest(Contract):
     cover_color: HexColor | None = None
     cover_opacity_pct: OpacityPct | None = None
     bgm_offset_db: MusicOffsetDb | None = None
+    # Where the cover box goes; unset, it is the box found from the source subtitles. A
+    # cover relayout makes a new revision with the collection's current values.
+    cover_offset_pct: CoverOffsetPct | None = None
+    cover_width_pct: CoverWidthPct | None = None
+    cover_height_pct: CoverHeightPct | None = None
 
     @model_validator(mode="after")
     def _closed_dependencies(self) -> "ReviewProjectManifest":

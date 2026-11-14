@@ -333,6 +333,38 @@ async def test_the_cover_is_the_collection_cover_with_the_worker_defaults_for_th
     assert (laid_out.cover.color, laid_out.cover.opacity_pct) == cover
 
 
+async def test_the_cover_and_the_captions_go_where_the_collection_puts_the_box(
+    store: ObjectStore,
+) -> None:
+    ref, subs, dub = await stage(store, ["Xin chào"])
+    settings = {"cover_offset_pct": -10, "cover_width_pct": 100, "cover_height_pct": 10}
+    _, laid_out = await run(store, ref, subs, dub, spec=in_collection(**settings))
+    grown = grow_cover(subs.region, 1080, 1920)
+    # 10% of 1920 tall (192 px), centred 192 px above the grown box's centre, full width.
+    assert (grown.y, grown.h) == (1495, 110)
+    assert laid_out.caption_box == BBox(x=0, y=1495 + 55 - 192 - 96, w=1080, h=192)
+    assert laid_out.cover is not None and laid_out.cover.region == laid_out.caption_box
+
+
+async def test_a_collection_box_lower_than_two_lines_still_holds_them(store: ObjectStore) -> None:
+    ref, subs, dub = await stage(store, ["Xin chào"])
+    _, laid_out = await run(store, ref, subs, dub, spec=in_collection(cover_height_pct=3))
+    least = layout_module.min_box_height(layout_module.caption_px(1920))
+    assert least > round(1920 * 0.03) and laid_out.caption_box.h == least
+    assert laid_out.cover is not None and laid_out.cover.region == laid_out.caption_box
+
+
+async def test_without_a_burned_in_subtitle_the_safe_zone_follows_the_collection_box(
+    store: ObjectStore,
+) -> None:
+    ref, subs, dub = await stage(store, ["Xin chào"], region=None)
+    _, spec = await run(store, ref, subs, dub, spec=in_collection(cover_offset_pct=-50))
+    zone = safe_zone(1080, 1920)
+    assert spec.cover is None
+    # Half the frame (960 px) higher.
+    assert spec.caption_box == zone.model_copy(update={"y": zone.y - 960})
+
+
 async def test_without_a_burned_in_subtitle_there_is_no_cover(store: ObjectStore) -> None:
     ref, subs, dub = await stage(store, ["Xin chào"], region=None)
     _, spec = await run(store, ref, subs, dub)
