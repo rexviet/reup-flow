@@ -40,6 +40,7 @@ from localization.contracts.base import Contract
 from localization.contracts.models import STRETCH_MAX, LocalizedLine, LocalizedLines
 from localization.contracts.source_evidence import SourceEvidence
 from localization.text.glyphs import foreign_chars, foreign_chars_note
+from localization.text.repeats import collapse_repeats
 from localization.text.safety import normalise
 from localization.text.vi_syllables import count_syllables, estimate_ms
 
@@ -153,7 +154,7 @@ async def load_context(deps: LocalizerDeps, ports: LocalizerPorts) -> LocalizerC
             start_ms=s.start_ms,
             end_ms=s.end_ms,
             slot_ms=s.slot_ms if s.slot_ms is not None else s.end_ms - s.start_ms,
-            text=s.text,
+            text=collapse_repeats(s.text),
             language=s.language,
         )
         for s in await ports.segments(deps.transcript_key)
@@ -233,7 +234,9 @@ def _source_evidence_block(context: LocalizerContext) -> str:
         return ""
     text = "\n".join(
         f"Segment [{e.segment_id}], frame {r.time_ms} ms: {r.text}"
-        for e in context.source_evidence for r in e.readings if r.text.strip()
+        for e in context.source_evidence
+        for r in e.readings
+        if r.text.strip()
     )
     return "\n\nTimestamped original-video subtitles (source evidence):\n" + wrap_untrusted(text)
 

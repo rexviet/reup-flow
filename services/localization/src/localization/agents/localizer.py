@@ -26,6 +26,7 @@ from localization.contracts.base import Contract
 from localization.contracts.ids import AwemeId, ChannelId, StorageKey
 from localization.contracts.models import LocalizedLines
 from localization.text.glyphs import foreign_chars, foreign_chars_note
+from localization.text.repeats import collapse_repeats
 from localization.text.safety import normalise
 from localization.text.vi_syllables import count_syllables, estimate_ms
 
@@ -217,7 +218,7 @@ async def read_transcript(
         budget = syllable_budget(slot, deps.syllables_per_sec)
         lines.append(
             f"[{s.id}] {s.start_ms}-{s.end_ms} ms, slot {slot} ms, up to {budget} syllables: "
-            f"{s.text} (detected language {s.language or 'unknown'})"
+            f"{collapse_repeats(s.text)} (detected language {s.language or 'unknown'})"
         )
     if not lines:
         return "No segments in that range."
