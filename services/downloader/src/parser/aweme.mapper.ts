@@ -1,5 +1,32 @@
 import { playAddrUrls, type Aweme } from './parser.client';
 import type { VideoUpsert } from '../db/videos.repository';
+import { cleanDisplayName } from './display-name';
+
+/** The Douyin 合集 (collection) an item belongs to, read from its `mix_info`. */
+export interface AwemeMix {
+  /** Douyin's id, a digit string without leading zero. Kept as text: it exceeds 2^53. */
+  mixId: string;
+  /** Cleaned for display (`cleanDisplayName`); the `mixId` when Douyin sent none. */
+  mixName: string;
+  /** 1-based position in the 合集 (fits a Postgres integer), or null when Douyin sent no usable one. */
+  episode: number | null;
+}
+
+/**
+ * A `videos` row plus what the item says about where it belongs. The two extra
+ * fields are not columns of `videos`; `upsertMany` writes only the columns it
+ * knows, so they ride along until collection assignment reads them.
+ */
+export interface MappedAweme extends VideoUpsert {
+  /** Null when the item carries no usable `mix_info` -- never a guessed 合集. */
+  mix: AwemeMix | null;
+  /**
+   * The channel name from `author.nickname`, cleaned for display. Null when
+   * Douyin sent none or the item's author is a different account; the
+   * profile's `sec_user_id` when the name cleans to nothing.
+   */
+  authorNickname: string | null;
+}
 
 /**
  * One `aweme_list` item -> one `videos` row, or `null` if the item cannot
@@ -37,7 +64,7 @@ import type { VideoUpsert } from '../db/videos.repository';
  * `url_expires_at` is deliberately NOT computed here. It comes from the
  * database clock inside `upsertMany`, like every other lease in this schema.
  */
-export function toVideoUpsert(aweme: Aweme, secUserId: string): VideoUpsert | null {
+export function toVideoUpsert(aweme: Aweme, secUserId: string): MappedAweme | null {
   if (typeof aweme !== 'object' || aweme === null) return null;
 
   const awemeId = text(aweme.aweme_id);
@@ -70,7 +97,78 @@ export function toVideoUpsert(aweme: Aweme, secUserId: string): VideoUpsert | nu
     playAddr: urls[0] ?? null,
     status: imagePost ? 'skipped' : 'pending',
     lastError: imagePost ? IMAGE_POST_REASON : null,
+    mix: readMix(aweme.mix_info),
+    authorNickname: readNickname(aweme.author, secUserId),
   };
+}
+
+/**
+ * `mix_info` -> the 合集, or null. Present on both `aweme/post` and
+ * `aweme/detail` items (checked 2026-11-14), so no extra request is needed.
+ *
+ * Same rule as the rest of this file: a field that cannot honestly name a 合集
+ * yields null and the video falls back to its channel's collection, rather than
+ * being grouped under a guess. `mix_id` must be a digit STRING -- a JSON number
+ * of that size has already lost precision, so it is refused, not stringified.
+ * A missing or non-positive episode keeps the 合集 and nulls only the episode.
+ */
+function readMix(mixInfo: unknown): AwemeMix | null {
+  if (!isRecord(mixInfo)) return null;
+
+  const mixId = mixInfo.mix_id;
+  if (typeof mixId !== 'string' || !MIX_ID.test(mixId)) return null;
+
+  const statis = mixInfo.statis;
+  return {
+    mixId,
+    mixName: cleanDisplayName(mixInfo.mix_name, mixId),
+    episode: readEpisode(isRecord(statis) ? statis.current_episode : undefined),
+  };
+}
+
+/**
+ * A digit string with no leading zero. `"0"` is refused: Douyin uses zero ids
+ * to mean "none", and no real 合集 has id 0.
+ */
+const MIX_ID = /^[1-9]\d*$/;
+
+/** The largest value a Postgres `integer` column holds. */
+const PG_INTEGER_MAX = 2_147_483_647;
+
+/**
+ * A positive integer that fits a Postgres `integer`, or null.
+ *
+ * A number or a plain decimal digit string only. `numeric()` is not reused
+ * here because `Number()` reads `'0x10'` as 16 and `'1e1'` as 10, which are
+ * not episode numbers anyone sent. The upper bound matters because rows are
+ * inserted page by page: one out-of-range episode would fail the whole
+ * multi-row insert, losing the page, not just the video.
+ */
+function readEpisode(value: unknown): number | null {
+  let n: number;
+  if (typeof value === 'number') n = value;
+  else if (typeof value === 'string' && /^\d+$/.test(value)) n = Number(value);
+  else return null;
+  return Number.isSafeInteger(n) && n > 0 && n <= PG_INTEGER_MAX ? n : null;
+}
+
+/**
+ * `author.nickname`, cleaned. Null when Douyin sent no name at all (absence is
+ * not invented into a placeholder); `secUserId` when a name was sent but is
+ * nothing but invisible characters, since it still names this channel.
+ *
+ * Also null when the item's `author.sec_uid` names someone OTHER than the
+ * channel being read: a co-created or reposted item on this channel's list
+ * would otherwise give this channel another person's name. An item with no
+ * `sec_uid` cannot be checked and is read as this channel's own post, which is
+ * what being on its post list means.
+ */
+function readNickname(author: unknown, secUserId: string): string | null {
+  if (!isRecord(author)) return null;
+  const authorSecUid = text(author.sec_uid);
+  if (authorSecUid !== null && authorSecUid !== secUserId) return null;
+  const raw = text(author.nickname);
+  return raw === null ? null : cleanDisplayName(raw, secUserId);
 }
 
 /**
