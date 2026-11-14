@@ -5,6 +5,7 @@ import {
   getDashboardVideo,
   getDashboardVideos,
   getHealth,
+  listCollections,
   listJobs,
   runAction,
 } from '../api/client';
@@ -35,6 +36,14 @@ export function useAttention() {
 export function useChannels() {
   const fetcher = useCallback(() => getChannels(), []);
   return usePolling(fetcher, LIST_POLL_MS, { pauseWhenHidden: true });
+}
+
+/** Collections change only when someone edits them here, so a slower poll is enough. */
+export const COLLECTIONS_POLL_MS = 10_000;
+
+export function useCollections() {
+  const fetcher = useCallback(() => listCollections(), []);
+  return usePolling(fetcher, COLLECTIONS_POLL_MS, { pauseWhenHidden: true });
 }
 
 export function useJobs() {

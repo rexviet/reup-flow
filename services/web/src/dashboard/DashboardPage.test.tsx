@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as client from '../api/client';
 import { DashboardPage } from './DashboardPage';
-import { emptyAttention, emptyChannels, health, item, list } from './test-fixtures';
+import { collection, emptyAttention, emptyChannels, health, item, list } from './test-fixtures';
 
 vi.mock('../api/client');
 
@@ -18,6 +18,7 @@ beforeEach(() => {
   vi.mocked(client.getDashboardVideos).mockResolvedValue(list([review, held, failed]));
   vi.mocked(client.getAttention).mockResolvedValue(emptyAttention);
   vi.mocked(client.getChannels).mockResolvedValue(emptyChannels);
+  vi.mocked(client.listCollections).mockResolvedValue({ items: [] });
 });
 
 afterEach(() => {
@@ -357,19 +358,19 @@ describe('DashboardPage attention and channels', () => {
     await userEvent.click(within(form).getByLabelText('Tự localize'));
     await userEvent.click(screen.getByRole('button', { name: /download all/i }));
     await flush();
-    expect(client.createJob).toHaveBeenCalledWith('https://www.douyin.com/user/abc', true);
+    expect(client.createJob).toHaveBeenCalledWith('https://www.douyin.com/user/abc', true, undefined);
 
     await userEvent.type(screen.getByLabelText(/url profile/i), 'https://www.douyin.com/video/7100');
     await userEvent.click(within(form).getByLabelText('Localize ngay'));
     await userEvent.click(screen.getByRole('button', { name: /download all/i }));
     await flush();
-    expect(client.createVideo).toHaveBeenCalledWith('https://www.douyin.com/video/7100', true);
+    expect(client.createVideo).toHaveBeenCalledWith('https://www.douyin.com/video/7100', true, undefined);
 
     // Without the box ticked the channel's own switch decides: the flag is left out, not sent as false.
     await userEvent.type(screen.getByLabelText(/url profile/i), 'https://www.douyin.com/video/7101');
     await userEvent.click(screen.getByRole('button', { name: /download all/i }));
     await flush();
-    expect(client.createVideo).toHaveBeenLastCalledWith('https://www.douyin.com/video/7101', undefined);
+    expect(client.createVideo).toHaveBeenLastCalledWith('https://www.douyin.com/video/7101', undefined, undefined);
   });
 
   it('names the revision and mismatch count in the approve confirmation and blocks a double job retry', async () => {
@@ -393,5 +394,132 @@ describe('DashboardPage attention and channels', () => {
     await userEvent.click(retry);
     expect(retry).toBeDisabled();
     await act(async () => finish());
+  });
+});
+
+const MIX_ID = '99999999-2222-4333-8444-555555555555';
+const withFolder = collection({ id: MIX_ID, name: 'Phim A', kind: 'mix', save_subdir: 'phim-a' });
+const noFolder = collection();
+
+describe('DashboardPage collections', () => {
+  beforeEach(() => {
+    vi.mocked(client.listCollections).mockResolvedValue({ items: [withFolder, noFolder] });
+  });
+
+  it('filters the list by collection', async () => {
+    render(<DashboardPage />);
+    await flush();
+    await userEvent.selectOptions(screen.getByLabelText('Lọc theo collection'), MIX_ID);
+    await flush();
+    expect(client.getDashboardVideos).toHaveBeenLastCalledWith(expect.objectContaining({ collection: MIX_ID, offset: 0 }));
+    await userEvent.selectOptions(screen.getByLabelText('Lọc theo collection'), '');
+    await flush();
+    expect(vi.mocked(client.getDashboardVideos).mock.lastCall?.[0]).not.toHaveProperty('collection');
+  });
+
+  it('shows each video\'s collection and episode', async () => {
+    vi.mocked(client.getDashboardVideos).mockResolvedValue(
+      list([item({ aweme_id: '7008', collection: { id: MIX_ID, name: 'Phim A', kind: 'mix' }, mix_episode: 3 })]),
+    );
+    render(<DashboardPage />);
+    await flush();
+    const cell = within(screen.getByTestId('pipeline-row')).getByTestId('collection-cell');
+    expect(cell).toHaveTextContent('Phim A');
+    expect(cell).toHaveTextContent('Tập 3');
+  });
+
+  it('creates a job in the picked collection, and with none when left on the default', async () => {
+    vi.mocked(client.createJob).mockResolvedValue({ job_id: 'j1' });
+    render(<DashboardPage />);
+    await flush();
+    await userEvent.type(screen.getByLabelText(/url profile/i), 'https://www.douyin.com/user/x');
+    await userEvent.click(screen.getByRole('button', { name: /download all/i }));
+    await flush();
+    expect(client.createJob).toHaveBeenLastCalledWith('https://www.douyin.com/user/x', undefined, undefined);
+
+    await userEvent.selectOptions(screen.getByLabelText('Collection'), MIX_ID);
+    await userEvent.type(screen.getByLabelText(/url profile/i), 'https://www.douyin.com/user/x');
+    await userEvent.click(screen.getByRole('button', { name: /download all/i }));
+    await flush();
+    expect(client.createJob).toHaveBeenLastCalledWith('https://www.douyin.com/user/x', undefined, MIX_ID);
+  });
+
+  it('moves the selected videos to another collection', async () => {
+    vi.mocked(client.moveCollection).mockResolvedValue({ done: ['7001', '7002'], skipped: [] });
+    render(<DashboardPage />);
+    await flush();
+    await userEvent.click(screen.getByLabelText('Chọn 7001'));
+    await userEvent.click(screen.getByLabelText('Chọn 7002'));
+    const bar = screen.getByRole('toolbar');
+    const move = within(bar).getByRole('button', { name: 'Chuyển collection' });
+    expect(move).toBeDisabled();
+    await userEvent.selectOptions(within(bar).getByLabelText('Collection đích'), MIX_ID);
+    await userEvent.click(move);
+    await flush();
+    expect(client.moveCollection).toHaveBeenCalledWith(['7001', '7002'], MIX_ID);
+    expect(screen.getByTestId('move-notice')).toHaveTextContent('Đã chuyển 2 video sang «Phim A»');
+  });
+
+  it('save to folder: offered for finished videos, off when their collection has no folder, sent without a generation', async () => {
+    const inFolder = item({ aweme_id: '7011', stage: 'rendered', collection: { id: MIX_ID, name: 'Phim A', kind: 'mix' } });
+    const homeless = item({ aweme_id: '7012', stage: 'published' });
+    vi.mocked(client.getDashboardVideos).mockResolvedValue(list([inFolder, homeless, review]));
+    vi.mocked(client.runAction).mockResolvedValue({ done: ['7011'], skipped: [] });
+    render(<DashboardPage />);
+    await flush();
+
+    await userEvent.click(screen.getByLabelText('Chọn 7001'));
+    const bar = screen.getByRole('toolbar');
+    expect(within(bar).queryByRole('button', { name: 'Lưu vào thư mục' })).toBeNull();
+
+    await userEvent.click(screen.getByLabelText('Chọn 7001'));
+    await userEvent.click(screen.getByLabelText('Chọn 7012'));
+    const off = within(screen.getByRole('toolbar')).getByRole('button', { name: 'Lưu vào thư mục' });
+    expect(off).toBeDisabled();
+    expect(off).toHaveAttribute('title', expect.stringContaining('chưa có thư mục lưu'));
+
+    await userEvent.click(screen.getByLabelText('Chọn 7012'));
+    await userEvent.click(screen.getByLabelText('Chọn 7011'));
+    const on = within(screen.getByRole('toolbar')).getByRole('button', { name: 'Lưu vào thư mục' });
+    expect(on).toBeEnabled();
+    await userEvent.click(on);
+    await flush();
+    expect(client.runAction).toHaveBeenCalledWith({ action: 'save_to_folder', aweme_ids: ['7011'] });
+  });
+
+  it('lists the collections in their own panel', async () => {
+    render(<DashboardPage />);
+    await flush();
+    const panel = screen.getByRole('region', { name: 'Collections' });
+    expect(within(panel).getAllByTestId('collection-row')).toHaveLength(2);
+  });
+
+  it('bulk save stays on with a visible hint when only some selected videos lack a folder', async () => {
+    const inFolder = item({ aweme_id: '7011', stage: 'rendered', collection: { id: MIX_ID, name: 'Phim A', kind: 'mix' } });
+    const homeless = item({ aweme_id: '7012', stage: 'published' });
+    vi.mocked(client.getDashboardVideos).mockResolvedValue(list([inFolder, homeless]));
+    render(<DashboardPage />);
+    await flush();
+    await userEvent.click(screen.getByLabelText('Chọn 7011'));
+    await userEvent.click(screen.getByLabelText('Chọn 7012'));
+    const bar = screen.getByRole('toolbar');
+    expect(within(bar).getByRole('button', { name: 'Lưu vào thư mục' })).toBeEnabled();
+    expect(within(bar).getByTestId('bulk-save-hint')).toHaveTextContent('1 video sẽ bị bỏ qua');
+  });
+
+  it('bulk save stays on while the collections are not known yet', async () => {
+    vi.mocked(client.listCollections).mockResolvedValue({ items: [] });
+    vi.mocked(client.getDashboardVideos).mockResolvedValue(list([item({ aweme_id: '7012', stage: 'published' })]));
+    render(<DashboardPage />);
+    await flush();
+    await userEvent.click(screen.getByLabelText('Chọn 7012'));
+    expect(within(screen.getByRole('toolbar')).getByRole('button', { name: 'Lưu vào thư mục' })).toBeEnabled();
+  });
+
+  it('says so when the collections cannot be loaded instead of loading forever', async () => {
+    vi.mocked(client.listCollections).mockRejectedValue(new Error('mạng hỏng'));
+    render(<DashboardPage />);
+    await flush();
+    expect(within(screen.getByRole('region', { name: 'Collections' })).getByText(/Không tải được collection: mạng hỏng/)).toBeInTheDocument();
   });
 });

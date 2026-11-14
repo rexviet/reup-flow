@@ -1,5 +1,6 @@
 import type {
   AttentionResponse,
+  CollectionItem,
   ChannelListResponse,
   HealthReport,
   Stage,
@@ -26,6 +27,29 @@ export function item(over: Partial<VideoListItem> = {}): VideoListItem {
     revision: 'rev-1',
     mismatch_count: 0,
     attention: [],
+    collection: { id: COLLECTION_ID, name: 'Kênh A', kind: 'channel' },
+    mix_episode: null,
+    ...over,
+  };
+}
+
+export const COLLECTION_ID = '11111111-2222-4333-8444-555555555555';
+
+export function collection(over: Partial<CollectionItem> = {}): CollectionItem {
+  return {
+    id: COLLECTION_ID,
+    kind: 'channel',
+    external_id: 'sec1',
+    name: 'Kênh A',
+    channel: { sec_user_id: 'sec1', nickname: 'Kênh A' },
+    video_count: 3,
+    bgm_offset_db: null,
+    caption_text_color: null,
+    cover_color: null,
+    cover_opacity_pct: null,
+    save_subdir: null,
+    created_at: '2026-11-14T00:00:00.000Z',
+    updated_at: '2026-11-14T00:00:00.000Z',
     ...over,
   };
 }
@@ -70,7 +94,9 @@ export function detail(over: Partial<VideoDetailResponse> = {}): VideoDetailResp
       download_status: 'completed',
       download_attempts: 1,
       download_error: null,
+      mix_episode: null,
     },
+    collection: { id: COLLECTION_ID, name: 'Kênh A', kind: 'channel' },
     channel: { sec_user_id: 'sec1', nickname: 'Kênh A', auto_localize: false },
     current_gen: 2,
     stage: 'awaiting_review',
@@ -84,6 +110,7 @@ export function detail(over: Partial<VideoDetailResponse> = {}): VideoDetailResp
     render: null,
     publication: null,
     dashboard_actions: [],
+    folder_export: null,
     sources: { postgres: 'ok', temporal: 'ok' },
     ...over,
   };

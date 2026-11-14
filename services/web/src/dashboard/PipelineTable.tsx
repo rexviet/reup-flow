@@ -1,8 +1,17 @@
 import { useEffect, useState } from 'react';
-import type { ChannelItem, Stage, VideoListItem, VideoListResponse } from '../api/types';
+import type { ChannelItem, CollectionItem, Stage, VideoListItem, VideoListResponse } from '../api/types';
 import { STAGES } from '../api/types';
 import { Icon } from '../components/Icon';
-import { formatDateTime, formatDuration, relativeTime, STAGE_LABELS, STAGE_TONES, TONE_CLASSES, TONE_ICONS } from './format';
+import {
+  COLLECTION_KIND_LABELS,
+  formatDateTime,
+  formatDuration,
+  relativeTime,
+  STAGE_LABELS,
+  STAGE_TONES,
+  TONE_CLASSES,
+  TONE_ICONS,
+} from './format';
 import { RenderedGrid } from './RenderedGrid';
 import { StageBadge } from './StageBadge';
 
@@ -10,12 +19,14 @@ export interface PipelineFilters {
   stage?: Stage;
   q: string;
   channel: string;
+  /** A collection id, or '' for every collection. */
+  collection: string;
   from: string;
   to: string;
   offset: number;
 }
 
-export const EMPTY_FILTERS: PipelineFilters = { q: '', channel: '', from: '', to: '', offset: 0 };
+export const EMPTY_FILTERS: PipelineFilters = { q: '', channel: '', collection: '', from: '', to: '', offset: 0 };
 export const PAGE_SIZE = 50;
 
 /** Delays a fast-changing text value so typing in the search box does not send a request per key. */
@@ -34,6 +45,7 @@ export interface PipelineTableProps {
   filters: PipelineFilters;
   onFiltersChange: (next: PipelineFilters) => void;
   channels: ChannelItem[];
+  collections: CollectionItem[];
   selected: ReadonlySet<string>;
   onToggle: (awemeId: string) => void;
   onToggleAll: (awemeIds: string[], on: boolean) => void;
@@ -45,6 +57,7 @@ export function PipelineTable({
   filters,
   onFiltersChange,
   channels,
+  collections,
   selected,
   onToggle,
   onToggleAll,
@@ -109,7 +122,7 @@ export function PipelineTable({
         })}
       </div>
 
-      <div className="grid gap-2 rounded bg-surface-container-low p-2 sm:grid-cols-2 lg:grid-cols-[1fr_14rem_10rem_10rem]">
+      <div className="grid gap-2 rounded bg-surface-container-low p-2 sm:grid-cols-2 lg:grid-cols-[1fr_12rem_12rem_10rem_10rem]">
         <div className="relative sm:col-span-2 lg:col-span-1">
           <label htmlFor="pipeline-q" className="sr-only">
             Tìm kiếm
@@ -126,6 +139,19 @@ export function PipelineTable({
             {channels.map((c) => (
               <option key={c.sec_user_id} value={c.sec_user_id}>
                 {c.nickname ?? c.sec_user_id}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label htmlFor="pipeline-collection" className="sr-only">
+            Lọc theo collection
+          </label>
+          <select id="pipeline-collection" value={filters.collection} onChange={(e) => change({ collection: e.target.value })} className="field">
+            <option value="">Mọi collection</option>
+            {collections.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name} ({COLLECTION_KIND_LABELS[c.kind] ?? c.kind})
               </option>
             ))}
           </select>
@@ -148,7 +174,7 @@ export function PipelineTable({
         <RenderedGrid items={items} loading={data === null} selected={selected} onToggle={onToggle} />
       ) : (
         <div className="relative overflow-x-auto rounded bg-surface-layer-1">
-          <table className="w-full min-w-[44rem] border-collapse text-left text-sm">
+          <table className="w-full min-w-[52rem] border-collapse text-left text-sm">
             <thead>
               <tr className="bg-surface-container-low font-mono text-[11px] uppercase tracking-wider text-text-muted">
                 <th scope="col" className="w-10 p-2 text-center">
@@ -166,6 +192,7 @@ export function PipelineTable({
                   />
                 </th>
                 <th scope="col" className="p-2 font-semibold">Video</th>
+                <th scope="col" className="p-2 font-semibold">Collection</th>
                 <th scope="col" className="p-2 font-semibold">Gen</th>
                 <th scope="col" className="p-2 font-semibold">Giai đoạn</th>
                 <th scope="col" className="p-2 font-semibold">Ở giai đoạn này</th>
@@ -176,7 +203,7 @@ export function PipelineTable({
             <tbody className="divide-y divide-border-subtle/60">
               {items.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="p-4 text-text-secondary">
+                  <td colSpan={8} className="p-4 text-text-secondary">
                     {data ? 'Không có video nào khớp.' : 'Đang tải…'}
                   </td>
                 </tr>
@@ -234,6 +261,12 @@ function Row({ item, checked, onToggle }: { item: VideoListItem; checked: boolea
         <p className="truncate text-xs text-text-primary" title={item.desc ?? undefined}>
           {item.desc ?? '(không có mô tả)'}
         </p>
+      </td>
+      <td data-testid="collection-cell" className="max-w-[12rem] p-2 text-xs">
+        <p className="truncate text-text-primary" title={item.collection.name}>
+          {item.collection.name}
+        </p>
+        {item.mix_episode !== null ? <p className="font-mono text-[11px] text-text-muted">Tập {item.mix_episode}</p> : null}
       </td>
       <td className="p-2">
         <span className="rounded bg-surface-layer-2 px-1 font-mono text-[11px] text-text-primary">{item.current_gen === null ? '-' : `g${item.current_gen}`}</span>

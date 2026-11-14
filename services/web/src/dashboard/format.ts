@@ -1,5 +1,5 @@
 import type { IconName } from '../components/Icon';
-import type { DashboardActionName, LocalizingStep, Stage, VideoListItem } from '../api/types';
+import type { CollectionKind, DashboardActionName, LocalizingStep, Stage, VideoCollectionRef, VideoListItem } from '../api/types';
 
 export const STAGE_LABELS: Record<Stage, string> = {
   downloading: 'Đang tải',
@@ -81,6 +81,7 @@ export const ACTION_LABELS: Record<DashboardActionName, string> = {
   mark_published: 'Đánh dấu đã đăng',
   mark_unpublished: 'Bỏ đánh dấu đã đăng',
   open_studio: 'Mở Studio',
+  save_to_folder: 'Lưu vào thư mục',
 };
 
 /** The buttons worth showing at each stage. The server re-checks every one; this only hides the pointless ones. */
@@ -132,4 +133,46 @@ export function formatDuration(ms: number | null | undefined): string | null {
   const m = Math.floor((total % 3600) / 60);
   const sec = String(total % 60).padStart(2, '0');
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`;
+}
+
+export const COLLECTION_KIND_LABELS: Record<CollectionKind, string> = {
+  channel: 'Kênh',
+  mix: '合集',
+  manual: 'Tạo tay',
+};
+
+/** "Phim A · Tập 3" for a 合集 episode, the bare name otherwise. */
+export function collectionText(collection: VideoCollectionRef, episode: number | null | undefined): string {
+  return episode === null || episode === undefined ? collection.name : `${collection.name} · Tập ${episode}`;
+}
+
+/**
+ * The API does not expose the Mac's export root (REVIEW_WORKER_EXPORT_ROOT lives only on the Mac
+ * worker), so the folder is shown under this neutral label rather than an invented path.
+ */
+export const SAVE_ROOT_LABEL = 'Thư mục gốc trên Mac';
+
+/** Stages whose current generation has a final file, so "Lưu vào thư mục" makes sense. */
+export const FINAL_STAGES: readonly Stage[] = ['rendered', 'published'];
+
+/**
+ * The validation messages of a failed request, by the field they name. A 400 from the API lists
+ * `<field>: <message>` per issue (`ApiError.messages`); a message naming no known field goes under
+ * `''`, so the form can still show it.
+ */
+export function fieldErrorsOf(err: unknown, fields: readonly string[]): Record<string, string> {
+  const raw = (err as { messages?: unknown } | null)?.messages;
+  const messages =
+    Array.isArray(raw) && raw.every((m) => typeof m === 'string')
+      ? (raw as string[])
+      : [err instanceof Error ? err.message : String(err)];
+  const out: Record<string, string> = {};
+  for (const message of messages) {
+    const cut = message.indexOf(': ');
+    const field = cut > 0 ? message.slice(0, cut) : '';
+    const key = fields.includes(field) ? field : '';
+    const text = key ? message.slice(cut + 2) : message;
+    out[key] = out[key] ? `${out[key]}; ${text}` : text;
+  }
+  return out;
 }

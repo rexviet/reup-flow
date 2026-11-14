@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { getCookieStatus, retryJob } from '../api/client';
+import { getCookieStatus, moveCollection, retryJob } from '../api/client';
 import type { DashboardActionName, VideoListQuery } from '../api/types';
 import { usePolling } from '../hooks/usePolling';
 import { ActionNotice } from './ActionNotice';
@@ -7,9 +7,10 @@ import { AttentionList } from './AttentionList';
 import { AutoQueueSwitch } from './AutoQueueSwitch';
 import { BulkActionBar } from './BulkActionBar';
 import { ChannelsPanel } from './ChannelsPanel';
+import { CollectionsPanel } from './CollectionsPanel';
 import { HealthBar } from './HealthBar';
 import { EMPTY_FILTERS, PAGE_SIZE, PipelineTable, type PipelineFilters } from './PipelineTable';
-import { useAttention, useChannels, useHealth, useJobs, useVideoList } from './useDashboard';
+import { useAttention, useChannels, useCollections, useHealth, useJobs, useVideoList } from './useDashboard';
 import { useVideoActions } from './useVideoActions';
 
 function queryOf(f: PipelineFilters): VideoListQuery {
@@ -17,6 +18,7 @@ function queryOf(f: PipelineFilters): VideoListQuery {
     ...(f.stage ? { stage: f.stage } : {}),
     ...(f.q ? { q: f.q } : {}),
     ...(f.channel ? { channel: f.channel } : {}),
+    ...(f.collection ? { collection: f.collection } : {}),
     ...(f.from ? { from: f.from } : {}),
     ...(f.to ? { to: f.to } : {}),
     limit: PAGE_SIZE,
@@ -33,6 +35,8 @@ export function DashboardPage() {
   const attention = useAttention();
   const channels = useChannels();
   const jobs = useJobs();
+  const collections = useCollections();
+  const collectionItems = collections.data?.items ?? [];
   const cookieFetcher = useCallback(() => getCookieStatus(), []);
   const cookie = usePolling(cookieFetcher, 10_000, { pauseWhenHidden: true });
 
@@ -40,12 +44,15 @@ export function DashboardPage() {
   const refreshAttention = attention.refresh;
   const refreshChannels = channels.refresh;
   const refreshJobs = jobs.refresh;
+  const refreshCollections = collections.refresh;
   const refreshAll = useCallback(() => {
     refreshList();
     refreshAttention();
     refreshChannels();
     refreshJobs();
-  }, [refreshList, refreshAttention, refreshChannels, refreshJobs]);
+    refreshCollections();
+  }, [refreshList, refreshAttention, refreshChannels, refreshJobs, refreshCollections]);
+  const [moveNotice, setMoveNotice] = useState<{ text: string; error: boolean } | null>(null);
   const [retryingJobs, setRetryingJobs] = useState<ReadonlySet<string>>(new Set());
   const [jobError, setJobError] = useState<string | null>(null);
   const actions = useVideoActions(refreshAll);
@@ -96,6 +103,21 @@ export function DashboardPage() {
     }
   }
 
+  function moveSelected(collectionId: string) {
+    const ids = selectedItems.map((i) => i.aweme_id);
+    const name = collectionItems.find((c) => c.id === collectionId)?.name ?? collectionId;
+    setMoveNotice(null);
+    void moveCollection(ids, collectionId)
+      .then((res) => {
+        const skipped = res.skipped.map((s) => `${s.aweme_id}: ${s.reason}`).join('; ');
+        setMoveNotice({ text: `Đã chuyển ${res.done.length} video sang «${name}».${skipped ? ` Bỏ qua ${skipped}` : ''}`, error: false });
+        const done = new Set(res.done);
+        setSelected((prev) => new Set([...prev].filter((id) => !done.has(id))));
+      })
+      .catch((err: unknown) => setMoveNotice({ text: `Không chuyển được collection: ${err instanceof Error ? err.message : String(err)}`, error: true }))
+      .finally(refreshAll);
+  }
+
   return (
     <div className="flex flex-col gap-3 sm:gap-4">
       <header className="flex flex-col gap-3">
@@ -118,6 +140,11 @@ export function DashboardPage() {
       ) : null}
 
       <ActionNotice runner={actions.runner} />
+      {moveNotice ? (
+        <p role="status" data-testid="move-notice" className={`text-xs ${moveNotice.error ? 'text-status-error-text' : 'text-text-secondary'}`}>
+          {moveNotice.text}
+        </p>
+      ) : null}
 
       <PipelineTable
         data={list.data}
@@ -128,14 +155,30 @@ export function DashboardPage() {
           setSelected(new Set());
         }}
         channels={channels.data?.items ?? []}
+        collections={collectionItems}
         selected={selected}
         onToggle={toggle}
         onToggleAll={toggleAll}
       />
 
-      <BulkActionBar selected={selectedItems} busy={actions.runner.busy} onRun={(a) => void runBulk(a)} onClear={() => setSelected(new Set())} />
+      <BulkActionBar
+        selected={selectedItems}
+        busy={actions.runner.busy}
+        onRun={(a) => void runBulk(a)}
+        onClear={() => setSelected(new Set())}
+        collections={collectionItems}
+        onMove={moveSelected}
+      />
 
-      <ChannelsPanel cookie={cookie.data} cookieLoading={cookie.loading} jobs={jobs.data} channels={channels.data} onChanged={refreshAll} />
+      <ChannelsPanel
+        cookie={cookie.data}
+        cookieLoading={cookie.loading}
+        jobs={jobs.data}
+        channels={channels.data}
+        collections={collectionItems}
+        onChanged={refreshAll}
+      />
+      <CollectionsPanel collections={collections.data?.items ?? null} error={collections.error} onChanged={refreshCollections} />
       {actions.dialog}
     </div>
   );

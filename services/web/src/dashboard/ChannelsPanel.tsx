@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { cancelJob, createJob, createVideo, retryJob, setAutoLocalize } from '../api/client';
-import type { ChannelListResponse, CookieStatus, JobListResponse } from '../api/types';
+import type { ChannelListResponse, CollectionItem, CookieStatus, JobListResponse } from '../api/types';
 import { CookieBadge } from '../components/CookieBadge';
 import { JobCard } from '../components/JobCard';
 import { isVideoUrl, JobForm, type JobFormOptions } from '../components/JobForm';
@@ -11,10 +11,11 @@ export interface ChannelsPanelProps {
   cookieLoading: boolean;
   jobs: JobListResponse | null;
   channels: ChannelListResponse | null;
+  collections: CollectionItem[];
   onChanged: () => void;
 }
 
-export function ChannelsPanel({ cookie, cookieLoading, jobs, channels, onChanged }: ChannelsPanelProps) {
+export function ChannelsPanel({ cookie, cookieLoading, jobs, channels, collections, onChanged }: ChannelsPanelProps) {
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
 
@@ -37,10 +38,10 @@ export function ChannelsPanel({ cookie, cookieLoading, jobs, channels, onChanged
     if (isVideoUrl(url)) {
       // One video: "Localize ngay" decides whether it is held after the download.
       // Unchecked follows the channel's switch (omitted); it does not force a hold.
-      await createVideo(url, options.localizeNow ? true : undefined);
+      await createVideo(url, options.localizeNow ? true : undefined, options.collectionId);
     } else {
       // Unchecked leaves the channel's current switch alone instead of turning it off.
-      await createJob(url, options.autoLocalize ? true : undefined);
+      await createJob(url, options.autoLocalize ? true : undefined, options.collectionId);
     }
     onChanged();
   }
@@ -54,7 +55,7 @@ export function ChannelsPanel({ cookie, cookieLoading, jobs, channels, onChanged
           </h2>
           <CookieBadge status={cookie} loading={cookieLoading} />
         </div>
-        <JobForm onSubmit={handleCreate} />
+        <JobForm onSubmit={handleCreate} collections={collections} />
         {error ? (
           <p role="alert" className="text-xs text-status-error-text">
             {error}

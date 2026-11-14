@@ -1,13 +1,24 @@
 import { useRef, useState } from 'react';
-import type { MediaKind, VideoDetailResponse } from '../api/types';
+import { moveCollection } from '../api/client';
+import type { CollectionItem, FolderExportView, MediaKind, VideoDetailResponse } from '../api/types';
 import { ActionNotice } from './ActionNotice';
 import { Icon } from '../components/Icon';
-import { ACTION_LABELS, ACTIONS_BY_STAGE, formatDateTime, formatUsd, TONE_CLASSES, TONE_ICONS, type StageTone } from './format';
+import {
+  ACTION_LABELS,
+  ACTIONS_BY_STAGE,
+  COLLECTION_KIND_LABELS,
+  collectionText,
+  formatDateTime,
+  formatUsd,
+  TONE_CLASSES,
+  TONE_ICONS,
+  type StageTone,
+} from './format';
 import { StageBadge } from './StageBadge';
 import { useMediaLinks } from './useMediaLinks';
 import { useVideoActions, type ActionTarget } from './useVideoActions';
 import { VideoPlayer } from './VideoPlayer';
-import { useVideoDetail } from './useDashboard';
+import { useCollections, useVideoDetail } from './useDashboard';
 
 const STEP_STATE: Record<string, string> = {
   running: 'đang chạy',
@@ -31,12 +42,30 @@ const STUDIO_STATE: Record<string, string> = {
   failed: 'mở lỗi',
 };
 
+const FOLDER_STATE: Record<string, string> = {
+  pending: 'Đang chờ máy Mac lưu',
+  exporting: 'Đang lưu',
+  done: 'Đã lưu',
+  failed: 'Lỗi',
+};
+
+/** What the newest save request came to: the files written when done, the reason when it failed. */
+function folderExportText(f: FolderExportView): string {
+  const state = FOLDER_STATE[f.state] ?? f.state;
+  if (f.state === 'done' && f.files && f.files.length > 0) return `${state}: ${f.files.join(', ')}`;
+  if (f.state === 'failed' && f.error) return `${state}: ${f.error}`;
+  return state;
+}
+
+const HISTORY_LABELS: Record<string, string> = { ...ACTION_LABELS, move_collection: 'Chuyển collection' };
+
 function withDownload(url: string): string {
   return `${url}${url.includes('?') ? '&' : '?'}download=1`;
 }
 
 export function VideoDetail({ awemeId }: { awemeId: string }) {
   const detail = useVideoDetail(awemeId);
+  const collections = useCollections();
   const actions = useVideoActions(detail.refresh);
   // A slow Postgres answers `video: null` now and then; keep the last full page (player, typed text) up.
   const lastGood = useRef<VideoDetailResponse | null>(null);
@@ -57,7 +86,14 @@ export function VideoDetail({ awemeId }: { awemeId: string }) {
           Không đọc được Postgres nên chưa có chi tiết video {awemeId}.
         </p>
       ) : (
-        <Loaded d={d} awemeId={awemeId} actions={actions} stale={detail.error !== null || down} />
+        <Loaded
+          d={d}
+          awemeId={awemeId}
+          actions={actions}
+          stale={detail.error !== null || down}
+          collections={collections.data?.items ?? []}
+          onChanged={detail.refresh}
+        />
       )}
       {actions.dialog}
     </div>
@@ -69,11 +105,15 @@ function Loaded({
   awemeId,
   actions,
   stale,
+  collections,
+  onChanged,
 }: {
   d: VideoDetailResponse;
   awemeId: string;
   actions: ReturnType<typeof useVideoActions>;
   stale: boolean;
+  collections: CollectionItem[];
+  onChanged: () => void;
 }) {
   const video = d.video!;
   const stage = d.stage!;
@@ -87,6 +127,34 @@ function Loaded({
   const [returnNote, setReturnNote] = useState('');
   const [postUrl, setPostUrl] = useState('');
   const [platform, setPlatform] = useState('');
+  const [moveTarget, setMoveTarget] = useState('');
+  const [moveError, setMoveError] = useState<string | null>(null);
+  const [moving, setMoving] = useState(false);
+  const [pickedGen, setPickedGen] = useState<number | null>(null);
+
+  // Every generation with a rendered final can be saved; a final from before generations existed
+  // has no render row, so the current generation stands for it.
+  const renderedGens = (d.generations ?? []).filter((g) => g.render?.state === 'rendered').map((g) => g.generation);
+  const saveGens = renderedGens.length > 0 ? renderedGens : mayHaveFinal && gen !== null ? [gen] : [];
+  const saveGen = [pickedGen, gen].find((g) => g !== null && saveGens.includes(g)) ?? saveGens[0] ?? null;
+  const folder = collections.find((c) => c.id === d.collection?.id);
+  // Unknown (collections not loaded yet) leaves the button on; the server still refuses a collection without a folder.
+  const noFolder = folder?.save_subdir === null;
+
+  function moveTo(collectionId: string) {
+    setMoving(true);
+    setMoveError(null);
+    void moveCollection([awemeId], collectionId)
+      .then((res) => {
+        if (res.skipped[0]) setMoveError(res.skipped[0].reason);
+        else setMoveTarget('');
+      })
+      .catch((err: unknown) => setMoveError(err instanceof Error ? err.message : String(err)))
+      .finally(() => {
+        setMoving(false);
+        onChanged();
+      });
+  }
 
   const target: ActionTarget = {
     aweme_id: awemeId,
@@ -118,6 +186,16 @@ function Loaded({
             <Icon name="user" size={12} />
             {d.channel?.nickname ?? d.channel?.sec_user_id}
           </span>
+          {d.collection ? (
+            <span
+              data-testid="detail-collection"
+              title={COLLECTION_KIND_LABELS[d.collection.kind] ?? d.collection.kind}
+              className="inline-flex max-w-full items-center gap-1 break-all rounded bg-surface-container px-1.5 py-0.5 text-xs text-text-primary"
+            >
+              <Icon name="tag" size={12} />
+              {collectionText(d.collection, video.mix_episode)}
+            </span>
+          ) : null}
         </div>
         <p className="text-sm text-text-primary">{video.desc ?? '(không có mô tả)'}</p>
         {stale ? <p className="text-xs text-status-warning-text">Mất kết nối, đang hiện dữ liệu cũ.</p> : null}
@@ -228,6 +306,74 @@ function Loaded({
             <a href={withDownload(media.links.srt.url)} className="btn btn-ghost">
               Tải SRT
             </a>
+          ) : null}
+        </div>
+
+        {saveGens.length > 0 || d.folder_export ? (
+          <div className="mt-3 flex flex-col gap-1.5">
+            {saveGens.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <label htmlFor="save-generation" className="sr-only">
+                  Generation để lưu
+                </label>
+                <select
+                  id="save-generation"
+                  value={saveGen ?? ''}
+                  onChange={(e) => setPickedGen(Number(e.target.value))}
+                  className="field w-auto"
+                >
+                  {saveGens.map((g) => (
+                    <option key={g} value={g}>
+                      g{g}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={busy || noFolder || saveGen === null}
+                  onClick={() => saveGen !== null && void actions.runner.run({ action: 'save_to_folder', aweme_ids: [awemeId], generation: saveGen })}
+                  className="btn btn-neutral"
+                >
+                  <Icon name="download" />
+                  {ACTION_LABELS.save_to_folder}
+                </button>
+              </div>
+            ) : null}
+            {saveGens.length > 0 && noFolder ? (
+              <p data-testid="folder-hint" className="text-xs text-status-warning-text">
+                Collection «{d.collection?.name}» chưa có thư mục lưu; đặt thư mục trong panel Collections ở dashboard.
+              </p>
+            ) : null}
+            {/* Always the newest request as polled; a skipped click is reported by the action notice below. */}
+            {d.folder_export ? (
+              <p data-testid="folder-export-status" className="text-xs text-text-secondary">
+                Lưu gần nhất (g{d.folder_export.generation}, {formatDateTime(d.folder_export.requested_at)}): {folderExportText(d.folder_export)}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <label htmlFor="move-collection" className="sr-only">
+            Chuyển sang collection
+          </label>
+          <select id="move-collection" value={moveTarget} onChange={(e) => setMoveTarget(e.target.value)} className="field w-auto max-w-[16rem]">
+            <option value="">Chọn collection…</option>
+            {collections
+              .filter((c) => c.id !== d.collection?.id)
+              .map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} ({COLLECTION_KIND_LABELS[c.kind] ?? c.kind})
+                </option>
+              ))}
+          </select>
+          <button type="button" disabled={moving || moveTarget === ''} onClick={() => moveTo(moveTarget)} className="btn btn-ghost">
+            Chuyển collection
+          </button>
+          {moveError ? (
+            <span role="alert" className="text-xs text-status-error-text">
+              {moveError}
+            </span>
           ) : null}
         </div>
 
@@ -391,7 +537,7 @@ function Loaded({
           <ul className="divide-y divide-border-subtle/60 text-xs text-text-secondary">
             {d.dashboard_actions!.map((a) => (
               <li key={a.id} className="flex justify-between gap-2 py-1.5">
-                <span>{ACTION_LABELS[a.action as keyof typeof ACTION_LABELS] ?? a.action}</span>
+                <span>{HISTORY_LABELS[a.action] ?? a.action}</span>
                 <span>{formatDateTime(a.created_at)}</span>
               </li>
             ))}

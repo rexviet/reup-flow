@@ -2,8 +2,9 @@ import { render, screen, act, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as client from '../api/client';
+import type { FolderExportView } from '../api/types';
 import { VideoDetail } from './VideoDetail';
-import { detail } from './test-fixtures';
+import { collection, COLLECTION_ID, detail } from './test-fixtures';
 
 vi.mock('../api/client');
 
@@ -16,6 +17,7 @@ const renderedDetail = () =>
 beforeEach(() => {
   vi.mocked(client.getDashboardVideo).mockResolvedValue(detail());
   vi.mocked(client.getMediaLinks).mockResolvedValue([]);
+  vi.mocked(client.listCollections).mockResolvedValue({ items: [] });
 });
 
 afterEach(() => {
@@ -215,5 +217,117 @@ describe('VideoDetail facts', () => {
     render(<VideoDetail awemeId="7001" />);
     await flush();
     expect(screen.getByRole('alert')).toHaveTextContent(/Postgres/);
+  });
+});
+
+const rendered = (generation: number, isCurrent: boolean) => ({
+  generation,
+  is_current: isCurrent,
+  run: null,
+  open_workflow: false,
+  decision: null,
+  render: { state: 'rendered', approved_revision: 'r', attempts: 1, error: null, rendered_at: '2026-11-12T02:00:00Z', final_ready: true, srt_ready: true },
+  publication: null,
+  review_status: null,
+  llm_cost_usd: 0,
+});
+const OTHER_ID = '99999999-2222-4333-8444-555555555555';
+
+describe('VideoDetail collection and save to folder', () => {
+  it('shows the collection with its episode and moves the video to another collection', async () => {
+    vi.mocked(client.getDashboardVideo).mockResolvedValue(
+      detail({ collection: { id: COLLECTION_ID, name: 'Phim A', kind: 'mix' }, video: { ...detail().video!, mix_episode: 4 } }),
+    );
+    vi.mocked(client.listCollections).mockResolvedValue({ items: [collection({ name: 'Phim A', kind: 'mix' }), collection({ id: OTHER_ID, name: 'Phim B' })] });
+    vi.mocked(client.moveCollection).mockResolvedValue({ done: ['7001'], skipped: [] });
+    render(<VideoDetail awemeId="7001" />);
+    await flush();
+    expect(screen.getByTestId('detail-collection')).toHaveTextContent('Phim A · Tập 4');
+    await userEvent.selectOptions(screen.getByLabelText('Chuyển sang collection'), OTHER_ID);
+    await userEvent.click(screen.getByRole('button', { name: 'Chuyển collection' }));
+    await flush();
+    expect(client.moveCollection).toHaveBeenCalledWith(['7001'], OTHER_ID);
+  });
+
+  it('no Lưu vào thư mục button before any final exists', async () => {
+    render(<VideoDetail awemeId="7001" />);
+    await flush();
+    expect(screen.queryByRole('button', { name: 'Lưu vào thư mục' })).toBeNull();
+  });
+
+  it('the save button is off, with a hint, when the collection has no folder', async () => {
+    vi.mocked(client.getDashboardVideo).mockResolvedValue(detail({ stage: 'rendered', generations: [rendered(2, true)] }));
+    vi.mocked(client.listCollections).mockResolvedValue({ items: [collection({ save_subdir: null })] });
+    render(<VideoDetail awemeId="7001" />);
+    await flush();
+    expect(screen.getByRole('button', { name: 'Lưu vào thư mục' })).toBeDisabled();
+    expect(screen.getByTestId('folder-hint')).toHaveTextContent('chưa có thư mục lưu');
+  });
+
+  it('saves the generation picked among the rendered ones', async () => {
+    vi.mocked(client.getDashboardVideo).mockResolvedValue(
+      detail({ stage: 'awaiting_review', current_gen: 3, generations: [{ ...rendered(3, true), render: null }, rendered(2, false), rendered(1, false)] }),
+    );
+    vi.mocked(client.listCollections).mockResolvedValue({ items: [collection({ save_subdir: 'phim-a' })] });
+    vi.mocked(client.runAction).mockResolvedValue({ done: ['7001'], skipped: [] });
+    render(<VideoDetail awemeId="7001" />);
+    await flush();
+    const picker = screen.getByLabelText('Generation để lưu');
+    expect(within(picker).getAllByRole('option').map((o) => o.textContent)).toEqual(['g2', 'g1']);
+    await userEvent.selectOptions(picker, '1');
+    await userEvent.click(screen.getByRole('button', { name: 'Lưu vào thư mục' }));
+    await flush();
+    expect(client.runAction).toHaveBeenCalledWith({ action: 'save_to_folder', aweme_ids: ['7001'], generation: 1 });
+  });
+
+  it.each<[Pick<FolderExportView, 'state' | 'files' | 'error'>, string]>([
+    [{ state: 'pending', files: null, error: null }, 'Đang chờ máy Mac lưu'],
+    [{ state: 'exporting', files: null, error: null }, 'Đang lưu'],
+    [{ state: 'done', files: ['phim-a/E01-7001.mp4', 'phim-a/E01-7001.srt'], error: null }, 'Đã lưu: phim-a/E01-7001.mp4, phim-a/E01-7001.srt'],
+    [{ state: 'failed', files: null, error: 'Thư mục gốc chưa được gắn.' }, 'Lỗi: Thư mục gốc chưa được gắn.'],
+  ])('shows the newest save request: %o', async (row, text) => {
+    vi.mocked(client.getDashboardVideo).mockResolvedValue(
+      detail({
+        stage: 'rendered',
+        generations: [rendered(2, true)],
+        folder_export: {
+          generation: 2,
+          target_subdir: 'phim-a',
+          file_stem: 'E01-7001',
+          requested_at: '2026-11-14T01:00:00Z',
+          handled_at: null,
+          ...row,
+        },
+      }),
+    );
+    render(<VideoDetail awemeId="7001" />);
+    await flush();
+    expect(screen.getByTestId('folder-export-status')).toHaveTextContent(text);
+  });
+
+  it('a skipped save is reported in the notice, and the status line keeps showing the newest request', async () => {
+    vi.mocked(client.getDashboardVideo).mockResolvedValue(
+      detail({
+        stage: 'rendered',
+        generations: [rendered(2, true)],
+        folder_export: { generation: 2, state: 'pending', target_subdir: 'a', file_stem: 'E01-7001', files: null, error: null, requested_at: '2026-11-14T01:00:00Z', handled_at: null },
+      }),
+    );
+    vi.mocked(client.runAction).mockResolvedValue({ done: [], skipped: [{ aweme_id: '7001', reason: 'Đã có yêu cầu lưu thư mục đang chờ hoặc đang lưu.' }] });
+    render(<VideoDetail awemeId="7001" />);
+    await flush();
+    await userEvent.click(screen.getByRole('button', { name: 'Lưu vào thư mục' }));
+    await flush();
+    expect(screen.getByTestId('action-notice')).toHaveTextContent('Đã có yêu cầu lưu thư mục đang chờ');
+    expect(screen.getByTestId('folder-export-status')).toHaveTextContent('Đang chờ máy Mac lưu');
+  });
+
+  it('leaves the save button on while the collections are not known yet; the server still checks', async () => {
+    vi.mocked(client.getDashboardVideo).mockResolvedValue(detail({ stage: 'rendered', generations: [rendered(2, true)] }));
+    vi.mocked(client.listCollections).mockResolvedValue({ items: [] });
+    render(<VideoDetail awemeId="7001" />);
+    await flush();
+    expect(screen.getByRole('button', { name: 'Lưu vào thư mục' })).toBeEnabled();
+    expect(screen.queryByTestId('folder-hint')).toBeNull();
   });
 });

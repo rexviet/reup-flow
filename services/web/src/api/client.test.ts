@@ -11,6 +11,13 @@ import {
   getMediaLinks,
   createVideo,
   setAutoLocalize,
+  listCollections,
+  createCollection,
+  updateCollection,
+  getGlossary,
+  putGlossaryTerm,
+  deleteGlossaryTerm,
+  moveCollection,
 } from './client';
 
 const originalFetch = global.fetch;
@@ -138,5 +145,85 @@ describe('dashboard client', () => {
     await setAutoLocalize('sec 1', true);
     expect(String(fetchMock.mock.calls[0][0])).toBe('http://api.test/api/profiles/sec%201');
     expect((fetchMock.mock.calls[0][1] as RequestInit).method).toBe('PATCH');
+  });
+});
+
+describe('collections client', () => {
+  const COLLECTION = '11111111-2222-4333-8444-555555555555';
+  const bodyOf = (fetchMock: ReturnType<typeof mockFetchOnce>) => JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body));
+
+  it('leaves collection_id out of a new job or video unless one is picked (the API rejects null)', async () => {
+    let fetchMock = mockFetchOnce({ job_id: 'a' });
+    await createJob('https://www.douyin.com/user/x', undefined, undefined);
+    expect(bodyOf(fetchMock)).not.toHaveProperty('collection_id');
+    fetchMock = mockFetchOnce({ job_id: 'a' });
+    await createJob('https://www.douyin.com/user/x', true, COLLECTION);
+    expect(bodyOf(fetchMock)).toEqual({ url: 'https://www.douyin.com/user/x', auto_localize: true, collection_id: COLLECTION });
+
+    fetchMock = mockFetchOnce({ aweme_id: '1', status: 'pending' });
+    await createVideo('https://www.douyin.com/video/1', undefined, undefined);
+    expect(bodyOf(fetchMock)).toEqual({ url: 'https://www.douyin.com/video/1' });
+    fetchMock = mockFetchOnce({ aweme_id: '1', status: 'pending' });
+    await createVideo('https://www.douyin.com/video/1', undefined, COLLECTION);
+    expect(bodyOf(fetchMock)).toEqual({ url: 'https://www.douyin.com/video/1', collection_id: COLLECTION });
+  });
+
+  it('filters the video list by collection', async () => {
+    const fetchMock = mockFetchOnce({ items: [] });
+    await getDashboardVideos({ collection: COLLECTION, limit: 50, offset: 0 });
+    expect(String(fetchMock.mock.calls[0][0])).toBe(`http://api.test/api/dashboard/videos?collection=${COLLECTION}&limit=50&offset=0`);
+  });
+
+  it('lists, creates and patches collections', async () => {
+    let fetchMock = mockFetchOnce({ items: [] });
+    await listCollections();
+    expect(String(fetchMock.mock.calls[0][0])).toBe('http://api.test/api/collections');
+
+    fetchMock = mockFetchOnce({ id: COLLECTION }, { status: 201 });
+    await createCollection({ name: 'Phim A' });
+    expect((fetchMock.mock.calls[0][1] as RequestInit).method).toBe('POST');
+    expect(bodyOf(fetchMock)).toEqual({ name: 'Phim A' });
+
+    fetchMock = mockFetchOnce({ id: COLLECTION });
+    await updateCollection(COLLECTION, { caption_text_color: null, cover_opacity_pct: 40 });
+    expect(String(fetchMock.mock.calls[0][0])).toBe(`http://api.test/api/collections/${COLLECTION}`);
+    expect((fetchMock.mock.calls[0][1] as RequestInit).method).toBe('PATCH');
+    expect(bodyOf(fetchMock)).toEqual({ caption_text_color: null, cover_opacity_pct: 40 });
+  });
+
+  it('puts and deletes a glossary term under its encoded Chinese key', async () => {
+    let fetchMock = mockFetchOnce({ items: [] });
+    await getGlossary(COLLECTION);
+    expect(String(fetchMock.mock.calls[0][0])).toBe(`http://api.test/api/collections/${COLLECTION}/glossary`);
+
+    fetchMock = mockFetchOnce({ term_zh: '成名/代价' });
+    await putGlossaryTerm(COLLECTION, '成名/代价', { term_vi: 'Cái giá', note: null });
+    expect(String(fetchMock.mock.calls[0][0])).toBe(
+      `http://api.test/api/collections/${COLLECTION}/glossary/${encodeURIComponent('成名/代价')}`,
+    );
+    expect((fetchMock.mock.calls[0][1] as RequestInit).method).toBe('PUT');
+    expect(bodyOf(fetchMock)).toEqual({ term_vi: 'Cái giá', note: null });
+
+    fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    global.fetch = fetchMock as unknown as typeof fetch;
+    await expect(deleteGlossaryTerm(COLLECTION, '成名')).resolves.toBeUndefined();
+    expect(String(fetchMock.mock.calls[0][0])).toBe(`http://api.test/api/collections/${COLLECTION}/glossary/${encodeURIComponent('成名')}`);
+    expect((fetchMock.mock.calls[0][1] as RequestInit).method).toBe('DELETE');
+  });
+
+  it('moves videos with a PATCH', async () => {
+    const fetchMock = mockFetchOnce({ done: ['1'], skipped: [] });
+    await moveCollection(['1', '2'], COLLECTION);
+    expect(String(fetchMock.mock.calls[0][0])).toBe('http://api.test/api/dashboard/videos/collection');
+    expect((fetchMock.mock.calls[0][1] as RequestInit).method).toBe('PATCH');
+    expect(bodyOf(fetchMock)).toEqual({ aweme_ids: ['1', '2'], collection_id: COLLECTION });
+  });
+
+  it('keeps each validation message of a 400 whose message is a list', async () => {
+    mockFetchOnce({ message: ['term_vi: term_vi is empty', 'note: too long'], error: 'Bad Request', statusCode: 400 }, { status: 400 });
+    const err = await putGlossaryTerm(COLLECTION, 'x', { term_vi: '' }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).messages).toEqual(['term_vi: term_vi is empty', 'note: too long']);
+    expect((err as ApiError).message).toBe('term_vi: term_vi is empty; note: too long');
   });
 });

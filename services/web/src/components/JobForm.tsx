@@ -1,4 +1,6 @@
 import { useState, type FormEvent } from 'react';
+import type { CollectionItem } from '../api/types';
+import { COLLECTION_KIND_LABELS } from '../dashboard/format';
 import { Icon } from './Icon';
 
 export interface JobFormOptions {
@@ -6,10 +8,13 @@ export interface JobFormOptions {
   autoLocalize: boolean;
   /** Single-video URL: localize this video as soon as it is downloaded instead of holding it. */
   localizeNow: boolean;
+  /** A collection picked by hand; absent for "Tự nhận", which lets the server choose. */
+  collectionId?: string;
 }
 
 export interface JobFormProps {
   onSubmit: (url: string, options: JobFormOptions) => Promise<void>;
+  collections?: CollectionItem[];
 }
 
 /** True for a URL that names one video (`/video/<id>` or `?modal_id=<id>`); the rest are channel URLs. */
@@ -22,8 +27,9 @@ export function isVideoUrl(url: string): boolean {
  * cookie paste field here or anywhere else in this package -- see
  * phase-08-web-ui.md §8.5.
  */
-export function JobForm({ onSubmit }: JobFormProps) {
+export function JobForm({ onSubmit, collections = [] }: JobFormProps) {
   const [url, setUrl] = useState('');
+  const [collectionId, setCollectionId] = useState('');
   const [autoLocalize, setAutoLocalize] = useState(false);
   const [localizeNow, setLocalizeNow] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -37,9 +43,11 @@ export function JobForm({ onSubmit }: JobFormProps) {
     setSubmitting(true);
     setError(null);
     try {
-      await onSubmit(trimmed, { autoLocalize, localizeNow });
+      await onSubmit(trimmed, { autoLocalize, localizeNow, ...(collectionId ? { collectionId } : {}) });
       setUrl('');
       setLocalizeNow(false);
+      // A picked collection is a one-off: intake never moves a hand-placed video back.
+      setCollectionId('');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -73,6 +81,19 @@ export function JobForm({ onSubmit }: JobFormProps) {
               Tự localize
             </label>
           )}
+        </div>
+        <div className="mt-1 flex items-center gap-2">
+          <label htmlFor="job-collection" className="shrink-0 text-xs text-text-secondary">
+            Collection
+          </label>
+          <select id="job-collection" value={collectionId} onChange={(e) => setCollectionId(e.target.value)} className="field">
+            <option value="">Tự nhận (mặc định)</option>
+            {collections.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name} ({COLLECTION_KIND_LABELS[c.kind] ?? c.kind})
+              </option>
+            ))}
+          </select>
         </div>
         {error ? (
           <p className="mt-1 text-xs text-status-error-text" data-testid="job-form-error">

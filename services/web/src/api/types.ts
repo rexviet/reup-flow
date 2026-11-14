@@ -127,6 +127,9 @@ export interface VideoListItem {
   revision: string | null;
   mismatch_count: number | null;
   attention: AttentionItem[];
+  collection: VideoCollectionRef;
+  /** Episode number inside a 合集; null outside one. */
+  mix_episode: number | null;
 }
 
 export interface VideoListResponse {
@@ -143,6 +146,8 @@ export interface VideoListQuery {
   from?: string;
   to?: string;
   attention?: boolean;
+  /** A collection id. */
+  collection?: string;
   limit?: number;
   offset?: number;
 }
@@ -284,7 +289,9 @@ export interface VideoDetailResponse {
     download_status: string;
     download_attempts: number;
     download_error: string | null;
+    mix_episode: number | null;
   } | null;
+  collection?: VideoCollectionRef;
   channel?: { sec_user_id: string; nickname: string | null; auto_localize: boolean };
   current_gen?: number | null;
   stage?: Stage;
@@ -301,8 +308,26 @@ export interface VideoDetailResponse {
   render?: RenderView | null;
   publication?: PublicationView | null;
   studio_request?: { generation: number; state: string; error: string | null; requestedAt: string; handledAt: string | null } | null;
+  /** The newest save-to-folder request; null when the video was never saved. */
+  folder_export?: FolderExportView | null;
   dashboard_actions?: Array<{ id: number; action: string; detail: unknown; created_at: string }>;
   sources: DashboardSources;
+}
+
+/**
+ * A save-to-folder request as the Mac worker left it (services/localization/src/localization/
+ * review_worker/folder_exports.py). `files` are relative to the Mac export root and `error` is a
+ * fixed sentence, so neither carries a path of the Mac.
+ */
+export interface FolderExportView {
+  generation: number;
+  state: 'pending' | 'exporting' | 'done' | 'failed';
+  target_subdir: string;
+  file_stem: string;
+  files: string[] | null;
+  error: string | null;
+  requested_at: string;
+  handled_at: string | null;
 }
 
 export type DashboardActionName =
@@ -315,7 +340,8 @@ export type DashboardActionName =
   | 'rerender'
   | 'mark_published'
   | 'mark_unpublished'
-  | 'open_studio';
+  | 'open_studio'
+  | 'save_to_folder';
 
 export interface ActionRequest {
   action: DashboardActionName;
@@ -341,4 +367,63 @@ export interface MediaLink {
   expires_at?: string;
   /** Set by the server for a file that predates generations (the old `output/<aweme>.mp4`). */
   note?: string;
+}
+
+/**
+ * `/api/collections`. Source of truth: services/downloader/src/collections/{collections.service,collections.schemas}.ts
+ * and `PATCH /api/dashboard/videos/collection` in dashboard.actions.controller.ts.
+ */
+export type CollectionKind = 'channel' | 'mix' | 'manual';
+
+/** The collection a video sits in, as the dashboard list and detail return it. */
+export interface VideoCollectionRef {
+  id: string;
+  name: string;
+  kind: CollectionKind;
+}
+
+/** Every setting may be null, which means "use the shared default". */
+export interface CollectionSettings {
+  /** −24 to 24 in steps of 0.5. */
+  bgm_offset_db: number | null;
+  /** `#rrggbb`; the server stores it lower case. */
+  caption_text_color: string | null;
+  cover_color: string | null;
+  /** Whole percentage 0–100. */
+  cover_opacity_pct: number | null;
+  /** A folder relative to the export root on the Mac. */
+  save_subdir: string | null;
+}
+
+export interface CollectionItem extends CollectionSettings {
+  id: string;
+  kind: CollectionKind;
+  external_id: string | null;
+  name: string;
+  channel: { sec_user_id: string; nickname: string | null } | null;
+  video_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CollectionListResponse {
+  items: CollectionItem[];
+}
+
+export type CreateCollectionBody = { name: string; sec_user_id?: string } & Partial<CollectionSettings>;
+export type UpdateCollectionBody = { name?: string } & Partial<CollectionSettings>;
+
+export interface GlossaryTerm {
+  term_zh: string;
+  term_vi: string;
+  note: string | null;
+  /** `dashboard` for a term a person set, `agent` for one the Localizer wrote. */
+  source: 'dashboard' | 'agent';
+  /** The video the agent learnt the term from; null for a dashboard term. */
+  source_aweme_id: string | null;
+  created_at: string;
+}
+
+export interface GlossaryResponse {
+  items: GlossaryTerm[];
 }
