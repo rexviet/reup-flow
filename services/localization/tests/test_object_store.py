@@ -73,6 +73,19 @@ def test_missing_artifact_names_the_producing_stage(store: ObjectStore, tmp_path
     with pytest.raises(ArtifactMissingError) as dl:
         store.download_file("work/1/r0/gone.wav", tmp_path / "x", produced_by="synthesize")
     assert dl.value.stage == "synthesize"
+    out = tmp_path / "opened"
+    with out.open("wb") as stream, pytest.raises(ArtifactMissingError) as fileobj:
+        store.download_fileobj("output/gone.mp4", stream, produced_by="final_render")
+    assert fileobj.value.key == "output/gone.mp4" and out.read_bytes() == b""
+
+
+def test_download_into_an_open_file(store: ObjectStore, tmp_path: Path) -> None:
+    store.put_bytes("output/1.mp4", b"video" * 1000)
+    out = tmp_path / "opened"
+    with out.open("wb") as stream:
+        store.download_fileobj("output/1.mp4", stream, produced_by="final_render")
+    assert out.read_bytes() == b"video" * 1000
+    assert [p.name for p in tmp_path.iterdir()] == ["opened"]  # no temp file of its own
 
 
 def test_other_storage_errors_are_not_reported_as_missing() -> None:

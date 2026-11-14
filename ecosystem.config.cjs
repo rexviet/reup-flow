@@ -79,7 +79,14 @@ module.exports = {
       time: true,
       // The Windows PC renders (docs/windows-render-worker.md), so this worker does everything
       // else. To render here again, comment this line out and restart the app (section 7).
-      env: { REVIEW_WORKER_ROLES: 'studio' },
+      // "Save to folder" writes only under REVIEW_WORKER_EXPORT_ROOT (an existing absolute
+      // directory), taken from the shell that runs start-all.sh; unset, those requests wait.
+      env: {
+        REVIEW_WORKER_ROLES: 'studio',
+        ...(process.env.REVIEW_WORKER_EXPORT_ROOT
+          ? { REVIEW_WORKER_EXPORT_ROOT: process.env.REVIEW_WORKER_EXPORT_ROOT }
+          : {}),
+      },
     },
   ],
 };

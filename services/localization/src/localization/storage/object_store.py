@@ -3,7 +3,7 @@
 import hashlib
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 import boto3
 from botocore.config import Config
@@ -178,6 +178,17 @@ class ObjectStore:
         validate_storage_key(key)
         try:
             self._client.download_file(self._bucket, key, str(path))
+        except ClientError as exc:
+            if _is_missing(exc):
+                raise ArtifactMissingError(key, produced_by) from None
+            raise
+
+    def download_fileobj(self, key: str, out: BinaryIO, *, produced_by: str) -> None:
+        """Streams the object into a file the caller already opened, for a caller that must
+        control how the file is created (`download_file` creates its own temporary name)."""
+        validate_storage_key(key)
+        try:
+            self._client.download_fileobj(self._bucket, key, out)
         except ClientError as exc:
             if _is_missing(exc):
                 raise ArtifactMissingError(key, produced_by) from None

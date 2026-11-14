@@ -59,6 +59,8 @@ class WorkerConfig:
     renew_every_s: int = 5 * 60
     shutdown_grace_s: int = 60
     max_attempts: int = 3
+    # Save-to-folder writes only under this directory; None leaves those requests pending.
+    export_root: Path | None = None
 
     @classmethod
     def from_environ(cls, env: Mapping[str, str] | None = None) -> "WorkerConfig":
@@ -83,6 +85,11 @@ class WorkerConfig:
             raise ConfigError("FINAL_RENDER_WORKERS must be at least 1")
         studio = env.get("REVIEW_WORKER_STUDIO_SCRIPT")
         name = env.get("REVIEW_WORKER_NAME", DEFAULT_NAME).strip()
+        export = env.get("REVIEW_WORKER_EXPORT_ROOT", "").strip()
+        # Not checked for existence: a drive mounted after boot must not stop the heartbeat
+        # and Studio requests; until it is there, each export fails with a sentence instead.
+        if export and not Path(export).is_absolute():
+            raise ConfigError("REVIEW_WORKER_EXPORT_ROOT must be an absolute path")
         if not NAME.fullmatch(name):
             raise ConfigError("REVIEW_WORKER_NAME must be lowercase letters, digits and dashes")
         return cls(
@@ -98,4 +105,5 @@ class WorkerConfig:
             hyperframes_bin=env.get("HYPERFRAMES_BIN"),
             studio_script=Path(studio) if studio else None,
             voicestudio_url=env.get("VOICESTUDIO_URL"),
+            export_root=Path(export) if export else None,
         )

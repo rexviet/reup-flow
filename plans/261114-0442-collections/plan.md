@@ -43,7 +43,7 @@ Nguồn quyết định: [brainstorm](../reports/brainstorm-261114-1114-collecti
 | 3 | [Gán collection lúc tải](./phase-03-assign-collection-at-intake.md) | Completed |
 | 4 | [API collection và yêu cầu lưu thư mục](./phase-04-collections-api-and-export-request.md) | Completed |
 | 5 | [Setting theo lượt chạy trong localization](./phase-05-run-settings-in-localization.md) | Completed |
-| 6 | [Worker lưu thư mục trên Mac](./phase-06-mac-folder-export-worker.md) | Pending |
+| 6 | [Worker lưu thư mục trên Mac](./phase-06-mac-folder-export-worker.md) | Completed |
 | 7 | [Giao diện collection trên dashboard](./phase-07-dashboard-collections-ui.md) | Pending |
 | 8 | [Rollout và chạy thật](./phase-08-rollout-and-real-run.md) | Pending |
 

@@ -17,8 +17,10 @@ export function workerEnv(config, root, base, { node, hyperframes }) {
   env.HYPERFRAMES_BIN = hyperframes;
   env.REVIEW_WORKER_STUDIO_SCRIPT = join(root, 'scripts/review-studio-request.mjs');
   // Set in pm2's env (ecosystem.config.cjs) to split work with a Windows render machine;
-  // unset, the worker does everything under the name the dashboard reads.
-  for (const key of ['REVIEW_WORKER_ROLES', 'REVIEW_WORKER_NAME', 'FINAL_RENDER_GPU'])
+  // unset, the worker does everything under the name the dashboard reads. The export root is
+  // where "save to folder" writes on this Mac; unset, those requests wait.
+  for (const key of ['REVIEW_WORKER_ROLES', 'REVIEW_WORKER_NAME', 'FINAL_RENDER_GPU',
+    'REVIEW_WORKER_EXPORT_ROOT'])
     if (base[key] !== undefined) env[key] = base[key];
   return env;
 }

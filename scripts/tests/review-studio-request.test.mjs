@@ -99,4 +99,34 @@ test('worker environment passes the role split on from pm2', () => {
     { node: '/n/node', hyperframes: '/h/hyperframes.mjs' });
   assert.equal(env.REVIEW_WORKER_ROLES, 'studio');
   assert.equal(env.REVIEW_WORKER_NAME, undefined);
+  assert.equal(env.REVIEW_WORKER_EXPORT_ROOT, undefined);
+});
+
+test('worker environment passes the save-to-folder root on from pm2', () => {
+  const config = { services: { 'worker-agents': { environment: {} } } };
+  const env = workerEnv(config, '/repo', { PATH: '/bin', REVIEW_WORKER_EXPORT_ROOT: '/Users/me/Movies/reup' },
+    { node: '/n/node', hyperframes: '/h/hyperframes.mjs' });
+  assert.equal(env.REVIEW_WORKER_EXPORT_ROOT, '/Users/me/Movies/reup');
+});
+
+test('pm2 hands the export root to the review worker only when it is set', async () => {
+  const { createRequire } = await import('node:module');
+  const load = value => {
+    const require = createRequire(import.meta.url);
+    const path = require.resolve('../../ecosystem.config.cjs');
+    delete require.cache[path];
+    const saved = process.env.REVIEW_WORKER_EXPORT_ROOT;
+    if (value === undefined) delete process.env.REVIEW_WORKER_EXPORT_ROOT;
+    else process.env.REVIEW_WORKER_EXPORT_ROOT = value;
+    try {
+      return require(path).apps.find(app => app.name === 'reup-review-worker').env;
+    } finally {
+      if (saved === undefined) delete process.env.REVIEW_WORKER_EXPORT_ROOT;
+      else process.env.REVIEW_WORKER_EXPORT_ROOT = saved;
+    }
+  };
+  assert.deepEqual(load(undefined), { REVIEW_WORKER_ROLES: 'studio' });
+  assert.deepEqual(load('/Volumes/Video/reup'), {
+    REVIEW_WORKER_ROLES: 'studio', REVIEW_WORKER_EXPORT_ROOT: '/Volumes/Video/reup',
+  });
 });
