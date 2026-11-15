@@ -458,6 +458,7 @@ def lay_out(
         captions=build_captions(spans, meter, box, caption_px(ingest.height), caption_color),
         font=Path(meter.path).name,
         font_sha256=meter.sha256,
+        blurs=subtitles.watermarks,
     )
 
 

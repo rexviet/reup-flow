@@ -141,6 +141,7 @@ class Repository:
                     cover_color=base.cover_color,
                     cover_opacity_pct=base.cover_opacity_pct,
                     geometry=geometry,
+                    watermarks=base.watermarks,
                 ),
                 visual,
             )

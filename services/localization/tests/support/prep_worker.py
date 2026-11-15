@@ -109,6 +109,7 @@ async def prep_workers(
                         activities=[
                             dub["assemble_audio"],
                             review["layout_captions"],
+                            acts["detect_watermarks"],
                         ],  # type: ignore[list-item]
                     ),
                 ),

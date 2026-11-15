@@ -116,6 +116,9 @@ SUBTITLE_SPEECH_PATCH = "dub-unspoken-subtitles"
 # Marks a run that asks which transcript segments are sung, to keep their original sound.
 # A run recorded before dubbed every segment.
 SINGING_PATCH = "keep-original-singing"
+# Marks a run that, once the subtitle band is known, looks for its collection's watermark
+# images on the source and blurs them. A run recorded before blurred nothing.
+WATERMARK_PATCH = "blur-collection-watermarks"
 
 # Reviews of one run: the first looks at the first layout, the second at the one made after
 # the one rerun a failed review sends the run back for.
@@ -180,6 +183,13 @@ DETECT_SUBTITLES = dict(
     start_to_close_timeout=timedelta(minutes=45),
     heartbeat_timeout=timedelta(minutes=2),
     retry_policy=_retry(5, 5, 300),
+)
+# Template matching on every frame at 2 fps, on the CPU: minutes for a long video.
+DETECT_WATERMARKS = dict(
+    task_queue=MEDIA_QUEUE,
+    start_to_close_timeout=timedelta(minutes=60),
+    heartbeat_timeout=timedelta(minutes=2),
+    retry_policy=_retry(3, 10, 120),
 )
 # One vision request per stretch of subtitle with no speech under it, each read cached.
 COMPLETE_TRANSCRIPT = dict(
@@ -564,7 +574,28 @@ class VideoLocalizationWorkflow:
             )
 
         subtitles = await self._settle(start_detect(), start_detect, spec)
+        subtitles = await self._with_watermarks(spec, subtitles)
         return prep.model_copy(update={"subtitles": subtitles})
+
+    async def _with_watermarks(
+        self, spec: LocalizationInput, subtitles: SubtitleTrack
+    ) -> SubtitleTrack:
+        """The subtitle track with the collection's watermarks found on the source. A run
+        whose collection has no image looks for none, and records no patch either."""
+        if not (spec.collection and spec.collection.watermarks):
+            return subtitles
+        if not workflow.patched(WATERMARK_PATCH):
+            return subtitles
+
+        def start() -> workflow.ActivityHandle:
+            return workflow.start_activity(
+                "detect_watermarks",
+                args=[spec, subtitles],
+                result_type=SubtitleTrack,
+                **DETECT_WATERMARKS,
+            )
+
+        return await self._settle(start(), start, spec)
 
     async def _localize_once(self, spec: LocalizationInput, prep: PrepResult) -> ScriptResult:
         if not self._rate_measured:
@@ -676,9 +707,8 @@ class VideoLocalizationWorkflow:
         if rating is not None:
             self._rate = results["rate"]
             self._rate_measured = True
-        return PrepResult(
-            ingest=ingest, transcript=results["transcribe"], subtitles=results["detect"]
-        )
+        subtitles = await self._with_watermarks(spec, results["detect"])
+        return PrepResult(ingest=ingest, transcript=results["transcribe"], subtitles=subtitles)
 
     async def _ingest(self, spec: LocalizationInput) -> IngestResult:
         return await workflow.execute_activity(

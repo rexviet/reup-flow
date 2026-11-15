@@ -15,6 +15,7 @@ from typing import Annotated
 from pydantic import Field
 
 from localization.contracts.base import Contract
+from localization.contracts.ids import Sha256, SourceKey
 
 # Lower case only: the DB stores colours lower case, and one spelling per colour keeps
 # the spec hash of a render stable.
@@ -39,6 +40,20 @@ CoverHeightPct = Annotated[int, Field(ge=3, le=50)]
 DEFAULT_CAPTION_COLOR = "#ffff00"
 
 
+# A collection holds at most this many watermark images (the downloader refuses more).
+MAX_WATERMARKS = 10
+
+
+class WatermarkTemplate(Contract):
+    """One of a collection's watermark images (`collection_watermarks`): a PNG in the
+    object store, the sha256 of its bytes, and the height of the frame it was cut from,
+    which sets the size it is searched at on a video of another height."""
+
+    key: SourceKey
+    sha256: Sha256
+    frame_height: Annotated[int, Field(gt=0)]
+
+
 class CollectionSnapshot(Contract):
     """`None` means the collection leaves that setting to the default: the worker's
     configured cover, the yellow caption, the music as the balance sets it."""
@@ -53,3 +68,5 @@ class CollectionSnapshot(Contract):
     cover_offset_pct: CoverOffsetPct | None = None
     cover_width_pct: CoverWidthPct | None = None
     cover_height_pct: CoverHeightPct | None = None
+    # The images whose watermarks the run blurs. None, and nothing is looked for.
+    watermarks: Annotated[tuple[WatermarkTemplate, ...], Field(max_length=MAX_WATERMARKS)] = ()

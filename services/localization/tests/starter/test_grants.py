@@ -19,8 +19,10 @@ from localization.starter.outbox_starter import (
 from tests.support.scratch_db import (
     BYPASS_SKIPS_GRANT,
     COLLECTIONS,
+    DASHBOARD_INTAKE,
     INIT,
     OUTBOX,
+    WATERMARKS,
     add_channel_collection,
     scratch_database,
 )
@@ -32,7 +34,9 @@ GRANTS = (
 
 @pytest.fixture
 def db() -> Iterator[psycopg.Connection]:
-    for _, conn in scratch_database(INIT, OUTBOX, GRANTS, BYPASS_SKIPS_GRANT, COLLECTIONS):
+    for _, conn in scratch_database(
+        INIT, OUTBOX, GRANTS, BYPASS_SKIPS_GRANT, DASHBOARD_INTAKE, COLLECTIONS, WATERMARKS
+    ):
         collection = add_channel_collection(
             conn,
             "c",
@@ -57,7 +61,7 @@ def test_the_starter_can_run_every_statement_it_uses(db: psycopg.Connection) -> 
     assert video is not None
     assert video[:2] == ("s3://b/source/1.mp4", "c")
     # The collection's settings are read by the same role, in the same statement.
-    assert video[3:] == ("Kênh", None, "#00ff88", None, 80, None, 100, None)
+    assert video[3:] == ("Kênh", None, "#00ff88", None, 80, None, 100, None, [])
     db.execute(DISPATCHED_SQL, ("video-1-g1", "1", 1))
     db.execute(REJECTED_SQL, ("x", "1", 1))
     db.execute(RELEASED_SQL, {"error": "e", "delay": 30, "aweme_id": "1", "generation": 1})
@@ -94,7 +98,9 @@ def test_the_starter_can_do_nothing_else(db: psycopg.Connection, statement: str)
 
 @pytest.fixture
 def collections_db() -> Iterator[psycopg.Connection]:
-    for _, conn in scratch_database(INIT, OUTBOX, GRANTS, BYPASS_SKIPS_GRANT, COLLECTIONS):
+    for _, conn in scratch_database(
+        INIT, OUTBOX, GRANTS, BYPASS_SKIPS_GRANT, DASHBOARD_INTAKE, COLLECTIONS, WATERMARKS
+    ):
         conn.execute("INSERT INTO profiles (sec_user_id) VALUES ('c')")
         conn.execute(
             "INSERT INTO collections (kind, external_id, sec_user_id, name, save_subdir) "

@@ -117,6 +117,32 @@
       ],
       "title": "Cover",
       "type": "object"
+    },
+    "Watermark": {
+      "additionalProperties": false,
+      "description": "Text burned into the source that is not its subtitle and stays in one place: a\nchannel name, a disclaimer in a corner. It is blurred over `region` from `start_ms`\nto `end_ms`. One that moves (a corner on the left, later one on the right) is one\nwatermark per place.",
+      "properties": {
+        "end_ms": {
+          "minimum": 0,
+          "title": "End Ms",
+          "type": "integer"
+        },
+        "region": {
+          "$ref": "#/$defs/BBox"
+        },
+        "start_ms": {
+          "minimum": 0,
+          "title": "Start Ms",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "region",
+        "start_ms",
+        "end_ms"
+      ],
+      "title": "Watermark",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -131,6 +157,14 @@
       "pattern": "^[0-9a-f]{64}$",
       "title": "Audio Sha256",
       "type": "string"
+    },
+    "blurs": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Watermark"
+      },
+      "title": "Blurs",
+      "type": "array"
     },
     "caption_box": {
       "$ref": "#/$defs/BBox"

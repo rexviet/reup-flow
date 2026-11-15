@@ -25,6 +25,12 @@ COLLECTIONS = "\n".join(
     (MIGRATIONS / name).read_text()
     for name in ("261114-collections.sql", "261114-collection-cover-geometry.sql")
 )
+# A collection's watermark images. Its grant names `review_decisions`, so it goes after
+# DASHBOARD_INTAKE.
+WATERMARKS = "\n".join(
+    (MIGRATIONS / name).read_text()
+    for name in ("261115-collection-watermarks.sql", "261115-collection-watermark-uploads.sql")
+)
 # The localization role's read of the operator's flag that sets a run's skip checks aside.
 BYPASS_SKIPS_GRANT = (
     REPO / "services" / "localization" / "migrations" / "261115-outbox-bypass-skips-grant.sql"

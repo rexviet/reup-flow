@@ -68,6 +68,7 @@ class ProviderPrep(PrepFakes):
             acts["ingest"],
             transcribe,
             detect_subtitles,
+            acts["detect_watermarks"],
             acts["complete_transcript"],
             acts["detect_singing"],
         ]

@@ -10,7 +10,7 @@ from pydantic import ConfigDict, Field, model_validator
 
 from localization.contracts.base import Contract
 from localization.contracts.collection import CollectionSnapshot, HexColor, OpacityPct
-from localization.contracts.geometry import BBox, NonNegativeInt, PositiveInt
+from localization.contracts.geometry import BBox, NonNegativeInt, PositiveInt, Watermark
 from localization.contracts.ids import AwemeId, ChannelId, Sha256, SourceKey, StorageKey
 from localization.contracts.review_project import MixLevels, SourceSnapshot
 from localization.contracts.voice import REVIEW_PROVIDERS, VoiceRef
@@ -135,6 +135,9 @@ class SingingCheck(Contract):
 class SubtitleTrack(Contract):
     subtitle_key: Key
     region: BBox | None
+    # Text held in one place that is not the subtitle (see `Watermark`). A track
+    # written before they were looked for has none.
+    watermarks: tuple[Watermark, ...] = ()
 
 
 class SubtitleCue(Contract):
@@ -158,7 +161,11 @@ class SubtitleDocument(Contract):
     None for no subtitle or an unusable answer), one every `frame_interval_ms` from the
     start, and `unusable_frames` the indexes of the unusable ones: enough to tell whether
     a wrong region came from the model or from the consensus built on its answers. A
-    document written before they existed has neither."""
+    document written before they existed has neither.
+
+    `watermarks` are the collection's watermarks found on the source, to be blurred, and
+    `watermark_templates` the sha256 of the images they were looked for with. A document
+    written before watermarks were looked for has neither."""
 
     width: PositiveInt
     height: PositiveInt
@@ -167,6 +174,8 @@ class SubtitleDocument(Contract):
     frame_interval_ms: PositiveInt | None = None
     frame_boxes: tuple[BBox | None, ...] = ()
     unusable_frames: tuple[NonNegativeInt, ...] = ()
+    watermarks: tuple[Watermark, ...] = ()
+    watermark_templates: tuple[Sha256, ...] = ()
 
 
 # --- Preparation ------------------------------------------------------------
@@ -439,6 +448,9 @@ class EditSpec(Contract):
     # The font's identity is its bytes, not its name: layout measured with one file, and
     # the renderer refuses to draw with another.
     font_sha256: Sha256
+    # Source watermarks blurred in the render. The hash leaves them out while there are
+    # none, so a spec written before them keeps its hash.
+    blurs: tuple[Watermark, ...] = ()
 
     @model_validator(mode="after")
     def _frame_fits_the_render_budget(self) -> "EditSpec":

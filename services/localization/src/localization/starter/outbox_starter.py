@@ -75,11 +75,18 @@ RETURNING aweme_id, generation, dispatch_attempts, bypass_skips
 
 # The video and its collection's settings, read in one statement when the run is
 # dispatched: the input carries them, so editing the collection later never changes a
-# run already started. Every video has a collection (`collection_id` is NOT NULL).
+# run already started. Every video has a collection (`collection_id` is NOT NULL). Its
+# watermark images come in the order they were added, so one set is always one list.
 VIDEO_SQL = """
 SELECT v.storage_path, v.sec_user_id, c.id::text AS collection_id, c.name AS collection_name,
        c.bgm_offset_db, c.caption_text_color, c.cover_color, c.cover_opacity_pct,
-       c.cover_offset_pct, c.cover_width_pct, c.cover_height_pct
+       c.cover_offset_pct, c.cover_width_pct, c.cover_height_pct,
+       COALESCE((SELECT json_agg(json_build_object('key', w.image_key,
+                                                   'sha256', w.image_sha256,
+                                                   'frame_height', w.frame_height)
+                                 ORDER BY w.created_at, w.id)
+                   FROM collection_watermarks w WHERE w.collection_id = c.id),
+                '[]'::json) AS watermarks
   FROM videos v JOIN collections c ON c.id = v.collection_id
  WHERE v.aweme_id = %s
 """
@@ -350,6 +357,7 @@ class OutboxStarter:
                     cover_offset_pct=row["cover_offset_pct"],
                     cover_width_pct=row["cover_width_pct"],
                     cover_height_pct=row["cover_height_pct"],
+                    watermarks=row.get("watermarks") or (),
                 ),
                 aweme_id=claimed.aweme_id,
                 channel_id=validate_channel_id(row["sec_user_id"]),

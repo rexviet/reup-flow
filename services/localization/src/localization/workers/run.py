@@ -31,6 +31,7 @@ from localization.activities.classify_video import ClassifyVideoActivity
 from localization.activities.complete_transcript import CompleteTranscriptActivity
 from localization.activities.detect_singing import DetectSingingActivity
 from localization.activities.detect_subtitles import DetectSubtitlesActivity
+from localization.activities.detect_watermarks import DetectWatermarksActivity
 from localization.activities.dub_script import DubScriptActivities
 from localization.activities.dubber_ports import StoreDubberPorts
 from localization.activities.glossary import GlossaryStore
@@ -168,6 +169,7 @@ def queue_specs(
                 settings.media_concurrency,
                 activities=[
                     ingest.ingest,
+                    DetectWatermarksActivity(store).detect_watermarks,
                     assemble_audio.assemble_audio,
                     layout.layout_captions,
                     revoice.mix,

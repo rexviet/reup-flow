@@ -1,6 +1,6 @@
 # Collection watermark templates
 
-Status: phase 1 committed and migrated; phase 2 built with file upload (uncommitted, both migrations applied, nest/web rebuilt); phases 3–5 not started · Branch: `feat/localization-dubber-code-mode`
+Status: phases 1–2 committed and migrated; phase 3 built (uncommitted, with the blur it uses); phases 4–5 not started · Branch: `feat/localization-dubber-code-mode`
 
 ## Outcome
 A collection holds zero to a few watermark images, each cut by a person as a region on a frame
@@ -89,7 +89,7 @@ Deleting an image or its collection removes the object after the commit (best ef
 |---|---|---|---|
 | 1 | Schema + API — **done** | migration (+ down), `db/schema.ts`, `collections/collection-watermarks.ts`, controller/schemas/module, collection delete cleanup, `scripts/apply-migrations.sh`, `scripts/migration-evidence.sql`, `scripts/tests/apply-migrations.test.sh` | — |
 | 2 | Dashboard picker — **built** | web `api/client.ts`, `api/types.ts`, new `WatermarkPicker.tsx`, `CollectionsPanel.tsx` | 1 |
-| 3 | Matcher + pipeline | `watermarks/template_match.py`, `activities/detect_watermarks.py`, starter `VIDEO_SQL` + snapshot, workflow call behind `workflow.patched`, worker registration, `pyproject.toml` | contract |
+| 3 | Matcher + pipeline — **built** | `watermarks/template_match.py`, `activities/detect_watermarks.py`, starter `VIDEO_SQL` + snapshot, workflow call behind `workflow.patched`, worker registration, `pyproject.toml` | contract |
 | 4 | Existing videos | `review_worker/watermark_relayout.py`, scan loop wiring, `repository.prepare` (watermarks argument) | 3, 1 (grant) |
 | 5 | Deploy + check | rebuild web/downloader/workers, host worker deps; check 7680110974204365681 (left and right) and 7704493353806728448 (intermittent) | 1–4 |
 
@@ -110,6 +110,21 @@ and the template PNGs (checking each sha256), runs `template_match.find`, writes
 the subtitle document, and returns the `SubtitleTrack` with `watermarks` filled. Layout and the
 review project then blur them through the paths already built. The workflow change goes behind
 `workflow.patched` so runs in flight replay.
+
+Built as: `watermarks/template_match.py` (`find` on a video, `find_in_frames` on frames, the
+spike's constants), `activities/detect_watermarks.py` (activity + `find_on_source`, shared with
+phase 4; checks each image's sha256, writes `watermarks` and `watermark_templates` into the
+subtitle document), `WatermarkTemplate` and `CollectionSnapshot.watermarks` (≤ 10), the starter's
+`VIDEO_SQL` reading `collection_watermarks` ordered by `created_at, id`, the manifest's
+`watermark_templates` copied from the document, `WATERMARK_PATCH = "blur-collection-watermarks"`
+asked only when the snapshot has images (so a run without images records no marker), and the
+activity on the `media` worker. Only `VideoLocalizationWorkflow` runs it; the Vbee pipeline
+does not look for watermarks.
+
+Deploy note (phase 5): `uv.lock` gained `opencv-python-headless`, which invalidates the image
+layer that downloads the Demucs weights from dl.fbaipublicfiles.com (its certificate expired
+on 2026-11-11). Check the download works before rebuilding the workers, or install OpenCV in a
+layer after the weights.
 
 ### Phase 4 detail
 On each review-worker scan, one video per scan at most (detection takes minutes):

@@ -22,6 +22,9 @@ def canonical_spec_json(spec: EditSpec) -> str:
         if caption["caption_color"] is None:
             # Specs written before captions had a colour are drawn white, as before.
             caption.pop("caption_color")
+    if not body["blurs"]:
+        # Specs written before watermarks were blurred.
+        body.pop("blurs")
     return json.dumps(
         body, sort_keys=True, ensure_ascii=False, separators=(",", ":")
     )

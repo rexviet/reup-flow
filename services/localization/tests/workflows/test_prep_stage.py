@@ -1205,3 +1205,55 @@ async def test_one_bad_gateway_is_asked_again_instead_of_failing_the_activity(
     assert ocr.failed and result.region is not None
     stored = json.loads(store.get_bytes(result.subtitle_key, produced_by="detect_subtitles"))
     assert len(stored["frame_boxes"]) == 10 and stored["unusable_frames"] == []
+
+
+# --- the watermark search ------------------------------------------------------
+
+
+def _with_images(spec: LocalizationInput) -> LocalizationInput:
+    from localization.contracts import CollectionSnapshot, WatermarkTemplate
+
+    image = WatermarkTemplate(
+        key="source/collections/c/watermarks/w.png", sha256="a" * 64, frame_height=1080
+    )
+    collection = CollectionSnapshot(
+        id="00000000-0000-4000-8000-000000000001", name="Kênh", watermarks=(image,)
+    )
+    return spec.model_copy(update={"collection": collection})
+
+
+async def _run_input(client: Client, fakes: PrepFakes, spec: LocalizationInput):
+    async with prep_workers(client, fakes):
+        handle = await client.start_workflow(
+            "VideoLocalizationWorkflow",
+            spec,
+            id=f"video-7001-g1-{uuid.uuid4()}",
+            task_queue="workflows",
+            result_type=LocalizationResult,
+        )
+        return handle, await asyncio.wait_for(handle.result(), timeout=10)
+
+
+async def test_a_collection_with_images_has_its_watermarks_found_after_the_subtitles(
+    temporal_client: Client,
+) -> None:
+    from tests.support.prep_fakes import MARK
+
+    fakes = PrepFakes()
+    handle, result = await _run_input(temporal_client, fakes, _with_images(make_input()))
+    assert fakes.calls["detect_watermarks"] == 1
+    assert result.prep.subtitles.watermarks == (MARK,)
+    scheduled = await _scheduled(handle)
+    assert ("detect_watermarks", "media") in scheduled
+    names = [n for n, _ in scheduled]
+    assert names.index("detect_subtitles") < names.index("detect_watermarks")
+
+
+async def test_a_collection_without_images_looks_for_no_watermark(
+    temporal_client: Client,
+) -> None:
+    fakes = PrepFakes()
+    handle, result = await _run_input(temporal_client, fakes, make_input())
+    assert fakes.calls["detect_watermarks"] == 0
+    assert result.prep.subtitles.watermarks == ()
+    assert "detect_watermarks" not in [n for n, _ in await _scheduled(handle)]

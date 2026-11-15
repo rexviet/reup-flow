@@ -13,7 +13,7 @@ from localization.contracts.collection import (
     MusicOffsetDb,
     OpacityPct,
 )
-from localization.contracts.geometry import BBox, NonNegativeInt, PositiveInt
+from localization.contracts.geometry import BBox, NonNegativeInt, PositiveInt, Watermark
 from localization.contracts.ids import AwemeId, Sha256, SourceKey, StorageKey
 from localization.contracts.voice import VoiceRef
 
@@ -106,6 +106,11 @@ class ReviewProjectManifest(Contract):
     cues: tuple[ReviewCue, ...]
     source_region: BBox | None
     source_cues: tuple[tuple[NonNegativeInt, NonNegativeInt], ...]
+    # Source watermarks every revision blurs, and the sha256 of the collection images they
+    # were found with: a collection whose images changed since has its project found
+    # again. A project written before them has neither.
+    watermarks: tuple[Watermark, ...] = ()
+    watermark_templates: tuple[Sha256, ...] = ()
     # The run's collection settings, so every revision (a Studio save, a revoice) is
     # drawn and mixed as the first was. A project written before them has none: its
     # captions are yellow and its source mask the white blur it always had.

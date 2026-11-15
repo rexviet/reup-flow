@@ -307,6 +307,7 @@ def test_old_cover_specs_keep_their_hash_and_timed_covers_have_a_new_one(rendere
     original["cover"].pop("only_with_captions", None)
     for caption in original["captions"]:
         caption.pop("caption_color")  # unset, as in every spec written before it existed
+    original.pop("blurs")  # none, as in every spec written before watermarks were blurred
     expected = json.dumps(original, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     assert canonical_spec_json(spec) == expected
     timed = spec.model_copy(update={
