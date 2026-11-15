@@ -519,7 +519,6 @@ async def test_nothing_is_stored_when_the_layout_is_refused(store: ObjectStore) 
         ({"width": 3840, "height": 2160}, "3840x2160 is over 2088960 pixels"),
         ({"width": 4096, "height": 4096}, "4096x4096 is over 2088960 pixels"),
         ({"fps": 240}, "240 fps"),
-        ({"duration_ms": 16 * 60 * 1000}, "960000 ms"),
         ({"duration_ms": 0}, "no length"),
     ],
 )
@@ -539,6 +538,13 @@ async def test_a_video_at_the_limits_is_accepted(store: ObjectStore) -> None:
     edge = ingest(width=1920, height=1088).model_copy(update={"fps": 120})
     _, spec = await run(store, ref, subs, dub, prep=edge)
     assert (spec.width, spec.height, spec.fps) == (1920, 1088, 120)
+
+
+async def test_a_long_video_is_accepted_whatever_its_length(store: ObjectStore) -> None:
+    ref, subs, dub = await stage(store, ["Xin chào"], region=None)
+    long = ingest().model_copy(update={"duration_ms": 20 * 60 * 1000 + 9_000})
+    _, spec = await run(store, ref, subs, dub, prep=long)
+    assert spec.duration_ms == 20 * 60 * 1000 + 9_000
 
 
 async def test_a_portrait_video_at_the_area_limit_is_accepted(store: ObjectStore) -> None:
@@ -576,7 +582,7 @@ def test_the_spec_model_enforces_the_same_limits() -> None:
             "font_sha256": "d" * 64,
         }
     )
-    for field, value in (("width", 4097), ("fps", 121), ("duration_ms", 900_001)):
+    for field, value in (("width", 4097), ("fps", 121), ("duration_ms", 0)):
         with pytest.raises(ValidationError):
             EditSpec.model_validate({**base.model_dump(), field: value})
     # Each side is within its own limit, the pixels together are not.

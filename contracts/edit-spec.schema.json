@@ -155,7 +155,6 @@
     },
     "duration_ms": {
       "exclusiveMinimum": 0,
-      "maximum": 900000,
       "title": "Duration Ms",
       "type": "integer"
     },

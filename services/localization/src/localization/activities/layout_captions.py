@@ -41,7 +41,6 @@ from localization.contracts import (
     SubtitleTrack,
 )
 from localization.contracts.models import (
-    MAX_DURATION_MS,
     MAX_FPS,
     MAX_FRAME_AREA,
     MAX_FRAME_PX,
@@ -360,8 +359,9 @@ def check_glyph_coverage(spans: list[tuple[int, int, int, str]], meter: FontMete
 
 
 def check_renderable(ingest: IngestResult) -> None:
-    """The size, rate and length of the source come from ffprobe on a file somebody else
-    made. Past these limits the renderer would hold its only slot for hours."""
+    """The size and rate of the source come from ffprobe on a file somebody else made. Past
+    these limits the renderer would hold its only slot for hours. Any positive length is
+    drawn: the render deadline grows with it."""
     problems = []
     if ingest.width > MAX_FRAME_PX or ingest.height > MAX_FRAME_PX:
         problems.append(f"{ingest.width}x{ingest.height} is over {MAX_FRAME_PX} px")
@@ -369,8 +369,6 @@ def check_renderable(ingest: IngestResult) -> None:
         problems.append(f"{ingest.width}x{ingest.height} is over {MAX_FRAME_AREA} pixels")
     if ingest.fps > MAX_FPS:
         problems.append(f"{ingest.fps} fps is over {MAX_FPS}")
-    if ingest.duration_ms > MAX_DURATION_MS:
-        problems.append(f"{ingest.duration_ms} ms is over {MAX_DURATION_MS}")
     if ingest.duration_ms <= 0:
         problems.append("the video has no length")
     if problems:

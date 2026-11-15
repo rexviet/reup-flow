@@ -238,11 +238,11 @@ LAYOUT = dict(
     start_to_close_timeout=timedelta(minutes=10),
     retry_policy=_retry(3, 5, 60),
 )
-# The longest render the renderer allows itself is 35 minutes (see its deadline); it
-# heartbeats every few seconds, so a worker that died is noticed in a minute.
+# The renderer bounds itself with a deadline that grows with the video's length, which has
+# no ceiling; it heartbeats every few seconds, so a worker that died is noticed in a minute.
 RENDER = dict(
     task_queue=RENDER_QUEUE,
-    start_to_close_timeout=timedelta(hours=2),
+    start_to_close_timeout=timedelta(hours=24),
     heartbeat_timeout=timedelta(seconds=60),
     retry_policy=RetryPolicy(
         maximum_attempts=3,

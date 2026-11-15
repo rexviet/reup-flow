@@ -410,14 +410,13 @@ class Caption(Contract):
 
 
 # What the renderer will agree to draw. The numbers come from ffprobe on a file somebody
-# else made, so each has a ceiling: without one a crafted file holds the single render
-# slot for hours.
+# else made, so the frame size and rate have a ceiling. Length has none: a long video is
+# wanted, and the render's deadline grows with it.
 MAX_FRAME_PX = 4096
 # The render's memory and scratch budget was measured on a 1080x1920 clip and sized for
 # frames up to this many pixels: a long side alone does not bound it.
 MAX_FRAME_AREA = 1920 * 1088
 MAX_FPS = 120
-MAX_DURATION_MS = 15 * 60 * 1000
 MAX_CAPTIONS = 2000
 
 
@@ -429,7 +428,7 @@ class EditSpec(Contract):
     width: Annotated[int, Field(gt=0, le=MAX_FRAME_PX)]
     height: Annotated[int, Field(gt=0, le=MAX_FRAME_PX)]
     fps: Annotated[int, Field(gt=0, le=MAX_FPS)]
-    duration_ms: Annotated[int, Field(gt=0, le=MAX_DURATION_MS)]
+    duration_ms: Annotated[int, Field(gt=0)]
     cover: Cover | None
     # Where captions are centred: the cover when there is one, else a safe zone.
     caption_box: BBox
