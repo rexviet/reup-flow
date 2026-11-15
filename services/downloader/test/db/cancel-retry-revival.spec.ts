@@ -44,6 +44,7 @@ import {
   testSchemaName,
   truncateAll,
 } from '../support/db';
+import { channelCollection } from '../support/collections';
 
 jest.setTimeout(60_000);
 
@@ -77,9 +78,9 @@ afterEach(async () => {
 
 async function seedVideo(awemeId: string): Promise<void> {
   await pool.query(
-    `INSERT INTO videos (aweme_id, sec_user_id, create_time, play_addr, url_expires_at)
-     VALUES ($1, $2, now(), 'https://cdn.example/x.mp4', now() + interval '1 hour')`,
-    [awemeId, PROFILE],
+    `INSERT INTO videos (aweme_id, sec_user_id, create_time, play_addr, url_expires_at, collection_id)
+     VALUES ($1, $2, now(), 'https://cdn.example/x.mp4', now() + interval '1 hour', $3)`,
+    [awemeId, PROFILE, await channelCollection(pool, PROFILE)],
   );
 }
 
@@ -216,9 +217,9 @@ describe('way back #1 -- /retry on the cancelled job', () => {
     const other = 'MS4wLjABAAAA_cancel_retry_other';
     await db.insert(profiles).values({ secUserId: other }).onConflictDoNothing();
     await pool.query(
-      `INSERT INTO videos (aweme_id, sec_user_id, create_time, status)
-       VALUES ('other-skipped', $1, now(), 'skipped')`,
-      [other],
+      `INSERT INTO videos (aweme_id, sec_user_id, create_time, status, collection_id)
+       VALUES ('other-skipped', $1, now(), 'skipped', $2)`,
+      [other, await channelCollection(pool, other)],
     );
     const [job] = await db.insert(jobs).values({ secUserId: PROFILE }).returning();
     await seedVideo('mine');

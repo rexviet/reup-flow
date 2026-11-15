@@ -1,0 +1,437 @@
+{
+  "code": 200,
+  "router": "/api/douyin/web/fetch_user_post_videos",
+  "data": {
+    "status_code": 0,
+    "min_cursor": 0,
+    "max_cursor": 1790301994000,
+    "has_more": 0,
+    "aweme_list": [
+      {
+        "aweme_id": "7707579880598146344",
+        "desc": "《成名的代价》第十集 在这座造星的塔顶里，人人都是囚徒，被监视被圈养在屏幕内…全文由即梦短剧制作#即梦AI创作者成长计划  #韩剧  #女团学  #cp  #ai创作浪潮计划",
+        "create_time": 1794560790,
+        "aweme_type": 0,
+        "media_type": 4,
+        "images": null,
+        "author": {
+          "uid": "3031796700420452",
+          "sec_uid": "MS4wLjABAAAAE_UjwhIrz5ADIJh_CmMo31N9BR7pfKz_NKzLf9djdAF-Amx02tIyIo221_zzPIjb",
+          "nickname": "IM-薛珍珠"
+        },
+        "mix_info": {
+          "mix_id": "7695338683825653823",
+          "mix_name": "成名的代价",
+          "status": {
+            "status": 2,
+            "is_collected": 0
+          },
+          "statis": {
+            "play_vv": 0,
+            "collect_vv": 0,
+            "current_episode": 10,
+            "updated_to_episode": 10
+          },
+          "desc": "镜头里，这里是造星的塔顶，而镜头外…看东北女练习生勇闯韩国女团！"
+        },
+        "video": {
+          "duration": 315800,
+          "play_addr": {
+            "uri": "v0300fg10000dbrcponog65o5olcqt80",
+            "url_list": [
+              "https://v5-dy-ov-experiment.zjcdn.com/scrubbed",
+              "https://v5-hl-mly-ov.zjcdn.com/scrubbed",
+              "https://www.douyin.com/scrubbed"
+            ]
+          }
+        }
+      },
+      {
+        "aweme_id": "7704493353806728448",
+        "desc": "《成名的代价》第九集 当你凝望深渊时，深渊也在凝望你，当你越想成名，越要付出百倍代价……全片由@即梦AI短剧工作室制作 #即梦AI创作者成长计划  #即梦未来荧幕剧集片单  #韩剧  #女团学  #ai创作浪潮计划",
+        "create_time": 1793869292,
+        "aweme_type": 0,
+        "media_type": 4,
+        "images": null,
+        "author": {
+          "uid": "3031796700420452",
+          "sec_uid": "MS4wLjABAAAAE_UjwhIrz5ADIJh_CmMo31N9BR7pfKz_NKzLf9djdAF-Amx02tIyIo221_zzPIjb",
+          "nickname": "IM-薛珍珠"
+        },
+        "mix_info": {
+          "mix_id": "7695338683825653823",
+          "mix_name": "成名的代价",
+          "status": {
+            "status": 2,
+            "is_collected": 0
+          },
+          "statis": {
+            "play_vv": 0,
+            "collect_vv": 0,
+            "current_episode": 9,
+            "updated_to_episode": 10
+          },
+          "desc": "镜头里，这里是造星的塔顶，而镜头外…看东北女练习生勇闯韩国女团！"
+        },
+        "video": {
+          "duration": 265600,
+          "play_addr": {
+            "uri": "v0d00fg10000dbltipfog65t5henstu0",
+            "url_list": [
+              "https://v5-dy-ov-experiment.zjcdn.com/scrubbed",
+              "https://v5-hl-mly-ov.zjcdn.com/scrubbed",
+              "https://www.douyin.com/scrubbed"
+            ]
+          }
+        }
+      },
+      {
+        "aweme_id": "7702760710909079289",
+        "desc": "《成名的代价》第八集 东北女练习生勇闯韩国女团！这里是造星的塔顶，也是充满血汗泪的深渊…#韩剧 #女团学 #cp #即梦AI创作者成长计划 #AI创作浪潮计划",
+        "create_time": 1793438735,
+        "aweme_type": 0,
+        "media_type": 4,
+        "images": null,
+        "author": {
+          "uid": "3031796700420452",
+          "sec_uid": "MS4wLjABAAAAE_UjwhIrz5ADIJh_CmMo31N9BR7pfKz_NKzLf9djdAF-Amx02tIyIo221_zzPIjb",
+          "nickname": "IM-薛珍珠"
+        },
+        "mix_info": {
+          "mix_id": "7695338683825653823",
+          "mix_name": "成名的代价",
+          "status": {
+            "status": 2,
+            "is_collected": 0
+          },
+          "statis": {
+            "play_vv": 0,
+            "collect_vv": 0,
+            "current_episode": 8,
+            "updated_to_episode": 10
+          },
+          "desc": "镜头里，这里是造星的塔顶，而镜头外…看东北女练习生勇闯韩国女团！"
+        },
+        "video": {
+          "duration": 236367,
+          "play_addr": {
+            "uri": "v1e00fgi0000dbir617og65m1uj6lui0",
+            "url_list": [
+              "https://v5-dy-ov-experiment.zjcdn.com/scrubbed",
+              "https://v5-hl-mly-ov.zjcdn.com/scrubbed",
+              "https://www.douyin.com/scrubbed"
+            ]
+          }
+        }
+      },
+      {
+        "aweme_id": "7701303692212915499",
+        "desc": "《成名的代价》 金字塔的游戏早就写好了输赢，可剧本只写了他们赢，没写我不能改……#女团  #cp  #即梦AI创作者成长计划  #AI创作浪潮计划  #Befe发膜",
+        "create_time": 1793178008,
+        "aweme_type": 0,
+        "media_type": 4,
+        "images": null,
+        "author": {
+          "uid": "3031796700420452",
+          "sec_uid": "MS4wLjABAAAAE_UjwhIrz5ADIJh_CmMo31N9BR7pfKz_NKzLf9djdAF-Amx02tIyIo221_zzPIjb",
+          "nickname": "IM-薛珍珠"
+        },
+        "mix_info": {
+          "mix_id": "7695338683825653823",
+          "mix_name": "成名的代价",
+          "status": {
+            "status": 2,
+            "is_collected": 0
+          },
+          "statis": {
+            "play_vv": 0,
+            "collect_vv": 0,
+            "current_episode": 7,
+            "updated_to_episode": 10
+          },
+          "desc": "镜头里，这里是造星的塔顶，而镜头外…看东北女练习生勇闯韩国女团！"
+        },
+        "video": {
+          "duration": 224567,
+          "play_addr": {
+            "uri": "v0300fg10000dbg7sjvog65qu2m0vt20",
+            "url_list": [
+              "https://v5-dy-ov-experiment.zjcdn.com/scrubbed",
+              "https://v5-hl-mly-ov.zjcdn.com/scrubbed",
+              "https://www.douyin.com/scrubbed"
+            ]
+          }
+        }
+      },
+      {
+        "aweme_id": "7699044968946318705",
+        "desc": "《成名的代价》第六集 东北练习生勇闯韩国女团！原来造星的游戏没有公平，所谓公平，不过是掌权者定的规则…#韩剧 #女团学 #cp #即梦AI创作者成长计划 #AI创作浪潮计划",
+        "create_time": 1792573597,
+        "aweme_type": 0,
+        "media_type": 4,
+        "images": null,
+        "author": {
+          "uid": "3031796700420452",
+          "sec_uid": "MS4wLjABAAAAE_UjwhIrz5ADIJh_CmMo31N9BR7pfKz_NKzLf9djdAF-Amx02tIyIo221_zzPIjb",
+          "nickname": "IM-薛珍珠"
+        },
+        "mix_info": {
+          "mix_id": "7695338683825653823",
+          "mix_name": "成名的代价",
+          "status": {
+            "status": 2,
+            "is_collected": 0
+          },
+          "statis": {
+            "play_vv": 0,
+            "collect_vv": 0,
+            "current_episode": 6,
+            "updated_to_episode": 10
+          },
+          "desc": "镜头里，这里是造星的塔顶，而镜头外…看东北女练习生勇闯韩国女团！"
+        },
+        "video": {
+          "duration": 346034,
+          "play_addr": {
+            "uri": "v2800fgi0000dbc7upfog65rj3r1q0ig",
+            "url_list": [
+              "https://v5-dy-ov-experiment.zjcdn.com/scrubbed",
+              "https://v5-hl-mly-ov.zjcdn.com/scrubbed",
+              "https://www.douyin.com/scrubbed"
+            ]
+          }
+        }
+      },
+      {
+        "aweme_id": "7697189467837489146",
+        "desc": "《成名的代价》第五集 东北女练习生勇闯韩国女团！在华丽的聚光灯下，掩盖的是连私生活都被剥夺的牢笼！#韩剧 #女团 #cp #即梦AI创作者成长计划 #AI创作浪潮计划",
+        "create_time": 1792141579,
+        "aweme_type": 0,
+        "media_type": 4,
+        "images": null,
+        "author": {
+          "uid": "3031796700420452",
+          "sec_uid": "MS4wLjABAAAAE_UjwhIrz5ADIJh_CmMo31N9BR7pfKz_NKzLf9djdAF-Amx02tIyIo221_zzPIjb",
+          "nickname": "IM-薛珍珠"
+        },
+        "mix_info": {
+          "mix_id": "7695338683825653823",
+          "mix_name": "成名的代价",
+          "status": {
+            "status": 2,
+            "is_collected": 0
+          },
+          "statis": {
+            "play_vv": 0,
+            "collect_vv": 0,
+            "current_episode": 5,
+            "updated_to_episode": 10
+          },
+          "desc": "镜头里，这里是造星的塔顶，而镜头外…看东北女练习生勇闯韩国女团！"
+        },
+        "video": {
+          "duration": 230567,
+          "play_addr": {
+            "uri": "v2800fgi0000db8ug7vog65gn5hnbgu0",
+            "url_list": [
+              "https://v5-dy-ov-experiment.zjcdn.com/scrubbed",
+              "https://v5-hl-mly-ov.zjcdn.com/scrubbed",
+              "https://www.douyin.com/scrubbed"
+            ]
+          }
+        }
+      },
+      {
+        "aweme_id": "7696076126451518735",
+        "desc": "《成名的代价》1-4合集纯享版 看东北女练习生勇闯韩国女团！#韩剧 #女团 #cp #即梦AI创作者成长计划 #AI创作浪潮计划",
+        "create_time": 1791882365,
+        "aweme_type": 0,
+        "media_type": 4,
+        "images": null,
+        "author": {
+          "uid": "3031796700420452",
+          "sec_uid": "MS4wLjABAAAAE_UjwhIrz5ADIJh_CmMo31N9BR7pfKz_NKzLf9djdAF-Amx02tIyIo221_zzPIjb",
+          "nickname": "IM-薛珍珠"
+        },
+        "video": {
+          "duration": 842956,
+          "play_addr": {
+            "uri": "v0d00fg10000db6urfvog65vmo6dqumg",
+            "url_list": [
+              "https://v5-dy-ov-experiment.zjcdn.com/scrubbed",
+              "https://v5-hl-mly-ov.zjcdn.com/scrubbed",
+              "https://www.douyin.com/scrubbed"
+            ]
+          }
+        }
+      },
+      {
+        "aweme_id": "7695227005952330363",
+        "desc": "《成名的代价》第四集 东北女练习生勇闯韩国女团！为了出道，踩在底层的人拼命往上爬，站在高处的人也会一落千丈…#韩剧 #女团学 #cp #即梦AI创作者成长计划 #AI创作浪潮计划",
+        "create_time": 1791684658,
+        "aweme_type": 0,
+        "media_type": 4,
+        "images": null,
+        "author": {
+          "uid": "3031796700420452",
+          "sec_uid": "MS4wLjABAAAAE_UjwhIrz5ADIJh_CmMo31N9BR7pfKz_NKzLf9djdAF-Amx02tIyIo221_zzPIjb",
+          "nickname": "IM-薛珍珠"
+        },
+        "mix_info": {
+          "mix_id": "7695338683825653823",
+          "mix_name": "成名的代价",
+          "status": {
+            "status": 2,
+            "is_collected": 0
+          },
+          "statis": {
+            "play_vv": 0,
+            "collect_vv": 0,
+            "current_episode": 4,
+            "updated_to_episode": 10
+          },
+          "desc": "镜头里，这里是造星的塔顶，而镜头外…看东北女练习生勇闯韩国女团！"
+        },
+        "video": {
+          "duration": 254000,
+          "play_addr": {
+            "uri": "v2700fgi0000db5esu7og65tfrd0pf80",
+            "url_list": [
+              "https://v5-dy-ov-experiment.zjcdn.com/scrubbed",
+              "https://v5-hl-mly-ov.zjcdn.com/scrubbed",
+              "https://www.douyin.com/scrubbed"
+            ]
+          }
+        }
+      },
+      {
+        "aweme_id": "7693772928722236081",
+        "desc": "《成名的代价》第三集 东北女练习生勇闯韩国女团！到底怎样才能成名？成名的代价又是什么？#韩剧 #女团学 #cp #即梦AI创作者成长计划 #AI创作浪潮计划",
+        "create_time": 1791346103,
+        "aweme_type": 0,
+        "media_type": 4,
+        "images": null,
+        "author": {
+          "uid": "3031796700420452",
+          "sec_uid": "MS4wLjABAAAAE_UjwhIrz5ADIJh_CmMo31N9BR7pfKz_NKzLf9djdAF-Amx02tIyIo221_zzPIjb",
+          "nickname": "IM-薛珍珠"
+        },
+        "mix_info": {
+          "mix_id": "7695338683825653823",
+          "mix_name": "成名的代价",
+          "status": {
+            "status": 2,
+            "is_collected": 0
+          },
+          "statis": {
+            "play_vv": 0,
+            "collect_vv": 0,
+            "current_episode": 3,
+            "updated_to_episode": 10
+          },
+          "desc": "镜头里，这里是造星的塔顶，而镜头外…看东北女练习生勇闯韩国女团！"
+        },
+        "video": {
+          "duration": 234500,
+          "play_addr": {
+            "uri": "v2800fgi0000db2s8dvog65sj4b1k6t0",
+            "url_list": [
+              "https://v5-dy-ov-experiment.zjcdn.com/scrubbed",
+              "https://v5-hl-mly-ov.zjcdn.com/scrubbed",
+              "https://www.douyin.com/scrubbed"
+            ]
+          }
+        }
+      },
+      {
+        "aweme_id": "7691886043717039013",
+        "desc": "《成名的代价》第二集 东北女练习生勇闯韩国女团！却意外闯入谎言编织的华丽殿堂…#即梦AI创作者成长计划 #韩剧 #女团学 #cp #AI创作浪潮计划",
+        "create_time": 1790906779,
+        "aweme_type": 0,
+        "media_type": 4,
+        "images": null,
+        "author": {
+          "uid": "3031796700420452",
+          "sec_uid": "MS4wLjABAAAAE_UjwhIrz5ADIJh_CmMo31N9BR7pfKz_NKzLf9djdAF-Amx02tIyIo221_zzPIjb",
+          "nickname": "IM-薛珍珠"
+        },
+        "mix_info": {
+          "mix_id": "7695338683825653823",
+          "mix_name": "成名的代价",
+          "status": {
+            "status": 2,
+            "is_collected": 0
+          },
+          "statis": {
+            "play_vv": 0,
+            "collect_vv": 0,
+            "current_episode": 2,
+            "updated_to_episode": 10
+          },
+          "desc": "镜头里，这里是造星的塔顶，而镜头外…看东北女练习生勇闯韩国女团！"
+        },
+        "video": {
+          "duration": 203034,
+          "play_addr": {
+            "uri": "v1e00fgi0000davh0onog65lvoiuhfsg",
+            "url_list": [
+              "https://v5-dy-ov-experiment.zjcdn.com/scrubbed",
+              "https://v5-hl-mly-ov.zjcdn.com/scrubbed",
+              "https://www.douyin.com/scrubbed"
+            ]
+          }
+        }
+      },
+      {
+        "aweme_id": "7689288513854595771",
+        "desc": "《成名的代价》第一集 东北女练习生勇闯韩国女团！什么是阶级感？什么尊卑有序？俺偏不服！#OiiOii #OiiOii创作者计划 #韩剧 #女团学  #cp",
+        "create_time": 1790301994,
+        "aweme_type": 0,
+        "media_type": 4,
+        "images": null,
+        "author": {
+          "uid": "3031796700420452",
+          "sec_uid": "MS4wLjABAAAAE_UjwhIrz5ADIJh_CmMo31N9BR7pfKz_NKzLf9djdAF-Amx02tIyIo221_zzPIjb",
+          "nickname": "IM-薛珍珠"
+        },
+        "mix_info": {
+          "mix_id": "7695338683825653823",
+          "mix_name": "成名的代价",
+          "status": {
+            "status": 2,
+            "is_collected": 0
+          },
+          "statis": {
+            "play_vv": 0,
+            "collect_vv": 0,
+            "current_episode": 1,
+            "updated_to_episode": 10
+          },
+          "desc": "镜头里，这里是造星的塔顶，而镜头外…看东北女练习生勇闯韩国女团！"
+        },
+        "video": {
+          "duration": 189634,
+          "play_addr": {
+            "uri": "v2700fgi0000daqtbb7og65l4d029eq0",
+            "url_list": [
+              "https://v5-dy-ov-experiment.zjcdn.com/scrubbed",
+              "https://v5-hl-mly-ov.zjcdn.com/scrubbed",
+              "https://www.douyin.com/scrubbed"
+            ]
+          }
+        }
+      }
+    ],
+    "time_list": [
+      "2026·11",
+      "2026·10",
+      "2026·09"
+    ],
+    "log_pb": {
+      "impr_id": "20261114161114ECD13F356C7374C19E24"
+    },
+    "request_item_cursor": 0,
+    "post_serial": 2,
+    "replace_series_cover": 1
+  }
+}

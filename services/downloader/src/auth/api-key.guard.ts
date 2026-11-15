@@ -9,7 +9,9 @@ import { Reflector } from '@nestjs/core';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { ENV } from '../config/config.module';
 import type { Env } from '../config/env';
+import { verifyMediaToken } from '../dashboard/media-token';
 import { IS_PUBLIC_KEY } from './public.decorator';
+import { SIGNED_MEDIA_KEY } from './signed-media.decorator';
 
 /** Header carrying the API key. Express lowercases every incoming header name. */
 const API_KEY_HEADER = 'x-api-key';
@@ -36,7 +38,21 @@ export class ApiKeyGuard implements CanActivate {
     ]);
     if (isPublic) return true;
 
-    const request = context.switchToHttp().getRequest<{ headers: Record<string, unknown> }>();
+    const request = context
+      .switchToHttp()
+      .getRequest<{ headers: Record<string, unknown>; params?: Record<string, unknown> }>();
+
+    const signedMedia = this.reflector.get<boolean>(SIGNED_MEDIA_KEY, context.getHandler());
+    if (signedMedia) {
+      // Replaces the key check on this route only. No secret configured means no
+      // signature can be genuine, so it is still 401.
+      const secret = this.env.DASHBOARD_MEDIA_SECRET;
+      if (secret !== undefined && verifyMediaToken(secret, request.params?.token, Date.now()) !== null) {
+        return true;
+      }
+      throw new UnauthorizedException();
+    }
+
     const provided = request.headers[API_KEY_HEADER];
 
     if (typeof provided !== 'string' || !this.matchesConfiguredKey(provided)) {

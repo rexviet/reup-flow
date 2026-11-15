@@ -1,10 +1,18 @@
 node_modules/
 dist/
 .env
+# Copies and variants of the env file (backups) hold the same secrets; only the example is tracked.
+.env.*
+!.env.example
+# The Windows render machine's settings (database and storage credentials).
+.render-worker.env
 /data/
 
 # Local Python venv for the parser fork's test runner.
 .venv/
+
+# Demucs for the host ingest worker (scripts/setup-host-demucs.sh): its Python, weights and command.
+services/localization/.host-demucs/
 
 # Agent scratch notes -- internal, and this tree feeds a public fork.
 .claude/agent-memory/
@@ -19,3 +27,18 @@ services/downloader/test/**/certs/
 # Douyin, or SIGKILL run.sh before its teardown trap truncates, and this file
 # holds a live session cookie. Root-anchored `/data/` above does NOT cover it.
 services/downloader/test/spike-cookie-swap/data/
+/backups/
+
+# Phase 00 spike evidence is copied into reports/gate-results.md; the raw runs stay local.
+services/localization/spikes/out/
+
+# Promo videos made with HyperFrames (motion-studio); renders and node_modules stay local.
+/videos/
+
+# Generated: Python bytecode and the thumbnails HyperFrames Studio renders for a project.
+*.pyc
+**/__pycache__/
+services/localization/spikes/hyperframes-review/project/.thumbnails/
+.gstack/
+# TypeScript's incremental build state.
+*.tsbuildinfo

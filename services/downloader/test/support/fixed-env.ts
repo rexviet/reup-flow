@@ -14,7 +14,10 @@ export function fixedEnv(overrides: Partial<Env> = {}): Env {
     REDIS_URL: 'redis://localhost:6379',
     PARSER_BASE_URL: 'http://parser:80',
     PROBE_SEC_USER_ID: 'probe-sec-user-id',
+    TEMPORAL_ADDRESS: 'temporal:7233',
+    TEMPORAL_NAMESPACE: 'default',
     DATA_DIR: '/data',
+    DASHBOARD_STUCK_MINUTES: 30,
     DOWNLOAD_CONCURRENCY: 6,
     ENUMERATE_SLEEP_MS_MIN: 3000,
     ENUMERATE_SLEEP_MS_MAX: 5000,
@@ -33,6 +36,14 @@ export function fixedEnv(overrides: Partial<Env> = {}): Env {
     // should start a 60s reaper against the live compose stack merely by
     // building an Env.
     LANES_ENABLED: false,
+    // Local disk, the default. A test of the s3 backend overrides the whole
+    // group; none of these values reach a network in the meantime.
+    STORAGE_BACKEND: 'local',
+    S3_REGION: 'us-east-1',
+    S3_BUCKET: 'reup-media',
+    S3_FORCE_PATH_STYLE: true,
+    S3_KEY_PREFIX: 'source/',
+    S3_STALE_UPLOAD_MS: 86_400_000,
     ...overrides,
   };
 }

@@ -3,8 +3,8 @@ import type { CookieStatus } from '../api/types';
 /**
  * phase-08 §8.3: "Badge cookie là thứ đầu tiên cần nhìn khi job fail" -- most
  * `blocked` jobs are a cookie problem, and this badge answers that question
- * in one glance. It must render somewhere always visible (App.tsx puts it in
- * the page header), never tucked into a menu.
+ * in one glance. It must render somewhere always visible (the dashboard shows it next to
+ * the download form and in the health row), never tucked into a menu.
  *
  * Three states, not two:
  *   - RED   -- no cookie present at all (`present === false`). This is the
@@ -30,9 +30,9 @@ export function cookieBadgeState(status: CookieStatus): CookieBadgeState {
 }
 
 const STYLES: Record<CookieBadgeState, string> = {
-  red: 'bg-red-100 text-red-800 ring-red-600/20',
-  amber: 'bg-amber-100 text-amber-800 ring-amber-600/20',
-  green: 'bg-green-100 text-green-800 ring-green-600/20',
+  red: 'bg-status-error-bg text-status-error-text ring-status-error-border',
+  amber: 'bg-status-warning-bg text-status-warning-text ring-status-warning-border',
+  green: 'bg-status-success-bg text-status-success-text ring-status-success-border',
 };
 
 const LABELS: Record<CookieBadgeState, string> = {
@@ -53,7 +53,7 @@ export function CookieBadge({ status, loading }: CookieBadgeProps) {
       <span
         data-testid="cookie-badge"
         data-state="loading"
-        className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600 ring-1 ring-inset ring-gray-500/20"
+        className="inline-flex items-center rounded bg-status-idle-bg px-2 py-1 font-mono text-xs font-semibold text-status-idle-text ring-1 ring-inset ring-status-idle-border"
       >
         Cookie: đang tải…
       </span>
@@ -65,7 +65,7 @@ export function CookieBadge({ status, loading }: CookieBadgeProps) {
     <span
       data-testid="cookie-badge"
       data-state={state}
-      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${STYLES[state]}`}
+      className={`inline-flex items-center rounded px-2 py-1 font-mono text-xs font-semibold ring-1 ring-inset ${STYLES[state]}`}
       title={status.age_seconds === null ? undefined : `Pushed ${status.age_seconds}s ago`}
     >
       {LABELS[state]}

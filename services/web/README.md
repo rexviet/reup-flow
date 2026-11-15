@@ -1,14 +1,16 @@
 # `services/web` — Douyin Downloader Web UI
 
-Phase 8 of `plans/260824-2152-douyin-downloader/plan.md`. One page, React + Vite +
-Tailwind + TypeScript, talking to `services/downloader`'s HTTP API
-(`api/jobs`, `internal/cookie`).
+One dashboard page plus a video detail page (`#/video/<aweme>`), React + Vite +
+Tailwind + TypeScript, talking to `services/downloader`'s HTTP API (`api/dashboard/*`,
+`api/jobs`, `api/videos`, `api/profiles`, `internal/cookie`). Requests use relative
+paths: leave `VITE_API_BASE_URL` empty and `pnpm dev` proxies `/api` and `/internal` to
+`127.0.0.1:3300`; the compose image does the same through nginx.
 
 ## Run locally
 
 ```bash
 cd services/web
-cp .env.example .env.local   # fill in VITE_API_BASE_URL / VITE_API_KEY
+cp .env.example .env.local   # VITE_API_KEY; keep VITE_API_BASE_URL empty (same origin)
 pnpm install                 # from repo root: pnpm install --filter @reup-flow/web...
 pnpm dev                     # http://localhost:5173
 ```
@@ -154,10 +156,10 @@ under `services:` (and see the note below it):
         # Dockerfile's comment) -- they must be build args, not this
         # service's `environment:`, which a static nginx container never
         # reads.
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:3000}
+        VITE_API_BASE_URL: ""   # same origin; nginx proxies /api and /internal
         VITE_API_KEY: ${API_KEY}
     ports:
-      - "5173:80"
+      - "127.0.0.1:5173:80"
     depends_on:
       nest:
         condition: service_healthy

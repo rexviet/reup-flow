@@ -1,0 +1,13 @@
+{
+  "name": "hyperframes-review-spike",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.23.0",
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "test": "node --test verify-roundtrip.mjs",
+    "generate": "python3 review_adapter.py generate",
+    "studio": "node host-launcher.mjs"
+  },
+  "devDependencies": { "hyperframes": "0.8.77" }
+}

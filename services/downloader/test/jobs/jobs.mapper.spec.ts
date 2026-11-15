@@ -22,6 +22,7 @@ function fakeJob(overrides: Partial<Job> = {}): Job {
     maxCursor: 0,
     leaseExpiresAt: new Date('2026-08-25T00:00:00Z'),
     error: null,
+    collectionId: null,
     createdAt: new Date('2026-08-24T00:00:00Z'),
     updatedAt: new Date('2026-08-24T00:00:00Z'),
     ...overrides,

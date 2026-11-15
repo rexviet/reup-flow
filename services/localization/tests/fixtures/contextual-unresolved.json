@@ -1,0 +1,42 @@
+{
+  "description": "Synthetic source and human-authored oracle; not real-model evaluation.",
+  "source": [
+    {
+      "id": 0,
+      "text": "Put the cup on the table.",
+      "start_ms": 0,
+      "end_ms": 2000
+    },
+    {
+      "id": 1,
+      "text": "Put it on the [damaged].",
+      "start_ms": 2200,
+      "end_ms": 4200
+    },
+    {
+      "id": 2,
+      "text": "[unintelligible isolated speech]",
+      "start_ms": 4400,
+      "end_ms": 6000
+    }
+  ],
+  "lines": [
+    {
+      "id": 0,
+      "text_vi": "Đặt cốc lên bàn.",
+      "status": "translated"
+    },
+    {
+      "id": 1,
+      "text_vi": "Đặt nó lên bàn.",
+      "status": "inferred",
+      "reason": "The preceding sentence identifies the destination as the table."
+    },
+    {
+      "id": 2,
+      "text_vi": "",
+      "status": "unresolved",
+      "reason": "No intelligible source or context identifies this speech."
+    }
+  ]
+}

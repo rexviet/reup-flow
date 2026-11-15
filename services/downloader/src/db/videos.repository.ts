@@ -1,7 +1,7 @@
 import { and, count, desc, eq, gt, inArray, isNotNull, lt, notExists, sql } from 'drizzle-orm';
 import type { Executor } from './executor';
 import { redactor } from '../redaction/redactor';
-import { jobs, videos, type Video } from './schema';
+import { jobs, localizationOutbox, videos, type Video } from './schema';
 
 export interface ClaimOptions {
   /** How long a claim is valid before the reaper may hand it to someone else. */
@@ -91,6 +91,22 @@ export interface VideoUpsert {
   lastError?: string | null;
 }
 
+/**
+ * Where a new video goes, decided by `resolveCollections` before the insert:
+ * the collection, the video's episode when it belongs to a 合集, and whether a
+ * person chose the collection.
+ */
+export interface CollectionPlacement {
+  collectionId: string;
+  /** 1-based episode in the 合集; null or absent when unknown or not in one. */
+  mixEpisode?: number | null;
+  /** True when a person picked the collection; enumerate never moves such a video. */
+  collectionManual?: boolean;
+}
+
+/** A row `upsertMany` can store: the video plus its collection placement. */
+export type PlacedVideoUpsert = VideoUpsert & CollectionPlacement;
+
 export interface UpsertOptions {
   /** `URL_TTL_SECONDS`. How long the cached `play_addr` is assumed good for. */
   urlTtlSeconds: number;
@@ -138,10 +154,17 @@ export interface UpsertOptions {
  * carrying both a video and a 图文 image post inserts one `pending` row and one
  * `skipped` one. Absent, they mean `pending`/null -- unchanged for every caller
  * that never heard of image posts.
+ *
+ * Each row carries its collection placement, decided beforehand by
+ * `resolveCollections` (collections.repository.ts). This function creates no
+ * collection; a row without one is refused by the NOT NULL `collection_id`
+ * rather than stored belonging nowhere. A video that already exists keeps its
+ * collection here like every other column; `moveIntoMixes` is the one write
+ * that changes it.
  */
 export async function upsertMany(
   exec: Executor,
-  rows: VideoUpsert[],
+  rows: PlacedVideoUpsert[],
   opts: UpsertOptions,
 ): Promise<number> {
   if (rows.length === 0) return 0;
@@ -161,12 +184,88 @@ export async function upsertMany(
         status: row.status ?? 'pending',
         lastError: row.lastError ?? null,
         urlExpiresAt: sql`now() + make_interval(secs => ${opts.urlTtlSeconds})`,
+        // Explicit for the same reason as `status`: one column list serves
+        // every row of the statement.
+        mixEpisode: row.mixEpisode ?? null,
+        collectionManual: row.collectionManual ?? false,
       })),
     )
     .onConflictDoNothing()
     .returning({ awemeId: videos.awemeId });
 
   return inserted.length;
+}
+
+/** One video's 合集, as read from the item that was just enumerated. */
+export interface MixMove {
+  awemeId: string;
+  /** The 合集's collection. */
+  collectionId: string;
+  episode: number | null;
+}
+
+/**
+ * Brings videos that were already stored into the 合集 their item names.
+ * Returns how many rows changed.
+ *
+ * `upsertMany` leaves an existing row alone (F7), so a video stored before its
+ * 合集 was known -- every video moved into its channel collection by the
+ * migration's backfill -- would otherwise never reach it. Two cases, one
+ * statement:
+ *
+ *   - MOVE: the video is still in its channel's default collection
+ *     (`channelCollectionId`) and nobody placed it by hand. It moves into the
+ *     合集 and takes the episode. A video a person placed, or one in any other
+ *     collection, stays where it is.
+ *   - FILL: the video is already in that 合集 but has no episode yet, and the
+ *     item now carries one. An episode it already has is kept.
+ *
+ * Rows that are new in this page match neither case: `upsertMany` stored them
+ * in the 合集 with their episode already.
+ */
+export async function moveIntoMixes(
+  exec: Executor,
+  channelCollectionId: string,
+  moves: MixMove[],
+): Promise<number> {
+  if (moves.length === 0) return 0;
+
+  const values = sql.join(
+    moves.map((m) => sql`(${m.awemeId}, ${m.collectionId}::uuid, ${m.episode}::integer)`),
+    sql`, `,
+  );
+  const result = await exec.execute(sql`
+    UPDATE ${videos} AS v
+       SET collection_id = m.collection_id,
+           mix_episode = coalesce(m.episode, v.mix_episode)
+      FROM (VALUES ${values}) AS m (aweme_id, collection_id, episode)
+     WHERE v.aweme_id = m.aweme_id
+       AND (   (v.collection_manual = false AND v.collection_id = ${channelCollectionId}::uuid)
+            OR (v.collection_id = m.collection_id AND v.mix_episode IS NULL AND m.episode IS NOT NULL))`);
+  return result.rowCount ?? 0;
+}
+
+/**
+ * Files one video in a collection a person picked, marking it manual so that
+ * enumerate never moves it again. Returns whether the video exists.
+ */
+export async function placeByHand(
+  exec: Executor,
+  awemeId: string,
+  collectionId: string,
+): Promise<boolean> {
+  const rows = await exec
+    .update(videos)
+    .set({ collectionId, collectionManual: true })
+    .where(eq(videos.awemeId, awemeId))
+    .returning({ awemeId: videos.awemeId });
+  return rows.length > 0;
+}
+
+/** One row by primary key, or `null`. */
+export async function findByAwemeId(exec: Executor, awemeId: string): Promise<Video | null> {
+  const [row] = await exec.select().from(videos).where(eq(videos.awemeId, awemeId)).limit(1);
+  return row ?? null;
 }
 
 /**
@@ -239,10 +338,38 @@ export async function markDone(
   awemeId: string,
   storagePath: string,
 ): Promise<void> {
-  await exec
-    .update(videos)
-    .set({ status: 'done', storagePath, leaseExpiresAt: null })
-    .where(eq(videos.awemeId, awemeId));
+  // The outbox row and the `done` flip MUST commit together. Separately, a
+  // crash between them leaves a finished video nobody will ever localize (flip
+  // first) or an outbox row for a video that is not done (insert first), and
+  // nothing downstream can tell either apart from normal state. `transaction`
+  // on a transaction handle nests as a savepoint, so a caller that already
+  // holds one keeps atomicity too.
+  //
+  // The row is written for ANY storage_path, local-disk paths included, while
+  // the backfill only takes `s3://` ones: "done means a row" is the invariant,
+  // and filtering here would reintroduce the gap. The dispatcher that consumes
+  // the outbox must therefore reject non-s3 paths itself.
+  await exec.transaction(async (tx) => {
+    await tx
+      .update(videos)
+      .set({ status: 'done', storagePath, leaseExpiresAt: null })
+      .where(eq(videos.awemeId, awemeId));
+    // `held` unless the video's own override or its channel switch asks for
+    // localization. Read in this transaction so the flip and the decision see
+    // the same rows; a video with no row to read stays held.
+    await tx
+      .insert(localizationOutbox)
+      .values({
+        awemeId,
+        state: sql`COALESCE((
+          SELECT CASE WHEN COALESCE(v.localize_on_done, p.auto_localize, false)
+                      THEN 'pending' ELSE 'held' END
+            FROM videos v LEFT JOIN profiles p ON p.sec_user_id = v.sec_user_id
+           WHERE v.aweme_id = ${awemeId}
+        ), 'held')`,
+      })
+      .onConflictDoNothing();
+  });
 }
 
 /**

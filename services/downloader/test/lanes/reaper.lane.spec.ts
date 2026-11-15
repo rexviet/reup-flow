@@ -40,6 +40,7 @@ import {
   testSchemaName,
   truncateAll,
 } from '../support/db';
+import { channelCollection } from '../support/collections';
 
 jest.setTimeout(60_000);
 
@@ -98,6 +99,7 @@ async function seedVideo(awemeId: string, status = 'pending'): Promise<void> {
   await db.insert(videos).values({
     awemeId,
     secUserId: PROFILE,
+    collectionId: await channelCollection(pool, PROFILE),
     createTime: new Date(Date.UTC(2026, 0, 1)),
     status,
   });

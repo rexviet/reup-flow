@@ -1,7 +1,25 @@
 import { useState, type FormEvent } from 'react';
+import type { CollectionItem } from '../api/types';
+import { COLLECTION_KIND_LABELS } from '../dashboard/format';
+import { Icon } from './Icon';
+
+export interface JobFormOptions {
+  /** Channel URL: localize every video of this channel as it finishes downloading. */
+  autoLocalize: boolean;
+  /** Single-video URL: localize this video as soon as it is downloaded instead of holding it. */
+  localizeNow: boolean;
+  /** A collection picked by hand; absent for "Tự nhận", which lets the server choose. */
+  collectionId?: string;
+}
 
 export interface JobFormProps {
-  onSubmit: (url: string) => Promise<void>;
+  onSubmit: (url: string, options: JobFormOptions) => Promise<void>;
+  collections?: CollectionItem[];
+}
+
+/** True for a URL that names one video (`/video/<id>` or `?modal_id=<id>`); the rest are channel URLs. */
+export function isVideoUrl(url: string): boolean {
+  return /\/video\/\d+/.test(url) || /[?&]modal_id=\d+/.test(url);
 }
 
 /**
@@ -9,8 +27,11 @@ export interface JobFormProps {
  * cookie paste field here or anywhere else in this package -- see
  * phase-08-web-ui.md §8.5.
  */
-export function JobForm({ onSubmit }: JobFormProps) {
+export function JobForm({ onSubmit, collections = [] }: JobFormProps) {
   const [url, setUrl] = useState('');
+  const [collectionId, setCollectionId] = useState('');
+  const [autoLocalize, setAutoLocalize] = useState(false);
+  const [localizeNow, setLocalizeNow] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -22,8 +43,11 @@ export function JobForm({ onSubmit }: JobFormProps) {
     setSubmitting(true);
     setError(null);
     try {
-      await onSubmit(trimmed);
+      await onSubmit(trimmed, { autoLocalize, localizeNow, ...(collectionId ? { collectionId } : {}) });
       setUrl('');
+      setLocalizeNow(false);
+      // A picked collection is a one-off: intake never moves a hand-placed video back.
+      setCollectionId('');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -43,10 +67,36 @@ export function JobForm({ onSubmit }: JobFormProps) {
           placeholder="https://www.douyin.com/user/..."
           value={url}
           onChange={(e) => setUrl(e.target.value)}
-          className="w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+          className="field"
         />
+        <div className="mt-1 flex flex-wrap gap-x-4">
+          {isVideoUrl(url) ? (
+            <label className="inline-flex min-h-11 items-center gap-2 text-xs text-text-secondary">
+              <input type="checkbox" className="h-5 w-5" checked={localizeNow} onChange={(e) => setLocalizeNow(e.target.checked)} />
+              Localize ngay
+            </label>
+          ) : (
+            <label className="inline-flex min-h-11 items-center gap-2 text-xs text-text-secondary">
+              <input type="checkbox" className="h-5 w-5" checked={autoLocalize} onChange={(e) => setAutoLocalize(e.target.checked)} />
+              Tự localize
+            </label>
+          )}
+        </div>
+        <div className="mt-1 flex items-center gap-2">
+          <label htmlFor="job-collection" className="shrink-0 text-xs text-text-secondary">
+            Collection
+          </label>
+          <select id="job-collection" value={collectionId} onChange={(e) => setCollectionId(e.target.value)} className="field">
+            <option value="">Tự nhận (mặc định)</option>
+            {collections.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name} ({COLLECTION_KIND_LABELS[c.kind] ?? c.kind})
+              </option>
+            ))}
+          </select>
+        </div>
         {error ? (
-          <p className="mt-1 text-xs text-red-700" data-testid="job-form-error">
+          <p className="mt-1 text-xs text-status-error-text" data-testid="job-form-error">
             {error}
           </p>
         ) : null}
@@ -54,8 +104,9 @@ export function JobForm({ onSubmit }: JobFormProps) {
       <button
         type="submit"
         disabled={submitting}
-        className="whitespace-nowrap rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        className="btn btn-primary text-sm"
       >
+        <Icon name="download" />
         {submitting ? 'Đang tạo…' : 'Download all'}
       </button>
     </form>

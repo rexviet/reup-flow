@@ -1,0 +1,15 @@
+--- a/backend/services/asr_backend.py
++++ b/backend/services/asr_backend.py
+@@ -1419,7 +1419,11 @@
+         # Whisper's own timestamps are ±100-300 ms, the aligner's are ±10-30 ms.
+         # Degrades gracefully — a language with no aligner keeps MLX's native
+         # word timings rather than failing.
+-        if word_timestamps and result.get("segments"):
++        # reup-flow patch: OMNIVOICE_MLX_FORCED_ALIGN=0 keeps Whisper's own word times. The
++        # aligner's tight times expose pauses inside sung phrases, and the caller then splits
++        # one sung line into several segments.
++        if (word_timestamps and result.get("segments")
++                and os.environ.get("OMNIVOICE_MLX_FORCED_ALIGN", "1") != "0"):
+             result["segments"] = forced_align(
+                 result["segments"],
+                 audio,

@@ -1,0 +1,11 @@
+1
+00:00:00,000 --> 00:00:02,000
+Câu đầu nay có thêm nhiều từ để kiểm tra định danh.
+
+2
+00:00:04,000 --> 00:00:06,000
+Câu sau vẫn giữ kiểu chữ.
+
+3
+00:00:06,500 --> 00:00:08,000
+<img src=x onerror=window.injected=true> & </script>

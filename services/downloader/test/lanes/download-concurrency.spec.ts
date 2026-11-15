@@ -60,6 +60,7 @@ import {
   testDb,
   testSchemaName,
 } from '../support/db';
+import { channelCollection } from '../support/collections';
 import { FakeCdn } from '../support/fake-cdn';
 
 jest.setTimeout(180_000);
@@ -191,11 +192,12 @@ async function seedProfileAndVideos(): Promise<void> {
     "INSERT INTO jobs (sec_user_id, status, total_videos, enumerated_count) VALUES ($1, 'downloading', $2, $2)",
     [PROFILE, VIDEO_COUNT],
   );
+  const collectionId = await channelCollection(pool, PROFILE);
   for (let i = 0; i < VIDEO_COUNT; i += 1) {
     await pool.query(
-      `INSERT INTO videos (aweme_id, sec_user_id, create_time, play_addr, url_expires_at)
-       VALUES ($1, $2, now() - make_interval(secs => $3), $4, now() + interval '1 hour')`,
-      [awemeIdFor(i), PROFILE, VIDEO_COUNT - i, cdn.url(`/${awemeIdFor(i)}.mp4`)],
+      `INSERT INTO videos (aweme_id, sec_user_id, create_time, play_addr, url_expires_at, collection_id)
+       VALUES ($1, $2, now() - make_interval(secs => $3), $4, now() + interval '1 hour', $5)`,
+      [awemeIdFor(i), PROFILE, VIDEO_COUNT - i, cdn.url(`/${awemeIdFor(i)}.mp4`), collectionId],
     );
   }
 }

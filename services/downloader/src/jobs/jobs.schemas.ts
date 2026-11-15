@@ -39,7 +39,7 @@ function isAllowedJobUrlHost(host: string): boolean {
  * similar non-network schemes the underlying HTTP client might still act on
  * in some form.
  */
-function isAllowedJobUrl(value: string): boolean {
+export function isAllowedJobUrl(value: string): boolean {
   let url: URL;
   try {
     url = new URL(value);
@@ -57,6 +57,10 @@ export const createJobSchema = z.object({
     .refine(isAllowedJobUrl, {
       message: `url must be an http(s) URL on one of: ${ALLOWED_JOB_URL_HOSTS.join(', ')} (or a subdomain)`,
     }),
+  /** Omitted keeps the channel's current switch. */
+  auto_localize: z.boolean().optional(),
+  /** A collection picked by hand for every new video of the job; it must exist. */
+  collection_id: z.string().uuid('collection_id must be a valid UUID').optional(),
 });
 export type CreateJobDto = z.infer<typeof createJobSchema>;
 

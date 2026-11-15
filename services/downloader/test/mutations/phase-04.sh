@@ -421,7 +421,7 @@ p = pathlib.Path("src/bootstrap.ts")
 s = p.read_text()
 # Targets ONLY the enableShutdownHooks line, not the whole function body: the
 # body now also configures CORS, and matching the entire function meant this
-# mutation broke (loudly, via _apply's unchanged-file guard) the moment
+# mutation broke (loudly, via the unchanged-file guard of _apply) the moment
 # anything else was added to it. One invariant, one line.
 old = "  app.enableShutdownHooks();\n"
 assert s.count(old) == 1, f"expected exactly 1 enableShutdownHooks call, found {s.count(old)}"

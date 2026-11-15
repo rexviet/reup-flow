@@ -13,8 +13,13 @@ import { parse } from "yaml";
  * parser from the host fails" is a manual step nobody repeats.
  */
 describe("docker-compose.yml load-bearing constraints", () => {
+  // `merge: true`: YAML 1.2 core has no `<<` merge key by default, and the
+  // Langfuse services share an env anchor through it. Without this the shared
+  // keys would be invisible to every env assertion below and they would pass
+  // vacuously.
   const compose = parse(
-    readFileSync(path.join(__dirname, "..", "..", "..", "docker-compose.yml"), "utf-8")
+    readFileSync(path.join(__dirname, "..", "..", "..", "docker-compose.yml"), "utf-8"),
+    { merge: true }
   );
 
   it("parser publishes NO host ports", () => {
@@ -54,5 +59,411 @@ describe("docker-compose.yml load-bearing constraints", () => {
     for (const name of ["nest", "parser", "postgres", "redis"]) {
       expect(compose.services[name].healthcheck).toBeDefined();
     }
+  });
+
+  it("every long-running localization service has a healthcheck", () => {
+    for (const name of [
+      "temporal",
+      "temporal-ui",
+      "minio",
+      "clickhouse",
+      "langfuse-web",
+      "langfuse-worker",
+    ]) {
+      expect(compose.services[name].healthcheck).toBeDefined();
+    }
+  });
+});
+
+/**
+ * Video-localization infra (plan 261026-0147, phase 00). The services below
+ * hold a Postgres superuser-adjacent credential, object storage roots and a
+ * session secret. Each rule here exists because one wrong line in compose
+ * turns a private tool into a network-reachable one, silently.
+ */
+describe("docker-compose.yml localization infra", () => {
+  const root = path.join(__dirname, "..", "..", "..");
+  const compose = parse(readFileSync(path.join(root, "docker-compose.yml"), "utf-8"), {
+    merge: true,
+  });
+  type Service = {
+    image?: string;
+    ports?: string[];
+    restart?: string | boolean;
+    env_file?: unknown;
+    environment?: Record<string, unknown>;
+    depends_on: Record<string, { condition: string }>;
+    healthcheck?: unknown;
+    command?: unknown;
+    mem_limit?: unknown;
+    shm_size?: unknown;
+    volumes?: string[];
+  };
+  const services: Record<string, Service> = compose.services;
+
+  // Services that predate this plan keep their own, separately reasoned ports.
+  const LEGACY = new Set(["nest", "parser", "postgres", "redis", "web"]);
+  const added = Object.keys(services).filter((n) => !LEGACY.has(n));
+
+  const LANGFUSE_SHARED = [
+    "DATABASE_URL",
+    "CLICKHOUSE_URL",
+    "CLICKHOUSE_MIGRATION_URL",
+    "CLICKHOUSE_USER",
+    "CLICKHOUSE_PASSWORD",
+    "CLICKHOUSE_CLUSTER_ENABLED",
+    "REDIS_CONNECTION_STRING",
+    "LANGFUSE_S3_EVENT_UPLOAD_BUCKET",
+    "LANGFUSE_S3_EVENT_UPLOAD_REGION",
+    "LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT",
+    "LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID",
+    "LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY",
+    "LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE",
+    "SALT",
+    "ENCRYPTION_KEY",
+    "TELEMETRY_ENABLED",
+    "TZ",
+  ];
+  const LOCALIZATION_COMMON = [
+    "TEMPORAL_ADDRESS",
+    "TEMPORAL_NAMESPACE",
+    "LANGFUSE_HOST",
+    "LANGFUSE_PUBLIC_KEY",
+    "LANGFUSE_SECRET_KEY",
+  ];
+  const LOCALIZATION_S3 = [
+    "S3_ENDPOINT",
+    "S3_REGION",
+    "S3_BUCKET",
+    "S3_FORCE_PATH_STYLE",
+    "LOC_S3_ACCESS_KEY_ID",
+    "LOC_S3_SECRET_ACCESS_KEY",
+  ];
+  // The exact environment each added service may receive. A service gets what it
+  // reads and nothing else; a new variable is a deliberate edit to this table.
+  const ENV_ALLOWLIST: Record<string, string[]> = {
+    "db-init": [
+      "PGHOST",
+      "PGUSER",
+      "PGPASSWORD",
+      "POSTGRES_DB",
+      "TEMPORAL_DB_PASSWORD",
+      "LANGFUSE_DB_PASSWORD",
+      "LOCALIZATION_DB_PASSWORD",
+    ],
+    "temporal-admin-tools": ["SQL_HOST", "SQL_USER", "SQL_PASSWORD"],
+    temporal: [
+      "DB",
+      "DB_PORT",
+      "POSTGRES_SEEDS",
+      "POSTGRES_USER",
+      "POSTGRES_PWD",
+      "DBNAME",
+      "VISIBILITY_DBNAME",
+      "TZ",
+    ],
+    "temporal-namespace-init": ["TEMPORAL_ADDRESS", "TEMPORAL_NAMESPACE", "TEMPORAL_RETENTION"],
+    "temporal-ui": ["TEMPORAL_ADDRESS", "TEMPORAL_CORS_ORIGINS"],
+    minio: ["MINIO_ROOT_USER", "MINIO_ROOT_PASSWORD", "TZ"],
+    "minio-init": [
+      "MINIO_ENDPOINT",
+      "MINIO_ROOT_USER",
+      "MINIO_ROOT_PASSWORD",
+      "S3_ACCESS_KEY_ID",
+      "S3_SECRET_ACCESS_KEY",
+      "LOC_S3_ACCESS_KEY_ID",
+      "LOC_S3_SECRET_ACCESS_KEY",
+      "LANGFUSE_S3_ACCESS_KEY_ID",
+      "LANGFUSE_S3_SECRET_ACCESS_KEY",
+      "REVIEW_S3_ACCESS_KEY_ID", "REVIEW_S3_SECRET_ACCESS_KEY",
+    ],
+    clickhouse: ["CLICKHOUSE_USER", "CLICKHOUSE_PASSWORD", "TZ"],
+    "langfuse-web": [
+      ...LANGFUSE_SHARED,
+      "NEXTAUTH_URL",
+      "NEXTAUTH_SECRET",
+      "AUTH_DISABLE_SIGNUP",
+      "LANGFUSE_INIT_ORG_ID",
+      "LANGFUSE_INIT_ORG_NAME",
+      "LANGFUSE_INIT_PROJECT_ID",
+      "LANGFUSE_INIT_PROJECT_NAME",
+      "LANGFUSE_INIT_PROJECT_PUBLIC_KEY",
+      "LANGFUSE_INIT_PROJECT_SECRET_KEY",
+      "LANGFUSE_INIT_USER_EMAIL",
+      "LANGFUSE_INIT_USER_NAME",
+      "LANGFUSE_INIT_USER_PASSWORD",
+    ],
+    "langfuse-worker": LANGFUSE_SHARED,
+    "review-bridge": [
+      "REVIEW_S3_ENDPOINT", "REVIEW_S3_BUCKET", "REVIEW_S3_ACCESS_KEY_ID", "REVIEW_S3_SECRET_ACCESS_KEY",
+      "REVIEW_TEMPORAL_ADDRESS", "REVIEW_TEMPORAL_NAMESPACE", "REVIEW_PROJECT_ROOT", "REVIEW_RUNTIME_ROOT",
+    ],
+    "localization-starter": [
+      ...LOCALIZATION_COMMON,
+      "LOC_DATABASE_URL",
+      "S3_BUCKET",
+      "TARGET_LANG",
+      "VOICE_PROVIDER",
+      "VOICE_ID",
+      "VOICE_SETTINGS_JSON",
+      "VOICESTUDIO_URL",
+      "VOICESTUDIO_API_KEY",
+      "VOICESTUDIO_ALLOW_PRIVATE_HTTP_CIDRS",
+      "LOCALIZATION_PIPELINE",
+      // Checked for presence only, in the Vbee pipeline; never sent anywhere.
+      "VBEE_APP_ID",
+      "VBEE_API_TOKEN",
+      "VBEE_VOICE_ID",
+      "MAX_OPEN_WORKFLOWS",
+      "OUTBOX_MAX_ATTEMPTS",
+      "LOCALIZATION_DELIVERY_MODE",
+    ],
+    "worker-agents": [
+      ...LOCALIZATION_COMMON,
+      ...LOCALIZATION_S3,
+      "LOC_DATABASE_URL",
+      "OPENROUTER_BASE_URL",
+      "OPENROUTER_API_KEY",
+      "LOCALIZER_MODEL",
+      "DUBBER_MODEL",
+      "LOCALIZER_MODE",
+      "DUBBER_MODE",
+      "LOCALIZER_REASONING",
+      "DUBBER_REASONING",
+      "REVIEWER_MODE",
+      "REVIEWER_JEV_MODEL",
+      "REVIEWER_MODEL",
+      "OCR_MODEL",
+      "OCR_BBOX_FORMAT",
+      "VOICESTUDIO_URL",
+      "VOICESTUDIO_API_KEY",
+      "VOICESTUDIO_ALLOW_PRIVATE_HTTP_CIDRS",
+      "STT_MODEL",
+      "TTS_MODEL",
+      "LOCALIZATION_PIPELINE",
+      "VBEE_BASE_URL",
+      "VBEE_APP_ID",
+      "VBEE_API_TOKEN",
+      "VBEE_VOICE_ID",
+      "VBEE_POLL_TIMEOUT_SECONDS",
+      "STT_CONCURRENCY",
+      "TTS_CONCURRENCY",
+      "LLM_CONCURRENCY",
+      "IO_CONCURRENCY",
+      "LOUDNESS_LUFS",
+      "TRUE_PEAK_DBTP",
+      "CAPTION_FONT_PATH",
+      // A collection's partial cover is completed with these in the review project.
+      "COVER_COLOR",
+      "COVER_OPACITY",
+      "VOICE_CHECK_ENABLED", "VOICE_CHECK_MIN_SPEECH_SHARE", "VOICE_CHECK_CONCURRENCY",
+      "AD_GATE_ENABLED", "AD_GATE_THRESHOLD", "TRACE_AGENT_CONTENT",
+    ],
+    "worker-media": [
+      ...LOCALIZATION_COMMON,
+      ...LOCALIZATION_S3,
+      "MEDIA_CONCURRENCY",
+      "RENDER_CONCURRENCY",
+      "LOUDNESS_LUFS",
+      "TRUE_PEAK_DBTP",
+      "CAPTION_FONT_PATH",
+      "COVER_COLOR",
+      "COVER_OPACITY",
+    ],
+  };
+
+  it("the table above covers every service this plan added, and nothing else is unaccounted for", () => {
+    // A service added later without an allowlist entry would be un-checked by
+    // the env test below. Make adding one a loud, deliberate edit.
+    expect(added.sort()).toEqual(Object.keys(ENV_ALLOWLIST).sort());
+  });
+
+  it("only the named UI, MinIO console and opt-in review bridge publish a port", () => {
+    const publishers = added.filter((n) => (services[n].ports ?? []).length > 0).sort();
+    expect(publishers).toEqual(["langfuse-web", "minio", "review-bridge", "temporal-ui"]);
+  });
+
+  it("no new service binds 0.0.0.0: every published port is pinned to 127.0.0.1", () => {
+    for (const name of added) {
+      for (const mapping of services[name].ports ?? []) {
+        const text = String(mapping);
+        expect(`${name}: ${text}`).toMatch(/^[a-z-]+: 127\.0\.0\.1:\d+:\d+$/);
+        expect(text).not.toContain("0.0.0.0");
+      }
+    }
+  });
+
+  it("langfuse-web does not collide with nest on host port 3000", () => {
+    const hostPorts = (services["langfuse-web"].ports ?? []).map((m) => m.split(":")[1]);
+    expect(hostPorts).not.toContain("3000");
+  });
+
+  it("Temporal, ClickHouse and the MinIO S3 API publish nothing", () => {
+    expect(services.temporal.ports).toBeUndefined();
+    expect(services.clickhouse.ports).toBeUndefined();
+    // minio publishes only its console; 9000 (S3) must not appear.
+    const minioPorts = (services.minio.ports ?? []).map(String);
+    expect(minioPorts.some((p) => /:9000$/.test(p))).toBe(false);
+  });
+
+  it("each added service receives exactly its own environment and never an env_file", () => {
+    for (const name of added) {
+      expect(services[name].env_file).toBeUndefined();
+      const env = Object.keys(services[name].environment ?? {}).sort();
+      expect({ name, env }).toEqual({ name, env: [...ENV_ALLOWLIST[name]].sort() });
+    }
+  });
+
+  it("no added service is handed a credential that belongs to another system", () => {
+    // Value-level, so renaming the key cannot dodge the allowlist above.
+    const forbiddenEverywhere = ["DOUYIN_COOKIE_FALLBACK", "API_KEY"];
+    for (const name of added) {
+      const values = JSON.stringify(services[name].environment ?? {});
+      for (const secret of forbiddenEverywhere) expect(`${name}:${values}`).not.toContain("${" + secret + "}");
+      // The Postgres superuser password is db-init's alone.
+      if (name !== "db-init") {
+        expect(`${name}:${values}`).not.toContain("${POSTGRES_PASSWORD");
+      }
+    }
+    // The MinIO root credential never reaches a Langfuse or Temporal container.
+    for (const name of ["langfuse-web", "langfuse-worker", "temporal", "temporal-ui", "clickhouse"]) {
+      expect(JSON.stringify(services[name].environment ?? {})).not.toContain("MINIO_ROOT");
+    }
+    // The session secret and the seeded login stay out of the worker.
+    const workerEnv = Object.keys(services["langfuse-worker"].environment ?? {});
+    expect(workerEnv).not.toContain("NEXTAUTH_SECRET");
+    expect(workerEnv).not.toContain("LANGFUSE_INIT_USER_PASSWORD");
+  });
+
+  it("each localization process gets only the credentials it uses", () => {
+    const keys = (name: string) => Object.keys(services[name].environment ?? {});
+    // The starter only reads Postgres and starts workflows: no object store, no LLM.
+    for (const k of ["LOC_S3_ACCESS_KEY_ID", "LOC_S3_SECRET_ACCESS_KEY", "OPENROUTER_API_KEY"]) {
+      expect(keys("localization-starter")).not.toContain(k);
+    }
+    // The media worker runs Demucs: no provider key and no database.
+    for (const k of ["OPENROUTER_API_KEY", "VOICESTUDIO_API_KEY", "LOC_DATABASE_URL"]) {
+      expect(keys("worker-media")).not.toContain(k);
+    }
+    // Vbee's credentials and voice reach only the agents worker, which speaks and hears with
+    // them, and the starter, which checks they are set; never the media worker.
+    for (const k of ["VBEE_APP_ID", "VBEE_API_TOKEN", "VBEE_VOICE_ID"]) {
+      expect(keys("worker-media")).not.toContain(k);
+      expect(keys("worker-agents")).toContain(k);
+    }
+    // Nobody but the downloader holds the downloader's object-store key.
+    for (const name of ["localization-starter", "worker-agents", "worker-media"]) {
+      expect(keys(name)).not.toContain("S3_ACCESS_KEY_ID");
+      expect(keys(name)).not.toContain("S3_SECRET_ACCESS_KEY");
+    }
+  });
+
+  it("the agents worker gets the same cover setting as the media worker", () => {
+    // The media worker paints the cover in rendered videos; the agents worker builds
+    // review projects, which complete a collection's partial cover with it. Without it
+    // there the review flow silently falls back to the code default.
+    const env = (name: string) => services[name].environment ?? {};
+    for (const k of ["COVER_COLOR", "COVER_OPACITY"]) {
+      expect(env("worker-agents")[k]).toBeDefined();
+      expect(env("worker-agents")[k]).toEqual(env("worker-media")[k]);
+    }
+  });
+
+  it("workers have a sized /tmp and time to finish what they are running when stopped", () => {
+    type Svc = { tmpfs?: string[]; stop_grace_period?: string };
+    for (const name of ["worker-agents", "worker-media"]) {
+      const svc = services[name] as unknown as Svc;
+      // Without a size limit a runaway extraction fills the host's disk.
+      expect(svc.tmpfs ?? []).toEqual([expect.stringMatching(/^\/tmp:size=\d+[mg],/)]);
+      // The worker's own graceful shutdown is 60 s; docker's default stop is 10 s.
+      expect(parseInt(String(svc.stop_grace_period), 10)).toBeGreaterThan(60);
+    }
+    const starter = services["localization-starter"] as unknown as Svc;
+    expect(starter.stop_grace_period).toBeDefined();
+  });
+
+  it("each localization process runs one role of the same image", () => {
+    const commands = ["localization-starter", "worker-agents", "worker-media"].map((n) =>
+      JSON.stringify((services[n] as { command?: unknown }).command)
+    );
+    expect(commands).toEqual([
+      JSON.stringify(["python", "-m", "localization.starter.outbox_starter"]),
+      JSON.stringify(["python", "-m", "localization.workers.run", "agents"]),
+      JSON.stringify(["python", "-m", "localization.workers.run", "media"]),
+    ]);
+  });
+
+  it("renders run in the media worker, at most RENDER_CONCURRENCY at once, default one", () => {
+    expect(services["worker-render"]).toBeUndefined();
+    expect(services["worker-media"].environment?.RENDER_CONCURRENCY).toBe(
+      "${RENDER_CONCURRENCY:-1}",
+    );
+  });
+
+  it("no service is handed an object-store key of a render worker that no longer exists", () => {
+    for (const name of Object.keys(services)) {
+      const env = JSON.stringify(services[name].environment ?? {});
+      expect(`${name}:${env}`).not.toContain("RENDER_S3_");
+    }
+  });
+
+  it("every added image is pinned by digest, including the one inside the MinIO init Dockerfile", () => {
+    for (const name of added) {
+      const image: string | undefined = services[name].image;
+      if (image === undefined) continue; // minio-init is built, checked below
+      expect({ name, image }).toEqual({ name, image: expect.stringMatching(/@sha256:[0-9a-f]{64}$/) });
+    }
+    const dockerfile = readFileSync(path.join(root, "infra", "minio", "Dockerfile"), "utf-8");
+    // Every image the Dockerfile pulls: the base, plus the mc binary copied in.
+    const pulls = dockerfile.split("\n").filter((l) => /^(FROM|COPY --from=)/.test(l));
+    expect(pulls.length).toBeGreaterThanOrEqual(2);
+    for (const line of pulls) expect(line).toMatch(/@sha256:[0-9a-f]{64}/);
+  });
+
+  it("minio-init runs the checked-out init.sh, so a policy edit applies on the next `up` without a rebuild", () => {
+    // The image COPYs init.sh, and `docker compose up` reuses a cached image: without this
+    // mount an edited policy would silently not apply until someone ran `build`.
+    expect(services["minio-init"].volumes).toContain("./infra/minio/init.sh:/init.sh:ro");
+  });
+
+  it("one-shot init services never restart, and dependents wait for them to COMPLETE", () => {
+    for (const name of ["db-init", "temporal-admin-tools", "temporal-namespace-init", "minio-init"]) {
+      expect(String(services[name].restart)).toBe("no");
+    }
+    // `service_started` on an init container is satisfied the instant it
+    // launches, i.e. before it has done anything.
+    expect(services["temporal-admin-tools"].depends_on["db-init"].condition).toBe("service_completed_successfully");
+    expect(services.temporal.depends_on["temporal-admin-tools"].condition).toBe("service_completed_successfully");
+    expect(services["langfuse-web"].depends_on["db-init"].condition).toBe("service_completed_successfully");
+    expect(services["langfuse-web"].depends_on["minio-init"].condition).toBe("service_completed_successfully");
+  });
+
+  it("redis refuses eviction and loads the ACL file", () => {
+    const command = JSON.stringify(services.redis.command);
+    expect(command).toContain("--maxmemory-policy noeviction");
+    expect(command).toContain("--aclfile");
+  });
+
+  it("clickhouse has a memory ceiling", () => {
+    expect(services.clickhouse.mem_limit).toBeDefined();
+  });
+});
+
+describe('review deployment stays opt-in and isolated', () => {
+  const compose = parse(readFileSync(path.resolve(__dirname, '../../../docker-compose.yml'), 'utf8'), { merge: true });
+  const bridge = compose.services['review-bridge'];
+  it('keeps legacy dispatch as the starter default and records mode only at dispatch', () => {
+    expect(compose.services['localization-starter'].environment.LOCALIZATION_DELIVERY_MODE).toBe('${LOCALIZATION_DELIVERY_MODE:-legacy_render}');
+    expect(compose.services['worker-agents'].environment.LOCALIZATION_DELIVERY_MODE).toBeUndefined();
+  });
+  it('publishes only the fixed loopback bridge port and has a liveness probe', () => {
+    expect(bridge.profiles).toEqual(['review']);
+    expect(bridge.ports).toEqual(['127.0.0.1:3310:3310']);
+    expect(bridge.healthcheck.test.join(' ')).toContain('http://127.0.0.1:3310/');
+    expect(bridge.read_only).toBe(true);
+    expect(bridge.cap_drop).toEqual(['ALL']);
+    expect(JSON.stringify(bridge.volumes)).not.toMatch(/docker.sock/);
+    expect(bridge.env_file).toBeUndefined();
+    expect(Object.keys(bridge.environment).some((key) => /^(LOC_|VBEE_|OPENROUTER_|VOICESTUDIO_|MINIO_ROOT|DATABASE)/.test(key))).toBe(false);
   });
 });

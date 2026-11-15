@@ -1,3 +1,70 @@
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/jetbrains-mono';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+  body {
+    @apply bg-surface font-sans text-sm text-on-surface antialiased;
+  }
+  html {
+    scroll-padding-top: 4rem;
+  }
+  input[type='checkbox'] {
+    @apply accent-primary-container;
+  }
+  /* Native date pickers and selects follow the dark colour scheme. */
+  select option {
+    @apply bg-surface-layer-2 text-text-primary;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex min-h-11 items-center justify-center gap-1.5 whitespace-nowrap rounded px-3 py-2 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40;
+  }
+  .btn-neutral {
+    @apply bg-surface-layer-3 text-text-primary hover:bg-surface-bright;
+  }
+  .btn-primary {
+    @apply bg-primary-container text-on-primary-container hover:bg-primary;
+  }
+  .btn-success {
+    @apply bg-status-success-bg text-status-success-text ring-1 ring-inset ring-status-success-border hover:brightness-125;
+  }
+  .btn-danger {
+    @apply bg-status-error-bg text-status-error-text ring-1 ring-inset ring-status-error-border hover:brightness-125;
+  }
+  .btn-ghost {
+    @apply text-text-secondary ring-1 ring-inset ring-border-prominent hover:bg-surface-layer-2 hover:text-text-primary;
+  }
+  .field {
+    @apply min-h-11 w-full rounded bg-surface-layer-2 px-3 py-2 text-sm text-text-primary placeholder:text-text-muted ring-1 ring-inset ring-border-prominent;
+  }
+  .card {
+    @apply rounded-xl bg-surface-layer-1 p-3 shadow-md sm:p-4;
+  }
+  .card-title {
+    @apply text-base font-semibold tracking-tight text-text-primary;
+  }
+  .eyebrow {
+    @apply font-mono text-[11px] font-semibold uppercase tracking-wider text-text-muted;
+  }
+}
+
+/* Unlayered on purpose: component and utility classes set their own 1px ring, and this must win on focus. */
+:focus-visible {
+  outline: none;
+  --tw-ring-inset: ;
+  --tw-ring-offset-width: 2px;
+  --tw-ring-offset-color: #031427;
+  --tw-ring-color: #c0c1ff;
+  --tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);
+  --tw-ring-shadow: var(--tw-ring-inset) 0 0 0 calc(2px + var(--tw-ring-offset-width)) var(--tw-ring-color);
+  box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000);
+}

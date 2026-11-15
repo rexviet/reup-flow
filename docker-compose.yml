@@ -1,3 +1,43 @@
+x-langfuse-env: &langfuse-env
+  DATABASE_URL: postgresql://langfuse:${LANGFUSE_DB_PASSWORD}@postgres:5432/langfuse
+  CLICKHOUSE_URL: http://clickhouse:8123
+  CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
+  CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+  CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+  CLICKHOUSE_CLUSTER_ENABLED: "false"
+  REDIS_CONNECTION_STRING: redis://langfuse:${LANGFUSE_REDIS_PASSWORD}@redis:6379
+  LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+  LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
+  LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+  LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_S3_ACCESS_KEY_ID}
+  LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_S3_SECRET_ACCESS_KEY}
+  LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+  SALT: ${SALT}
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+  TELEMETRY_ENABLED: "false"
+  TZ: UTC
+
+x-localization-build: &localization-build
+  # services/localization is its own Python project; the context is that folder.
+  context: ./services/localization
+
+# What every localization process reads to reach Temporal, the object store and
+# Langfuse. Anything else a process reads is listed on that service alone.
+x-localization-env: &localization-env
+  TEMPORAL_ADDRESS: ${TEMPORAL_ADDRESS:-temporal:7233}
+  TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
+  LANGFUSE_HOST: ${LANGFUSE_HOST:-http://langfuse-web:3000}
+  LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
+  LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
+
+x-localization-s3-env: &localization-s3-env
+  S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
+  S3_REGION: ${S3_REGION:-us-east-1}
+  S3_BUCKET: ${S3_BUCKET:-reup-media}
+  S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+  LOC_S3_ACCESS_KEY_ID: ${LOC_S3_ACCESS_KEY_ID}
+  LOC_S3_SECRET_ACCESS_KEY: ${LOC_S3_SECRET_ACCESS_KEY}
+
 services:
   nest:
     build:
@@ -20,7 +60,11 @@ services:
       PARSER_BASE_URL: ${PARSER_BASE_URL}
       PROBE_SEC_USER_ID: ${PROBE_SEC_USER_ID}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
+      TEMPORAL_ADDRESS: ${TEMPORAL_ADDRESS:-temporal:7233}
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
       DATA_DIR: ${DATA_DIR:-/data}
+      DASHBOARD_STUCK_MINUTES: ${DASHBOARD_STUCK_MINUTES:-30}
+      DASHBOARD_MEDIA_SECRET: ${DASHBOARD_MEDIA_SECRET:-}
       DOWNLOAD_CONCURRENCY: ${DOWNLOAD_CONCURRENCY:-6}
       ENUMERATE_SLEEP_MS_MIN: ${ENUMERATE_SLEEP_MS_MIN:-3000}
       ENUMERATE_SLEEP_MS_MAX: ${ENUMERATE_SLEEP_MS_MAX:-5000}
@@ -36,10 +80,23 @@ services:
       # exists to make that split cost no code change, and this is where it
       # gets made.
       LANES_ENABLED: ${LANES_ENABLED:-true}
+      # Storage backend. `local` needs none of the S3_* values; `s3` is checked
+      # by config/env.ts at boot. The access key is the downloader's own
+      # (scoped to source/* by infra/minio/init.sh), never the root credential.
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-reup-media}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+      S3_KEY_PREFIX: ${S3_KEY_PREFIX:-source/}
+      S3_STALE_UPLOAD_MS: ${S3_STALE_UPLOAD_MS:-86400000}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
     ports:
-      # The orchestrator API is the only thing meant to be reachable from the
-      # host. Contrast with `parser` below, which deliberately has none.
-      - "3000:3000"
+      # Loopback only: extension and host scripts use localhost:3300; the
+      # dashboard reaches it through the web container's nginx. A LAN or tunnel
+      # client goes through the web port (behind Cloudflare Access), never here.
+      - "127.0.0.1:3300:3000"
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:3000/health"]
       interval: 5s
@@ -98,10 +155,12 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-reup}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-reup}
       POSTGRES_DB: ${POSTGRES_DB:-reup}
+      TZ: UTC
+      PGTZ: UTC
     ports:
       # Exposed for host-run integration tests (the SKIP LOCKED spike drives two
-      # real concurrent transactions from jest on the host).
-      - "5432:5432"
+      # real concurrent transactions from jest on the host). Loopback only.
+      - "127.0.0.1:5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -112,10 +171,27 @@ services:
 
   redis:
     image: redis:7-alpine
+    # noeviction: BullMQ (Langfuse) and the douyin cookie cache both treat a
+    # silently evicted key as data loss. Better to fail a write than to lose one.
+    # The ACL file is rendered at start so the committed template holds no
+    # credential; `docker-entrypoint.sh` then drops to the redis user.
+    environment:
+      LANGFUSE_REDIS_PASSWORD: ${LANGFUSE_REDIS_PASSWORD}
+    volumes:
+      - ./infra/redis/users.acl:/etc/redis/users.acl.tmpl:ro
+    command:
+      - sh
+      - -c
+      - |
+        set -eu
+        # aclfile syntax has no comments; the template does, so strip them.
+        sed -e '/^#/d' -e "s|__LANGFUSE_REDIS_PASSWORD__|$$LANGFUSE_REDIS_PASSWORD|g" /etc/redis/users.acl.tmpl > /tmp/users.acl
+        chown redis:redis /tmp/users.acl && chmod 600 /tmp/users.acl
+        exec docker-entrypoint.sh redis-server --maxmemory-policy noeviction --aclfile /tmp/users.acl
     ports:
       # Exposed so host-run tests can write douyin:cookie:current the same way
-      # the nest service does.
-      - "6379:6379"
+      # the nest service does. Loopback only.
+      - "127.0.0.1:6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -141,13 +217,441 @@ services:
         # trusted network (plan §8 risk register). If this UI is ever put
         # anywhere reachable, the fix is a BFF that holds the key
         # server-side -- not a cleverer way to hide it in the bundle.
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:3000}
+        #
+        # Empty on purpose: the bundle calls /api and /internal on its own
+        # origin and nginx proxies them to `nest`. That keeps it working from
+        # localhost, the LAN and a tunnel alike. Not `${VAR:-default}`: a
+        # default would turn an empty value back into an absolute URL.
+        VITE_API_BASE_URL: ""
         VITE_API_KEY: ${API_KEY}
     ports:
-      - "5173:80"
+      # Loopback only; a tunnel on this machine is the way in from elsewhere.
+      - "127.0.0.1:5173:80"
     depends_on:
       nest:
         condition: service_healthy
 
+  # ---------------------------------------------------------------------------
+  # Video localization infra (plan 261026-0147, phase 00).
+  #
+  # Rules every service below follows, each enforced by
+  # services/downloader/test/compose-constraints.spec.ts:
+  #  - image pinned by @sha256 (a tag can be re-pointed upstream);
+  #  - environment is an explicit allowlist, never `env_file: .env`;
+  #  - only temporal-ui, langfuse-web and the MinIO console publish a port, and
+  #    all three bind 127.0.0.1.
+  # ---------------------------------------------------------------------------
+
+  # One-shot. Not /docker-entrypoint-initdb.d: that only runs on an empty
+  # volume, and the reup volume already holds data.
+  db-init:
+    image: postgres:16-alpine@sha256:f4610795587492cd4fb887c2dc3de301b813278bb6f616992061141b5f15ac36
+    restart: "no"
+    entrypoint: ["/bin/sh", "/create-databases.sh"]
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-reup}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-reup}
+      POSTGRES_DB: ${POSTGRES_DB:-reup}
+      TEMPORAL_DB_PASSWORD: ${TEMPORAL_DB_PASSWORD}
+      LANGFUSE_DB_PASSWORD: ${LANGFUSE_DB_PASSWORD}
+      LOCALIZATION_DB_PASSWORD: ${LOCALIZATION_DB_PASSWORD}
+    volumes:
+      - ./infra/postgres/create-databases.sh:/create-databases.sh:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # One-shot: applies the Temporal schemas as the `temporal` role, then exits.
+  temporal-admin-tools:
+    image: temporalio/admin-tools:1.29@sha256:4a17b5be706c56a9238fb7b5b32a36966cee14939658b20597837b2443b277c8
+    restart: "no"
+    entrypoint: ["/bin/sh", "/schema-init.sh"]
+    environment:
+      SQL_HOST: postgres
+      SQL_USER: temporal
+      SQL_PASSWORD: ${TEMPORAL_DB_PASSWORD}
+    volumes:
+      - ./infra/temporal/schema-init.sh:/schema-init.sh:ro
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+
+  temporal:
+    image: temporalio/server:1.29@sha256:688da708d0daca6ff8083334a4a7fbbdbc7e70d1cca8e2eda8c05b21fdbd601e
+    # No `ports:`. The frontend is reachable only from the compose network.
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_SEEDS: postgres
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: ${TEMPORAL_DB_PASSWORD}
+      DBNAME: temporal
+      VISIBILITY_DBNAME: temporal_visibility
+      TZ: UTC
+    healthcheck:
+      # The frontend binds the container IP, not loopback.
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/$$(hostname -i)/7233'"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+    depends_on:
+      temporal-admin-tools:
+        condition: service_completed_successfully
+
+  # One-shot: the plain server image does not create the namespace.
+  temporal-namespace-init:
+    image: temporalio/admin-tools:1.29@sha256:4a17b5be706c56a9238fb7b5b32a36966cee14939658b20597837b2443b277c8
+    restart: "no"
+    entrypoint: ["/bin/sh", "/namespace-init.sh"]
+    environment:
+      TEMPORAL_ADDRESS: ${TEMPORAL_ADDRESS:-temporal:7233}
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
+      TEMPORAL_RETENTION: 30d
+    volumes:
+      - ./infra/temporal/namespace-init.sh:/namespace-init.sh:ro
+    depends_on:
+      temporal:
+        condition: service_healthy
+
+  temporal-ui:
+    image: temporalio/ui:2.40.0@sha256:a98ed66e330cc5b6b432fe174d97dee47d745fa72a1938cf1f6b781dfc335477
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://127.0.0.1:8233
+    ports:
+      - "127.0.0.1:8233:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    depends_on:
+      temporal-namespace-init:
+        condition: service_completed_successfully
+
+  minio:
+    # Chainguard build: the community minio/minio image is archived. Local
+    # only; production uses real S3/R2 and the code only speaks the S3 API.
+    image: cgr.dev/chainguard/minio@sha256:268d68a2a3b6fc65f905a61f84d7eab6345ce6bff14f551e2b028ec31e6a1341
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      TZ: UTC
+    ports:
+      # Console only. The S3 API (9000) is reachable from the compose network.
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /minio/health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && read -r line <&3 && [[ $$line == *' 200 '* ]]"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  minio-init:
+    build:
+      context: .
+      dockerfile: infra/minio/Dockerfile
+    restart: "no"
+    environment:
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+      LOC_S3_ACCESS_KEY_ID: ${LOC_S3_ACCESS_KEY_ID}
+      LOC_S3_SECRET_ACCESS_KEY: ${LOC_S3_SECRET_ACCESS_KEY}
+      REVIEW_S3_ACCESS_KEY_ID: ${REVIEW_S3_ACCESS_KEY_ID:-}
+      REVIEW_S3_SECRET_ACCESS_KEY: ${REVIEW_S3_SECRET_ACCESS_KEY:-}
+      LANGFUSE_S3_ACCESS_KEY_ID: ${LANGFUSE_S3_ACCESS_KEY_ID}
+      LANGFUSE_S3_SECRET_ACCESS_KEY: ${LANGFUSE_S3_SECRET_ACCESS_KEY}
+    # The checked-out script, not the copy baked into the image: `up` reuses a cached
+    # image, so a policy edit would otherwise need a manual `build` to take effect.
+    volumes:
+      - ./infra/minio/init.sh:/init.sh:ro
+    depends_on:
+      minio:
+        condition: service_healthy
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8@sha256:1ffa82edee000a42c09313bd9f1293d94c570aee74babc1b3ca9983a35fa597b
+    environment:
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      TZ: UTC
+    # No `ports:`. ClickHouse is reachable only by the Langfuse services.
+    # Idle ClickHouse alone can take several GB; the host also runs Demucs and
+    # the ffmpeg renders (plan §7).
+    mem_limit: 2g
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./infra/clickhouse/low-memory.xml:/etc/clickhouse-server/config.d/low-memory.xml:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8123/ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  langfuse-web:
+    image: langfuse/langfuse:3@sha256:a343f64e035eb01aeea358703a0428945d909d01e19452509a5a830862dda878
+    environment:
+      <<: *langfuse-env
+      # Web-only: the worker has no use for the session secret, the seeded
+      # login or the signup switch, so it does not get them.
+      NEXTAUTH_URL: http://localhost:3100
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      AUTH_DISABLE_SIGNUP: "true"
+      LANGFUSE_INIT_ORG_ID: reup
+      LANGFUSE_INIT_ORG_NAME: reup
+      LANGFUSE_INIT_PROJECT_ID: localization
+      LANGFUSE_INIT_PROJECT_NAME: localization
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL}
+      LANGFUSE_INIT_USER_NAME: operator
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD}
+    ports:
+      # 3100, not 3000: 3000 is `nest`.
+      - "127.0.0.1:3100:3000"
+    healthcheck:
+      # Next.js binds the container hostname, not loopback.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://$$(hostname):3000/api/public/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+      clickhouse:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  langfuse-worker:
+    image: langfuse/langfuse-worker:3@sha256:8a28c946bb5401eef488153fa294db5a79bd99dd5c90db8e4d39559374c9ebd3
+    environment:
+      <<: *langfuse-env
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://$$(hostname):3030/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    depends_on:
+      langfuse-web:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # Localization processes (plan 261026-0147, phase 04). One image, built from
+  # services/localization; the command picks the role. None publishes a port.
+  # ---------------------------------------------------------------------------
+
+  # Turns localization_outbox rows into workflows. Stop it and the outbox keeps
+  # filling; nothing is lost.
+  localization-starter:
+    build: *localization-build
+    restart: unless-stopped
+    command: ["python", "-m", "localization.starter.outbox_starter"]
+    stop_grace_period: 15s
+    environment:
+      <<: *localization-env
+      LOC_DATABASE_URL: ${LOC_DATABASE_URL}
+      S3_BUCKET: ${S3_BUCKET:-reup-media}
+      TARGET_LANG: ${TARGET_LANG:-vi}
+      VOICE_PROVIDER: ${VOICE_PROVIDER:-voicestudio}
+      VOICE_ID: ${VOICE_ID:-}
+      VOICE_SETTINGS_JSON: ${VOICE_SETTINGS_JSON:-}
+      # New workflows speak with this ZeroTTS voice (installed on the host: ngoc-huyen-2); set it
+      # empty to use VOICE_ID, a VoiceStudio voice, instead.
+      ZEROTTS_VOICE_ID: ${ZEROTTS_VOICE_ID-3k7WSOHjfuY9euT7VKCA}
+      VOICESTUDIO_URL: ${VOICESTUDIO_URL:-}
+      VOICESTUDIO_API_KEY: ${VOICESTUDIO_API_KEY:-}
+      VOICESTUDIO_ALLOW_PRIVATE_HTTP_CIDRS: ${VOICESTUDIO_ALLOW_PRIVATE_HTTP_CIDRS:-100.64.0.0/10}
+      # voicestudio: VideoLocalizationWorkflow; vbee: VbeeDubbingWorkflow. In vbee mode the
+      # starter only checks that the three Vbee settings are set (it calls neither Vbee nor
+      # VoiceStudio), and names the voice by a marker: the voice id never enters a history.
+      LOCALIZATION_PIPELINE: ${LOCALIZATION_PIPELINE:-voicestudio}
+      LOCALIZATION_DELIVERY_MODE: ${LOCALIZATION_DELIVERY_MODE:-legacy_render}
+      VBEE_APP_ID: ${VBEE_APP_ID:-}
+      VBEE_API_TOKEN: ${VBEE_API_TOKEN:-}
+      VBEE_VOICE_ID: ${VBEE_VOICE_ID:-}
+      MAX_OPEN_WORKFLOWS: ${MAX_OPEN_WORKFLOWS:-10}
+      OUTBOX_MAX_ATTEMPTS: ${OUTBOX_MAX_ATTEMPTS:-5}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal-namespace-init:
+        condition: service_completed_successfully
+
+  # Queues: workflows, llm, io, stt, tts, voice_check. The `workflows` queue needs nothing
+  # outside Temporal, so a VoiceStudio outage never stops a workflow task.
+  worker-agents:
+    build: *localization-build
+    restart: unless-stopped
+    command: ["python", "-m", "localization.workers.run", "agents"]
+    # Longer than the worker's graceful shutdown, so a stop lets running activities
+    # finish instead of killing them.
+    stop_grace_period: 90s
+    # Frames are extracted a chunk at a time (a few MB), and the Reviewer works from a
+    # local copy of the rendered video; a cap makes a runaway fill this volume and fail
+    # one activity, not the host's disk.
+    tmpfs:
+      - /tmp:size=1g,mode=1777
+    environment:
+      <<: [*localization-env, *localization-s3-env]
+      LOC_DATABASE_URL: ${LOC_DATABASE_URL}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      LOCALIZER_MODEL: ${LOCALIZER_MODEL:-}
+      DUBBER_MODEL: ${DUBBER_MODEL:-}
+      LOCALIZER_MODE: ${LOCALIZER_MODE:-single}
+      DUBBER_MODE: ${DUBBER_MODE:-single}
+      LOCALIZER_REASONING: ${LOCALIZER_REASONING:-off}
+      DUBBER_REASONING: ${DUBBER_REASONING:-off}
+      # jev: checks in code plus one call to Jev through OpenRouter; llm: the vision agent.
+      REVIEWER_MODE: ${REVIEWER_MODE:-jev}
+      REVIEWER_JEV_MODEL: ${REVIEWER_JEV_MODEL:-typesafe/jev-1.13}
+      # Product advertisements are not localized: Jev reads the transcript after the
+      # preparation and a run at or over the threshold ends as `skipped_ad`.
+      AD_GATE_ENABLED: ${AD_GATE_ENABLED:-true}
+      AD_GATE_THRESHOLD: ${AD_GATE_THRESHOLD:-0.8}
+      # Before anything else the source is checked for a voice; under this share of speech
+      # its original is published as it is and the run ends as `published_original`.
+      VOICE_CHECK_ENABLED: ${VOICE_CHECK_ENABLED:-true}
+      VOICE_CHECK_MIN_SPEECH_SHARE: ${VOICE_CHECK_MIN_SPEECH_SHARE:-0.05}
+      # Used when REVIEWER_MODE=llm: it looks at frames, so it needs a model that reads images.
+      REVIEWER_MODEL: ${REVIEWER_MODEL:-}
+      # Prompts, answers, the Dubber's code and tool arguments in the agents' traces.
+      TRACE_AGENT_CONTENT: ${TRACE_AGENT_CONTENT:-true}
+      OCR_MODEL: ${OCR_MODEL:-}
+      OCR_BBOX_FORMAT: ${OCR_BBOX_FORMAT:-}
+      # Audio-capable model that tells singing from speech; empty keeps every line speech.
+      SINGING_MODEL: ${SINGING_MODEL:-}
+      # true: the stt and tts queues belong to the host `voice` worker (see docker-compose.override.yml).
+      VOICE_QUEUES_ON_HOST: ${VOICE_QUEUES_ON_HOST:-false}
+      VOICESTUDIO_URL: ${VOICESTUDIO_URL:-}
+      VOICESTUDIO_API_KEY: ${VOICESTUDIO_API_KEY:-}
+      VOICESTUDIO_ALLOW_PRIVATE_HTTP_CIDRS: ${VOICESTUDIO_ALLOW_PRIVATE_HTTP_CIDRS:-100.64.0.0/10}
+      STT_MODEL: ${STT_MODEL:-}
+      STT_MULTILINGUAL: ${STT_MULTILINGUAL:-true}
+      TTS_MODEL: ${TTS_MODEL:-}
+      TTS_TIMEOUT_SECONDS: ${TTS_TIMEOUT_SECONDS:-1200}
+      # Serves both pipelines; with LOCALIZATION_PIPELINE=vbee it refuses to start without
+      # the Vbee settings and needs no VoiceStudio.
+      LOCALIZATION_PIPELINE: ${LOCALIZATION_PIPELINE:-voicestudio}
+      VBEE_BASE_URL: ${VBEE_BASE_URL:-https://api.vbee.vn}
+      VBEE_APP_ID: ${VBEE_APP_ID:-}
+      VBEE_API_TOKEN: ${VBEE_API_TOKEN:-}
+      VBEE_VOICE_ID: ${VBEE_VOICE_ID:-}
+      VBEE_POLL_TIMEOUT_SECONDS: ${VBEE_POLL_TIMEOUT_SECONDS:-300}
+      # ZeroTTS speaks only on the host speech worker (it reads these from here); the folder is a
+      # path on the host, so a container worker never loads it.
+      ZEROTTS_MODEL_PATH: ${ZEROTTS_MODEL_PATH:-}
+      ZEROTTS_INSTANCES: ${ZEROTTS_INSTANCES:-2}
+      ZEROTTS_THREADS: ${ZEROTTS_THREADS:-2}
+      STT_CONCURRENCY: ${STT_CONCURRENCY:-1}
+      TTS_CONCURRENCY: ${TTS_CONCURRENCY:-2}
+      LLM_CONCURRENCY: ${LLM_CONCURRENCY:-8}
+      IO_CONCURRENCY: ${IO_CONCURRENCY:-2}
+      VOICE_CHECK_CONCURRENCY: ${VOICE_CHECK_CONCURRENCY:-2}
+      LOUDNESS_LUFS: ${LOUDNESS_LUFS:--14}
+      TRUE_PEAK_DBTP: ${TRUE_PEAK_DBTP:--1.5}
+      ORIGINAL_VOICE_GAIN: ${ORIGINAL_VOICE_GAIN:-0.25}
+      # The Jev review measures captions with the font the render draws with.
+      CAPTION_FONT_PATH: ${CAPTION_FONT_PATH:-/assets/fonts/BeVietnamPro-SemiBold.ttf}
+      # A collection that sets only part of its cover gets the rest from here in its
+      # review project, as the media worker does for rendered videos.
+      COVER_COLOR: ${COVER_COLOR:-#101010}
+      COVER_OPACITY: ${COVER_OPACITY:-0.92}
+    volumes:
+      - ./assets/fonts:/assets/fonts:ro
+    depends_on:
+      temporal-namespace-init:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+
+  # Queues: media (Demucs, CPU heavy; MEDIA_CONCURRENCY bounds its memory) and render
+  # (one ffmpeg encode per render; RENDER_CONCURRENCY of them at once).
+  worker-media:
+    build: *localization-build
+    restart: unless-stopped
+    command: ["python", "-m", "localization.workers.run", "media"]
+    stop_grace_period: 90s
+    # Demucs works in /tmp: the extracted audio and both stems, per running
+    # separation (MEDIA_CONCURRENCY of them). A render keeps the source, the dubbed
+    # track, the caption images and the output there until it is uploaded.
+    tmpfs:
+      - /tmp:size=4g,mode=1777
+    environment:
+      <<: [*localization-env, *localization-s3-env]
+      MEDIA_CONCURRENCY: ${MEDIA_CONCURRENCY:-2}
+      RENDER_CONCURRENCY: ${RENDER_CONCURRENCY:-1}
+      LOUDNESS_LUFS: ${LOUDNESS_LUFS:--14}
+      TRUE_PEAK_DBTP: ${TRUE_PEAK_DBTP:--1.5}
+      ORIGINAL_VOICE_GAIN: ${ORIGINAL_VOICE_GAIN:-0.25}
+      # Captions are measured (layout) and drawn (render) with this one font file.
+      CAPTION_FONT_PATH: ${CAPTION_FONT_PATH:-/assets/fonts/BeVietnamPro-SemiBold.ttf}
+      COVER_COLOR: ${COVER_COLOR:-#101010}
+      COVER_OPACITY: ${COVER_OPACITY:-0.92}
+    volumes:
+      - ./assets/fonts:/assets/fonts:ro
+    depends_on:
+      temporal-namespace-init:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+
+  # Explicitly opt in after the Studio boundary gate passes.
+  review-bridge:
+    profiles: [review]
+    build: *localization-build
+    restart: unless-stopped
+    command: ["python", "-m", "localization.review_bridge.server"]
+    ports:
+      - "127.0.0.1:3310:3310"
+    environment:
+      REVIEW_S3_ENDPOINT: http://minio:9000
+      REVIEW_S3_BUCKET: ${S3_BUCKET:-reup-media}
+      REVIEW_S3_ACCESS_KEY_ID: ${REVIEW_S3_ACCESS_KEY_ID:-}
+      REVIEW_S3_SECRET_ACCESS_KEY: ${REVIEW_S3_SECRET_ACCESS_KEY:-}
+      REVIEW_TEMPORAL_ADDRESS: temporal:7233
+      REVIEW_TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
+      REVIEW_PROJECT_ROOT: /review
+      REVIEW_RUNTIME_ROOT: /run/review-bridge
+    volumes:
+      - ./data/review:/review
+    tmpfs:
+      - /run/review-bridge:uid=10001,gid=10001,mode=0700,size=16m
+      - /tmp:uid=10001,gid=10001,mode=0700,size=256m
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3310/', timeout=3).close()"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+      temporal-namespace-init:
+        condition: service_completed_successfully
+
 volumes:
   postgres_data:
+  minio_data:
+  clickhouse_data:

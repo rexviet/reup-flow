@@ -7,7 +7,13 @@
 // four lib files directly instead (see test/sw.spec.js), which populates
 // the same globals this file reads (`performPush`, `chrome`, ...).
 if (typeof importScripts === 'function') {
-  importScripts('lib/cookie-header.js', 'lib/api-client.js', 'lib/storage.js', 'lib/push-cookie.js');
+  importScripts(
+    'lib/cookie-header.js',
+    'lib/api-client.js',
+    'lib/storage.js',
+    'lib/push-cookie.js',
+    'lib/enqueue-video.js',
+  );
 }
 
 const ALARM_NAME = 'douyin-cookie-push';
@@ -61,6 +67,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message && message.type === 'push-now') {
     runPush().then(sendResponse);
     return true; // keeps the async sendResponse channel open
+  }
+  // content.js's page button: queue the video the tab is showing. The
+  // message carries only the page URL; settings come from storage here, so the
+  // API key never reaches a page-world script.
+  if (message && message.type === 'download-video') {
+    performEnqueue({
+      storageArea: chrome.storage.local,
+      url: message.url,
+    }).then(sendResponse);
+    return true;
   }
   return undefined;
 });

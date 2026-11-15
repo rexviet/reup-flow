@@ -1,0 +1,20 @@
+# Explicit opt-in. Start ONLY nest, web and workspace-simulator with this overlay.
+# Real workers/starter must stay stopped; namespace isolates mock activity queues.
+services:
+  web:
+    build:
+      args:
+        VITE_API_BASE_URL: /
+
+  nest:
+    environment:
+      TEMPORAL_NAMESPACE: workspace-simulation-voicestudio
+
+  workspace-simulator:
+    image: reup-flow-worker-agents
+    command: ["python", "-m", "localization.simulation.run"]
+    restart: unless-stopped
+    environment:
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./services/localization/src/localization/simulation:/app/src/localization/simulation:ro

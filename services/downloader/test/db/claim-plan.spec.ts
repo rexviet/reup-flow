@@ -101,17 +101,23 @@ beforeAll(async () => {
   // outstanding, a few in flight. The partial indexes only look attractive
   // to the planner when 'pending' is a small fraction of the table -- which
   // is exactly the situation they exist for.
+  await pool.query(`INSERT INTO profiles (sec_user_id) SELECT 'profile-' || i FROM generate_series(0, 19) AS i`);
   await pool.query(`
-    INSERT INTO videos (aweme_id, sec_user_id, create_time, status, lease_expires_at)
+    INSERT INTO collections (kind, external_id, sec_user_id, name)
+    SELECT 'channel', sec_user_id, sec_user_id, sec_user_id FROM profiles
+  `);
+  await pool.query(`
+    INSERT INTO videos (aweme_id, sec_user_id, create_time, status, lease_expires_at, collection_id)
     SELECT
       'v' || i,
       'profile-' || (i % 20),
       timestamptz '2026-01-01' + (i || ' minutes')::interval,
       CASE WHEN i % 25 = 0 THEN 'downloading' WHEN i % 5 = 0 THEN 'pending' ELSE 'done' END,
-      CASE WHEN i % 25 = 0 THEN now() + interval '5 minutes' END
+      CASE WHEN i % 25 = 0 THEN now() + interval '5 minutes' END,
+      c.id
     FROM generate_series(1, 50000) AS i
+    JOIN collections c ON c.kind = 'channel' AND c.external_id = 'profile-' || (i % 20)
   `);
-  await pool.query(`INSERT INTO profiles (sec_user_id) SELECT 'profile-' || i FROM generate_series(0, 19) AS i`);
   await pool.query(`
     INSERT INTO jobs (sec_user_id, status, created_at, lease_expires_at)
     SELECT

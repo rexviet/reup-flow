@@ -33,7 +33,7 @@ import { eq } from 'drizzle-orm';
 import type { Pool } from 'pg';
 import { jobs, profiles, videos, type Job, type Video } from '../../src/db/schema';
 import { EnumerateLane, type EnumerateParser } from '../../src/lanes/enumerate.lane';
-import { toVideoUpsert } from '../../src/lanes/aweme.mapper';
+import { toVideoUpsert } from '../../src/parser/aweme.mapper';
 import { claimOne, reviveSkippedForProfile } from '../../src/db/videos.repository';
 import type { Aweme, UserPostPage, UserProfile } from '../../src/parser/parser.client';
 import {

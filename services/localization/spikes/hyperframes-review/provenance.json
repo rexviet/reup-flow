@@ -1,0 +1,16 @@
+{
+  "expected": "0.8.77",
+  "installed": "0.8.77",
+  "registry": "https://registry.npmjs.org/hyperframes",
+  "integrity": "sha512-OOVwxP9ixSwkoH0y5SX7Xwf6NS9ad0mFnqf6jK053piGp2LUsxEywGd5m9KucNdaKwlQfkw+u+U8E5OxKPsa+w==",
+  "shasum": "e96545810f7c6db47128ec63a59bdb55a920a3f6",
+  "gitHead": "dd88b5f5b78f25a82ad0677c00bbbfa85428454f",
+  "node": "22.22.0",
+  "pnpm": "11.23.0",
+  "fallbackProbe": {
+    "version": "0.9.26",
+    "integrity": "sha512-g9+qCbnF9ylmyid4V23PlwXIVy8FUQdM9pBwJuqM12X33zYnwWAEojGlDeiQqgPwO4r/sAnw1PQFFyqAKgQQcA==",
+    "gitHead": "0c6c7fca45bddc9838ebc6c0f0280e9efea1f18a",
+    "adopted": false
+  }
+}

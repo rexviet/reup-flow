@@ -52,6 +52,7 @@ import {
   testSchemaName,
   truncateAll,
 } from '../support/db';
+import { channelCollection } from '../support/collections';
 import { FakeCdn } from '../support/fake-cdn';
 
 jest.setTimeout(120_000);
@@ -326,9 +327,9 @@ describe('§7.2 -- the full recovery loop', () => {
     // So the retry has something to reset, and the reset is observable.
     await pool.query(
       `INSERT INTO videos (aweme_id, sec_user_id, create_time, status, attempts, last_error,
-                           play_addr, url_expires_at)
-       VALUES ('loop-x', $1, now(), 'failed', $2, 'gave up', $3, now() + interval '1 hour')`,
-      [PROFILE, MAX_ATTEMPTS, cdn.url('/loop-x.mp4')],
+                           play_addr, url_expires_at, collection_id)
+       VALUES ('loop-x', $1, now(), 'failed', $2, 'gave up', $3, now() + interval '1 hour', $4)`,
+      [PROFILE, MAX_ATTEMPTS, cdn.url('/loop-x.mp4'), await channelCollection(pool, PROFILE)],
     );
 
     // ---- 4. push a fresh cookie -- SAME parser object, no restart ----------

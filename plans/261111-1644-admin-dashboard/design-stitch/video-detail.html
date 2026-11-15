@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="vi"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><meta content="web_dashboard" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@500;600&amp;display=swap" rel="stylesheet"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config={"darkMode":"class","theme":{"extend":{"colors":{"tertiary-fixed":"#6ffbbe","inverse-on-surface":"#213145","surface":"#031427","status-warning-bg":"#451a03","primary-container":"#8083ff","on-background":"#d3e4fe","health-unknown":"#64748b","status-success-text":"#34d399","on-secondary-fixed":"#001e2f","on-tertiary-fixed-variant":"#005236","tertiary-container":"#00885d","tertiary-fixed-dim":"#4edea3","status-warning-border":"#b45309","status-success-border":"#059669","on-primary":"#1000a9","inverse-surface":"#d3e4fe","secondary":"#89ceff","status-success-bg":"#064e3b","on-error":"#690005","surface-dim":"#031427","on-primary-container":"#0d0096","on-tertiary-fixed":"#002113","primary-fixed-dim":"#c0c1ff","surface-container-high":"#1b2b3f","status-error-bg":"#4c0519","text-primary":"#f8fafc","surface-container-low":"#0b1c30","status-error-text":"#fb7185","text-muted":"#64748b","surface-variant":"#26364a","on-secondary-fixed-variant":"#004c6e","primary-fixed":"#e1e0ff","status-idle-text":"#94a3b8","surface-tint":"#c0c1ff","on-surface":"#d3e4fe","on-tertiary":"#003824","secondary-fixed-dim":"#89ceff","secondary-fixed":"#c9e6ff","status-idle-bg":"#1e293b","on-error-container":"#ffdad6","inverse-primary":"#494bd6","border-subtle":"#1e293b","on-primary-fixed":"#07006c","error":"#ffb4ab","tertiary":"#4edea3","surface-container":"#102034","on-primary-fixed-variant":"#2f2ebe","status-active-border":"#4338ca","on-surface-variant":"#c7c4d7","status-error-border":"#be123c","status-active-bg":"#1e1b4b","surface-layer-1":"#0f172a","status-active-text":"#818cf8","secondary-container":"#00a2e6","surface-base":"#090d16","surface-container-lowest":"#000f21","surface-layer-3":"#334155","on-secondary":"#00344d","on-tertiary-container":"#000703","primary":"#c0c1ff","status-idle-border":"#334155","surface-container-highest":"#26364a","on-secondary-container":"#00344e","status-warning-text":"#fbbf24","health-down":"#f43f5e","error-container":"#93000a","outline":"#908fa0","health-ok":"#10b981","background":"#031427","border-prominent":"#334155","surface-bright":"#2a3a4f","text-secondary":"#94a3b8","health-degraded":"#f59e0b","outline-variant":"#464554","surface-layer-2":"#1e293b"},"borderRadius":{"DEFAULT":"0.125rem","lg":"0.25rem","xl":"0.5rem","full":"0.75rem"},"spacing":{"gutter":"0.75rem","margin":"1rem","space-2xs":"0.125rem","space-xs":"0.25rem","space-sm":"0.5rem","space-lg":"1rem","space-xl":"1.5rem","space-md":"0.75rem","space-2xl":"2rem"},"fontFamily":{"headline-xl":["Inter"],"mono-badge":["JetBrains Mono"],"mono-data-lg":["JetBrains Mono"],"headline-xl-mobile":["Inter"],"body-sm-medium":["Inter"],"body-md":["Inter"],"body-md-medium":["Inter"],"body-sm":["Inter"],"headline-lg":["Inter"],"mono-data-sm":["JetBrains Mono"],"headline-md":["Inter"]},"fontSize":{"headline-xl":["1.75rem",{"lineHeight":"2.25rem","letterSpacing":"-0.025em","fontWeight":"700"}],"mono-badge":["0.6875rem",{"lineHeight":"0.875rem","letterSpacing":"0.02em","fontWeight":"600"}],"mono-data-lg":["0.875rem",{"lineHeight":"1.25rem","letterSpacing":"-0.01em","fontWeight":"500"}],"headline-xl-mobile":["1.375rem",{"lineHeight":"1.75rem","letterSpacing":"-0.02em","fontWeight":"700"}],"body-sm-medium":["0.75rem",{"lineHeight":"1rem","fontWeight":"500"}],"body-md":["0.875rem",{"lineHeight":"1.25rem","fontWeight":"400"}],"body-md-medium":["0.875rem",{"lineHeight":"1.25rem","fontWeight":"500"}],"body-sm":["0.75rem",{"lineHeight":"1rem","fontWeight":"400"}],"headline-lg":["1.25rem",{"lineHeight":"1.75rem","letterSpacing":"-0.015em","fontWeight":"600"}],"mono-data-sm":["0.75rem",{"lineHeight":"1rem","fontWeight":"500"}],"headline-md":["1rem",{"lineHeight":"1.5rem","letterSpacing":"-0.01em","fontWeight":"600"}]}}}</script></head><body class="bg-surface font-body-md text-body-md text-on-surface min-h-screen selection:bg-primary-container selection:text-on-primary"><header class="fixed top-0 left-0 right-0 z-50 bg-surface-container-low/95 backdrop-blur-md shadow-[0_1px_8px_rgba(0,0,0,0.4)]"><div class="h-16 w-full px-margin flex items-center justify-between gap-space-md"><div class="flex items-center gap-space-md min-w-0"><img alt="Pipeline Console Logo" class="h-8 w-auto object-contain" src="https://lh3.googleusercontent.com/aida/ALJJyrD4bgfPBj5igIhQH680hh3JHYUJ_kGj2bqRpCTeinpzmcVSWqmQFlGPy3wJte6RtQ49MosJXQBGgz-__4nPy2Xd6MacocnQgmGHkOgx9fJAA0gAuCFCsi2D0Gv4oHiahlqHLtnMDDMAYQwHd1BZ3oQxCaN2yXyTs0I_LOGYazSr-_HaoCuVQzr6tUuyVmcHDVgSoA8Ub6YRySjZQEa__W7UXXKr5NYkI7VN-Lq5p9JpRQ"/><div class="flex flex-col"><div class="flex items-center gap-space-xs"><span class="font-headline-md text-headline-md text-text-primary tracking-tight">Douyin Pipeline Console</span><span class="font-mono-badge text-mono-badge px-space-xs py-space-2xs rounded bg-surface-layer-2 text-secondary font-semibold">Single Admin • Localhost/Tunnel</span></div><div class="flex items-center gap-space-sm font-mono-data-sm text-mono-data-sm text-text-muted"><span class="flex items-center gap-space-xs"><span class="inline-block w-1.5 h-1.5 rounded-full bg-health-ok animate-pulse"></span>Bảng: 3s</span><span>•</span><span class="flex items-center gap-space-xs"><span class="inline-block w-1.5 h-1.5 rounded-full bg-secondary"></span>Sức khỏe: 10s</span></div></div></div><nav class="hidden xl:flex items-center gap-space-xs" data-active-classes="bg-surface-container-high text-primary font-body-md-medium rounded"><a class="px-space-md py-space-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors" data-path="dashboard-tong-quan" href="#">Tổng quan &amp; Pipeline</a><a aria-current="page" class="px-space-md py-space-xs transition-colors bg-surface-container-high text-primary font-body-md-medium rounded" data-path="chi-tiet-video-doi-soat" href="#">Chi tiết video &amp; Đối soát</a><a class="px-space-md py-space-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors" data-path="giam-sat-workers" href="#">Giám sát Workers</a><a class="px-space-md py-space-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors" data-path="nhat-ky-temporal" href="#">Nhật ký Temporal</a></nav><div class="flex items-center gap-space-sm"><div class="hidden md:flex items-center gap-space-xs bg-surface-layer-1 px-space-sm py-space-xs rounded font-mono-data-sm text-mono-data-sm"><span class="w-2 h-2 rounded-full bg-health-ok"></span><span class="text-text-primary">CF Tunnel</span><span class="text-tertiary font-semibold">Active (12ms)</span></div><button class="flex items-center gap-space-xs px-space-sm py-space-xs rounded bg-surface-container-high hover:bg-surface-layer-3 text-text-primary font-body-sm-medium text-body-sm-medium transition-colors" type="button"><span class="material-symbols-outlined text-[16px]">refresh</span><span>Tải lại</span></button><button class="flex items-center gap-space-xs px-space-sm py-space-xs rounded bg-surface-container-high hover:bg-surface-layer-3 text-text-primary font-body-sm-medium text-body-sm-medium transition-colors" type="button"><span class="material-symbols-outlined text-[16px]">tune</span><span>Cài đặt worker</span></button><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center shrink-0"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></div></header><aside class="fixed left-0 top-16 bottom-10 w-64 bg-surface-layer-1 z-40 flex flex-col justify-between shadow-[1px_0_12px_rgba(0,0,0,0.3)]"><div class="flex flex-col p-space-sm gap-space-sm"><div class="px-space-sm py-space-xs text-text-muted font-mono-badge text-mono-badge uppercase tracking-wider">Điều phối Pipeline</div><nav class="flex flex-col gap-space-2xs" data-active-classes="bg-surface-container-highest text-primary font-body-md-medium rounded"><a class="flex items-center gap-space-sm px-space-sm py-space-sm rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors" data-path="dashboard-tong-quan" href="#"><span class="material-symbols-outlined text-[18px]">view_kanban</span><span>Bảng điều khiển</span></a><a aria-current="page" class="flex items-center gap-space-sm px-space-sm py-space-sm transition-colors bg-surface-container-highest text-primary font-body-md-medium rounded" data-path="chi-tiet-video-doi-soat" href="#"><span class="material-symbols-outlined text-[18px]">smart_display</span><span>Trình đối soát Media</span></a><a class="flex items-center gap-space-sm px-space-sm py-space-sm rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors" data-path="giam-sat-workers" href="#"><span class="material-symbols-outlined text-[18px]">hub</span><span>Node &amp; Cụm Worker</span></a><a class="flex items-center gap-space-sm px-space-sm py-space-sm rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors" data-path="nhat-ky-temporal" href="#"><span class="material-symbols-outlined text-[18px]">terminal</span><span>Luồng &amp; Workflow</span></a></nav><div class="mt-space-md px-space-sm py-space-xs text-text-muted font-mono-badge text-mono-badge uppercase tracking-wider">Sức khỏe dịch vụ</div><div class="flex flex-col gap-space-xs px-space-sm font-mono-data-sm text-mono-data-sm"><div class="flex items-center justify-between text-text-secondary"><span class="flex items-center gap-space-xs"><span class="w-1.5 h-1.5 rounded-full bg-health-ok"></span>Cookie Douyin</span><span class="text-status-success-text">Hợp lệ</span></div><div class="flex items-center justify-between text-text-secondary"><span class="flex items-center gap-space-xs"><span class="w-1.5 h-1.5 rounded-full bg-health-ok"></span>VoiceStudio</span><span class="text-status-success-text">Sẵn sàng</span></div><div class="flex items-center justify-between text-text-secondary"><span class="flex items-center gap-space-xs"><span class="w-1.5 h-1.5 rounded-full bg-health-ok"></span>Temporal Engine</span><span class="text-status-success-text">Sync</span></div><div class="flex items-center justify-between text-text-secondary"><span class="flex items-center gap-space-xs"><span class="w-1.5 h-1.5 rounded-full bg-health-degraded"></span>MinIO Storage</span><span class="text-status-warning-text">18.4 GB</span></div></div></div><div class="p-space-sm bg-surface-container-low"><div class="flex items-center justify-between font-mono-data-sm text-mono-data-sm text-text-muted mb-space-2xs"><span>Host Mac</span><span class="text-secondary">M2 Max • 64GB</span></div><div class="w-full bg-surface-layer-2 h-1.5 rounded-full overflow-hidden"><div class="bg-tertiary h-full w-[42%]"></div></div><div class="flex justify-between font-mono-badge text-mono-badge text-text-muted mt-space-2xs"><span>RAM: 26.8 / 64 GB</span><span>Load: 1.14</span></div></div></aside><div class="pl-64"><main class="w-full pt-16 pb-12 bg-surface min-h-[calc(100vh-2.5rem)]"><div class="flex flex-col w-full">
+<!-- Top Navigation & Action Banner -->
+<div class="w-full bg-surface-container-low px-margin py-space-sm flex flex-col gap-space-sm">
+<!-- Breadcrumb & Back Link -->
+<div class="flex items-center justify-between">
+<a class="flex items-center gap-space-xs text-secondary hover:text-text-primary font-mono-data-sm text-mono-data-sm transition-colors group" data-path="dashboard-tong-quan" href="#">
+<span class="material-symbols-outlined text-[16px] group-hover:-translate-x-0.5 transition-transform">arrow_back</span>
+<span>Quay lại Pipeline Dashboard</span>
+</a>
+<!-- Quick Shortcuts & S3 URL Refresh Status -->
+<div class="flex items-center gap-space-md font-mono-badge text-mono-badge text-text-muted">
+<span class="flex items-center gap-space-xs bg-surface-layer-1 px-space-xs py-space-2xs rounded">
+<span class="w-1.5 h-1.5 rounded-full bg-health-ok animate-pulse"></span>
+<span>Presigned S3 URL: Còn 8m 42s (Tự làm mới)</span>
+</span>
+<span class="hidden md:inline text-text-muted">•</span>
+<span class="hidden md:flex items-center gap-space-xs">
+<span>Revision:</span>
+<span class="text-secondary font-semibold font-mono-badge">rev_4a9b-e89c1</span>
+</span>
+</div>
+</div>
+<!-- Video Master Header & Control Strip -->
+<div class="flex flex-col xl:flex-row xl:items-center justify-between gap-space-md bg-surface-layer-1 p-space-md rounded-lg shadow-sm">
+<!-- Left Meta Stack -->
+<div class="flex flex-col gap-space-xs">
+<div class="flex flex-wrap items-center gap-space-sm">
+<span class="font-mono-data-lg text-mono-data-lg text-text-primary font-bold tracking-tight">aweme_id: 739281092831</span>
+<button class="p-space-2xs rounded hover:bg-surface-layer-2 text-text-muted hover:text-secondary transition-colors" onclick="navigator.clipboard.writeText('739281092831')" title="Sao chép aweme_id" type="button">
+<span class="material-symbols-outlined text-[16px]">content_copy</span>
+</button>
+<span class="text-border-prominent">|</span>
+<div class="flex items-center gap-space-xs bg-surface-container px-space-xs py-space-2xs rounded">
+<span class="material-symbols-outlined text-[14px] text-primary">account_circle</span>
+<span class="font-mono-data-sm text-mono-data-sm text-text-primary font-medium">@tech_review_cn</span>
+</div>
+<!-- Generation Switcher Badges -->
+<div class="flex items-center gap-space-2xs bg-surface-base p-0.5 rounded">
+<button class="px-space-xs py-space-2xs rounded font-mono-badge text-mono-badge text-text-muted hover:text-text-primary hover:bg-surface-layer-2 transition-all" type="button">
+              g1 (Thất bại)
+            </button>
+<button class="px-space-xs py-space-2xs rounded font-mono-badge text-mono-badge bg-primary-container text-on-primary-container font-semibold shadow-xs" type="button">
+              g2 (Hiện tại)
+            </button>
+</div>
+</div>
+<div class="flex flex-wrap items-center gap-space-sm">
+<!-- Primary Stage Badge -->
+<div class="flex items-center gap-space-xs px-space-sm py-space-2xs rounded bg-status-warning-bg text-status-warning-text font-mono-badge text-mono-badge uppercase tracking-wide">
+<span class="material-symbols-outlined text-[14px]">pending_actions</span>
+<span>Chờ duyệt (Awaiting Review)</span>
+</div>
+<!-- Mismatch Alert Pill -->
+<div class="flex items-center gap-space-xs px-space-sm py-space-2xs rounded bg-status-error-bg text-status-error-text font-mono-badge text-mono-badge">
+<span class="material-symbols-outlined text-[14px]">warning</span>
+<span>2 Mismatch cues (Lệch nhịp TTS/Phụ đề)</span>
+</div>
+<span class="text-text-muted font-mono-data-sm text-mono-data-sm">Nguồn: Đánh giá iPhone 16 Pro Max sau 30 ngày (01:24)</span>
+</div>
+</div>
+<!-- Right Action Cluster -->
+<div class="flex flex-wrap items-center gap-space-xs xl:justify-end">
+<!-- Studio Localhost CTA with mandatory Tunnel Disclaimer Tooltip -->
+<div class="relative group">
+<button class="flex items-center gap-space-xs px-space-sm py-space-xs rounded bg-surface-layer-3 hover:bg-primary text-text-primary hover:text-on-primary font-body-sm-medium text-body-sm-medium transition-all shadow-sm" type="button">
+<span class="material-symbols-outlined text-[16px]">tune</span>
+<span>Mở Studio</span>
+<span class="material-symbols-outlined text-[12px] opacity-70">open_in_new</span>
+</button>
+<!-- Spec-Mandated Tooltip -->
+<div class="absolute right-0 top-full mt-2 hidden group-hover:flex flex-col w-72 p-space-sm rounded bg-surface-container-highest text-on-surface shadow-xl z-50 text-body-sm font-body-sm pointer-events-none">
+<div class="flex items-center gap-space-xs text-status-warning-text font-semibold mb-1">
+<span class="material-symbols-outlined text-[14px]">desktop_mac</span>
+<span>Thông báo Cloudflare Tunnel</span>
+</div>
+<p class="text-on-surface-variant leading-relaxed">
+              Studio sẽ được kích hoạt trực tiếp trên máy chủ lưu trữ (<span class="text-secondary font-mono-data-sm">Host Mac: localhost:8080</span>), kể cả khi bạn đang truy cập quản trị qua Cloudflare Access Tunnel.
+            </p>
+</div>
+</div>
+<!-- Return / Reject Button -->
+<button class="flex items-center gap-space-xs px-space-sm py-space-xs rounded bg-surface-container-high hover:bg-status-error-bg text-status-error-text font-body-sm-medium text-body-sm-medium transition-colors" onclick="document.getElementById('reject-modal').classList.remove('hidden')" type="button">
+<span class="material-symbols-outlined text-[16px]">assignment_return</span>
+<span>Trả về</span>
+</button>
+<!-- Re-render (Inactive/Secondary) -->
+<button class="flex items-center gap-space-xs px-space-sm py-space-xs rounded bg-surface-container text-text-muted cursor-not-allowed font-body-sm-medium text-body-sm-medium opacity-60" disabled="" type="button">
+<span class="material-symbols-outlined text-[16px]">refresh</span>
+<span>Render lại</span>
+</button>
+<!-- Downloads Dropdown / Buttons -->
+<div class="flex items-center bg-surface-container-high rounded p-0.5">
+<a class="px-space-xs py-space-2xs text-text-primary hover:text-secondary font-mono-data-sm text-mono-data-sm flex items-center gap-space-2xs" href="#" title="Tải video MP4">
+<span class="material-symbols-outlined text-[14px]">download</span>
+<span>MP4</span>
+</a>
+<span class="text-border-prominent">/</span>
+<a class="px-space-xs py-space-2xs text-text-primary hover:text-secondary font-mono-data-sm text-mono-data-sm flex items-center gap-space-2xs" href="#" title="Tải phụ đề SRT">
+<span>SRT</span>
+</a>
+</div>
+<!-- Mark as Published -->
+<button class="flex items-center gap-space-xs px-space-sm py-space-xs rounded bg-surface-layer-2 hover:bg-surface-container-highest text-secondary font-body-sm-medium text-body-sm-medium transition-colors" onclick="document.getElementById('publish-modal').classList.remove('hidden')" type="button">
+<span class="material-symbols-outlined text-[16px]">rocket_launch</span>
+<span class="hidden sm:inline">Đánh dấu đã đăng</span>
+</button>
+<!-- Main Approve Action with Revision Hash Confirmation Requirement -->
+<button class="relative flex items-center gap-space-xs px-space-md py-space-xs rounded bg-tertiary-container hover:bg-tertiary text-on-tertiary-container hover:text-on-tertiary font-body-sm-medium text-body-sm-medium font-semibold shadow-md transition-all" onclick="document.getElementById('approve-modal').classList.remove('hidden')" type="button">
+<span class="material-symbols-outlined text-[18px]">verified</span>
+<span>Duyệt Video</span>
+<span class="w-2 h-2 rounded-full bg-status-warning-text animate-ping absolute -top-1 -right-1"></span>
+</button>
+</div>
+</div>
+</div>
+<!-- Main Body: High-Density Split Layout -->
+<div class="w-full px-margin py-space-lg flex flex-col gap-space-xl">
+<!-- 1. Side-by-Side Synchronized Media Comparison Deck -->
+<div class="w-full flex flex-col gap-space-sm bg-surface-layer-1 p-space-md rounded-lg shadow-sm">
+<div class="flex flex-col md:flex-row md:items-center justify-between gap-space-sm">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-secondary text-[20px]">compare</span>
+<span class="font-headline-md text-headline-md text-text-primary">Trình đối soát Media song song (A/B Sync Deck)</span>
+<span class="font-mono-badge text-mono-badge px-space-xs py-space-2xs rounded bg-surface-container-high text-text-muted">Audio Clone 24kHz • 1080x1920 (9:16)</span>
+</div>
+<!-- Synchronized Global Media Controls Bar -->
+<div class="flex items-center gap-space-sm bg-surface-base px-space-sm py-space-xs rounded-lg">
+<button class="flex items-center gap-space-xs px-space-sm py-space-2xs rounded bg-primary text-on-primary font-mono-data-sm text-mono-data-sm font-semibold hover:bg-primary-container transition-colors" id="btn-master-play" type="button">
+<span class="material-symbols-outlined text-[16px]" id="master-play-icon">play_arrow</span>
+<span id="master-play-text">Phát song song</span>
+</button>
+<button class="flex items-center gap-space-xs px-space-xs py-space-2xs rounded bg-surface-layer-2 text-secondary font-mono-badge text-mono-badge hover:bg-surface-layer-3" id="btn-sync-lock" type="button">
+<span class="material-symbols-outlined text-[14px]">link</span>
+<span>Khóa Scrub (Synced)</span>
+</button>
+<div class="h-4 w-px bg-border-prominent"></div>
+<!-- Audio Stream Toggle -->
+<div class="flex items-center gap-space-2xs font-mono-badge text-mono-badge">
+<span class="text-text-muted">Nghe:</span>
+<button class="px-space-xs py-space-2xs rounded text-text-muted hover:text-text-primary" id="audio-toggle-zh" type="button">
+              🇨🇳 Gốc (ZH)
+            </button>
+<button class="px-space-xs py-space-2xs rounded bg-secondary-container text-on-secondary-container font-bold" id="audio-toggle-vi" type="button">
+              🇻🇳 Voice Clone (VI)
+            </button>
+</div>
+</div>
+</div>
+<!-- Synchronized Master Scrub Timeline Bar -->
+<div class="w-full flex flex-col gap-1 bg-surface-container-lowest p-space-xs rounded">
+<div class="flex items-center justify-between font-mono-badge text-mono-badge text-text-muted px-1">
+<span class="text-secondary font-bold" id="sync-time-curr">00:14.28</span>
+<span class="text-status-warning-text flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-status-warning-text"></span>
+            Vùng lệch nhịp: 00:23.40 - 00:27.10
+          </span>
+<span>01:24.00</span>
+</div>
+<div class="relative w-full h-3 bg-surface-layer-2 rounded cursor-pointer overflow-hidden group">
+<!-- Buffered & Current Progress Bar -->
+<div class="absolute left-0 top-0 bottom-0 bg-primary/20 w-3/4"></div>
+<div class="absolute left-0 top-0 bottom-0 bg-secondary w-[17%]"></div>
+<!-- Mismatch Cue Indicators on Timeline -->
+<div class="absolute top-0 bottom-0 bg-status-error-border/80 w-1.5" style="left: 27.8%;" title="Mismatch 1 (00:23.40)"></div>
+<div class="absolute top-0 bottom-0 bg-status-error-border/80 w-1.5" style="left: 64.2%;" title="Mismatch 2 (00:54.10)"></div>
+<!-- Scrubber Thumb -->
+<div class="absolute top-0 bottom-0 w-2 bg-text-primary rounded-xs shadow-md" style="left: calc(17% - 4px);"></div>
+</div>
+</div>
+<!-- Dual Player Viewport (Desktop Side-by-Side, Mobile Stacked) -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-space-md mt-space-xs">
+<!-- Left Deck: Original Video (Douyin Raw) -->
+<div class="flex flex-col bg-surface-base rounded overflow-hidden">
+<!-- Video Header / Meta Bar -->
+<div class="flex items-center justify-between px-space-sm py-space-xs bg-surface-container-low text-text-muted font-mono-badge text-mono-badge">
+<div class="flex items-center gap-space-xs">
+<span class="px-space-xs py-space-2xs rounded bg-surface-layer-3 text-text-primary font-bold">BẢN GỐC</span>
+<span>Douyin CDN H.264 (24fps)</span>
+</div>
+<span class="text-health-ok flex items-center gap-space-2xs">
+<span class="w-1.5 h-1.5 rounded-full bg-health-ok"></span>
+              Audio: Kênh Gốc AAC
+            </span>
+</div>
+<!-- Video Canvas / Frame Simulated Player -->
+<div class="relative w-full aspect-[9/16] max-h-[520px] bg-black flex items-center justify-center overflow-hidden">
+<img class="w-full h-full object-contain" data-alt="Vertical 9:16 mobile tech review video frame showing an iPhone 16 Pro Max held by hands with Chinese Douyin text captions on screen in a dark cinematic tech desk environment with blue and warm neon rim lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBbZoK0dxX6MGbG7f4N7Mc7o7IkdUd1EK1XX-0MqqaOSX8AgDAxDztSbEQmlQGEQYg9MgrovCcFjgt-o_vpn_R7vCo_cXtM8UzpV51XxkF63JFqdBu_BvVFY36oixWe6nMlmPXIsgFDY6-ncUsFlZ4xiw0AGdrguHT7LvV4AemLKX5t7YcOEdFFwZQaG94eQQy6c_3EFKNHGwfFQRmIDT-AdTgws4UTKozJO-YV7dpb"/>
+<!-- Video Overlay Info -->
+<div class="absolute top-3 left-3 bg-surface-container-lowest/80 backdrop-blur-sm px-space-xs py-space-2xs rounded font-mono-badge text-mono-badge text-text-primary">
+              🇨🇳 Lời thoại gốc
+            </div>
+<div class="absolute bottom-3 inset-x-3 bg-surface-container-lowest/90 backdrop-blur-md p-space-xs rounded text-center">
+<p class="font-headline-md text-headline-md text-text-primary">这次苹果的散热架构可以说是完全重做了...</p>
+<span class="font-mono-badge text-mono-badge text-text-muted">[TC: 00:13.90 -&gt; 00:17.45]</span>
+</div>
+</div>
+<!-- Native Audio Waveform Visualizer -->
+<div class="p-space-xs bg-surface-container-low flex flex-col gap-1">
+<div class="flex items-center justify-between font-mono-badge text-mono-badge text-text-muted">
+<span>Waveform Gốc (Stereo 48kHz)</span>
+<span>Đỉnh: -1.2 dBFS</span>
+</div>
+<!-- Mock SVG Waveform -->
+<div class="w-full h-8 flex items-center gap-0.5 px-1 bg-surface-container-lowest rounded">
+<span class="w-1 bg-secondary/50 h-3 rounded-full"></span>
+<span class="w-1 bg-secondary/50 h-4 rounded-full"></span>
+<span class="w-1 bg-secondary/50 h-6 rounded-full"></span>
+<span class="w-1 bg-secondary/70 h-7 rounded-full"></span>
+<span class="w-1 bg-secondary h-8 rounded-full"></span>
+<span class="w-1 bg-secondary h-6 rounded-full"></span>
+<span class="w-1 bg-secondary/60 h-4 rounded-full"></span>
+<span class="w-1 bg-secondary/40 h-2 rounded-full"></span>
+<span class="w-1 bg-secondary/70 h-5 rounded-full"></span>
+<span class="w-1 bg-secondary h-7 rounded-full"></span>
+<span class="w-1 bg-secondary h-8 rounded-full"></span>
+<span class="w-1 bg-secondary/70 h-5 rounded-full"></span>
+<span class="w-1 bg-secondary/30 h-2 rounded-full"></span>
+<span class="w-1 bg-secondary/50 h-4 rounded-full"></span>
+<span class="w-1 bg-secondary/80 h-7 rounded-full"></span>
+<span class="w-1 bg-secondary h-8 rounded-full"></span>
+<span class="w-1 bg-secondary/80 h-6 rounded-full"></span>
+<span class="w-1 bg-secondary/40 h-3 rounded-full"></span>
+<span class="w-1 bg-secondary/60 h-5 rounded-full"></span>
+<span class="w-1 bg-secondary/90 h-8 rounded-full"></span>
+<span class="w-1 bg-secondary h-7 rounded-full"></span>
+<span class="w-1 bg-secondary/50 h-4 rounded-full"></span>
+<span class="w-1 bg-secondary/30 h-2 rounded-full"></span>
+</div>
+</div>
+</div>
+<!-- Right Deck: Localized Video (Vietnamese Voice Clone + Subtitles) -->
+<div class="flex flex-col bg-surface-base rounded overflow-hidden">
+<!-- Video Header / Meta Bar -->
+<div class="flex items-center justify-between px-space-sm py-space-xs bg-surface-container-low text-text-muted font-mono-badge text-mono-badge">
+<div class="flex items-center gap-space-xs">
+<span class="px-space-xs py-space-2xs rounded bg-primary-container text-on-primary-container font-bold">BẢN DỊCH (g2)</span>
+<span>Render MP4 • Subtitles Burned</span>
+</div>
+<span class="text-secondary flex items-center gap-space-2xs">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary animate-pulse"></span>
+              TTS: XTTS-v2 Nam Miền Bắc
+            </span>
+</div>
+<!-- Video Canvas / Frame Localized -->
+<div class="relative w-full aspect-[9/16] max-h-[520px] bg-black flex items-center justify-center overflow-hidden">
+<img class="w-full h-full object-contain" data-alt="Vertical smartphone tech product hands-on video localized with sharp yellow and white Vietnamese subtitles burnt into the lower center area, studio tech lighting with neon blue accents" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDbXBAs7KhH1MDCX3n66KpEdfmflt-oEc0H7dkbFMT5l0S3C-atZvViWt2mg9zpU3moZUvxsB6xQqJrxG868tucwwgbkfBNzrJQx0OaRuJekSThxDn3oEDLrl0ZqbXu9UQw6L8lx5ZiQY5saq0s2lMydO6D7yxseTeM_D_KU2897Ix8iT5D7PCnkJFouFH75cJ8mJ2DGLNXJgVD82yEfGMPHKybN_hr3Kcbp897r1mo"/>
+<!-- Video Overlay Info -->
+<div class="absolute top-3 left-3 bg-surface-container-lowest/80 backdrop-blur-sm px-space-xs py-space-2xs rounded font-mono-badge text-mono-badge text-tertiary">
+              🇻🇳 Bản dịch tiếng Việt
+            </div>
+<!-- Burned Subtitle Preview Box -->
+<div class="absolute bottom-3 inset-x-3 bg-surface-container-lowest/90 backdrop-blur-md p-space-xs rounded text-center">
+<p class="font-headline-md text-headline-md text-status-warning-text font-bold drop-shadow-md">
+                Lần này kiến trúc tản nhiệt của Apple có thể nói là đã làm lại hoàn toàn...
+              </p>
+<div class="flex items-center justify-center gap-space-xs font-mono-badge text-mono-badge text-status-success-text mt-0.5">
+<span class="material-symbols-outlined text-[12px]">record_voice_over</span>
+<span>Khớp nhịp audio TTS (3.42s)</span>
+</div>
+</div>
+</div>
+<!-- Localized TTS Waveform Visualizer -->
+<div class="p-space-xs bg-surface-container-low flex flex-col gap-1">
+<div class="flex items-center justify-between font-mono-badge text-mono-badge text-text-muted">
+<span>Waveform Lồng tiếng (24kHz Mono Resampled)</span>
+<span class="text-tertiary">Khớp chuẩn: 98.4%</span>
+</div>
+<!-- Mock SVG Localized Waveform -->
+<div class="w-full h-8 flex items-center gap-0.5 px-1 bg-surface-container-lowest rounded">
+<span class="w-1 bg-tertiary/40 h-2 rounded-full"></span>
+<span class="w-1 bg-tertiary/60 h-4 rounded-full"></span>
+<span class="w-1 bg-tertiary/70 h-5 rounded-full"></span>
+<span class="w-1 bg-tertiary h-7 rounded-full"></span>
+<span class="w-1 bg-tertiary h-8 rounded-full"></span>
+<span class="w-1 bg-tertiary h-6 rounded-full"></span>
+<span class="w-1 bg-tertiary/50 h-3 rounded-full"></span>
+<span class="w-1 bg-tertiary/30 h-1 rounded-full"></span>
+<span class="w-1 bg-tertiary/70 h-5 rounded-full"></span>
+<span class="w-1 bg-tertiary h-7 rounded-full"></span>
+<span class="w-1 bg-tertiary h-8 rounded-full"></span>
+<span class="w-1 bg-tertiary/60 h-4 rounded-full"></span>
+<span class="w-1 bg-tertiary/30 h-2 rounded-full"></span>
+<span class="w-1 bg-tertiary/50 h-4 rounded-full"></span>
+<span class="w-1 bg-tertiary/90 h-7 rounded-full"></span>
+<span class="w-1 bg-tertiary h-8 rounded-full"></span>
+<span class="w-1 bg-tertiary/70 h-5 rounded-full"></span>
+<span class="w-1 bg-tertiary/40 h-3 rounded-full"></span>
+<span class="w-1 bg-tertiary/80 h-6 rounded-full"></span>
+<span class="w-1 bg-tertiary h-8 rounded-full"></span>
+<span class="w-1 bg-tertiary h-7 rounded-full"></span>
+<span class="w-1 bg-tertiary/50 h-4 rounded-full"></span>
+<span class="w-1 bg-tertiary/20 h-1 rounded-full"></span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- 2. Subtitles & Transcript Inspection Table (Cues vs TTS Mismatch) -->
+<div class="w-full flex flex-col gap-space-sm bg-surface-layer-1 p-space-md rounded-lg shadow-sm">
+<div class="flex flex-col md:flex-row md:items-center justify-between gap-space-sm">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-status-warning-text text-[20px]">subtitles</span>
+<div>
+<h2 class="font-headline-md text-headline-md text-text-primary">Bảng đối soát Phụ đề &amp; Lệch nhịp âm thanh (Transcript Cues)</h2>
+<p class="font-mono-data-sm text-mono-data-sm text-text-muted">Tổng cộng 14 cues • 2 cảnh báo mismatch vượt ngưỡng dung sai (0.35s)</p>
+</div>
+</div>
+<div class="flex items-center gap-space-xs font-mono-badge text-mono-badge">
+<span class="px-space-xs py-space-2xs rounded bg-surface-layer-2 text-text-muted">Revision ID: <strong class="text-text-primary">rev_4a9b-hash</strong></span>
+<button class="flex items-center gap-space-2xs px-space-xs py-space-2xs rounded bg-primary-container text-on-primary-container hover:bg-primary transition-colors" type="button">
+<span class="material-symbols-outlined text-[14px]">save</span>
+<span>Lưu sửa đổi</span>
+</button>
+</div>
+</div>
+<!-- Table Container -->
+<div class="w-full overflow-x-auto rounded bg-surface-container-lowest">
+<table class="w-full text-left font-mono-data-sm text-mono-data-sm border-collapse">
+<thead>
+<tr class="bg-surface-container-low text-text-muted font-mono-badge text-mono-badge uppercase tracking-wider">
+<th class="py-space-xs px-space-sm w-12 text-center">#</th>
+<th class="py-space-xs px-space-sm w-36">Timecode (TC)</th>
+<th class="py-space-xs px-space-sm w-5/12">Lời thoại gốc tiếng Trung (STT Douyin)</th>
+<th class="py-space-xs px-space-sm">Bản dịch tiếng Việt (Localize &amp; TTS Audio)</th>
+<th class="py-space-xs px-space-sm w-44 text-right">Thao tác</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-surface-layer-2">
+<!-- Normal Row 1 -->
+<tr class="hover:bg-surface-layer-2/60 transition-colors">
+<td class="py-space-xs px-space-sm text-center text-text-muted">01</td>
+<td class="py-space-xs px-space-sm text-secondary font-mono-badge">00:00.00 - 00:04.20</td>
+<td class="py-space-xs px-space-sm text-text-primary">大家期待已久的 iPhone 16 Pro Max 到底值不值得买？</td>
+<td class="py-space-xs px-space-sm text-text-primary">
+                Chiếc iPhone 16 Pro Max mà mọi người mong chờ bấy lâu liệu có đáng mua không?
+                <div class="flex items-center gap-space-xs text-status-success-text font-mono-badge text-mono-badge mt-0.5">
+<span class="w-1.5 h-1.5 rounded-full bg-status-success-text"></span>
+<span>Audio TTS: 4.10s (Đồng bộ chuẩn)</span>
+</div>
+</td>
+<td class="py-space-xs px-space-sm text-right">
+<button class="p-1 hover:bg-surface-layer-3 rounded text-text-muted hover:text-text-primary" title="Nghe thử cue này" type="button">
+<span class="material-symbols-outlined text-[16px]">play_circle</span>
+</button>
+</td>
+</tr>
+<!-- Normal Row 2 -->
+<tr class="hover:bg-surface-layer-2/60 transition-colors">
+<td class="py-space-xs px-space-sm text-center text-text-muted">02</td>
+<td class="py-space-xs px-space-sm text-secondary font-mono-badge">00:04.25 - 00:08.80</td>
+<td class="py-space-xs px-space-sm text-text-primary">我们已经深度体验了整整一个月，今天就来聊聊真实感受。</td>
+<td class="py-space-xs px-space-sm text-text-primary">
+                Chúng mình đã trải nghiệm thực tế suốt tròn một tháng, hôm nay sẽ chia sẻ cảm nhận chân thật nhất.
+                <div class="flex items-center gap-space-xs text-status-success-text font-mono-badge text-mono-badge mt-0.5">
+<span class="w-1.5 h-1.5 rounded-full bg-status-success-text"></span>
+<span>Audio TTS: 4.45s (Đồng bộ chuẩn)</span>
+</div>
+</td>
+<td class="py-space-xs px-space-sm text-right">
+<button class="p-1 hover:bg-surface-layer-3 rounded text-text-muted hover:text-text-primary" type="button">
+<span class="material-symbols-outlined text-[16px]">play_circle</span>
+</button>
+</td>
+</tr>
+<!-- MISMATCH CUE 1 (Highlighted Spec Issue) -->
+<tr class="bg-status-warning-bg/40 hover:bg-status-warning-bg/60 transition-colors">
+<td class="py-space-xs px-space-sm text-center text-status-warning-text font-bold">03</td>
+<td class="py-space-xs px-space-sm text-status-warning-text font-mono-badge font-bold">00:23.40 - 00:27.10</td>
+<td class="py-space-xs px-space-sm text-text-primary">
+                在长时间运行高负载游戏时，机身温度并没有出现以前那种发烫现象。
+              </td>
+<td class="py-space-xs px-space-sm">
+<div class="text-text-primary font-medium">
+                  Khi chiến game tải nặng trong thời gian dài, nhiệt độ thân máy không hề bị nóng ran như đời trước.
+                </div>
+<!-- Warning Callout -->
+<div class="flex items-center gap-space-xs text-status-error-text font-mono-badge text-mono-badge mt-1 bg-surface-base px-space-xs py-0.5 rounded w-fit">
+<span class="material-symbols-outlined text-[14px]">error</span>
+<span>CẢNH BÁO: Lệch 0.42s giữa cue phụ đề (3.70s) và độ dài audio TTS (4.12s)</span>
+</div>
+</td>
+<td class="py-space-xs px-space-sm text-right">
+<div class="flex items-center justify-end gap-space-2xs">
+<button class="px-space-xs py-space-2xs rounded bg-surface-layer-3 hover:bg-primary hover:text-on-primary text-secondary font-mono-badge text-mono-badge flex items-center gap-1 transition-colors" type="button">
+<span class="material-symbols-outlined text-[14px]">tune</span>
+<span>Sửa trong Studio</span>
+</button>
+<button class="p-1 hover:bg-surface-layer-3 rounded text-text-muted hover:text-text-primary" type="button">
+<span class="material-symbols-outlined text-[16px]">play_circle</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Normal Row 4 -->
+<tr class="hover:bg-surface-layer-2/60 transition-colors">
+<td class="py-space-xs px-space-sm text-center text-text-muted">04</td>
+<td class="py-space-xs px-space-sm text-secondary font-mono-badge">00:27.20 - 00:33.00</td>
+<td class="py-space-xs px-space-sm text-text-primary">全新的石墨烯散热层起到了非常明显的作用，平均帧率稳在 59.8 帧。</td>
+<td class="py-space-xs px-space-sm text-text-primary">
+                Tấm tản nhiệt graphene hoàn toàn mới phát huy tác dụng rõ rệt, khung hình trung bình giữ ổn định ở mức 59.8 FPS.
+                <div class="flex items-center gap-space-xs text-status-success-text font-mono-badge text-mono-badge mt-0.5">
+<span class="w-1.5 h-1.5 rounded-full bg-status-success-text"></span>
+<span>Audio TTS: 5.65s (Đồng bộ chuẩn)</span>
+</div>
+</td>
+<td class="py-space-xs px-space-sm text-right">
+<button class="p-1 hover:bg-surface-layer-3 rounded text-text-muted hover:text-text-primary" type="button">
+<span class="material-symbols-outlined text-[16px]">play_circle</span>
+</button>
+</td>
+</tr>
+<!-- MISMATCH CUE 2 (Highlighted Spec Issue) -->
+<tr class="bg-status-warning-bg/40 hover:bg-status-warning-bg/60 transition-colors">
+<td class="py-space-xs px-space-sm text-center text-status-warning-text font-bold">08</td>
+<td class="py-space-xs px-space-sm text-status-warning-text font-mono-badge font-bold">00:54.10 - 00:57.30</td>
+<td class="py-space-xs px-space-sm text-text-primary">
+                这颗五倍潜望长焦的夜景解析力也有了实质性的跃升。
+              </td>
+<td class="py-space-xs px-space-sm">
+<div class="text-text-primary font-medium">
+                  Khả năng phân giải cảnh đêm của camera tiềm vọng zoom quang 5x này cũng đã có một bước nhảy vọt thực chất.
+                </div>
+<!-- Warning Callout -->
+<div class="flex items-center gap-space-xs text-status-error-text font-mono-badge text-mono-badge mt-1 bg-surface-base px-space-xs py-0.5 rounded w-fit">
+<span class="material-symbols-outlined text-[14px]">error</span>
+<span>CẢNH BÁO: Phát hiện sai lệch độ dài âm tiết câu thứ 8 (Lệch 0.38s)</span>
+</div>
+</td>
+<td class="py-space-xs px-space-sm text-right">
+<div class="flex items-center justify-end gap-space-2xs">
+<button class="px-space-xs py-space-2xs rounded bg-surface-layer-3 hover:bg-primary hover:text-on-primary text-secondary font-mono-badge text-mono-badge flex items-center gap-1 transition-colors" type="button">
+<span class="material-symbols-outlined text-[14px]">tune</span>
+<span>Sửa trong Studio</span>
+</button>
+<button class="p-1 hover:bg-surface-layer-3 rounded text-text-muted hover:text-text-primary" type="button">
+<span class="material-symbols-outlined text-[16px]">play_circle</span>
+</button>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<!-- 3. Bottom Grid: Temporal Workflow Progression & Technical Telemetry -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-space-md">
+<!-- Temporal Workflow Timeline (2 Columns) -->
+<div class="lg:col-span-2 flex flex-col gap-space-sm bg-surface-layer-1 p-space-md rounded-lg shadow-sm">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-primary text-[20px]">account_tree</span>
+<span class="font-headline-md text-headline-md text-text-primary">Tiến trình Temporal Workflow (Pipeline g2)</span>
+</div>
+<span class="font-mono-badge text-mono-badge text-status-success-text bg-status-success-bg px-space-xs py-space-2xs rounded">
+            WorkflowID: wf_douyin_739281092831_g2
+          </span>
+</div>
+<!-- Horizontal Step Timeline -->
+<div class="flex flex-col gap-space-md py-space-xs">
+<div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-space-xs">
+<!-- Step 1: Download -->
+<div class="flex flex-col p-space-xs rounded bg-surface-container">
+<div class="flex items-center justify-between mb-1">
+<span class="font-mono-badge text-mono-badge text-status-success-text">1. Tải Douyin</span>
+<span class="material-symbols-outlined text-[14px] text-status-success-text">check_circle</span>
+</div>
+<span class="font-mono-data-sm text-mono-data-sm text-text-primary font-bold">12s</span>
+<span class="font-mono-badge text-mono-badge text-text-muted">CDN v2.douyin</span>
+</div>
+<!-- Step 2: Audio Extraction -->
+<div class="flex flex-col p-space-xs rounded bg-surface-container">
+<div class="flex items-center justify-between mb-1">
+<span class="font-mono-badge text-mono-badge text-status-success-text">2. Trích Audio</span>
+<span class="material-symbols-outlined text-[14px] text-status-success-text">check_circle</span>
+</div>
+<span class="font-mono-data-sm text-mono-data-sm text-text-primary font-bold">4s</span>
+<span class="font-mono-badge text-mono-badge text-text-muted">FFmpeg demux</span>
+</div>
+<!-- Step 3: STT Whisper -->
+<div class="flex flex-col p-space-xs rounded bg-surface-container">
+<div class="flex items-center justify-between mb-1">
+<span class="font-mono-badge text-mono-badge text-status-success-text">3. Whisper-large</span>
+<span class="material-symbols-outlined text-[14px] text-status-success-text">check_circle</span>
+</div>
+<span class="font-mono-data-sm text-mono-data-sm text-text-primary font-bold">32s</span>
+<span class="font-mono-badge text-mono-badge text-text-muted">Word Timestamps</span>
+</div>
+<!-- Step 4: Dịch thuật -->
+<div class="flex flex-col p-space-xs rounded bg-surface-container">
+<div class="flex items-center justify-between mb-1">
+<span class="font-mono-badge text-mono-badge text-status-success-text">4. GPT-4o</span>
+<span class="material-symbols-outlined text-[14px] text-status-success-text">check_circle</span>
+</div>
+<span class="font-mono-data-sm text-mono-data-sm text-text-primary font-bold">18s</span>
+<span class="font-mono-badge text-mono-badge text-text-muted">Localized ZH-&gt;VI</span>
+</div>
+<!-- Step 5: Voice Clone -->
+<div class="flex flex-col p-space-xs rounded bg-surface-container">
+<div class="flex items-center justify-between mb-1">
+<span class="font-mono-badge text-mono-badge text-status-success-text">5. XTTS-v2</span>
+<span class="material-symbols-outlined text-[14px] text-status-success-text">check_circle</span>
+</div>
+<span class="font-mono-data-sm text-mono-data-sm text-text-primary font-bold">45s</span>
+<span class="font-mono-badge text-mono-badge text-text-muted">Pitch &amp; Speed Fit</span>
+</div>
+<!-- Step 6: Reviewer AI -->
+<div class="flex flex-col p-space-xs rounded bg-surface-container">
+<div class="flex items-center justify-between mb-1">
+<span class="font-mono-badge text-mono-badge text-status-warning-text">6. Reviewer AI</span>
+<span class="material-symbols-outlined text-[14px] text-status-warning-text">warning</span>
+</div>
+<span class="font-mono-data-sm text-mono-data-sm text-text-primary font-bold">8s</span>
+<span class="font-mono-badge text-mono-badge text-status-warning-text">2 Mismatch</span>
+</div>
+<!-- Step 7: Awaiting Review -->
+<div class="flex flex-col p-space-xs rounded bg-status-warning-bg">
+<div class="flex items-center justify-between mb-1">
+<span class="font-mono-badge text-mono-badge text-status-warning-text">7. Admin Duyệt</span>
+<span class="material-symbols-outlined text-[14px] text-status-warning-text animate-spin">sync</span>
+</div>
+<span class="font-mono-data-sm text-mono-data-sm text-status-warning-text font-bold">Đang dừng</span>
+<span class="font-mono-badge text-mono-badge text-status-warning-text">Chờ tín hiệu</span>
+</div>
+</div>
+</div>
+<!-- Telemetry & Cost Breakdown -->
+<div class="grid grid-cols-1 sm:grid-cols-3 gap-space-sm pt-space-xs bg-surface-container-lowest p-space-sm rounded">
+<div class="flex flex-col">
+<span class="font-mono-badge text-mono-badge text-text-muted">Chi phí LLM GPT-4o</span>
+<span class="font-mono-data-lg text-mono-data-lg text-tertiary font-bold">$0.042</span>
+<span class="font-mono-badge text-mono-badge text-text-muted">Prompt: 1,420 • Compl: 890 tok</span>
+</div>
+<div class="flex flex-col">
+<span class="font-mono-badge text-mono-badge text-text-muted">Reviewer AI Verdict</span>
+<span class="font-mono-data-lg text-mono-data-lg text-status-warning-text font-bold flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]">visibility</span>
+              Cần người xem
+            </span>
+<span class="font-mono-badge text-mono-badge text-text-muted">Sai lệch độ dài âm tiết câu #8</span>
+</div>
+<div class="flex flex-col">
+<span class="font-mono-badge text-mono-badge text-text-muted">Worker Node Đảm nhận</span>
+<span class="font-mono-data-lg text-mono-data-lg text-text-primary font-bold">worker-local-m3-max</span>
+<span class="font-mono-badge text-mono-badge text-secondary">GPU: Apple Metal (40-core)</span>
+</div>
+</div>
+</div>
+<!-- Audit Log & Operation History (1 Column) -->
+<div class="flex flex-col gap-space-sm bg-surface-layer-1 p-space-md rounded-lg shadow-sm">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-secondary text-[20px]">history</span>
+<span class="font-headline-md text-headline-md text-text-primary">Nhật ký thao tác</span>
+</div>
+<span class="font-mono-badge text-mono-badge text-text-muted">5 mục</span>
+</div>
+<!-- Compact Log Stream -->
+<div class="flex flex-col gap-space-xs font-mono-data-sm text-mono-data-sm">
+<div class="flex items-start gap-space-xs p-space-xs rounded hover:bg-surface-container">
+<span class="text-text-muted shrink-0">10:14:20</span>
+<div class="flex flex-col">
+<span class="text-text-primary">Hệ thống tải xong video Douyin (Job #4012).</span>
+<span class="font-mono-badge text-mono-badge text-text-muted">MinIO bucket: s3://raw/739281.mp4</span>
+</div>
+</div>
+<div class="flex items-start gap-space-xs p-space-xs rounded hover:bg-surface-container">
+<span class="text-text-muted shrink-0">10:15:02</span>
+<div class="flex flex-col">
+<span class="text-text-primary">Admin bấm "Đưa vào localization" (g1).</span>
+<span class="font-mono-badge text-mono-badge text-secondary">Trigger: single-admin-manual</span>
+</div>
+</div>
+<div class="flex items-start gap-space-xs p-space-xs rounded hover:bg-surface-container bg-status-error-bg/30">
+<span class="text-status-error-text shrink-0 font-bold">10:17:15</span>
+<div class="flex flex-col">
+<span class="text-status-error-text font-medium">Pipeline báo lỗi dịch thuật (g1 kết thúc).</span>
+<span class="font-mono-badge text-mono-badge text-text-muted">RateLimitError: 429 OpenRouter</span>
+</div>
+</div>
+<div class="flex items-start gap-space-xs p-space-xs rounded hover:bg-surface-container">
+<span class="text-text-muted shrink-0">10:18:00</span>
+<div class="flex flex-col">
+<span class="text-text-primary">Admin bấm "Chạy lại" (Tạo generation g2).</span>
+<span class="font-mono-badge text-mono-badge text-text-muted">Đổi model sang GPT-4o Direct</span>
+</div>
+</div>
+<div class="flex items-start gap-space-xs p-space-xs rounded bg-surface-container">
+<span class="text-tertiary shrink-0 font-bold">10:20:45</span>
+<div class="flex flex-col">
+<span class="text-text-primary">Pipeline g2 hoàn tất, chuyển "Chờ duyệt".</span>
+<span class="font-mono-badge text-mono-badge text-status-warning-text">Reviewer AI cắm cờ 2 mismatch</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- MODAL: Phê duyệt video (Approve Verification with Mismatch & Revision Hash) -->
+<div class="fixed inset-0 z-50 hidden bg-surface-base/80 backdrop-blur-sm flex items-center justify-center p-space-md" id="approve-modal">
+<div class="bg-surface-layer-1 w-full max-w-lg rounded-lg shadow-xl p-space-lg flex flex-col gap-space-md">
+<div class="flex items-start justify-between">
+<div class="flex items-center gap-space-sm text-status-warning-text">
+<span class="material-symbols-outlined text-[28px]">gavel</span>
+<div>
+<h3 class="font-headline-md text-headline-md text-text-primary">Xác nhận Duyệt Video</h3>
+<span class="font-mono-badge text-mono-badge text-status-warning-text">Cảnh báo Mismatch &amp; Revision Check</span>
+</div>
+</div>
+<button class="text-text-muted hover:text-text-primary" onclick="document.getElementById('approve-modal').classList.add('hidden')" type="button">
+<span class="material-symbols-outlined text-[20px]">close</span>
+</button>
+</div>
+<div class="flex flex-col gap-space-sm bg-surface-container p-space-sm rounded">
+<div class="flex items-center justify-between font-mono-data-sm text-mono-data-sm">
+<span class="text-text-muted">Target Revision:</span>
+<span class="text-secondary font-bold">rev_4a9b-e89c1</span>
+</div>
+<div class="flex items-center justify-between font-mono-data-sm text-mono-data-sm">
+<span class="text-text-muted">Generation:</span>
+<span class="text-text-primary font-bold">g2</span>
+</div>
+<div class="flex items-start gap-space-xs text-status-warning-text font-body-sm text-body-sm pt-space-xs">
+<span class="material-symbols-outlined text-[16px] shrink-0">report_problem</span>
+<p>
+            Hiện vẫn còn <strong>2 điểm mismatch</strong> giữa thời lượng audio TTS và subtitle cue. Bạn có chắc chắn muốn bỏ qua và duyệt phiên bản này sang trạng thái "Đã duyệt" để chuẩn bị xuất bản?
+          </p>
+</div>
+</div>
+<div class="flex items-center justify-end gap-space-sm pt-space-xs">
+<button class="px-space-md py-space-xs rounded bg-surface-container-high hover:bg-surface-layer-3 text-text-primary font-body-sm-medium text-body-sm-medium" onclick="document.getElementById('approve-modal').classList.add('hidden')" type="button">
+          Hủy bỏ
+        </button>
+<button class="px-space-md py-space-xs rounded bg-tertiary-container hover:bg-tertiary text-on-tertiary-container hover:text-on-tertiary font-body-sm-medium text-body-sm-medium font-semibold shadow-md" onclick="alert('Đã xác nhận duyệt video với revision rev_4a9b!'); document.getElementById('approve-modal').classList.add('hidden');" type="button">
+          Xác nhận Duyệt (Ghi đè cảnh báo)
+        </button>
+</div>
+</div>
+</div>
+<!-- MODAL: Trả về video (Reject & Return with Reason) -->
+<div class="fixed inset-0 z-50 hidden bg-surface-base/80 backdrop-blur-sm flex items-center justify-center p-space-md" id="reject-modal">
+<div class="bg-surface-layer-1 w-full max-w-lg rounded-lg shadow-xl p-space-lg flex flex-col gap-space-md">
+<div class="flex items-start justify-between">
+<div class="flex items-center gap-space-sm text-status-error-text">
+<span class="material-symbols-outlined text-[28px]">assignment_return</span>
+<div>
+<h3 class="font-headline-md text-headline-md text-text-primary">Trả về &amp; Yêu cầu Pipeline sửa tiếp</h3>
+<span class="font-mono-badge text-mono-badge text-text-muted">Ghi chú phản hồi cho Temporal Activity</span>
+</div>
+</div>
+<button class="text-text-muted hover:text-text-primary" onclick="document.getElementById('reject-modal').classList.add('hidden')" type="button">
+<span class="material-symbols-outlined text-[20px]">close</span>
+</button>
+</div>
+<div class="flex flex-col gap-space-xs">
+<label class="font-body-sm-medium text-body-sm-medium text-text-primary" for="reject-reason">Lý do trả về:</label>
+<textarea class="w-full bg-surface-container p-space-sm rounded font-body-md text-body-md text-text-primary focus:outline-none focus:ring-1 focus:ring-primary" id="reject-reason" placeholder="Ví dụ: Lệch nhịp câu thứ 8 quá nhiều, cần re-clone âm thanh hoặc rút ngắn câu dịch..." rows="3"></textarea>
+</div>
+<div class="flex items-center justify-end gap-space-sm pt-space-xs">
+<button class="px-space-md py-space-xs rounded bg-surface-container-high hover:bg-surface-layer-3 text-text-primary font-body-sm-medium text-body-sm-medium" onclick="document.getElementById('reject-modal').classList.add('hidden')" type="button">
+          Hủy
+        </button>
+<button class="px-space-md py-space-xs rounded bg-status-error-bg hover:bg-status-error-border text-status-error-text font-body-sm-medium text-body-sm-medium font-semibold shadow-md" onclick="alert('Đã gửi lý do trả về cho pipeline worker!'); document.getElementById('reject-modal').classList.add('hidden');" type="button">
+          Gửi yêu cầu Trả về
+        </button>
+</div>
+</div>
+</div>
+<!-- MODAL: Đánh dấu đã đăng (Publish Metadata Tracking) -->
+<div class="fixed inset-0 z-50 hidden bg-surface-base/80 backdrop-blur-sm flex items-center justify-center p-space-md" id="publish-modal">
+<div class="bg-surface-layer-1 w-full max-w-lg rounded-lg shadow-xl p-space-lg flex flex-col gap-space-md">
+<div class="flex items-start justify-between">
+<div class="flex items-center gap-space-sm text-secondary">
+<span class="material-symbols-outlined text-[28px]">rocket_launch</span>
+<div>
+<h3 class="font-headline-md text-headline-md text-text-primary">Đánh dấu Đã đăng (Mark Published)</h3>
+<span class="font-mono-badge text-mono-badge text-text-muted">Cập nhật link phân phối cho Video #739281092831</span>
+</div>
+</div>
+<button class="text-text-muted hover:text-text-primary" onclick="document.getElementById('publish-modal').classList.add('hidden')" type="button">
+<span class="material-symbols-outlined text-[20px]">close</span>
+</button>
+</div>
+<div class="flex flex-col gap-space-sm">
+<div class="flex flex-col gap-space-2xs">
+<label class="font-body-sm-medium text-body-sm-medium text-text-primary">Nền tảng xuất bản:</label>
+<div class="grid grid-cols-3 gap-space-xs">
+<button class="py-space-xs px-space-sm rounded bg-primary-container text-on-primary-container font-mono-badge text-mono-badge font-bold text-center" type="button">
+              TikTok
+            </button>
+<button class="py-space-xs px-space-sm rounded bg-surface-container text-text-primary hover:bg-surface-layer-3 font-mono-badge text-mono-badge text-center" type="button">
+              YouTube Shorts
+            </button>
+<button class="py-space-xs px-space-sm rounded bg-surface-container text-text-primary hover:bg-surface-layer-3 font-mono-badge text-mono-badge text-center" type="button">
+              Facebook Reels
+            </button>
+</div>
+</div>
+<div class="flex flex-col gap-space-2xs">
+<label class="font-body-sm-medium text-body-sm-medium text-text-primary" for="publish-url">Đường dẫn bài đăng (Post URL):</label>
+<input class="w-full bg-surface-container px-space-sm py-space-xs rounded font-mono-data-sm text-mono-data-sm text-text-primary focus:outline-none focus:ring-1 focus:ring-secondary" id="publish-url" placeholder="https://www.tiktok.com/@vietnam_tech_channel/video/..." type="text"/>
+</div>
+</div>
+<div class="flex items-center justify-end gap-space-sm pt-space-xs">
+<button class="px-space-md py-space-xs rounded bg-surface-container-high hover:bg-surface-layer-3 text-text-primary font-body-sm-medium text-body-sm-medium" onclick="document.getElementById('publish-modal').classList.add('hidden')" type="button">
+          Đóng
+        </button>
+<button class="px-space-md py-space-xs rounded bg-secondary-container hover:bg-secondary text-on-secondary-container font-body-sm-medium text-body-sm-medium font-semibold shadow-md" onclick="alert('Đã lưu thông tin xuất bản thành công!'); document.getElementById('publish-modal').classList.add('hidden');" type="button">
+          Lưu &amp; Hoàn tất
+        </button>
+</div>
+</div>
+</div>
+<!-- Synchronized Audio/Video Player & Scrubber Interactivity -->
+<script>
+    (function initVideoInspector() {
+      let isPlaying = false;
+      const playBtn = document.getElementById('btn-master-play');
+      const playIcon = document.getElementById('master-play-icon');
+      const playText = document.getElementById('master-play-text');
+      const audioZh = document.getElementById('audio-toggle-zh');
+      const audioVi = document.getElementById('audio-toggle-vi');
+
+      if (playBtn) {
+        playBtn.addEventListener('click', () => {
+          isPlaying = !isPlaying;
+          if (isPlaying) {
+            playIcon.textContent = 'pause';
+            playText.textContent = 'Tạm dừng';
+            playBtn.classList.replace('bg-primary', 'bg-tertiary-container');
+            playBtn.classList.replace('text-on-primary', 'text-on-tertiary-container');
+          } else {
+            playIcon.textContent = 'play_arrow';
+            playText.textContent = 'Phát song song';
+            playBtn.classList.replace('bg-tertiary-container', 'bg-primary');
+            playBtn.classList.replace('text-on-tertiary-container', 'text-on-primary');
+          }
+        });
+      }
+
+      if (audioZh && audioVi) {
+        audioZh.addEventListener('click', () => {
+          audioZh.className = "px-space-xs py-space-2xs rounded bg-secondary-container text-on-secondary-container font-bold";
+          audioVi.className = "px-space-xs py-space-2xs rounded text-text-muted hover:text-text-primary";
+        });
+        audioVi.addEventListener('click', () => {
+          audioVi.className = "px-space-xs py-space-2xs rounded bg-secondary-container text-on-secondary-container font-bold";
+          audioZh.className = "px-space-xs py-space-2xs rounded text-text-muted hover:text-text-primary";
+        });
+      }
+    })();
+  </script>
+</div></main></div><footer class="fixed bottom-0 left-0 right-0 h-10 bg-surface-container-lowest/95 backdrop-blur-sm z-50 flex items-center justify-between px-margin text-on-surface-variant font-mono-data-sm text-mono-data-sm shadow-[0_-1px_6px_rgba(0,0,0,0.5)]"><div class="flex items-center gap-space-md"><span class="text-text-primary font-semibold">Console v1.4.2</span><span class="text-border-prominent">|</span><span class="flex items-center gap-space-xs text-status-success-text"><span class="w-1.5 h-1.5 rounded-full bg-health-ok"></span>Temporal v1.23: Connected</span><span class="flex items-center gap-space-xs text-status-success-text"><span class="w-1.5 h-1.5 rounded-full bg-health-ok"></span>MinIO S3: Healthy</span></div><div class="hidden lg:flex items-center gap-space-md text-text-muted"><span>Phím tắt:</span><span class="flex items-center gap-space-xs"><kbd class="px-space-xs py-space-2xs rounded bg-surface-layer-2 text-text-primary font-mono-badge text-mono-badge">⌘K</kbd> Tìm kiếm</span><span class="flex items-center gap-space-xs"><kbd class="px-space-xs py-space-2xs rounded bg-surface-layer-2 text-text-primary font-mono-badge text-mono-badge">Space</kbd> Chọn hàng loạt</span><span class="flex items-center gap-space-xs"><kbd class="px-space-xs py-space-2xs rounded bg-surface-layer-2 text-text-primary font-mono-badge text-mono-badge">D</kbd> Phê duyệt</span></div></footer></body></html>

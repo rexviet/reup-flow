@@ -30,6 +30,7 @@ import {
   testSchemaName,
   truncateAll,
 } from '../support/db';
+import { channelCollection } from '../support/collections';
 import { Test } from '@nestjs/testing';
 
 jest.setTimeout(60_000);
@@ -85,8 +86,8 @@ async function readVideo(awemeId: string): Promise<Video> {
 async function cancelledProfileWithSkippedVideo(awemeId: string): Promise<string> {
   const [job] = await db.insert(jobs).values({ secUserId: PROFILE }).returning();
   await pool.query(
-    `INSERT INTO videos (aweme_id, sec_user_id, create_time) VALUES ($1, $2, now())`,
-    [awemeId, PROFILE],
+    `INSERT INTO videos (aweme_id, sec_user_id, create_time, collection_id) VALUES ($1, $2, now(), $3)`,
+    [awemeId, PROFILE, await channelCollection(pool, PROFILE)],
   );
   expect(await service.cancel(job!.id)).not.toBeNull();
   const claimed = await videosRepository.claimOne(db, { leaseSeconds: 300, maxAttempts: 3 });
@@ -114,9 +115,9 @@ describe('JobsService.retry', () => {
     // as confirmation, which is the only reason it is in the response.
     const jobId = await cancelledProfileWithSkippedVideo('svc-both-skip');
     await pool.query(
-      `INSERT INTO videos (aweme_id, sec_user_id, create_time, status, attempts, last_error)
-       VALUES ('svc-both-failed', $1, now(), 'failed', 3, 'gave up')`,
-      [PROFILE],
+      `INSERT INTO videos (aweme_id, sec_user_id, create_time, status, attempts, last_error, collection_id)
+       VALUES ('svc-both-failed', $1, now(), 'failed', 3, 'gave up', $2)`,
+      [PROFILE, await channelCollection(pool, PROFILE)],
     );
 
     const result = await service.retry(jobId);
@@ -134,9 +135,9 @@ describe('JobsService.retry', () => {
     const [job] = await db.insert(jobs).values({ secUserId: PROFILE }).returning();
     await pool.query("UPDATE jobs SET status = 'completed' WHERE id = $1", [job!.id]);
     await pool.query(
-      `INSERT INTO videos (aweme_id, sec_user_id, create_time, status)
-       VALUES ('svc-untouched', $1, now(), 'skipped')`,
-      [PROFILE],
+      `INSERT INTO videos (aweme_id, sec_user_id, create_time, status, collection_id)
+       VALUES ('svc-untouched', $1, now(), 'skipped', $2)`,
+      [PROFILE, await channelCollection(pool, PROFILE)],
     );
 
     expect(await service.retry(job!.id)).toBeNull();
@@ -165,9 +166,9 @@ describe('JobsService.createFromUrl', () => {
 
   it('leaves `done` videos alone, so a re-run still only fetches what is missing', async () => {
     await pool.query(
-      `INSERT INTO videos (aweme_id, sec_user_id, create_time, status, storage_path)
-       VALUES ('svc-done', $1, now(), 'done', 'p/q.mp4')`,
-      [PROFILE],
+      `INSERT INTO videos (aweme_id, sec_user_id, create_time, status, storage_path, collection_id)
+       VALUES ('svc-done', $1, now(), 'done', 'p/q.mp4', $2)`,
+      [PROFILE, await channelCollection(pool, PROFILE)],
     );
 
     await service.createFromUrl(PROFILE_URL);

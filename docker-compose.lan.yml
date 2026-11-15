@@ -1,0 +1,14 @@
+# Opt-in: lets a render machine on the LAN (docs/windows-render-worker.md) reach the two
+# services the final render needs. Not part of the default stack, which stays loopback only.
+#
+# Enable in .env:
+#   LAN_BIND_IP=<this Mac's reserved LAN address, never 0.0.0.0>
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.override.yml:docker-compose.lan.yml
+# then `docker compose up -d --no-deps postgres minio`. The 127.0.0.1 bindings stay as they are.
+services:
+  postgres:
+    ports:
+      - "${LAN_BIND_IP:?set LAN_BIND_IP to this Mac's LAN address}:5433:5432"
+  minio:
+    ports:
+      - "${LAN_BIND_IP:?set LAN_BIND_IP to this Mac's LAN address}:9000:9000"

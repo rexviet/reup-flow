@@ -1,0 +1,387 @@
+[
+  {
+    "name": "an ordinary term",
+    "term_zh": "苹果",
+    "term_vi": "Apple",
+    "note": "hãng điện thoại",
+    "reason": null
+  },
+  {
+    "name": "no note",
+    "term_zh": "苹果",
+    "term_vi": "Apple",
+    "note": null,
+    "reason": null
+  },
+  {
+    "name": "an empty note is no note",
+    "term_zh": "苹果",
+    "term_vi": "Apple",
+    "note": "",
+    "reason": null
+  },
+  {
+    "name": "a line break in term_zh",
+    "term_zh": "苹\n果",
+    "term_vi": "Apple",
+    "note": null,
+    "reason": "term_zh must be a single line of plain text"
+  },
+  {
+    "name": "a tab in term_vi",
+    "term_zh": "苹果",
+    "term_vi": "Ap\tple",
+    "note": null,
+    "reason": "term_vi must be a single line of plain text"
+  },
+  {
+    "name": "DEL in the note",
+    "term_zh": "苹果",
+    "term_vi": "Apple",
+    "note": "ghichú",
+    "reason": "note must be a single line of plain text"
+  },
+  {
+    "name": "a control character wins over an empty term",
+    "term_zh": "",
+    "term_vi": "a\rb",
+    "note": null,
+    "reason": "term_vi must be a single line of plain text"
+  },
+  {
+    "name": "term_zh only spaces",
+    "term_zh": "   ",
+    "term_vi": "Apple",
+    "note": null,
+    "reason": "term_zh is empty"
+  },
+  {
+    "name": "term_zh only an ideographic space",
+    "term_zh": "　",
+    "term_vi": "Apple",
+    "note": null,
+    "reason": "term_zh is empty"
+  },
+  {
+    "name": "term_zh only NEL, which Python counts as whitespace",
+    "term_zh": "",
+    "term_vi": "Apple",
+    "note": null,
+    "reason": "term_zh is empty"
+  },
+  {
+    "name": "term_vi empty",
+    "term_zh": "苹果",
+    "term_vi": "",
+    "note": null,
+    "reason": "term_vi is empty"
+  },
+  {
+    "name": "term_vi only no-break spaces",
+    "term_zh": "苹果",
+    "term_vi": "  ",
+    "note": null,
+    "reason": "term_vi is empty"
+  },
+  {
+    "name": "term_zh at the limit",
+    "term_zh": "字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字",
+    "term_vi": "chữ",
+    "note": null,
+    "reason": null
+  },
+  {
+    "name": "term_zh over the limit",
+    "term_zh": "字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字",
+    "term_vi": "chữ",
+    "note": null,
+    "reason": "term_zh is longer than 64 characters"
+  },
+  {
+    "name": "term_vi at the limit",
+    "term_zh": "苹果",
+    "term_vi": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "note": null,
+    "reason": null
+  },
+  {
+    "name": "term_vi over the limit",
+    "term_zh": "苹果",
+    "term_vi": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "note": null,
+    "reason": "term_vi is longer than 64 characters"
+  },
+  {
+    "name": "64 astral characters are 64, not 128",
+    "term_zh": "表情",
+    "term_vi": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+    "note": null,
+    "reason": null
+  },
+  {
+    "name": "65 astral characters are over",
+    "term_zh": "表情",
+    "term_vi": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+    "note": null,
+    "reason": "term_vi is longer than 64 characters"
+  },
+  {
+    "name": "note at the limit",
+    "term_zh": "苹果",
+    "term_vi": "Apple",
+    "note": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+    "reason": null
+  },
+  {
+    "name": "note over the limit",
+    "term_zh": "苹果",
+    "term_vi": "Apple",
+    "note": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+    "reason": "note is longer than 200 characters"
+  },
+  {
+    "name": "a URL",
+    "term_zh": "手机",
+    "term_vi": "vào https://shop.example.com",
+    "note": null,
+    "reason": "term_vi contains a URL, domain name, e-mail address or phone number"
+  },
+  {
+    "name": "a www address",
+    "term_zh": "手机",
+    "term_vi": "ghé www.abc",
+    "note": null,
+    "reason": "term_vi contains a URL, domain name, e-mail address or phone number"
+  },
+  {
+    "name": "a domain",
+    "term_zh": "手机",
+    "term_vi": "ghé shop-xyz.vn",
+    "note": null,
+    "reason": "term_vi contains a URL, domain name, e-mail address or phone number"
+  },
+  {
+    "name": "an upper-case domain",
+    "term_zh": "手机",
+    "term_vi": "shop.VN",
+    "note": null,
+    "reason": "term_vi contains a URL, domain name, e-mail address or phone number"
+  },
+  {
+    "name": "a domain in full-width letters",
+    "term_zh": "手机",
+    "term_vi": "ｓｈｏｐ．ｖｎ",
+    "note": null,
+    "reason": "term_vi contains a URL, domain name, e-mail address or phone number"
+  },
+  {
+    "name": "a domain split by a zero-width space",
+    "term_zh": "手机",
+    "term_vi": "shop-xyz.v​n",
+    "note": null,
+    "reason": "term_vi contains a URL, domain name, e-mail address or phone number"
+  },
+  {
+    "name": "a domain with a dotless i",
+    "term_zh": "手机",
+    "term_vi": "shopı.vn",
+    "note": null,
+    "reason": "term_vi contains a URL, domain name, e-mail address or phone number"
+  },
+  {
+    "name": "a dotted capital I in a TLD",
+    "term_zh": "手机",
+    "term_vi": "ghé shop.İm",
+    "note": null,
+    "reason": "term_vi contains a URL, domain name, e-mail address or phone number"
+  },
+  {
+    "name": "a dotless i in a spoken TLD",
+    "term_zh": "手机",
+    "term_vi": "x chấm ım",
+    "note": null,
+    "reason": "term_vi contains a URL, domain name, e-mail address or phone number"
+  },
+  {
+    "name": "a dotted capital I right after a TLD ends no domain",
+    "term_zh": "手机",
+    "term_vi": "b.comİ",
+    "note": null,
+    "reason": null
+  },
+  {
+    "name": "a domain with a long s",
+    "term_zh": "手机",
+    "term_vi": "ſhop.vn",
+    "note": null,
+    "reason": "term_vi contains a URL, domain name, e-mail address or phone number"
+  },
+  {
+    "name": "an e-mail address",
+    "term_zh": "手机",
+    "term_vi": "mail a@b.com",
+    "note": null,
+    "reason": "term_vi contains a URL, domain name, e-mail address or phone number"
+  },
+  {
+    "name": "a phone number",
+    "term_zh": "手机",
+    "term_vi": "gọi 0912345678",
+    "note": null,
+    "reason": "term_vi contains a URL, domain name, e-mail address or phone number"
+  },
+  {
+    "name": "a phone number in Arabic-Indic digits",
+    "term_zh": "٠٩١٢٣٤٥٦٧٨",
+    "term_vi": "điện thoại",
+    "note": null,
+    "reason": "term_zh contains a URL, domain name, e-mail address or phone number"
+  },
+  {
+    "name": "a spoken domain",
+    "term_zh": "手机",
+    "term_vi": "shop xyz chấm vn",
+    "note": null,
+    "reason": "term_vi contains a URL, domain name, e-mail address or phone number"
+  },
+  {
+    "name": "a spoken domain with dot",
+    "term_zh": "手机",
+    "term_vi": "shop xyz dot com",
+    "note": null,
+    "reason": "term_vi contains a URL, domain name, e-mail address or phone number"
+  },
+  {
+    "name": "no word boundary after a Vietnamese letter",
+    "term_zh": "手机",
+    "term_vi": "ởxyz chấm vn",
+    "note": null,
+    "reason": null
+  },
+  {
+    "name": "no word boundary before a Vietnamese letter",
+    "term_zh": "手机",
+    "term_vi": "xyz chấm vnà",
+    "note": null,
+    "reason": null
+  },
+  {
+    "name": "a letter newer than the worker's Unicode leaves the word boundary of a spoken domain",
+    "term_zh": "abc",
+    "term_vi": "ok",
+    "note": "𞗐shop dot com",
+    "reason": "note contains a URL, domain name, e-mail address or phone number"
+  },
+  {
+    "name": "a letter newer than the worker's Unicode leaves the end boundary too",
+    "term_zh": "手机",
+    "term_vi": "shop chấm vn𞗐",
+    "note": null,
+    "reason": "term_vi contains a URL, domain name, e-mail address or phone number"
+  },
+  {
+    "name": "a letter newer than the worker's Unicode does not hide a www address",
+    "term_zh": "手机",
+    "term_vi": "𞗐www.abcxyz.qq",
+    "note": null,
+    "reason": "term_vi contains a URL, domain name, e-mail address or phone number"
+  },
+  {
+    "name": "outlined digits newer than the worker's Unicode are not digits",
+    "term_zh": "x",
+    "term_vi": "x𜳱 y",
+    "note": null,
+    "reason": null
+  },
+  {
+    "name": "seven outlined digits are not a phone number",
+    "term_zh": "手机",
+    "term_vi": "𜳱𜳱𜳱𜳱𜳱𜳱𜳱",
+    "note": null,
+    "reason": null
+  },
+  {
+    "name": "Garay digits newer than the worker's Unicode are not digits",
+    "term_zh": "手机",
+    "term_vi": "phần 𐵁",
+    "note": null,
+    "reason": null
+  },
+  {
+    "name": "a mark newer than the worker's Unicode does not join a domain",
+    "term_zh": "手机",
+    "term_vi": "shop.vn𞗮",
+    "note": null,
+    "reason": "term_vi contains a URL, domain name, e-mail address or phone number"
+  },
+  {
+    "name": "a contact in the note",
+    "term_zh": "手机",
+    "term_vi": "điện thoại",
+    "note": "xem shop-xyz.vn",
+    "reason": "note contains a URL, domain name, e-mail address or phone number"
+  },
+  {
+    "name": "a contact in term_zh",
+    "term_zh": "taobao.com店",
+    "term_vi": "Taobao",
+    "note": null,
+    "reason": "term_zh contains a URL, domain name, e-mail address or phone number"
+  },
+  {
+    "name": "a missing space after a full stop is not a domain",
+    "term_zh": "完了",
+    "term_vi": "xong.Nhưng",
+    "note": null,
+    "reason": null
+  },
+  {
+    "name": "a grouped price is not a phone number",
+    "term_zh": "1.500.000元",
+    "term_vi": "1.500.000 tệ",
+    "note": null,
+    "reason": null
+  },
+  {
+    "name": "a contact wins over the digit rule",
+    "term_zh": "手机",
+    "term_vi": "gọi 0912345678 iPhone 16",
+    "note": null,
+    "reason": "term_vi contains a URL, domain name, e-mail address or phone number"
+  },
+  {
+    "name": "digits term_zh lacks",
+    "term_zh": "手机",
+    "term_vi": "iPhone 16",
+    "note": null,
+    "reason": "term_vi contains digits that term_zh does not: 16"
+  },
+  {
+    "name": "digits term_zh has",
+    "term_zh": "iPhone16",
+    "term_vi": "iPhone 16",
+    "note": null,
+    "reason": null
+  },
+  {
+    "name": "full-width digits count as the same digits",
+    "term_zh": "iPhone１６",
+    "term_vi": "iPhone 16",
+    "note": null,
+    "reason": null
+  },
+  {
+    "name": "extra digits are listed once, sorted",
+    "term_zh": "第1集",
+    "term_vi": "tập 3 phần 21",
+    "note": null,
+    "reason": "term_vi contains digits that term_zh does not: 23"
+  },
+  {
+    "name": "Arabic-Indic digits are digits",
+    "term_zh": "手机",
+    "term_vi": "phần ٣",
+    "note": null,
+    "reason": "term_vi contains digits that term_zh does not: ٣"
+  }
+]

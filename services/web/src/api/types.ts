@@ -55,7 +55,7 @@ export type JobStatus =
 export const CANCELLABLE_STATUSES: readonly JobStatus[] = ['pending', 'enumerating', 'downloading', 'blocked'];
 
 /** jobs.repository.ts's RETRYABLE_STATUSES, same caveat as above. */
-export const RETRYABLE_STATUSES: readonly JobStatus[] = ['blocked', 'failed'];
+export const RETRYABLE_STATUSES: readonly JobStatus[] = ['blocked', 'failed', 'cancelled'];
 
 export interface JobListResponse {
   items: JobResponse[];
@@ -69,4 +69,415 @@ export interface CookieStatus {
   present: boolean;
   age_seconds: number | null;
   last_ok_at: string | null;
+}
+
+/**
+ * `GET/POST /api/dashboard/*`. Source of truth:
+ *   services/downloader/src/dashboard/{dashboard.service,dashboard.stage,dashboard.health,dashboard.actions,dashboard.media}.ts
+ * Vietnamese strings (attention reasons, health reasons, skip reasons) are built by the server and shown as is.
+ */
+export const STAGES = [
+  'downloading',
+  'download_failed',
+  'held',
+  'queued',
+  'localizing',
+  'dispatch_failed',
+  'run_failed',
+  'skipped',
+  'awaiting_review',
+  'returned',
+  'render_queued',
+  'rendering',
+  'render_failed',
+  'rendered',
+  'published',
+] as const;
+export type Stage = (typeof STAGES)[number];
+
+export type LocalizingStep = 'prepare' | 'translate' | 'dub' | 'review' | 'unknown';
+
+export interface DashboardSources {
+  postgres: 'ok' | 'down';
+  temporal: 'ok' | 'down';
+}
+
+export interface AttentionItem {
+  code: string;
+  reason: string;
+  action: string;
+}
+
+export interface VideoListItem {
+  aweme_id: string;
+  sec_user_id: string;
+  channel: string | null;
+  desc: string | null;
+  create_time: string;
+  duration_ms: number | null;
+  current_gen: number | null;
+  stage: Stage;
+  step?: LocalizingStep;
+  unknown?: boolean;
+  outbox_state: string | null;
+  run_status: string | null;
+  stage_since: string | null;
+  updated_at: string | null;
+  /** Revision of the review project being looked at; `approve` must send exactly this. */
+  revision: string | null;
+  mismatch_count: number | null;
+  attention: AttentionItem[];
+  collection: VideoCollectionRef;
+  /** Episode number inside a 合集; null outside one. */
+  mix_episode: number | null;
+}
+
+export interface VideoListResponse {
+  items: VideoListItem[];
+  total: number;
+  counts_by_stage: Record<Stage, number>;
+  sources: DashboardSources;
+}
+
+export interface VideoListQuery {
+  stage?: Stage;
+  channel?: string;
+  q?: string;
+  from?: string;
+  to?: string;
+  attention?: boolean;
+  /** A collection id. */
+  collection?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface BlockedJobItem {
+  id: string;
+  sec_user_id: string;
+  channel: string | null;
+  status: string;
+  error: string | null;
+  updated_at: string;
+  reason: string;
+  action: string;
+}
+
+export interface AttentionResponse {
+  jobs: BlockedJobItem[];
+  items: VideoListItem[];
+  sources: DashboardSources;
+}
+
+export interface ChannelItem {
+  sec_user_id: string;
+  nickname: string | null;
+  auto_localize: boolean;
+  last_synced_at: string | null;
+  latest_job: {
+    id: string;
+    status: string;
+    created_at: string;
+    total_videos: number | null;
+    downloaded_count: number;
+    failed_count: number;
+    error: string | null;
+  } | null;
+  total: number;
+  counts_by_stage: Record<Stage, number>;
+}
+
+export interface ChannelListResponse {
+  items: ChannelItem[];
+  sources: DashboardSources;
+}
+
+/** `GET`/`PUT /api/dashboard/auto-queue` (services/downloader/src/dashboard/auto-queue.controller.ts). */
+export interface AutoQueueStatus {
+  enabled: boolean;
+  updated_at: string;
+  in_flight: { aweme_id: string; generation: number; released_at: string } | null;
+  held: number;
+}
+
+export type HealthState = 'ok' | 'degraded' | 'down' | 'unknown';
+export interface HealthItem {
+  status: HealthState;
+  reason: string;
+  pollers?: number;
+}
+export interface HealthReport {
+  generatedAt: string;
+  postgres: HealthItem;
+  redis: HealthItem;
+  cookie: HealthItem;
+  temporal: HealthItem;
+  minio: HealthItem;
+  voicestudio: HealthItem;
+  queues: Record<'stt' | 'tts' | 'ingest' | 'media' | 'render' | 'llm' | 'io' | 'workflows', HealthItem>;
+  host_worker: HealthItem;
+  disk: HealthItem;
+  /** Every machine that writes a heartbeat (dashboard.health.ts `hostWorkerViews`). */
+  host_workers: HostWorkerView[];
+}
+
+export type OutdatedReason = 'no_version' | 'protocol' | 'version';
+
+export interface HostWorkerView {
+  name: string;
+  alive: boolean;
+  seen_at: string;
+  /** Short git commit; `null` when the worker's code predates version reporting, `'unknown'` when git failed. */
+  code_version: string | null;
+  protocol: number | null;
+  current: { aweme_id: string; generation: number | null; progress: string | null } | null;
+  outdated: boolean;
+  outdated_reason: OutdatedReason | null;
+  /** The Mac review worker's code version, the one every machine should run. */
+  latest_code_version: string | null;
+}
+
+export interface TimelineStep {
+  id: string;
+  activity: string;
+  agentId: string;
+  state: 'running' | 'retrying' | 'done' | 'failed' | 'cancelled';
+  startedAt: string;
+  endedAt?: string;
+  attempt?: number;
+  step: LocalizingStep;
+}
+
+export interface ReviewStatusView {
+  generation: number;
+  revision: string | null;
+  cueCount: number | null;
+  mismatchCount: number | null;
+  dirty: boolean | null;
+  checkedAt: string;
+}
+
+export interface RenderView {
+  state: string;
+  approved_revision: string;
+  attempts: number;
+  error: string | null;
+  rendered_at: string | null;
+  final_ready: boolean;
+  srt_ready: boolean;
+}
+
+export interface PublicationView {
+  generation: number;
+  state: string;
+  platform: string | null;
+  postUrl: string | null;
+  note: string | null;
+  updatedAt: string;
+}
+
+export interface DecisionView {
+  generation: number;
+  decision: string;
+  approvedRevision: string | null;
+  confirmMismatch: boolean;
+  note: string | null;
+  decidedAt: string;
+}
+
+export interface GenerationView {
+  generation: number;
+  is_current: boolean;
+  run: { status: string; updated_at: string; workflow_id: string; review_rounds: number; has_project: boolean } | null;
+  open_workflow: boolean;
+  decision: DecisionView | null;
+  render: RenderView | null;
+  publication: PublicationView | null;
+  review_status: ReviewStatusView | null;
+  llm_cost_usd: number;
+}
+
+export interface VideoDetailResponse {
+  /** `null` when Postgres could not be read; `sources` says why. */
+  video: {
+    aweme_id: string;
+    desc: string | null;
+    create_time: string;
+    duration_ms: number | null;
+    download_status: string;
+    download_attempts: number;
+    download_error: string | null;
+    mix_episode: number | null;
+  } | null;
+  collection?: VideoCollectionRef;
+  channel?: { sec_user_id: string; nickname: string | null; auto_localize: boolean };
+  current_gen?: number | null;
+  stage?: Stage;
+  step?: LocalizingStep;
+  unknown?: boolean;
+  attention?: AttentionItem[];
+  generations?: GenerationView[];
+  timeline?: TimelineStep[] | null;
+  /** Reviewer verdict as the pipeline stored it; shape is the Reviewer's, shown loosely. */
+  verdict?: unknown;
+  llm_cost?: { total_usd: number; by_stage: Array<{ stage: string; calls: number; cost_usd: number }> };
+  review_status?: ReviewStatusView | null;
+  decision?: DecisionView | null;
+  render?: RenderView | null;
+  publication?: PublicationView | null;
+  studio_request?: { generation: number; state: string; error: string | null; requestedAt: string; handledAt: string | null } | null;
+  /** The newest save-to-folder request; null when the video was never saved. */
+  folder_export?: FolderExportView | null;
+  dashboard_actions?: Array<{ id: number; action: string; detail: unknown; created_at: string }>;
+  sources: DashboardSources;
+}
+
+/**
+ * A save-to-folder request as the Mac worker left it (services/localization/src/localization/
+ * review_worker/folder_exports.py). `files` are relative to the Mac export root and `error` is a
+ * fixed sentence, so neither carries a path of the Mac.
+ */
+export interface FolderExportView {
+  generation: number;
+  state: 'pending' | 'exporting' | 'done' | 'failed';
+  target_subdir: string;
+  file_stem: string;
+  files: string[] | null;
+  error: string | null;
+  requested_at: string;
+  handled_at: string | null;
+}
+
+export type DashboardActionName =
+  | 'localize'
+  | 'retry_download'
+  | 'resume'
+  | 'bypass_skip'
+  | 'rerun'
+  | 'approve'
+  | 'return'
+  | 'rerender'
+  | 'mark_published'
+  | 'mark_unpublished'
+  | 'open_studio'
+  | 'save_to_folder';
+
+export interface ActionRequest {
+  action: DashboardActionName;
+  aweme_ids: string[];
+  note?: string;
+  post_url?: string;
+  platform?: string;
+  revision?: string;
+  generation?: number;
+  confirm_mismatch?: boolean;
+}
+
+export interface ActionResult {
+  done: string[];
+  skipped: Array<{ aweme_id: string; reason: string }>;
+}
+
+/** `thumb` is the still of the source video: one per video, asked for a page at a time (`getThumbLinks`). */
+export type MediaKind = 'source' | 'final' | 'srt' | 'poster' | 'thumb';
+export interface MediaLink {
+  kind: MediaKind;
+  available: boolean;
+  url?: string;
+  expires_at?: string;
+  /** Set by the server for a file that predates generations (the old `output/<aweme>.mp4`). */
+  note?: string;
+}
+
+/**
+ * One link of `POST /api/dashboard/media-links/batch`: signed without checking the file exists
+ * (a thumbnail not made yet answers 404). `expires_at` is rounded to a 10-minute window, so the
+ * URL stays the same, and cacheable, until then.
+ */
+export interface BatchMediaLink {
+  aweme_id: string;
+  kind: 'thumb';
+  available: true;
+  url: string;
+  expires_at: string;
+}
+
+/**
+ * `/api/collections`. Source of truth: services/downloader/src/collections/{collections.service,collections.schemas}.ts
+ * and `PATCH /api/dashboard/videos/collection` in dashboard.actions.controller.ts.
+ */
+export type CollectionKind = 'channel' | 'mix' | 'manual';
+
+/** The collection a video sits in, as the dashboard list and detail return it. */
+export interface VideoCollectionRef {
+  id: string;
+  name: string;
+  kind: CollectionKind;
+}
+
+/** Every setting may be null, which means "use the shared default". */
+export interface CollectionSettings {
+  /** −24 to 24 in steps of 0.5. */
+  bgm_offset_db: number | null;
+  /** `#rrggbb`; the server stores it lower case. */
+  caption_text_color: string | null;
+  cover_color: string | null;
+  /** Whole percentage 0–100. */
+  cover_opacity_pct: number | null;
+  /** Shift of the cover box centre, whole % of frame height, −50 to 50 (positive = down); null = automatic. */
+  cover_offset_pct: number | null;
+  /** Cover box width, whole % of frame width, 20 to 100, centred; null = automatic. */
+  cover_width_pct: number | null;
+  /** Cover box height, whole % of frame height, 3 to 50; null = automatic. */
+  cover_height_pct: number | null;
+  /** A folder relative to the export root on the Mac. */
+  save_subdir: string | null;
+}
+
+export interface CollectionItem extends CollectionSettings {
+  id: string;
+  kind: CollectionKind;
+  external_id: string | null;
+  name: string;
+  channel: { sec_user_id: string; nickname: string | null } | null;
+  video_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CollectionListResponse {
+  items: CollectionItem[];
+}
+
+/** `GET /api/collections/:id/cover-preview`. Source of truth: services/downloader/src/collections/cover-preview.ts. */
+export interface CoverPreview {
+  aweme_id: string;
+  generation: number;
+  /** Frame size of the review project, in pixels. */
+  width: number;
+  height: number;
+  /** The source subtitle band, in pixels; null when none was found. */
+  source_region: { x: number; y: number; w: number; h: number } | null;
+  /** A moment of the source video that shows its subtitles. */
+  sample_ms: number;
+  /** Short-lived signed link to the source video, already prefixed with the API base; null when it cannot be served. */
+  source_url: string | null;
+}
+
+export type CreateCollectionBody = { name: string; sec_user_id?: string } & Partial<CollectionSettings>;
+export type UpdateCollectionBody = { name?: string } & Partial<CollectionSettings>;
+
+export interface GlossaryTerm {
+  term_zh: string;
+  term_vi: string;
+  note: string | null;
+  /** `dashboard` for a term a person set, `agent` for one the Localizer wrote. */
+  source: 'dashboard' | 'agent';
+  /** The video the agent learnt the term from; null for a dashboard term. */
+  source_aweme_id: string | null;
+  created_at: string;
+}
+
+export interface GlossaryResponse {
+  items: GlossaryTerm[];
 }

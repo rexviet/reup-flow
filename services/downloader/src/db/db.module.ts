@@ -1,6 +1,7 @@
 import {
   Global,
   Inject,
+  Logger,
   Module,
   type OnApplicationShutdown,
   type OnModuleInit,
@@ -39,6 +40,26 @@ function describeConnectionError(err: unknown): string {
 }
 
 /**
+ * The pool, with a listener for errors on IDLE clients. When Postgres ends a
+ * connection the pool is holding (a restart sends `57P01 terminating connection
+ * due to administrator command`), pg emits `error` on the pool. An EventEmitter
+ * with no `error` listener throws, which took the whole process down and left
+ * the dashboard answering 502 until someone started the container again. pg has
+ * already dropped the dead client when it emits, so logging is all that is
+ * needed: the next query opens a fresh connection.
+ */
+export function createPool(
+  connectionString: string,
+  logger: Pick<Logger, 'warn'> = new Logger('DbModule'),
+): Pool {
+  const pool = new Pool({ connectionString });
+  pool.on('error', (err) => {
+    logger.warn(`idle Postgres connection dropped: ${describeConnectionError(err)}`);
+  });
+  return pool;
+}
+
+/**
  * @Global() so jobs/videos/cookie repositories (groups B/C) can `@Inject
  * (DB)` without every feature module importing this one explicitly.
  *
@@ -55,7 +76,7 @@ function describeConnectionError(err: unknown): string {
     {
       provide: PG_POOL,
       inject: [ENV],
-      useFactory: (env: Env): Pool => new Pool({ connectionString: env.DATABASE_URL }),
+      useFactory: (env: Env): Pool => createPool(env.DATABASE_URL),
     },
     {
       provide: DB,

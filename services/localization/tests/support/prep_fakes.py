@@ -1,0 +1,132 @@
+"""Stand-ins for the preparation activities, registered under the real names.
+
+They model the real shape of what the real activities do to the object store:
+`ingest` leaves the vocals behind, `transcribe` raises the non-retryable
+`ArtifactMissingError` naming `ingest` when they are gone.
+"""
+
+import asyncio
+import time
+from collections import Counter
+from collections.abc import Callable
+from dataclasses import dataclass, field
+
+from temporalio import activity
+
+from localization.contracts import (
+    BBox,
+    IngestResult,
+    LocalizationInput,
+    SingingCheck,
+    SubtitleTrack,
+    Transcript,
+)
+from localization.storage.object_store import ArtifactMissingError, work_key
+from tests.support.rendezvous import Rendezvous
+
+REGION = BBox(x=100, y=900, w=800, h=80)
+
+
+@dataclass
+class PrepFakes:
+    # 1-based ingest run numbers whose vocals are deleted right after they are written.
+    lose_vocals_on_ingest_runs: set[int] = field(default_factory=set)
+    region: BBox | None = REGION
+    delay_seconds: float = 0.0
+    segment_count: int = 2
+    # What the singing check answers with, as the transcript marked; None: not checked.
+    sung: Transcript | None = None
+    # Ingest only finishes once the other sides of this rendezvous are in flight too.
+    meeting: Rendezvous | None = None
+    # Ingest runs for this long (heartbeating, so a cancel reaches it) before it answers.
+    ingest_seconds: float = 0.0
+    # Ingest fails for good with this error, after the rendezvous.
+    ingest_error: Exception | None = None
+    # (monotonic enter, monotonic exit) of each `ingest` call.
+    ingest_spans: list[tuple[float, float]] = field(default_factory=list)
+    store: set[str] = field(default_factory=set)
+    calls: Counter = field(default_factory=Counter)
+    # (activity, monotonic enter, monotonic exit)
+    spans: list[tuple[str, float, float]] = field(default_factory=list)
+
+    async def _busy(self, name: str) -> None:
+        entered = time.monotonic()
+        if self.delay_seconds:
+            await asyncio.sleep(self.delay_seconds)
+        self.spans.append((name, entered, time.monotonic()))
+
+    def activities(self) -> list[Callable]:
+        fakes = self
+
+        @activity.defn(name="ingest")
+        async def ingest(spec: LocalizationInput) -> IngestResult:
+            fakes.calls["ingest"] += 1
+            entered = time.monotonic()
+            await fakes._busy("ingest")
+            if fakes.meeting is not None:
+                await fakes.meeting.meet("ingest")
+            for _ in range(int(fakes.ingest_seconds * 10)):
+                activity.heartbeat()
+                await asyncio.sleep(0.1)
+            fakes.ingest_spans.append((entered, time.monotonic()))
+            if fakes.ingest_error is not None:
+                raise fakes.ingest_error
+            vocals = work_key(spec.aweme_id, 0, "vocals.wav")
+            if fakes.calls["ingest"] not in fakes.lose_vocals_on_ingest_runs:
+                fakes.store.add(vocals)
+            else:
+                fakes.store.discard(vocals)
+            return IngestResult(
+                vocals_key=vocals,
+                bgm_key=work_key(spec.aweme_id, 0, "bgm.wav"),
+                duration_ms=3000,
+                width=1080,
+                height=1920,
+                fps=30,
+            )
+
+        @activity.defn(name="transcribe")
+        async def transcribe(spec: LocalizationInput, vocals_key: str) -> Transcript:
+            fakes.calls["transcribe"] += 1
+            await fakes._busy("transcribe")
+            if vocals_key not in fakes.store:
+                raise ArtifactMissingError(vocals_key, "ingest")
+            return Transcript(
+                transcript_key=work_key(spec.aweme_id, 0, "transcript.json"),
+                segment_count=fakes.segment_count,
+            )
+
+        @activity.defn(name="detect_subtitles")
+        async def detect_subtitles(spec: LocalizationInput) -> SubtitleTrack:
+            fakes.calls["detect_subtitles"] += 1
+            await fakes._busy("detect_subtitles")
+            return SubtitleTrack(
+                subtitle_key=work_key(spec.aweme_id, 0, "subtitles.json"), region=fakes.region
+            )
+
+        completion = completion_activities(fakes.calls, fakes.sung)
+        return [ingest, transcribe, detect_subtitles, *completion]
+
+
+def completion_activities(
+    calls: Counter | None = None, sung: Transcript | None = None
+) -> list[Callable]:
+    """The steps after the preparation that complete the transcript: no subtitle is shown
+    without speech, and the singing check answers `sung` (not checked when None)."""
+    calls = Counter() if calls is None else calls
+
+    @activity.defn(name="complete_transcript")
+    async def complete_transcript(
+        spec: LocalizationInput, transcript: Transcript, subtitles: SubtitleTrack
+    ) -> Transcript:
+        calls["complete_transcript"] += 1
+        return transcript
+
+    @activity.defn(name="detect_singing")
+    async def detect_singing(
+        spec: LocalizationInput, transcript: Transcript, vocals_key: str
+    ) -> SingingCheck:
+        calls["detect_singing"] += 1
+        return SingingCheck(transcript=sung or transcript, checked=sung is not None)
+
+    return [complete_transcript, detect_singing]

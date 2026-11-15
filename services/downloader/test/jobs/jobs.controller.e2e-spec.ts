@@ -17,6 +17,7 @@ import request from 'supertest';
 import { ApiKeyGuard } from '../../src/auth/api-key.guard';
 import { ConfigModule } from '../../src/config/config.module';
 import { DB } from '../../src/db/db.module';
+import { claimOne } from '../../src/db/jobs.repository';
 import { videos } from '../../src/db/schema';
 import { JobsController } from '../../src/jobs/jobs.controller';
 import { JobsService } from '../../src/jobs/jobs.service';
@@ -31,6 +32,7 @@ import {
   testSchemaName,
   truncateAll,
 } from '../support/db';
+import { channelCollection } from '../support/collections';
 import { fixedEnv } from '../support/fixed-env';
 import { FakeParser } from '../support/fake-parser';
 
@@ -130,9 +132,76 @@ describe('POST /api/jobs', () => {
     expect(rows.rows.map((r) => r.sec_user_id)).toEqual(['sec-shared-shape', 'sec-shared-shape']);
   });
 
+  it('writes auto_localize on the channel, and leaves it alone when omitted', async () => {
+    fakeParser.respondWithEnvelope('sec-switch');
+    const url = 'https://www.douyin.com/user/sec-switch';
+    const auto = async (): Promise<boolean> =>
+      (await pool.query('SELECT auto_localize FROM profiles WHERE sec_user_id = $1', ['sec-switch'])).rows[0]
+        .auto_localize;
+
+    await authed(request(app.getHttpServer()).post('/api/jobs')).send({ url });
+    expect(await auto()).toBe(false);
+
+    const on = await authed(request(app.getHttpServer()).post('/api/jobs')).send({ url, auto_localize: true });
+    expect(on.status).toBe(201);
+    expect(await auto()).toBe(true);
+
+    await authed(request(app.getHttpServer()).post('/api/jobs')).send({ url });
+    expect(await auto()).toBe(true);
+
+    await authed(request(app.getHttpServer()).post('/api/jobs')).send({ url, auto_localize: false });
+    expect(await auto()).toBe(false);
+  });
+
+  it('rejects a non-boolean auto_localize with 400', async () => {
+    const res = await authed(request(app.getHttpServer()).post('/api/jobs')).send({
+      url: 'https://www.douyin.com/user/x',
+      auto_localize: 'yes',
+    });
+    expect(res.status).toBe(400);
+  });
+
   it('rejects a missing url with 400', async () => {
     const res = await authed(request(app.getHttpServer()).post('/api/jobs')).send({});
     expect(res.status).toBe(400);
+  });
+
+  it('stores a hand-picked collection_id on the job, and the claimed job carries it', async () => {
+    fakeParser.respondWithEnvelope('sec-picked');
+    const { rows } = await pool.query<{ id: string }>(
+      `INSERT INTO collections (kind, name) VALUES ('manual', 'Chọn tay') RETURNING id`,
+    );
+    const picked = rows[0]!.id;
+
+    const res = await authed(request(app.getHttpServer()).post('/api/jobs')).send({
+      url: 'https://www.douyin.com/user/sec-picked',
+      collection_id: picked,
+    });
+
+    expect(res.status).toBe(201);
+    const claimed = await claimOne(db, { leaseSeconds: 300 });
+    expect(claimed).toMatchObject({ id: res.body.job_id, collectionId: picked });
+  });
+
+  it('answers 400 for a collection_id that names no collection, without asking the parser or creating a job', async () => {
+    const res = await authed(request(app.getHttpServer()).post('/api/jobs')).send({
+      url: 'https://www.douyin.com/user/sec-missing-collection',
+      collection_id: '00000000-0000-4000-8000-000000000000',
+    });
+
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(res.body)).toContain('00000000-0000-4000-8000-000000000000');
+    expect(fakeParser.requests).toHaveLength(0);
+    expect((await pool.query('SELECT 1 FROM jobs')).rows).toEqual([]);
+  });
+
+  it('rejects a collection_id that is not a uuid with 400', async () => {
+    const res = await authed(request(app.getHttpServer()).post('/api/jobs')).send({
+      url: 'https://www.douyin.com/user/x',
+      collection_id: 'not-a-uuid',
+    });
+    expect(res.status).toBe(400);
+    expect(fakeParser.requests).toHaveLength(0);
   });
 
   it('maps a parser 5xx (ParserUnavailableError) to 503', async () => {
@@ -208,9 +277,13 @@ describe('GET /api/jobs/:id', () => {
     const created = await authed(request(app.getHttpServer()).post('/api/jobs')).send({
       url: 'https://www.douyin.com/user/sec-detail',
     });
-    await db
-      .insert(videos)
-      .values({ awemeId: 'detail-v0', secUserId: 'sec-detail', createTime: new Date(), status: 'done' });
+    await db.insert(videos).values({
+      awemeId: 'detail-v0',
+      secUserId: 'sec-detail',
+      collectionId: await channelCollection(pool, 'sec-detail'),
+      createTime: new Date(),
+      status: 'done',
+    });
 
     const res = await authed(request(app.getHttpServer()).get(`/api/jobs/${created.body.job_id}`));
 
@@ -264,9 +337,14 @@ describe('POST /api/jobs/:id/retry', () => {
       url: 'https://www.douyin.com/user/sec-retry',
     });
     await pool.query("UPDATE jobs SET status = 'failed' WHERE id = $1", [created.body.job_id]);
-    await db
-      .insert(videos)
-      .values({ awemeId: 'retry-v0', secUserId: 'sec-retry', createTime: new Date(), status: 'failed', attempts: 3 });
+    await db.insert(videos).values({
+      awemeId: 'retry-v0',
+      secUserId: 'sec-retry',
+      collectionId: await channelCollection(pool, 'sec-retry'),
+      createTime: new Date(),
+      status: 'failed',
+      attempts: 3,
+    });
 
     const res = await authed(request(app.getHttpServer()).post(`/api/jobs/${created.body.job_id}/retry`));
 

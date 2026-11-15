@@ -36,7 +36,31 @@ lib/push-cookie.js     Orchestration + the sessionid_ss guard (phase-09 §9.3).
 lib/options-view.js    Pure formatting for the "last push result" panel.
 ```
 
+content.js         Content script on douyin.com: a small round download
+                   button pinned to the top-right corner of the playing video on any
+                   video page
+                   (`/video/<id>` or `?modal_id=<id>`). A click messages
+                   sw.js, which calls the backend's `POST /api/videos`
+                   with `localize: true`, so the video skips the default hold
+                   and is localized as soon as it is downloaded.
+lib/video-url.js, lib/button-view.js, lib/video-box.js, lib/enqueue-video.js
+                   Page-URL check, button wording per backend status, which
+                   <video> is the one being watched (and where it is drawn), and
+                   the enqueue call (settings come from storage in the
+                   service worker; the API key never reaches the page).
+
 No build step. Every file above is plain JS loaded directly by the browser.
+
+## Download button
+
+Open a Douyin video (`douyin.com/video/<id>`, or any page that shows one in
+a modal) and click the round button at the top-right. The video is queued in
+the downloader and the same download lane as profile jobs fetches it into
+storage. The button answers "Queued", "Already downloading", "Already
+downloaded", "Earlier download failed" or "Skipped (image post or
+cancelled)". It uses the backend URL and API key from the options page.
+Not covered: short links (`v.douyin.com/...`) and the main feed, whose URL
+does not carry the current video's id.
 
 ## Load unpacked (development)
 
@@ -51,7 +75,8 @@ No build step. Every file above is plain JS loaded directly by the browser.
      `docker compose` (see `docker-compose.yml`'s `nest.environment.API_KEY`).
 6. Click **Save** — Chrome will prompt for permission to access the backend
    host (see "CORS and host permissions" below); allow it.
-7. Click **Push now**.
+7. Click **Push now**. This also saves the URL and API key currently shown in the form
+   before asking the service worker to push; a separate Save click is optional.
 8. Log in to `douyin.com` in a normal tab first if you haven't — otherwise
    there is nothing for `chrome.cookies` to read yet.
 
@@ -92,7 +117,7 @@ prompt.
 
 ```
 cd services/extension
-pnpm test               # 48 unit tests, chrome.* APIs stubbed (no browser needed)
+pnpm test               # unit tests, chrome.* APIs stubbed (no browser needed)
 pnpm test:mutations     # mutation harness — proves each guard is load-bearing
 ```
 
@@ -104,11 +129,11 @@ test to go **red**, then restores the file from a pristine snapshot. A green
 mutation run means every guard was proven necessary, not just "the suite
 passed."
 
-`options.js` itself is DOM-only wiring with no independent logic (this
-workspace has no `jsdom` dependency) — it delegates every decision to
-`lib/storage.js` and `lib/options-view.js`, both fully unit tested. It is
-verified by hand via the checklist below (`// skip-tdd` comment at the top
-of the file explains this).
+`test/options.spec.js` exercises the real options-page click handlers with the
+storage and permission helpers in a VM-backed DOM harness. It checks that Push
+now uses the displayed settings, permission denial leaves saved settings
+untouched, and storage failure prevents a push with stale settings. The Chrome
+permission prompt and a real cookie push still need the manual checks below.
 
 ## Manual verification checklist (maps to phase-09 DoD — cannot be automated)
 

@@ -3,6 +3,8 @@ import { UnauthorizedException, type ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { ApiKeyGuard } from '../../src/auth/api-key.guard';
 import { Public } from '../../src/auth/public.decorator';
+import { SignedMedia } from '../../src/auth/signed-media.decorator';
+import { signMediaToken } from '../../src/dashboard/media-token';
 import { fixedEnv } from '../support/fixed-env';
 
 class ProtectedController {
@@ -18,11 +20,19 @@ class PublicController {
   }
 }
 
+class SignedController {
+  @SignedMedia()
+  route(): void {
+    /* no-op */
+  }
+}
+
 function contextFor(
   controller: { prototype: { route: () => void } },
   headers: Record<string, string> = {},
+  params: Record<string, string> = {},
 ): ExecutionContext {
-  const request = { headers };
+  const request = { headers, params };
   return {
     switchToHttp: () => ({ getRequest: () => request, getResponse: () => ({}) }),
     getHandler: () => controller.prototype.route,
@@ -77,5 +87,40 @@ describe('ApiKeyGuard', () => {
     expect(caught).toBeInstanceOf(UnauthorizedException);
     const response = (caught as UnauthorizedException).getResponse();
     expect(JSON.stringify(response)).not.toContain(suppliedKey);
+  });
+
+  describe('signed media route', () => {
+    const SIGNING_KEY = 'g'.repeat(40);
+    const signedGuard = new ApiKeyGuard(new Reflector(), fixedEnv({ API_KEY, DASHBOARD_MEDIA_SECRET: SIGNING_KEY }));
+    const claims = { awemeId: '1', generation: 1, kind: 'final' as const };
+    const token = (expiresAtMs: number, key = SIGNING_KEY) => signMediaToken(key, { ...claims, expiresAtMs });
+
+    it('accepts a valid signature in place of the API key', () => {
+      const ctx = contextFor(SignedController, {}, { token: token(Date.now() + 60_000) });
+      expect(signedGuard.canActivate(ctx)).toBe(true);
+    });
+
+    it('rejects an expired, forged or missing signature, and the API key does not stand in for it', () => {
+      expect(() => signedGuard.canActivate(contextFor(SignedController, {}, { token: token(Date.now() - 1) }))).toThrow(
+        UnauthorizedException,
+      );
+      expect(() =>
+        signedGuard.canActivate(contextFor(SignedController, {}, { token: token(Date.now() + 60_000, 'z'.repeat(40)) })),
+      ).toThrow(UnauthorizedException);
+      expect(() => signedGuard.canActivate(contextFor(SignedController, {}, {}))).toThrow(UnauthorizedException);
+      expect(() => signedGuard.canActivate(contextFor(SignedController, { 'x-api-key': API_KEY }, { token: 'junk' }))).toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it('rejects every signature when no signing key is configured', () => {
+      const ctx = contextFor(SignedController, {}, { token: token(Date.now() + 60_000) });
+      expect(() => guard.canActivate(ctx)).toThrow(UnauthorizedException);
+    });
+
+    it('does not let a signature open a route that is not marked', () => {
+      const ctx = contextFor(ProtectedController, {}, { token: token(Date.now() + 60_000) });
+      expect(() => signedGuard.canActivate(ctx)).toThrow(UnauthorizedException);
+    });
   });
 });

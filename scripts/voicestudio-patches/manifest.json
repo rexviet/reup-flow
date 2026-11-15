@@ -1,0 +1,7 @@
+{
+  "backend/services/asr_backend.py": {
+    "original": "652a3b514c74eeab0d2d507e22ce7c67d062aa063c4a6d9331a10d0520f0f146",
+    "patched": "24c6176a850de7e8d2ff083b2c6183328ca233f6cc0256bd320f66257be87d95",
+    "patch": "mlx-skip-forced-align.patch"
+  }
+}

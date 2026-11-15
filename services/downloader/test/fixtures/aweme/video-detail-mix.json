@@ -1,0 +1,49 @@
+{
+  "code": 200,
+  "router": "/api/douyin/web/fetch_one_video",
+  "data": {
+    "aweme_detail": {
+      "aweme_id": "7689288513854595771",
+      "desc": "《成名的代价》第一集 东北女练习生勇闯韩国女团！什么是阶级感？什么尊卑有序？俺偏不服！#OiiOii #OiiOii创作者计划 #韩剧 #女团学  #cp",
+      "create_time": 1790301994,
+      "aweme_type": 0,
+      "media_type": 4,
+      "images": null,
+      "author": {
+        "uid": "3031796700420452",
+        "sec_uid": "MS4wLjABAAAAE_UjwhIrz5ADIJh_CmMo31N9BR7pfKz_NKzLf9djdAF-Amx02tIyIo221_zzPIjb",
+        "nickname": "IM-薛珍珠"
+      },
+      "mix_info": {
+        "mix_id": "7695338683825653823",
+        "mix_name": "成名的代价",
+        "status": {
+          "is_collected": 0,
+          "status": 2
+        },
+        "statis": {
+          "collect_vv": 0,
+          "current_episode": 1,
+          "play_vv": 0,
+          "updated_to_episode": 10
+        },
+        "desc": "镜头里，这里是造星的塔顶，而镜头外…看东北女练习生勇闯韩国女团！"
+      },
+      "video": {
+        "duration": 189634,
+        "play_addr": {
+          "uri": "v2700fgi0000daqtbb7og65l4d029eq0",
+          "url_list": [
+            "https://v5-hl-mly-ov.zjcdn.com/scrubbed",
+            "https://v5-dy-ov-experiment.zjcdn.com/scrubbed",
+            "https://www.douyin.com/scrubbed"
+          ]
+        }
+      }
+    },
+    "log_pb": {
+      "impr_id": "20261114161107D7FB318EA33306F399BB"
+    },
+    "status_code": 0
+  }
+}

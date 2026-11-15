@@ -1,0 +1,517 @@
+{
+  "events": [
+    {
+      "eventId": "1",
+      "eventTime": "2026-10-27T06:52:15.464487Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_EXECUTION_STARTED",
+      "taskId": "1049745",
+      "workflowExecutionStartedEventAttributes": {
+        "workflowType": {
+          "name": "VideoLocalizationWorkflow"
+        },
+        "taskQueue": {
+          "name": "workflows",
+          "kind": "TASK_QUEUE_KIND_NORMAL"
+        },
+        "input": {
+          "payloads": [
+            {
+              "metadata": {
+                "encoding": "anNvbi9wbGFpbg=="
+              },
+              "data": "eyJhd2VtZV9pZCI6IjcwMDMiLCJjaGFubmVsX2lkIjoiY2hhbl8xIiwiZ2VuZXJhdGlvbiI6MSwidmlkZW9fa2V5Ijoic291cmNlLzcwMDMubXA0IiwidGFyZ2V0X2xhbmciOiJ2aSIsInZvaWNlIjp7InByb3ZpZGVyIjoidm9pY2VzdHVkaW8iLCJ2b2ljZV9pZCI6InZvaWNlLWEiLCJzZXR0aW5ncyI6eyJzcGVlZCI6MS4wLCJpbnN0cnVjdGlvbnMiOm51bGx9fX0="
+            }
+          ]
+        },
+        "workflowTaskTimeout": "10s",
+        "originalExecutionRunId": "01a17c21-8ae8-776a-a625-d800d52aee6c",
+        "identity": "16829@VietPhung-BE-9.local",
+        "firstExecutionRunId": "01a17c21-8ae8-776a-a625-d800d52aee6c",
+        "attempt": 1,
+        "firstWorkflowTaskBackoff": "0s",
+        "workflowId": "video-7003-g1-7371d1",
+        "priority": {}
+      }
+    },
+    {
+      "eventId": "2",
+      "eventTime": "2026-10-27T06:52:15.464565Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
+      "taskId": "1049746",
+      "workflowTaskScheduledEventAttributes": {
+        "taskQueue": {
+          "name": "workflows",
+          "kind": "TASK_QUEUE_KIND_NORMAL"
+        },
+        "startToCloseTimeout": "10s",
+        "attempt": 1
+      }
+    },
+    {
+      "eventId": "3",
+      "eventTime": "2026-10-27T06:52:15.467563Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_STARTED",
+      "taskId": "1049751",
+      "workflowTaskStartedEventAttributes": {
+        "scheduledEventId": "2",
+        "identity": "16829@VietPhung-BE-9.local",
+        "requestId": "aea5a035-efcb-4bb2-b5ae-343bcca1b6a5",
+        "historySizeBytes": "499",
+        "workerVersion": {
+          "buildId": "73c71415d31af52c95dcd7dbe6dbc948"
+        }
+      }
+    },
+    {
+      "eventId": "4",
+      "eventTime": "2026-10-27T06:52:15.607664Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
+      "taskId": "1049755",
+      "workflowTaskCompletedEventAttributes": {
+        "scheduledEventId": "2",
+        "startedEventId": "3",
+        "identity": "16829@VietPhung-BE-9.local",
+        "workerVersion": {
+          "buildId": "73c71415d31af52c95dcd7dbe6dbc948"
+        },
+        "sdkMetadata": {
+          "coreUsedFlags": [
+            2,
+            1,
+            3
+          ],
+          "sdkName": "temporal-python",
+          "sdkVersion": "1.34.0"
+        },
+        "meteringMetadata": {}
+      }
+    },
+    {
+      "eventId": "5",
+      "eventTime": "2026-10-27T06:52:15.607742Z",
+      "eventType": "EVENT_TYPE_MARKER_RECORDED",
+      "taskId": "1049756",
+      "markerRecordedEventAttributes": {
+        "markerName": "core_patch",
+        "details": {
+          "patch-data": {
+            "payloads": [
+              {
+                "metadata": {
+                  "encoding": "anNvbi9wbGFpbg=="
+                },
+                "data": "eyJpZCI6InZvaWNlLXJhdGUtd2l0aC1pbmdlc3QiLCJkZXByZWNhdGVkIjpmYWxzZX0="
+              }
+            ]
+          }
+        },
+        "workflowTaskCompletedEventId": "4"
+      }
+    },
+    {
+      "eventId": "6",
+      "eventTime": "2026-10-27T06:52:15.608131Z",
+      "eventType": "EVENT_TYPE_UPSERT_WORKFLOW_SEARCH_ATTRIBUTES",
+      "taskId": "1049757",
+      "upsertWorkflowSearchAttributesEventAttributes": {
+        "workflowTaskCompletedEventId": "4",
+        "searchAttributes": {
+          "indexedFields": {
+            "TemporalChangeVersion": {
+              "metadata": {
+                "encoding": "anNvbi9wbGFpbg==",
+                "type": "S2V5d29yZExpc3Q="
+              },
+              "data": "WyJ2b2ljZS1yYXRlLXdpdGgtaW5nZXN0Il0="
+            }
+          }
+        }
+      }
+    },
+    {
+      "eventId": "7",
+      "eventTime": "2026-10-27T06:52:15.608177Z",
+      "eventType": "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED",
+      "taskId": "1049758",
+      "activityTaskScheduledEventAttributes": {
+        "activityId": "1",
+        "activityType": {
+          "name": "ingest"
+        },
+        "taskQueue": {
+          "name": "media",
+          "kind": "TASK_QUEUE_KIND_NORMAL"
+        },
+        "header": {},
+        "input": {
+          "payloads": [
+            {
+              "metadata": {
+                "encoding": "anNvbi9wbGFpbg=="
+              },
+              "data": "eyJhd2VtZV9pZCI6IjcwMDMiLCJjaGFubmVsX2lkIjoiY2hhbl8xIiwiZ2VuZXJhdGlvbiI6MSwidmlkZW9fa2V5Ijoic291cmNlLzcwMDMubXA0IiwidGFyZ2V0X2xhbmciOiJ2aSIsInZvaWNlIjp7InByb3ZpZGVyIjoidm9pY2VzdHVkaW8iLCJ2b2ljZV9pZCI6InZvaWNlLWEiLCJzZXR0aW5ncyI6eyJzcGVlZCI6MS4wLCJpbnN0cnVjdGlvbnMiOm51bGx9fX0="
+            }
+          ]
+        },
+        "scheduleToCloseTimeout": "0s",
+        "scheduleToStartTimeout": "0s",
+        "startToCloseTimeout": "2700s",
+        "heartbeatTimeout": "120s",
+        "workflowTaskCompletedEventId": "4",
+        "retryPolicy": {
+          "initialInterval": "10s",
+          "backoffCoefficient": 2.0,
+          "maximumInterval": "120s",
+          "maximumAttempts": 3,
+          "nonRetryableErrorTypes": [
+            "PermanentProviderError",
+            "PayloadTooLarge",
+            "ArtifactMissingError"
+          ]
+        },
+        "priority": {}
+      }
+    },
+    {
+      "eventId": "8",
+      "eventTime": "2026-10-27T06:52:15.608206Z",
+      "eventType": "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED",
+      "taskId": "1049759",
+      "activityTaskScheduledEventAttributes": {
+        "activityId": "2",
+        "activityType": {
+          "name": "voice_rate"
+        },
+        "taskQueue": {
+          "name": "tts",
+          "kind": "TASK_QUEUE_KIND_NORMAL"
+        },
+        "header": {},
+        "input": {
+          "payloads": [
+            {
+              "metadata": {
+                "encoding": "anNvbi9wbGFpbg=="
+              },
+              "data": "eyJwcm92aWRlciI6InZvaWNlc3R1ZGlvIiwidm9pY2VfaWQiOiJ2b2ljZS1hIiwic2V0dGluZ3MiOnsic3BlZWQiOjEuMCwiaW5zdHJ1Y3Rpb25zIjpudWxsfX0="
+            }
+          ]
+        },
+        "scheduleToCloseTimeout": "0s",
+        "scheduleToStartTimeout": "0s",
+        "startToCloseTimeout": "600s",
+        "heartbeatTimeout": "0s",
+        "workflowTaskCompletedEventId": "4",
+        "retryPolicy": {
+          "initialInterval": "5s",
+          "backoffCoefficient": 2.0,
+          "maximumInterval": "300s",
+          "maximumAttempts": 8,
+          "nonRetryableErrorTypes": [
+            "PermanentProviderError",
+            "PayloadTooLarge",
+            "ArtifactMissingError"
+          ]
+        },
+        "priority": {}
+      }
+    },
+    {
+      "eventId": "9",
+      "eventTime": "2026-10-27T06:52:15.610664Z",
+      "eventType": "EVENT_TYPE_ACTIVITY_TASK_STARTED",
+      "taskId": "1049770",
+      "activityTaskStartedEventAttributes": {
+        "scheduledEventId": "8",
+        "identity": "16829@VietPhung-BE-9.local",
+        "requestId": "1c730130-7bd2-4a31-8058-fb60c8c659bd",
+        "attempt": 1,
+        "workerVersion": {
+          "buildId": "73c71415d31af52c95dcd7dbe6dbc948"
+        }
+      }
+    },
+    {
+      "eventId": "10",
+      "eventTime": "2026-10-27T06:52:15.619986Z",
+      "eventType": "EVENT_TYPE_ACTIVITY_TASK_FAILED",
+      "taskId": "1049771",
+      "activityTaskFailedEventAttributes": {
+        "failure": {
+          "message": "the voice is not known to the provider",
+          "stackTrace": "  File \"/Users/vietphung/Data/reup-flow/services/localization/.venv/lib/python3.12/site-packages/temporalio/worker/_activity.py\", line 351, in _handle_start_activity_task\n    result = await self._execute_activity(\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n  File \"/Users/vietphung/Data/reup-flow/services/localization/.venv/lib/python3.12/site-packages/temporalio/worker/_activity.py\", line 681, in _execute_activity\n    return await impl.execute_activity(input)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n  File \"/Users/vietphung/Data/reup-flow/services/localization/.venv/lib/python3.12/site-packages/temporalio/contrib/opentelemetry/_interceptor.py\", line 384, in execute_activity\n    return await super().execute_activity(input)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n  File \"/Users/vietphung/Data/reup-flow/services/localization/.venv/lib/python3.12/site-packages/temporalio/worker/_interceptor.py\", line 135, in execute_activity\n    return await self.next.execute_activity(input)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n  File \"/Users/vietphung/Data/reup-flow/services/localization/.venv/lib/python3.12/site-packages/temporalio/worker/_activity.py\", line 889, in execute_activity\n    return await input.fn(*input.args)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n  File \"/Users/vietphung/Data/reup-flow/services/localization/tests/support/localizer_fakes.py\", line 215, in voice_rate\n    raise fakes.rate_error\n",
+          "applicationFailureInfo": {
+            "type": "PermanentProviderError",
+            "nonRetryable": true
+          }
+        },
+        "scheduledEventId": "8",
+        "startedEventId": "9",
+        "identity": "16829@VietPhung-BE-9.local",
+        "retryState": "RETRY_STATE_NON_RETRYABLE_FAILURE"
+      }
+    },
+    {
+      "eventId": "11",
+      "eventTime": "2026-10-27T06:52:15.621814Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
+      "taskId": "1049772",
+      "workflowTaskScheduledEventAttributes": {
+        "taskQueue": {
+          "name": "16829@VietPhung-BE-9.local-d3333231d6a2494ab73224342950e8a1",
+          "kind": "TASK_QUEUE_KIND_STICKY",
+          "normalName": "workflows"
+        },
+        "startToCloseTimeout": "10s",
+        "attempt": 1
+      }
+    },
+    {
+      "eventId": "12",
+      "eventTime": "2026-10-27T06:52:15.624103Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_STARTED",
+      "taskId": "1049776",
+      "workflowTaskStartedEventAttributes": {
+        "scheduledEventId": "11",
+        "identity": "16829@VietPhung-BE-9.local",
+        "requestId": "aa75b2c4-7234-4fc3-9cde-b28650b671ce",
+        "historySizeBytes": "3522",
+        "workerVersion": {
+          "buildId": "73c71415d31af52c95dcd7dbe6dbc948"
+        }
+      }
+    },
+    {
+      "eventId": "13",
+      "eventTime": "2026-10-27T06:52:15.632464Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
+      "taskId": "1049780",
+      "workflowTaskCompletedEventAttributes": {
+        "scheduledEventId": "11",
+        "startedEventId": "12",
+        "identity": "16829@VietPhung-BE-9.local",
+        "workerVersion": {
+          "buildId": "73c71415d31af52c95dcd7dbe6dbc948"
+        },
+        "sdkMetadata": {},
+        "meteringMetadata": {}
+      }
+    },
+    {
+      "eventId": "14",
+      "eventTime": "2026-10-27T06:52:15.632498Z",
+      "eventType": "EVENT_TYPE_MARKER_RECORDED",
+      "taskId": "1049781",
+      "markerRecordedEventAttributes": {
+        "markerName": "core_patch",
+        "details": {
+          "patch-data": {
+            "payloads": [
+              {
+                "metadata": {
+                  "encoding": "anNvbi9wbGFpbg=="
+                },
+                "data": "eyJpZCI6InJldmlldy1wdWJsaXNoIiwiZGVwcmVjYXRlZCI6ZmFsc2V9"
+              }
+            ]
+          }
+        },
+        "workflowTaskCompletedEventId": "13"
+      }
+    },
+    {
+      "eventId": "15",
+      "eventTime": "2026-10-27T06:52:15.632873Z",
+      "eventType": "EVENT_TYPE_UPSERT_WORKFLOW_SEARCH_ATTRIBUTES",
+      "taskId": "1049782",
+      "upsertWorkflowSearchAttributesEventAttributes": {
+        "workflowTaskCompletedEventId": "13",
+        "searchAttributes": {
+          "indexedFields": {
+            "TemporalChangeVersion": {
+              "metadata": {
+                "encoding": "anNvbi9wbGFpbg==",
+                "type": "S2V5d29yZExpc3Q="
+              },
+              "data": "WyJyZXZpZXctcHVibGlzaCIsInZvaWNlLXJhdGUtd2l0aC1pbmdlc3QiXQ=="
+            }
+          }
+        }
+      }
+    },
+    {
+      "eventId": "16",
+      "eventTime": "2026-10-27T06:52:15.632920Z",
+      "eventType": "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED",
+      "taskId": "1049783",
+      "activityTaskScheduledEventAttributes": {
+        "activityId": "3",
+        "activityType": {
+          "name": "publish"
+        },
+        "taskQueue": {
+          "name": "io",
+          "kind": "TASK_QUEUE_KIND_NORMAL"
+        },
+        "header": {},
+        "input": {
+          "payloads": [
+            {
+              "metadata": {
+                "encoding": "anNvbi9wbGFpbg=="
+              },
+              "data": "eyJhd2VtZV9pZCI6IjcwMDMiLCJjaGFubmVsX2lkIjoiY2hhbl8xIiwiZ2VuZXJhdGlvbiI6MSwidmlkZW9fa2V5Ijoic291cmNlLzcwMDMubXA0IiwidGFyZ2V0X2xhbmciOiJ2aSIsInZvaWNlIjp7InByb3ZpZGVyIjoidm9pY2VzdHVkaW8iLCJ2b2ljZV9pZCI6InZvaWNlLWEiLCJzZXR0aW5ncyI6eyJzcGVlZCI6MS4wLCJpbnN0cnVjdGlvbnMiOm51bGx9fX0="
+            },
+            {
+              "metadata": {
+                "encoding": "anNvbi9wbGFpbg=="
+              },
+              "data": "eyJvdXRjb21lIjoiZmFpbGVkIiwicmVuZGVyX2tleSI6bnVsbCwicmVhc29ucyI6WyJQZXJtYW5lbnRQcm92aWRlckVycm9yOiBQZXJtYW5lbnRQcm92aWRlckVycm9yOiB0aGUgdm9pY2UgaXMgbm90IGtub3duIHRvIHRoZSBwcm92aWRlciJdLCJyZXZpZXdfcm91bmRzIjowLCJ2ZXJkaWN0IjpudWxsfQ=="
+            }
+          ]
+        },
+        "scheduleToCloseTimeout": "0s",
+        "scheduleToStartTimeout": "0s",
+        "startToCloseTimeout": "300s",
+        "heartbeatTimeout": "0s",
+        "workflowTaskCompletedEventId": "13",
+        "retryPolicy": {
+          "initialInterval": "2s",
+          "backoffCoefficient": 2.0,
+          "maximumInterval": "30s",
+          "maximumAttempts": 5,
+          "nonRetryableErrorTypes": [
+            "PermanentProviderError",
+            "PayloadTooLarge",
+            "ArtifactMissingError",
+            "PublishRefused"
+          ]
+        },
+        "priority": {}
+      }
+    },
+    {
+      "eventId": "17",
+      "eventTime": "2026-10-27T06:52:15.633087Z",
+      "eventType": "EVENT_TYPE_ACTIVITY_TASK_CANCEL_REQUESTED",
+      "taskId": "1049784",
+      "activityTaskCancelRequestedEventAttributes": {
+        "scheduledEventId": "7",
+        "workflowTaskCompletedEventId": "13"
+      }
+    },
+    {
+      "eventId": "18",
+      "eventTime": "2026-10-27T06:52:15.634719Z",
+      "eventType": "EVENT_TYPE_ACTIVITY_TASK_STARTED",
+      "taskId": "1049790",
+      "activityTaskStartedEventAttributes": {
+        "scheduledEventId": "16",
+        "identity": "16829@VietPhung-BE-9.local",
+        "requestId": "b510a614-7feb-4c31-b3de-16ce35afecc9",
+        "attempt": 1,
+        "workerVersion": {
+          "buildId": "73c71415d31af52c95dcd7dbe6dbc948"
+        }
+      }
+    },
+    {
+      "eventId": "19",
+      "eventTime": "2026-10-27T06:52:15.639412Z",
+      "eventType": "EVENT_TYPE_ACTIVITY_TASK_COMPLETED",
+      "taskId": "1049791",
+      "activityTaskCompletedEventAttributes": {
+        "result": {
+          "payloads": [
+            {
+              "metadata": {
+                "encoding": "anNvbi9wbGFpbg=="
+              },
+              "data": "eyJvdXRjb21lIjoiZmFpbGVkIiwib3V0cHV0X2tleSI6bnVsbCwicmV2aWV3X2tleSI6bnVsbH0="
+            }
+          ]
+        },
+        "scheduledEventId": "16",
+        "startedEventId": "18",
+        "identity": "16829@VietPhung-BE-9.local"
+      }
+    },
+    {
+      "eventId": "20",
+      "eventTime": "2026-10-27T06:52:15.639427Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
+      "taskId": "1049792",
+      "workflowTaskScheduledEventAttributes": {
+        "taskQueue": {
+          "name": "16829@VietPhung-BE-9.local-d3333231d6a2494ab73224342950e8a1",
+          "kind": "TASK_QUEUE_KIND_STICKY",
+          "normalName": "workflows"
+        },
+        "startToCloseTimeout": "10s",
+        "attempt": 1
+      }
+    },
+    {
+      "eventId": "21",
+      "eventTime": "2026-10-27T06:52:15.643699Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_STARTED",
+      "taskId": "1049796",
+      "workflowTaskStartedEventAttributes": {
+        "scheduledEventId": "20",
+        "identity": "16829@VietPhung-BE-9.local",
+        "requestId": "c8b8a2ee-a0f1-46e2-8622-ea8f4c0bef93",
+        "historySizeBytes": "5057",
+        "workerVersion": {
+          "buildId": "73c71415d31af52c95dcd7dbe6dbc948"
+        }
+      }
+    },
+    {
+      "eventId": "22",
+      "eventTime": "2026-10-27T06:52:15.649873Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
+      "taskId": "1049800",
+      "workflowTaskCompletedEventAttributes": {
+        "scheduledEventId": "20",
+        "startedEventId": "21",
+        "identity": "16829@VietPhung-BE-9.local",
+        "workerVersion": {
+          "buildId": "73c71415d31af52c95dcd7dbe6dbc948"
+        },
+        "sdkMetadata": {},
+        "meteringMetadata": {}
+      }
+    },
+    {
+      "eventId": "23",
+      "eventTime": "2026-10-27T06:52:15.649922Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_EXECUTION_FAILED",
+      "taskId": "1049801",
+      "workflowExecutionFailedEventAttributes": {
+        "failure": {
+          "message": "Activity task failed",
+          "cause": {
+            "message": "the voice is not known to the provider",
+            "stackTrace": "  File \"/Users/vietphung/Data/reup-flow/services/localization/.venv/lib/python3.12/site-packages/temporalio/worker/_activity.py\", line 351, in _handle_start_activity_task\n    result = await self._execute_activity(\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n  File \"/Users/vietphung/Data/reup-flow/services/localization/.venv/lib/python3.12/site-packages/temporalio/worker/_activity.py\", line 681, in _execute_activity\n    return await impl.execute_activity(input)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n  File \"/Users/vietphung/Data/reup-flow/services/localization/.venv/lib/python3.12/site-packages/temporalio/contrib/opentelemetry/_interceptor.py\", line 384, in execute_activity\n    return await super().execute_activity(input)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n  File \"/Users/vietphung/Data/reup-flow/services/localization/.venv/lib/python3.12/site-packages/temporalio/worker/_interceptor.py\", line 135, in execute_activity\n    return await self.next.execute_activity(input)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n  File \"/Users/vietphung/Data/reup-flow/services/localization/.venv/lib/python3.12/site-packages/temporalio/worker/_activity.py\", line 889, in execute_activity\n    return await input.fn(*input.args)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n  File \"/Users/vietphung/Data/reup-flow/services/localization/tests/support/localizer_fakes.py\", line 215, in voice_rate\n    raise fakes.rate_error\n",
+            "applicationFailureInfo": {
+              "type": "PermanentProviderError",
+              "nonRetryable": true
+            }
+          },
+          "activityFailureInfo": {
+            "scheduledEventId": "8",
+            "startedEventId": "9",
+            "identity": "16829@VietPhung-BE-9.local",
+            "activityType": {
+              "name": "voice_rate"
+            },
+            "activityId": "2",
+            "retryState": "RETRY_STATE_NON_RETRYABLE_FAILURE"
+          }
+        },
+        "retryState": "RETRY_STATE_RETRY_POLICY_NOT_SET",
+        "workflowTaskCompletedEventId": "22"
+      }
+    }
+  ]
+}

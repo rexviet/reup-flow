@@ -44,10 +44,10 @@ export function ProgressBars({ job }: { job: JobResponse }) {
   return (
     <div className="flex flex-col gap-2">
       <div>
-        <div className="mb-1 flex items-center justify-between text-xs text-gray-600">
+        <div className="mb-1 flex items-center justify-between text-xs text-text-secondary">
           <span>Đang quét: {job.enumerated_count} video</span>
           {showZeroNewLabel ? (
-            <span className="rounded bg-blue-50 px-1.5 py-0.5 font-medium text-blue-700">0 video mới</span>
+            <span className="rounded bg-status-active-bg px-1.5 py-0.5 font-medium text-status-active-text">0 video mới</span>
           ) : null}
         </div>
         <div
@@ -57,20 +57,20 @@ export function ProgressBars({ job }: { job: JobResponse }) {
           {...(enumerateDeterminate
             ? { 'aria-valuenow': enumeratePct, 'aria-valuemin': 0, 'aria-valuemax': 100 }
             : { 'aria-valuetext': 'Đang quét, chưa biết tổng số video' })}
-          className="h-2 w-full overflow-hidden rounded bg-gray-200"
+          className="h-2 w-full overflow-hidden rounded bg-surface-layer-3"
         >
           {enumerateDeterminate ? (
-            <div className="h-full rounded bg-blue-500" style={{ width: `${enumeratePct}%` }} />
+            <div className="h-full rounded bg-primary-container" style={{ width: `${enumeratePct}%` }} />
           ) : (
             // Indeterminate: a moving stripe, not a fixed-width fill computed
             // from a ratio -- there is nothing to divide by yet.
-            <div className="h-full w-1/3 animate-pulse rounded bg-blue-400" />
+            <div className="h-full w-1/3 rounded bg-primary motion-safe:animate-pulse" />
           )}
         </div>
       </div>
 
       <div>
-        <div className="mb-1 text-xs text-gray-600">
+        <div className="mb-1 text-xs text-text-secondary">
           {downloadDeterminate ? `${job.downloaded_count} / ${job.total_videos}` : `${job.downloaded_count} / ?`}
         </div>
         <div
@@ -80,12 +80,12 @@ export function ProgressBars({ job }: { job: JobResponse }) {
           {...(downloadDeterminate
             ? { 'aria-valuenow': downloadPct, 'aria-valuemin': 0, 'aria-valuemax': 100 }
             : { 'aria-valuetext': 'Chưa biết tổng số video cần tải' })}
-          className="h-2 w-full overflow-hidden rounded bg-gray-200"
+          className="h-2 w-full overflow-hidden rounded bg-surface-layer-3"
         >
           {downloadDeterminate ? (
-            <div className="h-full rounded bg-green-500" style={{ width: `${downloadPct}%` }} />
+            <div className="h-full rounded bg-health-ok" style={{ width: `${downloadPct}%` }} />
           ) : (
-            <div className="h-full w-0 rounded bg-green-500" />
+            <div className="h-full w-0 rounded bg-health-ok" />
           )}
         </div>
       </div>

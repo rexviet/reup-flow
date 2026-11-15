@@ -2,6 +2,7 @@ import { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
 import { AppModule } from "../../src/app.module";
+import { signMediaToken } from "../../src/dashboard/media-token";
 
 /**
  * Phase-3 DoD: "missing/wrong `X-Api-Key` -> 401 on EVERY route, including
@@ -69,7 +70,7 @@ const PUBLIC_PATHS = new Set(["/health"]);
 /** Routes known to exist as of phase 3: 5 jobs + 1 videos browse + 2 cookie
  * + 1 health. If enumeration returns fewer than this, it is broken, not
  * lucky. */
-const EXPECTED_MINIMUM_ROUTES = 9;
+const EXPECTED_MINIMUM_ROUTES = 13;
 
 /** Concrete values for path parameters, so requests reach the guard rather
  * than 404ing in the router. The guard runs before the handler either way,
@@ -77,7 +78,9 @@ const EXPECTED_MINIMUM_ROUTES = 9;
 function concrete(path: string): string {
   return path
     .replace(":id", "0f1b6b6e-0000-4000-8000-000000000000")
-    .replace(":secUserId", "MS4wLjABAAAA-sentinel-fake-profile");
+    .replace(":secUserId", "MS4wLjABAAAA-sentinel-fake-profile")
+    .replace(":awemeId", "7000000000000000001")
+    .replace(":token", "not-a-signed-token.not-a-signature");
 }
 
 describe("every route requires X-Api-Key (real AppModule)", () => {
@@ -93,7 +96,10 @@ describe("every route requires X-Api-Key (real AppModule)", () => {
     // parser reads.
     Object.assign(process.env, {
       API_KEY: "sweep-test-key-not-real",
-      DATABASE_URL: "postgres://reup:reup@localhost:5432/reup",
+      // A configured signing key makes the media route's 401 a real signature check
+      // instead of the "no key configured" shortcut.
+      DASHBOARD_MEDIA_SECRET: "sweep-media-signing-key-not-real-0123456789",
+      DATABASE_URL: process.env.TEST_DATABASE_URL ?? "postgres://reup:reup@localhost:5432/reup",
       REDIS_URL: "redis://localhost:6379/9",
       PARSER_BASE_URL: "http://parser:80",
       PROBE_SEC_USER_ID: "probe-sec-user-id",
@@ -116,6 +122,7 @@ describe("every route requires X-Api-Key (real AppModule)", () => {
   });
 
   it("discovered the application's routes", () => {
+    expect(routes).toContainEqual({ method: "GET", path: "/api/dashboard/videos" });
     expect(routes.length).toBeGreaterThanOrEqual(EXPECTED_MINIMUM_ROUTES);
     // The sweep is only meaningful if it actually reached /internal, which is
     // the half most likely to be assumed safe because "only the extension
@@ -156,6 +163,23 @@ describe("every route requires X-Api-Key (real AppModule)", () => {
     // A rejected key must never be echoed back to whoever sent it.
     expect(results.filter((r) => r.body.includes(wrongKey))).toEqual([]);
   }, 30000);
+
+  it("answers 401 on the signed media route for a missing, forged or expired signature, never 200 or 404", async () => {
+    const secret = "sweep-media-signing-key-not-real-0123456789";
+    const forged = signMediaToken("another-key-0123456789-0123456789", {
+      awemeId: "1",
+      generation: 1,
+      kind: "final",
+      expiresAtMs: Date.now() + 60_000,
+    });
+    const expired = signMediaToken(secret, { awemeId: "1", generation: 1, kind: "final", expiresAtMs: Date.now() - 1000 });
+    const agent = request(app.getHttpServer());
+    for (const token of ["x", forged, expired]) {
+      expect((await agent.get(`/api/dashboard/media/${token}`)).status).toBe(401);
+    }
+    // The route exists and is the only one reachable by signature.
+    expect(routes).toContainEqual({ method: "GET", path: "/api/dashboard/media/:token" });
+  });
 
   it("leaves /health reachable with no header at all", async () => {
     const res = await request(app.getHttpServer()).get("/health");

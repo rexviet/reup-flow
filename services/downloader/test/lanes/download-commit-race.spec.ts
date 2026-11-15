@@ -51,6 +51,7 @@ import {
   testSchemaName,
   truncateAll,
 } from '../support/db';
+import { channelCollection } from '../support/collections';
 import { FakeCdn } from '../support/fake-cdn';
 import { deferred, waitUntil } from '../support/streams';
 
@@ -125,6 +126,7 @@ async function seedVideo(playAddr: string): Promise<void> {
   await db.insert(videos).values({
     awemeId: AWEME,
     secUserId: PROFILE,
+    collectionId: await channelCollection(pool, PROFILE),
     createTime: new Date(Date.UTC(2026, 0, 1)),
     playAddr,
   });
