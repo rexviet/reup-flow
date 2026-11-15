@@ -117,6 +117,7 @@ describe('API key', () => {
     ['get', '/api/collections'],
     ['post', '/api/collections'],
     ['patch', `/api/collections/${MISSING}`],
+    ['delete', `/api/collections/${MISSING}`],
     ['get', `/api/collections/${MISSING}/glossary`],
     ['get', `/api/collections/${MISSING}/cover-preview`],
     ['put', `/api/collections/${MISSING}/glossary/x`],
@@ -309,6 +310,88 @@ describe('PATCH /api/collections/:id', () => {
   ])('rejects %j with 400', async (body) => {
     const id = await channelCollection(pool, 'chA');
     expect((await send('patch', `/api/collections/${id}`, body)).status).toBe(400);
+  });
+});
+
+describe('DELETE /api/collections/:id', () => {
+  const manual = async (name = 'Trống') => (await send('post', '/api/collections', { name })).body.id as string;
+  const exists = async (id: string) => (await pool.query(`SELECT 1 FROM collections WHERE id = $1`, [id])).rows.length > 0;
+  const job = async (collectionId: string, status: string) =>
+    (
+      await pool.query<{ id: string }>(
+        `INSERT INTO jobs (sec_user_id, status, collection_id) VALUES ('chA', $1, $2) RETURNING id`,
+        [status, collectionId],
+      )
+    ).rows[0]!.id;
+
+  beforeEach(async () => {
+    await channelCollection(pool, 'chA');
+  });
+
+  it('deletes an empty collection together with its glossary, leaving the others', async () => {
+    const id = await manual();
+    const other = await manual('Khác');
+    await term(id, '苹果', 'Táo');
+    await term(other, '苹果', 'Táo khác');
+    expect((await send('delete', `/api/collections/${id}`)).status).toBe(204);
+    expect(await exists(id)).toBe(false);
+    expect(await glossaryRows(id)).toEqual([]);
+    expect((await glossaryRows(other)).map((r) => r.term_vi)).toEqual(['Táo khác']);
+  });
+
+  it('refuses with 409 while the collection holds a video, and changes nothing', async () => {
+    const id = await manual();
+    await video('7001', id);
+    await term(id, '苹果', 'Táo');
+    const res = await send('delete', `/api/collections/${id}`);
+    expect(res.status).toBe(409);
+    expect(res.body.message).toContain('1 video');
+    expect(await exists(id)).toBe(true);
+    expect(await glossaryRows(id)).toHaveLength(1);
+  });
+
+  it('unlinks a completed job that picked it, keeping the job', async () => {
+    const id = await manual();
+    const done = await job(id, 'completed');
+    expect((await send('delete', `/api/collections/${id}`)).status).toBe(204);
+    const { rows } = await pool.query(`SELECT collection_id FROM jobs WHERE id = $1`, [done]);
+    expect(rows).toEqual([{ collection_id: null }]);
+  });
+
+  it.each(['pending', 'downloading', 'failed', 'blocked', 'cancelled'])(
+    'refuses with 409 while a %s job can still bring videos into it',
+    async (status) => {
+      const id = await manual();
+      const open = await job(id, status);
+      expect((await send('delete', `/api/collections/${id}`)).status).toBe(409);
+      expect(await exists(id)).toBe(true);
+      const { rows } = await pool.query(`SELECT collection_id FROM jobs WHERE id = $1`, [open]);
+      expect(rows).toEqual([{ collection_id: id }]);
+    },
+  );
+
+  it('refuses with 409 when a folder export names it', async () => {
+    const id = await manual();
+    const chA = await channelCollection(pool, 'chA');
+    await video('7001', chA);
+    await pool.query(
+      `INSERT INTO folder_exports (aweme_id, generation, collection_id, target_subdir, file_stem, final_key, state)
+       VALUES ('7001', 1, $1, 'phim', '7001', 'k', 'done')`,
+      [id],
+    );
+    expect((await send('delete', `/api/collections/${id}`)).status).toBe(409);
+    expect(await exists(id)).toBe(true);
+  });
+
+  it('can delete an empty channel collection too', async () => {
+    const chB = await channelCollection(pool, 'chB');
+    expect((await send('delete', `/api/collections/${chB}`)).status).toBe(204);
+    expect(await exists(chB)).toBe(false);
+  });
+
+  it('answers 404 for a collection that does not exist and 400 for an id that is not a uuid', async () => {
+    expect((await send('delete', `/api/collections/${MISSING}`)).status).toBe(404);
+    expect((await send('delete', '/api/collections/abc')).status).toBe(400);
   });
 });
 

@@ -224,6 +224,11 @@ export async function updateCollection(id: string, body: UpdateCollectionBody): 
   return request<CollectionItem>(`/api/collections/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
+/** Only an empty collection; a 409 says what still uses it. Its glossary goes with it. */
+export async function deleteCollection(id: string): Promise<void> {
+  await request<void>(`/api/collections/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
 /** A frame of one of the collection's videos to preview the cover box on; 404 when it has none with a review project. */
 export async function getCoverPreview(id: string): Promise<CoverPreview> {
   const res = await request<CoverPreview>(`/api/collections/${encodeURIComponent(id)}/cover-preview`);

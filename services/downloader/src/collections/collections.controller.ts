@@ -47,6 +47,13 @@ export class CollectionsController {
     return this.collections.update(params.id, body);
   }
 
+  /** Only an empty collection; 409 says what still uses it. */
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  remove(@Param(new ZodValidationPipe(collectionParamsSchema)) params: { id: string }) {
+    return this.collections.remove(params.id);
+  }
+
   /** A frame size, subtitle band and signed source link to preview the cover box on. */
   @Get(':id/cover-preview')
   preview(@Param(new ZodValidationPipe(collectionParamsSchema)) params: { id: string }) {

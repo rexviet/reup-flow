@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { Pool } from 'pg';
 import { PG_POOL } from '../db/db.module';
 import {
@@ -106,9 +106,10 @@ function toTerm(r: Record<string, any>): GlossaryTermView {
  * `DashboardRepository`: `localization.glossary` is written by the Python side and
  * `db/schema.ts` does not describe it.
  *
- * Nothing here deletes a collection. A write that names a collection or channel
- * that does not exist is answered 404 or 400 from the foreign key violation, not
- * from a check made earlier, so a row removed in between cannot turn into a 500.
+ * Only an empty collection can be deleted (`remove`). A write that names a
+ * collection or channel that does not exist is answered 404 or 400 from the
+ * foreign key violation, not from a check made earlier, so a row removed in
+ * between cannot turn into a 500.
  */
 @Injectable()
 export class CollectionsService {
@@ -172,6 +173,50 @@ export class CollectionsService {
     );
     if (moved.rowCount !== 1) throw new NotFoundException(`collection ${id} not found`);
     return this.one(id);
+  }
+
+  /**
+   * Deletes a collection that holds no video, with its glossary. A completed job
+   * that picked it keeps its history without the link; any other job that picked
+   * it can still run (or be retried) and would bring videos in, so it blocks the
+   * delete, as does a folder export that names it. The row is locked first, so a
+   * video placed or moved in meanwhile waits and then fails on its foreign key.
+   */
+  async remove(id: string): Promise<void> {
+    const client = await this.pool.connect();
+    let broken: Error | undefined;
+    try {
+      await client.query('BEGIN');
+      try {
+        const locked = await client.query(`SELECT 1 FROM collections WHERE id = $1 FOR UPDATE`, [id]);
+        if (locked.rows.length === 0) throw new NotFoundException(`collection ${id} not found`);
+        const { rows } = await client.query<{ videos: number; jobs: number; exports: number }>(
+          `SELECT (SELECT count(*)::int FROM videos WHERE collection_id = $1) AS videos,
+                  (SELECT count(*)::int FROM jobs WHERE collection_id = $1 AND status <> 'completed') AS jobs,
+                  (SELECT count(*)::int FROM folder_exports WHERE collection_id = $1) AS exports`,
+          [id],
+        );
+        const use = rows[0]!;
+        if (use.videos > 0) throw new ConflictException(`Collection còn ${use.videos} video, chuyển hết video đi rồi mới xoá được.`);
+        if (use.jobs > 0) throw new ConflictException(`Còn ${use.jobs} job tải về collection này và có thể chạy lại.`);
+        if (use.exports > 0) throw new ConflictException(`Collection đã có ${use.exports} lượt lưu thư mục, giữ lại để không mất lịch sử.`);
+        await client.query(`UPDATE jobs SET collection_id = NULL WHERE collection_id = $1`, [id]);
+        await client.query(`DELETE FROM localization.glossary WHERE collection_id = $1`, [id]);
+        await client.query(`DELETE FROM collections WHERE id = $1`, [id]);
+        await client.query('COMMIT');
+      } catch (err) {
+        await client.query('ROLLBACK');
+        if (isForeignKeyViolation(err)) throw new ConflictException('Collection vừa được dùng, tải lại rồi thử lại.');
+        throw err;
+      }
+    } catch (err) {
+      if (!(err instanceof NotFoundException || err instanceof ConflictException)) {
+        broken = err instanceof Error ? err : new Error('transaction failed');
+      }
+      throw err;
+    } finally {
+      client.release(broken);
+    }
   }
 
   async glossary(collectionId: string): Promise<{ items: GlossaryTermView[] }> {

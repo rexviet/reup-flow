@@ -190,6 +190,9 @@ export function DashboardPage() {
           // jsdom has no scrollIntoView.
           document.getElementById('pipeline-title')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
         }}
+        onDeleted={(id) => {
+          if (filters.collection === id) setFilters({ ...filters, collection: '', offset: 0 });
+        }}
       />
       {actions.dialog}
     </div>
