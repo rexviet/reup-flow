@@ -1,3 +1,4 @@
+import { Readable } from 'node:stream';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import type { Pool } from 'pg';
 import { DashboardActionsService } from '../../src/dashboard/dashboard.actions';
@@ -81,6 +82,14 @@ describe('DashboardActionsService (real downloader and localization schemas)', (
     );
   const one = async <T = Record<string, unknown>>(sql: string, params: unknown[] = []): Promise<T | undefined> =>
     (await pool.query(sql, params)).rows[0] as T | undefined;
+  /** A reader whose review HEADs name `heads[key]`; any other key does not exist. */
+  const withHeads = (heads: Record<string, string>) =>
+    new DashboardActionsService(pool, drizzle(pool, { schema }), new DashboardRepository(pool), temporal, {
+      open: async (key: string) =>
+        key in heads
+          ? { status: 200 as const, body: Readable.from([Buffer.from(JSON.stringify({ revision_id: heads[key] }))]) }
+          : null,
+    });
   const logged = async (id: string) =>
     (await pool.query(`SELECT action FROM dashboard_actions WHERE aweme_id = $1 ORDER BY id`, [id])).rows.map((r) => r.action);
 
@@ -402,6 +411,20 @@ describe('DashboardActionsService (real downloader and localization schemas)', (
       expect(await logged('20')).toEqual(['approve']);
     });
 
+    it('refuses the revision the scan shows when HEAD has moved past it', async () => {
+      // A revoice committed seconds ago: review_status still names rev-1 until the next scan.
+      const res = await withHeads({ 'review/p/head.json': 'rev-2' }).run(body('approve', ['20'], { revision: 'rev-1' }));
+      expect(res.done).toEqual([]);
+      expect(res.skipped[0].reason).toContain('vừa đổi');
+      expect(await one('SELECT 1 FROM review_decisions')).toBeUndefined();
+      expect(await one('SELECT 1 FROM localization.final_renders')).toBeUndefined();
+    });
+
+    it('approves when HEAD names the revision shown', async () => {
+      const res = await withHeads({ 'review/p/head.json': 'rev-1' }).run(body('approve', ['20'], { revision: 'rev-1' }));
+      expect(res.done).toEqual(['20']);
+    });
+
     it('works for needs_human runs', async () => {
       await pool.query(`UPDATE localization.runs SET status = 'needs_human'`);
       expect((await approve()).done).toEqual(['20']);
@@ -640,6 +663,15 @@ describe('DashboardActionsService (real downloader and localization schemas)', (
     it.each(['queued', 'rendering'])('refuses a %s render', async (state) => {
       await render(state);
       expect((await svc.run(body('rerender', ['40']))).done).toEqual([]);
+    });
+
+    it('refuses to render again a revision that is no longer HEAD', async () => {
+      await render('failed');
+      const res = await withHeads({ 'review/p/head.json': 'rev-2' }).run(body('rerender', ['40']));
+      expect(res.done).toEqual([]);
+      expect(res.skipped[0].reason).toContain('Bấm Duyệt');
+      expect(await one('SELECT state FROM localization.final_renders')).toEqual({ state: 'failed' });
+      expect((await withHeads({ 'review/p/head.json': 'rev-1' }).run(body('rerender', ['40']))).done).toEqual(['40']);
     });
 
     it('refuses when the decision is no longer approved or no render exists', async () => {

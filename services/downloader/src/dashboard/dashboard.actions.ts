@@ -1,11 +1,11 @@
-import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import type { Pool, PoolClient } from 'pg';
 import type { Executor } from '../db/executor';
 import { DB, PG_POOL } from '../db/db.module';
 import type { DashboardTemporal } from '../workspace/workspace.dashboard-reader';
 import { DASHBOARD_TEMPORAL } from '../workspace/workspace.tokens';
 import { DashboardRepository, stageFactsOf, type VideoRecord } from './dashboard.repository';
-import { resolveRenderKey } from './dashboard.media';
+import { MEDIA_READER, resolveRenderKey, type MediaReader } from './dashboard.media';
 import type { ActionBody, MoveCollectionBody } from './dashboard.schemas';
 import { BYPASSABLE_SKIPS, computeStage, currentGeneration, type OpenGeneration } from './dashboard.stage';
 import { localize } from './intake.repository';
@@ -65,7 +65,26 @@ export class DashboardActionsService {
     @Inject(DB) private readonly db: Executor,
     @Inject(DashboardRepository) private readonly repo: Pick<DashboardRepository, 'video'>,
     @Inject(DASHBOARD_TEMPORAL) private readonly temporal: DashboardTemporal,
+    // Reads a review project's HEAD; absent (no S3 storage) the scanned status is all there is.
+    @Optional() @Inject(MEDIA_READER) private readonly reader: MediaReader | null = null,
   ) {}
+
+  /**
+   * The revision a review project's HEAD names now, read from storage. `review_status` is a scan
+   * that runs once a minute, so for up to a minute after a save or a revoice it names the revision
+   * before: approving what it shows would approve a revision the render then refuses as changed.
+   * `undefined` when HEAD cannot be read; the caller then has only the scanned status.
+   */
+  private async liveRevision(projectKey: string | null): Promise<string | undefined> {
+    if (this.reader === null || projectKey === null) return undefined;
+    const object = await this.reader.open(projectKey);
+    if (object === null) return undefined;
+    const chunks: Buffer[] = [];
+    for await (const chunk of object.body) chunks.push(Buffer.from(chunk as Uint8Array));
+    const head: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    const revision = (head as { revision_id?: unknown } | null)?.revision_id;
+    return typeof revision === 'string' ? revision : undefined;
+  }
 
   async run(body: ActionBody): Promise<ActionResult> {
     const ids = [...new Set(body.aweme_ids)];
@@ -435,6 +454,10 @@ export class DashboardActionsService {
     if (run.revision === null) throw new Skip('Chưa có bản review để duyệt.');
     if (run.dirty === true) throw new Skip('Review còn thay đổi chưa lưu.');
     if (run.revision !== body.revision) throw new Skip('Bản review đã đổi, hãy tải lại rồi duyệt.');
+    const live = await this.liveRevision(run.project_key);
+    if (live !== undefined && live !== body.revision) {
+      throw new Skip('Bản review vừa đổi (vừa lưu hoặc tạo lại giọng). Chờ khoảng 1 phút để bản mới hiện lên rồi duyệt.');
+    }
     if ((run.mismatch_count ?? 0) > 0 && body.confirm_mismatch !== true) {
       throw new Skip('Còn cue lệch, cần xác nhận mismatch.');
     }
@@ -501,6 +524,19 @@ export class DashboardActionsService {
   }
 
   private async rerender(c: PoolClient, awemeId: string, gen: number): Promise<void> {
+    const { rows } = await c.query(
+      `SELECT r.project_key, f.approved_revision FROM localization.final_renders f
+         JOIN localization.runs r ON r.aweme_id = f.aweme_id AND r.generation = f.generation
+        WHERE f.aweme_id = $1 AND f.generation = $2`,
+      [awemeId, gen],
+    );
+    if (rows.length === 1) {
+      const live = await this.liveRevision(rows[0].project_key);
+      // A render of a revision that is no longer HEAD is refused every time: approve the new one.
+      if (live !== undefined && live !== rows[0].approved_revision) {
+        throw new Skip('Bản đã duyệt không còn là bản hiện tại (đã sửa sau khi duyệt). Bấm Duyệt để duyệt bản mới.');
+      }
+    }
     const moved = await c.query(
       `UPDATE localization.final_renders f
           SET state = 'queued', attempts = 0, error = NULL, claim = NULL, lease_expires_at = NULL
