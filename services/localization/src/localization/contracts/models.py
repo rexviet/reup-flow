@@ -12,7 +12,7 @@ from localization.contracts.base import Contract
 from localization.contracts.collection import CollectionSnapshot, HexColor, OpacityPct
 from localization.contracts.geometry import BBox, NonNegativeInt, PositiveInt
 from localization.contracts.ids import AwemeId, ChannelId, Sha256, SourceKey, StorageKey
-from localization.contracts.review_project import SourceSnapshot
+from localization.contracts.review_project import MixLevels, SourceSnapshot
 from localization.contracts.voice import REVIEW_PROVIDERS, VoiceRef
 
 Key = StorageKey
@@ -355,6 +355,8 @@ class DubbedAudio(Contract):
     script_key: Key
     script_version: NonNegativeInt
     segments_key: Key
+    # What the mix measured, for the review project's remixes.
+    levels: MixLevels | None = None
 
 
 class LocalizationResult(Contract):

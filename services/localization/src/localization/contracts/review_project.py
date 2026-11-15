@@ -28,6 +28,16 @@ class SourceSnapshot(Contract):
     sha256: Sha256
 
 
+class MixLevels(Contract):
+    """What a full mix measured, so a remix of the same project can reuse it instead of
+    measuring the whole track again: the music's balance against the voice (dB, before
+    the collection's offset) and the gain that brought the mix to the target loudness
+    (None when the mix was silent)."""
+
+    music_balance_db: float
+    loudness_gain_db: float | None
+
+
 class ReviewAsset(Contract):
     key: StorageKey
     sha256: Sha256
@@ -81,6 +91,12 @@ class ReviewProjectManifest(Contract):
     video: ReviewAsset
     mixed_audio: ReviewAsset
     bgm: ReviewAsset
+    # The separated original vocals, so a revoice mixes them back as the first mix did:
+    # quietly under the dub and at full level over sung lines. Older projects have none.
+    vocals: ReviewAsset | None = None
+    # The first mix's levels, which a revoice reuses. Older projects have none: their
+    # next revoice measures them and keeps them.
+    mix_levels: MixLevels | None = None
     font: ReviewAsset
     script: ReviewAsset
     dub: ReviewAsset
@@ -123,6 +139,7 @@ class ReviewProjectManifest(Contract):
                 )
             ]
             + [c.clip for c in self.cues if c.clip is not None]
+            + ([self.vocals] if self.vocals is not None else [])
             + list(self.studio_files.values())
         )
         # Workflow contracts cannot import filesystem helpers.

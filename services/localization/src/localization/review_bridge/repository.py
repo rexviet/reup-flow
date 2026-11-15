@@ -109,6 +109,7 @@ class Repository:
         revision=None,
         operation=None,
         mixed=None,
+        levels=None,
         studio_files=None,
         geometry: CoverGeometry | None = None,
     ):
@@ -150,6 +151,7 @@ class Repository:
                 "operation_id": operation,
                 "cues": tuple(cues),
                 "mixed_audio": mixed,
+                "mix_levels": levels or base.mix_levels,
                 "html": self.asset(base, source, ".html"),
                 "srt": self.asset(base, srt_document(cues), ".srt"),
                 "studio_files": base.studio_files if studio_files is None else studio_files,

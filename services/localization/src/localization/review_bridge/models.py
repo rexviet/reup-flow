@@ -30,6 +30,47 @@ class RevoiceCue(Contract):
     baseRevision: RevisionId
 
 
+# A batch is one revision and one mix, however many lines it carries.
+MAX_BATCH = 500
+CueId = Annotated[int, Field(strict=True, ge=0)]
+
+
+class CueEdit(Contract):
+    cueId: CueId
+    text: Annotated[str, Field(max_length=4000)]
+    start_ms: Annotated[int, Field(strict=True, ge=0)]
+    end_ms: Annotated[int, Field(strict=True, gt=0)]
+
+    @model_validator(mode="after")
+    def timing(self):
+        if self.start_ms >= self.end_ms:
+            raise ValueError("start must precede end")
+        return self
+
+
+class SaveAndRevoice(Contract):
+    """The lines a reviewer changed: saved as one revision, then revoiced as one."""
+
+    requestId: RequestId
+    expectedRevision: RevisionId
+    headETag: Annotated[str, Field(min_length=1, max_length=200)]
+    edits: Annotated[tuple[CueEdit, ...], Field(min_length=1, max_length=MAX_BATCH)]
+
+    @model_validator(mode="after")
+    def distinct(self):
+        if len({e.cueId for e in self.edits}) != len(self.edits):
+            raise ValueError("a cue is edited twice")
+        return self
+
+
+class RevoiceCues(Contract):
+    """The durable command of a batch revoice: the lines, on the revision they were saved in."""
+
+    requestId: RequestId
+    cueIds: Annotated[tuple[CueId, ...], Field(min_length=1, max_length=MAX_BATCH)]
+    baseRevision: RevisionId
+
+
 def mismatch(cue) -> bool:
     return (
         cue.text_vi != cue.spoken_text

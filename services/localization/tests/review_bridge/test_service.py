@@ -145,3 +145,63 @@ def test_unimported_studio_source_is_not_discarded(companion):
     with pytest.raises(Conflict, match="explicit import"):
         companion.save("7001", 1, 17, command(companion))
     assert companion.project("7001", 1)["revision"] == before and path.read_text() == source
+
+
+class BatchDispatch:
+    def __init__(self):
+        self.started = []
+
+    async def start_workflow(self, _run, *, args, **_):
+        self.started.append(args)
+
+
+def batch(service, *edits, request_id="batch-request-123456"):
+    from localization.review_bridge.models import CueEdit, SaveAndRevoice
+
+    state = service.project("7001", 1)
+    return SaveAndRevoice(
+        requestId=request_id,
+        expectedRevision=state["revision"],
+        headETag=state["headETag"],
+        edits=tuple(CueEdit(cueId=17, **e) for e in edits),
+    )
+
+
+async def test_a_batch_saves_and_revoices_only_the_edited_lines(companion):
+    dispatch = BatchDispatch()
+    service = Service(companion.repo, dispatch)
+    before = service.project("7001", 1)["revision"]
+    result = await service.save_and_revoice(
+        "7001", 1, batch(service, {"text": "Câu đã sửa", "start_ms": 0, "end_ms": 1000})
+    )
+    assert result["status"] == "accepted" and result["cueIds"] == [17]
+    saved = companion.repo.current("7001", 1)[1]
+    assert saved.parent_revision_id == before and saved.cues[0].text_vi == "Câu đã sửa"
+    key, ids = dispatch.started[0]
+    record = json.loads(service.repo.store.get_bytes(key, produced_by="test"))
+    assert ids == [17] and record["command"]["cueIds"] == [17]
+    assert record["command"]["baseRevision"] == saved.revision_id
+    # The same request again (a lost response) saves nothing more and starts the same run.
+    again = await service.save_and_revoice(
+        "7001", 1, batch(service, {"text": "Câu đã sửa", "start_ms": 0, "end_ms": 1000})
+    )
+    assert again["cueIds"] == [17] and companion.repo.current("7001", 1)[1] == saved
+
+
+async def test_an_edit_that_leaves_the_voice_in_sync_is_saved_without_a_revoice(companion):
+    dispatch = BatchDispatch()
+    service = Service(companion.repo, dispatch)
+    cue = service.project("7001", 1)["cues"][0]
+    same = {"text": cue["text_vi"], "start_ms": cue["start_ms"], "end_ms": cue["end_ms"]}
+    result = await service.save_and_revoice("7001", 1, batch(service, same))
+    assert result["status"] == "saved" and result["cueIds"] == [] and not dispatch.started
+
+
+async def test_a_refused_edit_saves_nothing_of_the_batch(companion):
+    service = Service(companion.repo, BatchDispatch())
+    before = companion.repo.current("7001", 1)[1]
+    with pytest.raises(ValueError):
+        await service.save_and_revoice(
+            "7001", 1, batch(service, {"text": "Quá dài", "start_ms": 0, "end_ms": 10**9})
+        )
+    assert companion.repo.current("7001", 1)[1] == before

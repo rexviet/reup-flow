@@ -20,6 +20,7 @@ from localization.activities.assemble_audio import (
     check_length,
     music_gain_db,
     parse_loudnorm,
+    render,
 )
 from localization.activities.script_document import read_script
 from localization.contracts import (
@@ -28,6 +29,7 @@ from localization.contracts import (
     DubSegmentsDocument,
     IngestResult,
     LocalizedScriptRef,
+    MixLevels,
 )
 from localization.providers.errors import PermanentProviderError
 from localization.storage.object_store import ObjectStore, tts_cache_key, work_key
@@ -555,3 +557,59 @@ def test_the_offset_is_added_to_the_balance_and_the_sum_is_held_within_bounds(
     balance, offset, total
 ) -> None:
     assert music_gain_db(balance, offset) == total
+
+
+# --- reusing a full mix's levels ----------------------------------------------------
+
+
+def _render(tmp_path: Path, name: str, clicks: bool, levels: MixLevels | None = None):
+    """A mix of music and two lines; `clicks` makes the second a train of loud clicks."""
+    music = tmp_path / "music.wav"
+    music.write_bytes(make_wav(VIDEO_MS / 1000, frequency=MUSIC_HZ, amplitude=0.3))
+    first, second = tmp_path / "first.wav", tmp_path / f"second-{clicks}.wav"
+    first.write_bytes(make_wav(2.0, frequency=VOICE_HZ, amplitude=0.25))
+    second.write_bytes(make_clicks(2.0) if clicks else make_wav(2.0, frequency=VOICE_HZ))
+    work, out = tmp_path / name, tmp_path / f"{name}.wav"
+    work.mkdir()
+    made = render(
+        bgm=music,
+        clips=[first, second],
+        placements=[(1000, 1.0), (4500, 1.0)],
+        duration_ms=VIDEO_MS,
+        out=out,
+        work=work,
+        target=LOUDNESS,
+        peak=PEAK,
+        levels=levels,
+    )
+    return made, out
+
+
+def test_a_full_mix_reports_the_levels_it_was_made_with(tmp_path: Path) -> None:
+    levels, out = _render(tmp_path, "full", clicks=False)
+    assert levels.loudness_gain_db is not None
+    assert integrated_lufs(out) == pytest.approx(LOUDNESS, abs=1.0)
+
+
+def test_a_remix_with_the_levels_sounds_as_a_full_mix_of_it_would(tmp_path: Path) -> None:
+    """A revoice changes a line and reuses the project's levels instead of measuring the
+    whole track again: it is as loud as measuring would make it, and as long."""
+    levels, _ = _render(tmp_path, "first", clicks=False)
+    reused, out = _render(tmp_path, "reused", clicks=False, levels=levels)
+    _, fresh = _render(tmp_path, "fresh", clicks=False)
+    assert reused == levels
+    assert integrated_lufs(out) == pytest.approx(integrated_lufs(fresh), abs=0.5)
+    assert len(decode(out)) == len(decode(fresh))
+
+
+def test_a_remix_with_the_levels_stays_under_the_true_peak_ceiling(tmp_path: Path) -> None:
+    """The line changed to something far peakier than the levels were measured on: the
+    limiter, not a new measurement, holds the ceiling."""
+    levels, _ = _render(tmp_path, "first", clicks=False)
+    _, out = _render(tmp_path, "peaky", clicks=True, levels=levels)
+    assert true_peak_dbtp(out) <= PEAK + 0.3
+
+
+async def test_the_dubbed_track_carries_the_levels_it_was_mixed_with(store) -> None:
+    result, _ = await assemble(store, [(1000, 2.0, 1.0)])
+    assert result.levels is not None and result.levels.loudness_gain_db is not None

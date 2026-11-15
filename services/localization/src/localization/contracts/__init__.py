@@ -100,6 +100,7 @@ __all__ = [
 
 from localization.contracts.collection import DEFAULT_CAPTION_COLOR, CollectionSnapshot
 from localization.contracts.review_project import (
+    MixLevels,
     ProjectRef,
     ReviewAsset,
     ReviewCue,
@@ -109,6 +110,13 @@ from localization.contracts.review_project import (
 )
 
 __all__ += [
-    "ProjectRef", "ReviewAsset", "ReviewCue", "ReviewHead",
-    "ReviewProjectManifest", "SourceSnapshot", "DEFAULT_CAPTION_COLOR", "CollectionSnapshot",
+    "MixLevels",
+    "ProjectRef",
+    "ReviewAsset",
+    "ReviewCue",
+    "ReviewHead",
+    "ReviewProjectManifest",
+    "SourceSnapshot",
+    "DEFAULT_CAPTION_COLOR",
+    "CollectionSnapshot",
 ]

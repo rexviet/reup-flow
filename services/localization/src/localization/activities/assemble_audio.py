@@ -30,6 +30,7 @@ from localization.contracts import (
     IngestResult,
     LocalizationInput,
     LocalizedScriptRef,
+    MixLevels,
 )
 from localization.observability.tracing import tag_session
 from localization.providers.errors import PermanentProviderError
@@ -54,6 +55,9 @@ VOICE_UNDER_MUSIC_DB = -0.5
 BALANCE_TOLERANCE_DB = 0.1
 BALANCE_ROUNDS = 6
 MAX_MUSIC_GAIN_DB = 24.0
+# A remix that reuses a full mix's levels holds its peaks this far under the true-peak
+# target: its limiter holds sample peaks, and the true peak can sit a little above them.
+REUSED_PEAK_MARGIN_DB = 1.0
 # The original vocals of a sung segment fade in and out over this long at its edges.
 KEEP_FADE_S = 0.06
 
@@ -270,21 +274,28 @@ def render(
     kept: list[tuple[int, int]] | None = None,
     under: float = 0.0,
     music_offset_db: float = 0.0,
-) -> None:
+    levels: MixLevels | None = None,
+) -> MixLevels:
     """`vocals` is the original vocals, laid back in over the `kept` spans and, when
     `under` is above 0, quietly under the dubbed voice everywhere else.
     `music_offset_db` (the collection's setting) moves the music from where the
-    balance puts it, also when nothing is spoken and the balance gives 0."""
+    balance puts it, also when nothing is spoken and the balance gives 0.
+
+    Returns the levels the mix was made with. Given `levels` from an earlier full mix of
+    the same project, the music is set and the loudness reached as that mix did, without
+    measuring the track again: a remix that changes a line or two is a single pass."""
     if kept and vocals is None:
         raise ValueError("kept spans need the original vocals")
     if vocals is None:
         under = 0.0
-    music_gain = music_gain_db(
-        balance_music_gain(
+    balance = (
+        levels.music_balance_db
+        if levels is not None
+        else balance_music_gain(
             bgm=bgm, clips=clips, placements=placements, duration_ms=duration_ms, work=work
-        ),
-        music_offset_db,
+        )
     )
+    music_gain = music_gain_db(balance, music_offset_db)
     graph = work / "graph.txt"
     graph.write_text(build_filter_graph(placements, duration_ms, kept, under, music_gain))
     mixed = work / "mix.wav"
@@ -303,11 +314,21 @@ def render(
             str(mixed),
         ]
     )
+    if levels is not None and levels.loudness_gain_db is not None:
+        limit = 10 ** ((peak - REUSED_PEAK_MARGIN_DB) / 20)
+        reuse = (
+            f"volume={levels.loudness_gain_db:.3f}dB,"
+            f"alimiter=limit={limit:.4f}:level=false:latency=true"
+        )
+        run_ffmpeg(
+            ["-i", str(mixed), "-af", reuse, "-ar", str(SAMPLE_RATE), "-c:a", "pcm_s16le", str(out)]
+        )
+        return levels
     measured = measure_loudness(mixed, target, peak)
     if measured["input_i"] in ("-inf", "inf") or measured["input_thresh"] in ("-inf", "inf"):
         if allow_silence:
             run_ffmpeg(["-i", str(mixed), "-ar", str(SAMPLE_RATE), "-c:a", "pcm_s16le", str(out)])
-            return
+            return MixLevels(music_balance_db=balance, loudness_gain_db=None)
         raise ApplicationError("the mixed track is silent", type="SilentAudio", non_retryable=True)
     normalise = (
         f"{_loudnorm(target, peak)}:measured_I={measured['input_i']}"
@@ -318,6 +339,7 @@ def render(
     run_ffmpeg(
         ["-i", str(mixed), "-af", normalise, "-ar", str(SAMPLE_RATE), "-c:a", "pcm_s16le", str(out)]
     )
+    return MixLevels(music_balance_db=balance, loudness_gain_db=target - float(measured["input_i"]))
 
 
 def check_length(path: Path, duration_ms: int) -> None:
@@ -385,7 +407,7 @@ class AssembleAudioActivity:
         root = Path(tempfile.mkdtemp(prefix="assemble-"))
         try:
             offset = spec.collection.bgm_offset_db if spec.collection else None
-            digest = await run_blocking(
+            digest, levels = await run_blocking(
                 self._build, root, doc, starts, ingest, out_key, kept, offset or 0.0
             )
         finally:
@@ -396,6 +418,7 @@ class AssembleAudioActivity:
             script_key=script.script_key,
             script_version=script.version,
             segments_key=segments_key,
+            levels=levels,
         )
 
     def _build(
@@ -407,7 +430,7 @@ class AssembleAudioActivity:
         out_key: str,
         kept: list[tuple[int, int]] | None = None,
         music_offset_db: float = 0.0,
-    ) -> str:
+    ) -> tuple[str, MixLevels]:
         bgm = root / "bgm.wav"
         omitted = any(s.status == "unresolved" for s in doc.segments)
         try:
@@ -453,7 +476,7 @@ class AssembleAudioActivity:
                     raise
                 vocals = None
         out = root / "dubbed.wav"
-        render(
+        levels = render(
             bgm=bgm,
             clips=clips,
             placements=placements,
@@ -472,4 +495,4 @@ class AssembleAudioActivity:
         check_length(out, ingest.duration_ms)
         digest = hashlib.sha256(out.read_bytes()).hexdigest()
         self._store.put_file(out_key, out, content_type="audio/wav")
-        return digest
+        return digest, levels

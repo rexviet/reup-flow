@@ -129,6 +129,18 @@ iframe {
   position: sticky;
   top: var(--space-4);
 }
+.batch {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.batch p {
+  margin: 0;
+}
+.cue.edited {
+  border-color: var(--accent);
+}
 .preview p,
 .spoken,
 .reason {

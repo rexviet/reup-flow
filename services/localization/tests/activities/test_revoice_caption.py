@@ -7,7 +7,7 @@ from localization.activities.ffmpeg import probe_duration_ms
 from localization.review_bridge.models import SaveCue
 from localization.storage.object_store import ObjectStore
 from tests.support.audio import RATE, db, decode, level, tone_span_ms
-from tests.support.revoice import MUSIC_HZ, audio_project, reserve
+from tests.support.revoice import MUSIC_HZ, VOCALS_HZ, audio_project, reserve
 
 
 @pytest.mark.parametrize("blank", [False, True])
@@ -259,3 +259,71 @@ async def test_revoicing_a_line_keeps_the_collection_music_offset(review_store, 
     plain = await _revoiced_music_against_voice(plain_store, tmp_path / "plain", None)
     quieter = await _revoiced_music_against_voice(review_store, tmp_path / "offset", -6.0)
     assert quieter - plain == pytest.approx(-6.0, abs=1.0)
+
+
+async def _revoiced_original_voice(store, tmp_path, vocals) -> float:
+    """Revoice the first line of a project with music, and measure the original voice
+    against the music where nobody speaks."""
+    tmp_path.mkdir()
+    service, acts, _ = audio_project(store, tmp_path, music=0.25, vocals=vocals, under=0.25)
+    key = reserve(service)
+    env = ActivityEnvironment()
+    candidate = await env.run(acts.mix, key, await env.run(acts.synthesize, key))
+    assert (await env.run(acts.commit, key, candidate))["status"] == "completed"
+    current = service.repo.current("7001", 1)[1]
+    path = tmp_path / "revoiced.wav"
+    path.write_bytes(service.repo.read_asset(current.mixed_audio))
+    samples = decode(path)
+    return level(samples, 1100, 1350, VOCALS_HZ) / level(samples, 1100, 1350, MUSIC_HZ)
+
+
+async def test_revoicing_a_line_keeps_the_original_voice_under_the_dub(review_store, tmp_path):
+    """The first mix lays the original voice quietly under the dub; a revoice must too,
+    or the project loses it from the first line edited in Studio on."""
+    kept = await _revoiced_original_voice(review_store, tmp_path / "voice", 0.25)
+    # Heard under the music, which the mix balances against the voices on its own.
+    assert db(kept) > -25
+
+
+async def test_a_project_without_its_vocals_is_revoiced_without_them(review_store, tmp_path):
+    assert await _revoiced_original_voice(review_store, tmp_path / "none", None) < 0.01
+
+
+async def test_a_revoice_measures_once_and_then_reuses_the_levels(
+    review_store, tmp_path, monkeypatch
+):
+    """A project without levels is measured on its first revoice and keeps them; a
+    revoice of a project with levels mixes with them and measures nothing."""
+    import localization.activities.assemble_audio as assemble
+
+    service, acts, _ = audio_project(review_store, tmp_path, music=0.25)
+    assert service.repo.current("7001", 1)[1].mix_levels is None
+    env = ActivityEnvironment()
+    key = reserve(service)
+    candidate = await env.run(acts.mix, key, await env.run(acts.synthesize, key))
+    assert (await env.run(acts.commit, key, candidate))["status"] == "completed"
+    levels = service.repo.current("7001", 1)[1].mix_levels
+    assert levels is not None and levels.loudness_gain_db is not None
+
+    def measured(*_, **__):
+        raise AssertionError("a revoice with levels must not measure the track")
+
+    monkeypatch.setattr(assemble, "balance_music_gain", measured)
+    monkeypatch.setattr(assemble, "measure_loudness", measured)
+    state = service.project("7001", 1)
+    service.save(
+        "7001",
+        1,
+        17,
+        SaveCue(
+            expectedRevision=state["revision"],
+            headETag=state["headETag"],
+            text="Giọng khác",
+            start_ms=0,
+            end_ms=1000,
+        ),
+    )
+    key = reserve(service, "revoice-test-654321")
+    candidate = await env.run(acts.mix, key, await env.run(acts.synthesize, key))
+    assert (await env.run(acts.commit, key, candidate))["status"] == "completed"
+    assert service.repo.current("7001", 1)[1].mix_levels == levels

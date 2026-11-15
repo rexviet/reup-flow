@@ -34,6 +34,33 @@
       "title": "BBox",
       "type": "object"
     },
+    "MixLevels": {
+      "additionalProperties": false,
+      "description": "What a full mix measured, so a remix of the same project can reuse it instead of\nmeasuring the whole track again: the music's balance against the voice (dB, before\nthe collection's offset) and the gain that brought the mix to the target loudness\n(None when the mix was silent).",
+      "properties": {
+        "loudness_gain_db": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Loudness Gain Db"
+        },
+        "music_balance_db": {
+          "title": "Music Balance Db",
+          "type": "number"
+        }
+      },
+      "required": [
+        "music_balance_db",
+        "loudness_gain_db"
+      ],
+      "title": "MixLevels",
+      "type": "object"
+    },
     "OpenAICompatSettings": {
       "additionalProperties": false,
       "properties": {
@@ -468,6 +495,17 @@
     "html": {
       "$ref": "#/$defs/ReviewAsset"
     },
+    "mix_levels": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MixLevels"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "mixed_audio": {
       "$ref": "#/$defs/ReviewAsset"
     },
@@ -568,6 +606,17 @@
     },
     "video": {
       "$ref": "#/$defs/ReviewAsset"
+    },
+    "vocals": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ReviewAsset"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "voice": {
       "$ref": "#/$defs/VoiceRef"

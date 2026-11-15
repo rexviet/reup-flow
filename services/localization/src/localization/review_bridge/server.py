@@ -17,7 +17,7 @@ from starlette.responses import FileResponse, JSONResponse, Response
 from starlette.routing import Route
 
 from localization.review_bridge.auth import Auth, Unauthorized
-from localization.review_bridge.models import RevoiceCue, SaveCue
+from localization.review_bridge.models import RevoiceCue, SaveAndRevoice, SaveCue
 from localization.review_bridge.repository import Conflict, Repository
 from localization.review_bridge.service import QueueFull, Service
 from localization.review_bridge.settings import BridgeSettings
@@ -33,15 +33,17 @@ CSP = (
 )
 COOKIE = "review_session"
 MAX_BODY = 32_768
+# Every edited line of a project, saved and revoiced at once.
+BATCH_BODY = 1_048_576
 
 
-async def body(request):
+async def body(request, limit=None):
     if request.headers.get("content-type", "").split(";")[0] != "application/json":
         raise ValueError("JSON body required")
     content = bytearray()
     async for chunk in request.stream():
         content.extend(chunk)
-        if len(content) > MAX_BODY:
+        if len(content) > (limit or MAX_BODY):
             return None
     return json.loads(content)
 
@@ -166,6 +168,14 @@ def create_app(service=None, auth=None):
             await request.app.state.service.revoice(*identity(request), command), status_code=202
         )
 
+    async def save_and_revoice(request):
+        data = await body(request, BATCH_BODY)
+        if data is None:
+            return JSONResponse({"error": "Body too large"}, status_code=413)
+        command = SaveAndRevoice.model_validate(data)
+        result = await request.app.state.service.save_and_revoice(*identity(request), command)
+        return JSONResponse(result, status_code=202 if result["status"] == "accepted" else 200)
+
     async def job(request):
         return JSONResponse(
             await request.app.state.service.job(
@@ -267,6 +277,7 @@ addEventListener('resize',fitPreview);fitPreview();
             Route("/api/cues/{cue:int}", save, methods=["PUT"]),
             Route("/api/srt", srt),
             Route("/api/revoice", revoice, methods=["POST"]),
+            Route("/api/revoice-batch", save_and_revoice, methods=["POST"]),
             Route("/api/jobs/{request_id}", job),
             Route("/api/refresh", refresh, methods=["POST"]),
             Route("/preview", preview),

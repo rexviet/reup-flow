@@ -81,7 +81,7 @@ from localization.providers.tts_router import ConfiguredVoices, TtsByProvider
 from localization.storage.object_store import ObjectStore
 from localization.temporal.client import connect
 from localization.workers.health import VoiceStudioHealth
-from localization.workflows.revoice_caption import RevoiceCaptionWorkflow
+from localization.workflows.revoice_caption import RevoiceBatchWorkflow, RevoiceCaptionWorkflow
 from localization.workflows.vbee_dubbing import VbeeDubbingWorkflow
 from localization.workflows.video_localization import (
     INGEST_QUEUE,
@@ -156,7 +156,10 @@ def queue_specs(
         )
         render = RenderActivity(store, font_path=settings.caption_font_path)
         revoice = RevoiceActivities(
-            store, target=settings.loudness_lufs, peak=settings.true_peak_dbtp
+            store,
+            target=settings.loudness_lufs,
+            peak=settings.true_peak_dbtp,
+            original_voice_gain=settings.original_voice_gain,
         )
         return [
             QueueSpec(
@@ -167,6 +170,7 @@ def queue_specs(
                     assemble_audio.assemble_audio,
                     layout.layout_captions,
                     revoice.mix,
+                    revoice.mix_batch,
                 ],
             ),
             # Its own queue and limit: a render does not wait behind separations, and
@@ -267,7 +271,12 @@ def queue_specs(
         return [
             QueueSpec(
                 "workflows",
-                workflows=[VideoLocalizationWorkflow, VbeeDubbingWorkflow, RevoiceCaptionWorkflow],
+                workflows=[
+                    VideoLocalizationWorkflow,
+                    VbeeDubbingWorkflow,
+                    RevoiceCaptionWorkflow,
+                    RevoiceBatchWorkflow,
+                ],
             ),
             # The Reviewer's model requests are made inside `review_before_render` and
             # `review_render`, which is why they live here and not on a queue of their own;
@@ -305,6 +314,7 @@ def queue_specs(
                     project.capture_review_source,
                     project.build_review_project,
                     revoice.commit,
+                    revoice.commit_batch,
                     revoice.failed,
                     # The Vbee dubbing workflow's steps that are not shared with the other.
                     PlanSlotsActivity(store).plan_slots,
@@ -334,6 +344,7 @@ def queue_specs(
                     voice_rate.voice_rate,
                     synthesis.synthesize_segments,
                     revoice.synthesize,
+                    revoice.synthesize_cue,
                 ],
                 plugins=agents,
             ),

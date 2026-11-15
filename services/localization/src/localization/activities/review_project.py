@@ -342,6 +342,11 @@ class ReviewProjectActivity:
                     raise
                 # The assembler already emitted BGM or silence with no spoken clips.
                 bgm = mixed
+            try:
+                vocals = copy_asset(ingest.vocals_key, ".wav", "ingest")
+            except ArtifactMissingError:
+                # A revoice then mixes without the original voice, as before.
+                vocals = None
             font = asset_file(Path(self._font_path), ".ttf")
             by_id = {s.id: s for s in doc.segments}
             spans = {
@@ -401,6 +406,8 @@ class ReviewProjectActivity:
                 video=video,
                 mixed_audio=mixed,
                 bgm=bgm,
+                vocals=vocals,
+                mix_levels=dub.levels,
                 font=font,
                 script=asset_bytes(script.model_dump_json().encode(), ".json"),
                 dub=asset_bytes(

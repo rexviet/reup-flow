@@ -11,6 +11,8 @@ from tests.support.tts_fakes import make_wav
 # The project's music, apart from the voices (440 Hz for the revoiced line, 220 Hz for
 # the others).
 MUSIC_HZ = 1000
+# The original voice, separated from the music.
+VOCALS_HZ = 3000
 
 
 class CueTts:
@@ -29,10 +31,21 @@ class CueTts:
 
 
 def audio_project(
-    store, tmp_path, *, duration=1.1, blank=False, fail=False, music=0.0, settings=None
+    store,
+    tmp_path,
+    *,
+    duration=1.1,
+    blank=False,
+    fail=False,
+    music=0.0,
+    settings=None,
+    vocals=None,
+    under=0.0,
 ):
     """`music`: the amplitude of the project's music (silent by default). `settings`:
-    collection settings the manifest carries, as `build_review_project` writes them."""
+    collection settings the manifest carries, as `build_review_project` writes them.
+    `vocals`: the amplitude of the project's original vocals (none by default), mixed
+    back at `under` of their level."""
     builder, spec, dub, ingest, subs = project_inputs(
         store, tmp_path, text="" if blank else "Xin chào"
     )
@@ -63,7 +76,11 @@ def audio_project(
         }
     )
     bgm = make_wav(2, frequency=MUSIC_HZ, amplitude=music)
-    base = base.model_copy(update={"bgm": repo.asset(base, bgm, ".wav"), **(settings or {})})
+    update = {"bgm": repo.asset(base, bgm, ".wav"), **(settings or {})}
+    if vocals is not None:
+        voice = make_wav(2, frequency=VOCALS_HZ, amplitude=vocals)
+        update["vocals"] = repo.asset(base, voice, ".wav")
+    base = base.model_copy(update=update)
     prepared = repo.prepare(base, (original, second), {})
     repo.activate(prepared, etag)
     repo.materialize("7001", 1)
@@ -82,7 +99,9 @@ def audio_project(
         ),
     )
     provider = CueTts(duration=duration, fail=fail)
-    activities = RevoiceActivities(store, Synthesizer(store, provider, model="tts-model"))
+    activities = RevoiceActivities(
+        store, Synthesizer(store, provider, model="tts-model"), original_voice_gain=under
+    )
     return service, activities, provider
 
 
