@@ -274,4 +274,15 @@ describe('CollectionsPanel settings', () => {
     expect(client.getGlossary).toHaveBeenCalledWith(COLLECTION_ID);
     expect(within(screen.getByRole('tabpanel')).getByLabelText('Lọc thuật ngữ')).toBeInTheDocument();
   });
+
+  it('has a Watermark tab that lists the collection\'s images and cuts new ones', async () => {
+    vi.mocked(client.listWatermarks).mockResolvedValue({ items: [] });
+    await openEditor();
+    await userEvent.click(screen.getByRole('tab', { name: 'Watermark' }));
+    await flush();
+    expect(client.listWatermarks).toHaveBeenCalledWith(COLLECTION_ID);
+    const panel = within(screen.getByRole('tabpanel'));
+    expect(panel.getByLabelText('Video để cắt ảnh watermark')).toBeInTheDocument();
+    expect(panel.getByText('Ảnh mẫu (0/10)')).toBeInTheDocument();
+  });
 });

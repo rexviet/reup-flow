@@ -33,6 +33,13 @@ export default [
         HTMLVideoElement: 'readonly',
         HTMLDialogElement: 'readonly',
         URLSearchParams: 'readonly',
+        URL: 'readonly',
+        Blob: 'readonly',
+        MouseEvent: 'readonly',
+        File: 'readonly',
+        ImageBitmap: 'readonly',
+        createImageBitmap: 'readonly',
+        CanvasRenderingContext2D: 'readonly',
       },
     },
     plugins: {
@@ -52,6 +59,9 @@ export default [
       globals: {
         global: 'readonly',
         ResponseInit: 'readonly',
+        HTMLMediaElement: 'readonly',
+        HTMLCanvasElement: 'readonly',
+        CanvasRenderingContext2D: 'readonly',
       },
     },
   },

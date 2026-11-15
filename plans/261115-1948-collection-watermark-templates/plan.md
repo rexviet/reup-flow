@@ -1,6 +1,6 @@
 # Collection watermark templates
 
-Status: phase 1 done (uncommitted), phases 2–5 not started · Branch: `feat/localization-dubber-code-mode`
+Status: phase 1 committed and migrated; phase 2 built with file upload (uncommitted, both migrations applied, nest/web rebuilt); phases 3–5 not started · Branch: `feat/localization-dubber-code-mode`
 
 ## Outcome
 A collection holds zero to a few watermark images, each cut by a person as a region on a frame
@@ -66,6 +66,10 @@ Deleting an image or its collection removes the object after the commit (best ef
   must give exactly `w`×`h`; the video must belong to the collection; at most 10 images (409).
   Needs `STORAGE_BACKEND=s3` (503 otherwise), since the worker reads the image from S3.
 - `DELETE /api/collections/:id/watermarks/:watermarkId` → 204.
+- Uploaded files (`261115-collection-watermark-uploads.sql`): an image can also be a file from
+  the admin's machine, sent without `aweme_id`, `time_ms`, `x`, `y` (all four or none, CHECK).
+  The browser re-encodes JPEG/WebP to PNG at its own size; `frame_width`/`frame_height` start
+  as the collection video's size and can be typed. The matcher only needs `frame_height`.
 
 ### Pipeline contracts (localization)
 - `WatermarkTemplate { key, sha256, frame_height }`; `CollectionSnapshot.watermarks:
@@ -84,12 +88,14 @@ Deleting an image or its collection removes the object after the commit (best ef
 | # | Phase | Owner files | Depends |
 |---|---|---|---|
 | 1 | Schema + API — **done** | migration (+ down), `db/schema.ts`, `collections/collection-watermarks.ts`, controller/schemas/module, collection delete cleanup, `scripts/apply-migrations.sh`, `scripts/migration-evidence.sql`, `scripts/tests/apply-migrations.test.sh` | — |
-| 2 | Dashboard picker | web `api/client.ts`, `api/types.ts`, new `WatermarkPicker.tsx`, `CollectionsPanel.tsx` | 1 |
+| 2 | Dashboard picker — **built** | web `api/client.ts`, `api/types.ts`, new `WatermarkPicker.tsx`, `CollectionsPanel.tsx` | 1 |
 | 3 | Matcher + pipeline | `watermarks/template_match.py`, `activities/detect_watermarks.py`, starter `VIDEO_SQL` + snapshot, workflow call behind `workflow.patched`, worker registration, `pyproject.toml` | contract |
 | 4 | Existing videos | `review_worker/watermark_relayout.py`, scan loop wiring, `repository.prepare` (watermarks argument) | 3, 1 (grant) |
 | 5 | Deploy + check | rebuild web/downloader/workers, host worker deps; check 7680110974204365681 (left and right) and 7704493353806728448 (intermittent) | 1–4 |
 
 ### Phase 2 detail
+Built as a "Watermark" tab of the collection dialog (`WatermarkPicker.tsx`); the region is cut at
+the video's own resolution (`videoWidth`×`videoHeight`), which is the `frame_width`/`frame_height` sent.
 In the collection dialog, a "Watermark" section: the collection's preview video (the existing
 `cover-preview` source link), a scrubber to reach a moment where the watermark shows, drag a box
 on the frame, "Lưu ảnh mẫu" crops that box from the paused frame on a canvas (the media link is

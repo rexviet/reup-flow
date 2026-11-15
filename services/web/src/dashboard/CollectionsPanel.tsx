@@ -5,6 +5,7 @@ import { Modal } from '../components/Modal';
 import { CollectionGlossary } from './CollectionGlossary';
 import { useConfirm } from './ConfirmDialog';
 import { CoverPreview } from './CoverPreview';
+import { WatermarkPicker } from './WatermarkPicker';
 import { COLLECTION_KIND_LABELS, fieldErrorsOf, SAVE_ROOT_LABEL } from './format';
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -204,22 +205,39 @@ export function CollectionsPanel({ collections, error = null, onChanged, activeI
   );
 }
 
+type Tab = 'settings' | 'glossary' | 'watermark';
+const TABS: ReadonlyArray<[Tab, string]> = [
+  ['settings', 'Setting'],
+  ['glossary', 'Glossary'],
+  ['watermark', 'Watermark'],
+];
+
 /** Opens over the page where the admin is, so a long list never pushes it out of sight. */
 function CollectionEditor({ collection, onSaved, onClose }: { collection: CollectionItem; onSaved: () => void; onClose: () => void }) {
-  const [tab, setTab] = useState<'settings' | 'glossary'>('settings');
+  const [tab, setTab] = useState<Tab>('settings');
   const tabClass = (on: boolean) => `btn ${on ? 'btn-neutral' : 'btn-ghost'}`;
   return (
     <Modal title={`Sửa «${collection.name}»`} onClose={onClose}>
       <div role="tablist" aria-label="Phần cần sửa" className="flex gap-1.5">
-        <button type="button" role="tab" id="tab-settings" aria-selected={tab === 'settings'} aria-controls="panel-collection" onClick={() => setTab('settings')} className={tabClass(tab === 'settings')}>
-          Setting
-        </button>
-        <button type="button" role="tab" id="tab-glossary" aria-selected={tab === 'glossary'} aria-controls="panel-collection" onClick={() => setTab('glossary')} className={tabClass(tab === 'glossary')}>
-          Glossary
-        </button>
+        {TABS.map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            id={`tab-${id}`}
+            aria-selected={tab === id}
+            aria-controls="panel-collection"
+            onClick={() => setTab(id)}
+            className={tabClass(tab === id)}
+          >
+            {label}
+          </button>
+        ))}
       </div>
-      <div role="tabpanel" id="panel-collection" aria-labelledby={tab === 'settings' ? 'tab-settings' : 'tab-glossary'}>
-        {tab === 'settings' ? <SettingsForm collection={collection} onSaved={onSaved} /> : <CollectionGlossary collectionId={collection.id} />}
+      <div role="tabpanel" id="panel-collection" aria-labelledby={`tab-${tab}`}>
+        {tab === 'settings' ? <SettingsForm collection={collection} onSaved={onSaved} /> : null}
+        {tab === 'glossary' ? <CollectionGlossary collectionId={collection.id} /> : null}
+        {tab === 'watermark' ? <WatermarkPicker collectionId={collection.id} /> : null}
       </div>
     </Modal>
   );
