@@ -131,6 +131,9 @@ BEGIN
       'public.collection_watermarks_pkey','public.collection_watermarks_collection_idx',
       'public.collection_watermarks@collection_watermarks_image_key_key',
       'public.collection_watermarks@collection_watermarks_region_check'];
+    WHEN '261115-collection-watermark-uploads.sql' THEN
+      -- Only drops NOT NULL and replaces a check, both idempotent in effect; apply it.
+      RETURN false;
     WHEN '261115-outbox-bypass-skips-grant.sql' THEN
       -- Idempotent grants are safe to actually apply, never infer them from tables.
       RETURN false;

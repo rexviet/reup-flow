@@ -106,25 +106,30 @@ const MAX_TIME_MS = 24 * 60 * 60 * 1000;
 const pixels = z.coerce.number().int().min(0).max(16_384);
 
 /**
- * `POST /api/collections/:id/watermarks` query: where the PNG in the body was cut.
- * The body is the PNG itself (`Content-Type: image/png`), `w`×`h` pixels of a
- * `frame_width`×`frame_height` frame of `aweme_id` at `time_ms`. Matches the CHECK
- * constraints of migrations/261115-collection-watermarks.sql.
+ * `POST /api/collections/:id/watermarks` query. The body is the PNG itself
+ * (`Content-Type: image/png`), `w`×`h` pixels belonging to a `frame_width`×`frame_height`
+ * frame. A region cut on the dashboard also says where (`aweme_id`, `time_ms`, `x`, `y`);
+ * an uploaded file sends none of the four. Matches the CHECK constraints of
+ * migrations/261115-collection-watermarks.sql and 261115-collection-watermark-uploads.sql.
  */
 export const watermarkMetaSchema = z
   .object({
-    aweme_id: z.string().regex(/^\d{1,32}$/, 'must be a video id'),
-    time_ms: z.coerce.number().int().min(0).max(MAX_TIME_MS),
+    aweme_id: z.string().regex(/^\d{1,32}$/, 'must be a video id').optional(),
+    time_ms: z.coerce.number().int().min(0).max(MAX_TIME_MS).optional(),
     frame_width: pixels.refine((v) => v > 0, 'must be positive'),
     frame_height: pixels.refine((v) => v > 0, 'must be positive'),
-    x: pixels,
-    y: pixels,
+    x: pixels.optional(),
+    y: pixels.optional(),
     w: pixels.refine((v) => v >= 8, 'must be at least 8'),
     h: pixels.refine((v) => v >= 8, 'must be at least 8'),
   })
   .strict()
-  .refine((m) => m.x + m.w <= m.frame_width && m.y + m.h <= m.frame_height, {
-    message: 'the region must lie inside the frame',
+  .refine((m) => [m.aweme_id, m.time_ms, m.x, m.y].filter((v) => v === undefined).length % 4 === 0, {
+    message: 'aweme_id, time_ms, x and y go together: all for a cut region, none for an uploaded file',
+    path: ['aweme_id'],
+  })
+  .refine((m) => (m.x ?? 0) + m.w <= m.frame_width && (m.y ?? 0) + m.h <= m.frame_height, {
+    message: 'the image must lie inside the frame',
     path: ['w'],
   });
 export type WatermarkMeta = z.infer<typeof watermarkMetaSchema>;

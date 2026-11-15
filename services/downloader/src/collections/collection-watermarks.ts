@@ -36,10 +36,11 @@ export interface WatermarkView {
   image_sha256: string;
   frame_width: number;
   frame_height: number;
-  aweme_id: string;
-  time_ms: number;
-  x: number;
-  y: number;
+  /** Where it was cut; all four null for an uploaded file. */
+  aweme_id: string | null;
+  time_ms: number | null;
+  x: number | null;
+  y: number | null;
   w: number;
   h: number;
   created_at: string;
@@ -134,9 +135,10 @@ export class CollectionWatermarksService {
         const { rows } = await client.query<{ count: number; video: boolean }>(
           `SELECT (SELECT count(*)::int FROM collection_watermarks WHERE collection_id = $1) AS count,
                   EXISTS (SELECT 1 FROM videos WHERE aweme_id = $2 AND collection_id = $1) AS video`,
-          [collectionId, meta.aweme_id],
+          [collectionId, meta.aweme_id ?? null],
         );
-        if (!rows[0]!.video) {
+        // A cut names a video of this collection; an uploaded file names none.
+        if (meta.aweme_id !== undefined && !rows[0]!.video) {
           throw new BadRequestException([`aweme_id: video ${meta.aweme_id} is not in this collection`]);
         }
         if (rows[0]!.count >= MAX_WATERMARKS_PER_COLLECTION) {
@@ -157,10 +159,10 @@ export class CollectionWatermarksService {
             sha256,
             meta.frame_width,
             meta.frame_height,
-            meta.aweme_id,
-            meta.time_ms,
-            meta.x,
-            meta.y,
+            meta.aweme_id ?? null,
+            meta.time_ms ?? null,
+            meta.x ?? null,
+            meta.y ?? null,
             meta.w,
             meta.h,
           ],

@@ -776,6 +776,24 @@ describe('collection watermarks', () => {
     expect(await rows(a)).toEqual([]);
   });
 
+  it('stores an uploaded file with no cut position, sized against the frame it belongs to', async () => {
+    const image = png(200, 48);
+    const upload_ = { frame_width: 1080, frame_height: 1920, w: 200, h: 48 };
+    const res = await upload(a, image, upload_);
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ ...upload_, aweme_id: null, time_ms: null, x: null, y: null });
+    const [row] = await rows(a);
+    expect(objects.get(row.image_key)).toEqual(image);
+  });
+
+  it.each([
+    ['only part of the cut position', { frame_width: 1080, frame_height: 1920, w: 200, h: 48, x: 10, y: 10 }],
+    ['an upload larger than its frame', { frame_width: 100, frame_height: 1920, w: 200, h: 48 }],
+  ])('answers 400 for %s', async (_name, meta) => {
+    expect((await upload(a, png(meta.w, meta.h), meta)).status).toBe(400);
+    expect(await rows(a)).toEqual([]);
+  });
+
   it('answers 400 for a video of another collection and 404 for a collection that does not exist', async () => {
     expect((await upload(a, png(200, 48), { ...META, aweme_id: '7002' })).status).toBe(400);
     expect((await upload(MISSING, png(200, 48))).status).toBe(404);

@@ -25,6 +25,7 @@ const MIGRATION_NAMES = [
   '261114-collection-cover-geometry',
   '261115-outbox-bypass-skips',
   '261115-collection-watermarks',
+  '261115-collection-watermark-uploads',
 ];
 export const FORWARD_MIGRATIONS = MIGRATION_NAMES.map((n) => resolve(MIGRATIONS_DIR, `${n}.sql`));
 export const ROLLBACK_MIGRATIONS = MIGRATION_NAMES.map((n) =>

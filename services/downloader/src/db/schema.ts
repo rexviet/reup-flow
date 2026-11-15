@@ -340,8 +340,10 @@ export const folderExports = pgTable(
 /**
  * A watermark image of a collection: a region a person cut from a frame of one of its
  * videos. The localization worker finds each image on a source by template matching
- * and blurs it. Rules (region inside the frame, at least 8×8 px) are CHECK constraints
- * in migrations/261115-collection-watermarks.sql; rows go with their collection.
+ * and blurs it. A row is a region cut on the dashboard or a file uploaded as it is (no cut
+ * position). Rules (inside the frame, at least 8×8 px) are CHECK constraints in
+ * migrations/261115-collection-watermarks.sql and 261115-collection-watermark-uploads.sql;
+ * rows go with their collection.
  */
 export const collectionWatermarks = pgTable(
   'collection_watermarks',
@@ -357,11 +359,11 @@ export const collectionWatermarks = pgTable(
     /** Size of the frame the region was cut from: the image's base scale. */
     frameWidth: integer('frame_width').notNull(),
     frameHeight: integer('frame_height').notNull(),
-    /** Where it was cut, for display and audit. */
-    awemeId: text('aweme_id').notNull(),
-    timeMs: integer('time_ms').notNull(),
-    x: integer('x').notNull(),
-    y: integer('y').notNull(),
+    /** Where it was cut, for display and audit; all four NULL for an uploaded file. */
+    awemeId: text('aweme_id'),
+    timeMs: integer('time_ms'),
+    x: integer('x'),
+    y: integer('y'),
     w: integer('w').notNull(),
     h: integer('h').notNull(),
     createdAt: tstz('created_at').notNull().defaultNow(),
