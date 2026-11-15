@@ -24,6 +24,7 @@ const MIGRATION_NAMES = [
   '261114-collections',
   '261114-collection-cover-geometry',
   '261115-outbox-bypass-skips',
+  '261115-collection-watermarks',
 ];
 export const FORWARD_MIGRATIONS = MIGRATION_NAMES.map((n) => resolve(MIGRATIONS_DIR, `${n}.sql`));
 export const ROLLBACK_MIGRATIONS = MIGRATION_NAMES.map((n) =>
@@ -140,7 +141,7 @@ export async function applyRollbackMigration(pool: Pool): Promise<void> {
 export async function truncateAll(pool: Pool): Promise<void> {
   await pool.query(
     `TRUNCATE videos, jobs, profiles, localization_outbox, review_decisions, publications,
-              studio_open_requests, dashboard_actions, collections, folder_exports
+              studio_open_requests, dashboard_actions, collections, folder_exports, collection_watermarks
               RESTART IDENTITY CASCADE`,
   );
 }

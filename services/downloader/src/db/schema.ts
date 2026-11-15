@@ -337,6 +337,41 @@ export const folderExports = pgTable(
   ],
 );
 
+/**
+ * A watermark image of a collection: a region a person cut from a frame of one of its
+ * videos. The localization worker finds each image on a source by template matching
+ * and blurs it. Rules (region inside the frame, at least 8×8 px) are CHECK constraints
+ * in migrations/261115-collection-watermarks.sql; rows go with their collection.
+ */
+export const collectionWatermarks = pgTable(
+  'collection_watermarks',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    collectionId: uuid('collection_id')
+      .notNull()
+      .references(() => collections.id, { onDelete: 'cascade' }),
+    /** Full object key of the PNG: `source/collections/<collection>/watermarks/<id>.png`. */
+    imageKey: text('image_key').notNull(),
+    /** Hex SHA-256 of the PNG bytes; what a review project records as applied. */
+    imageSha256: text('image_sha256').notNull(),
+    /** Size of the frame the region was cut from: the image's base scale. */
+    frameWidth: integer('frame_width').notNull(),
+    frameHeight: integer('frame_height').notNull(),
+    /** Where it was cut, for display and audit. */
+    awemeId: text('aweme_id').notNull(),
+    timeMs: integer('time_ms').notNull(),
+    x: integer('x').notNull(),
+    y: integer('y').notNull(),
+    w: integer('w').notNull(),
+    h: integer('h').notNull(),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+  },
+  (table) => [
+    unique('collection_watermarks_image_key_key').on(table.imageKey),
+    index('collection_watermarks_collection_idx').on(table.collectionId, table.createdAt, table.id),
+  ],
+);
+
 export type Profile = typeof profiles.$inferSelect;
 export type Job = typeof jobs.$inferSelect;
 export type Video = typeof videos.$inferSelect;

@@ -14,6 +14,7 @@ import type { Pool } from 'pg';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
+  collectionWatermarks,
   collections,
   dashboardActions,
   folderExports,
@@ -51,8 +52,10 @@ const ALL_TABLES = [
   dashboardActions,
   collections,
   folderExports,
+  collectionWatermarks,
 ];
 const EXPECTED_TABLES = [
+  'collection_watermarks',
   'collections',
   'dashboard_actions',
   'folder_exports',
@@ -110,6 +113,7 @@ describe('phase 1: init migration and schema.ts agree', () => {
     ['dashboard_actions', dashboardActions],
     ['collections', collections],
     ['folder_exports', folderExports],
+    ['collection_watermarks', collectionWatermarks],
   ])('%s columns match the migration', (tableName, table) => {
     it('has the same column set, types and nullability in both directions', async () => {
       const { rows } = await pool.query<{
@@ -206,6 +210,7 @@ describe('phase 1: init migration and schema.ts agree', () => {
       videos_collection_recent_idx: '(collection_id, create_time DESC)',
       folder_exports_open_idx: '(id)',
       folder_exports_one_open_idx: '(aweme_id, generation)',
+      collection_watermarks_collection_idx: '(collection_id, created_at, id)',
     };
 
     const { rows } = await pool.query<{ indexname: string; indexdef: string }>(

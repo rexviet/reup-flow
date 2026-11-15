@@ -6,6 +6,7 @@ import {
   type CreateCollectionBody,
   type UpdateCollectionBody,
 } from './collections.schemas';
+import { CollectionWatermarksService } from './collection-watermarks';
 import type { GlossaryTerm } from './glossary-term';
 
 /** What the dashboard sees of one collection. */
@@ -113,7 +114,10 @@ function toTerm(r: Record<string, any>): GlossaryTermView {
  */
 @Injectable()
 export class CollectionsService {
-  constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
+  constructor(
+    @Inject(PG_POOL) private readonly pool: Pool,
+    private readonly watermarks: CollectionWatermarksService,
+  ) {}
 
   async list(): Promise<{ items: CollectionView[] }> {
     const { rows } = await this.pool.query(`${SELECT_COLLECTIONS} ORDER BY c.name, c.id`);
@@ -181,10 +185,13 @@ export class CollectionsService {
    * it can still run (or be retried) and would bring videos in, so it blocks the
    * delete, as does a folder export that names it. The row is locked first, so a
    * video placed or moved in meanwhile waits and then fails on its foreign key.
+   * Its watermark rows go with it (cascade) and their images are removed after the
+   * commit; an image that cannot be removed is only logged.
    */
   async remove(id: string): Promise<void> {
     const client = await this.pool.connect();
     let broken: Error | undefined;
+    let imageKeys: string[] = [];
     try {
       await client.query('BEGIN');
       try {
@@ -202,8 +209,13 @@ export class CollectionsService {
         if (use.exports > 0) throw new ConflictException(`Collection đã có ${use.exports} lượt lưu thư mục, giữ lại để không mất lịch sử.`);
         await client.query(`UPDATE jobs SET collection_id = NULL WHERE collection_id = $1`, [id]);
         await client.query(`DELETE FROM localization.glossary WHERE collection_id = $1`, [id]);
+        const images = await client.query<{ id: string }>(
+          `SELECT id FROM collection_watermarks WHERE collection_id = $1`,
+          [id],
+        );
         await client.query(`DELETE FROM collections WHERE id = $1`, [id]);
         await client.query('COMMIT');
+        imageKeys = CollectionWatermarksService.keysOf(id, images.rows.map((r) => r.id));
       } catch (err) {
         await client.query('ROLLBACK');
         if (isForeignKeyViolation(err)) throw new ConflictException('Collection vừa được dùng, tải lại rồi thử lại.');
@@ -217,6 +229,7 @@ export class CollectionsService {
     } finally {
       client.release(broken);
     }
+    await this.watermarks.discard(imageKeys);
   }
 
   async glossary(collectionId: string): Promise<{ items: GlossaryTermView[] }> {

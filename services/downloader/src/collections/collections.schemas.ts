@@ -98,3 +98,33 @@ export const glossaryBodySchema = z
   .object({ term_vi: z.string().max(1000), note: z.string().max(2000).nullish() })
   .strict();
 export type GlossaryBody = z.infer<typeof glossaryBodySchema>;
+
+export const watermarkParamsSchema = z.object({ id: z.string().uuid(), watermarkId: z.string().uuid() }).strict();
+
+/** The longest source a frame is cut from: 24 hours. */
+const MAX_TIME_MS = 24 * 60 * 60 * 1000;
+const pixels = z.coerce.number().int().min(0).max(16_384);
+
+/**
+ * `POST /api/collections/:id/watermarks` query: where the PNG in the body was cut.
+ * The body is the PNG itself (`Content-Type: image/png`), `w`×`h` pixels of a
+ * `frame_width`×`frame_height` frame of `aweme_id` at `time_ms`. Matches the CHECK
+ * constraints of migrations/261115-collection-watermarks.sql.
+ */
+export const watermarkMetaSchema = z
+  .object({
+    aweme_id: z.string().regex(/^\d{1,32}$/, 'must be a video id'),
+    time_ms: z.coerce.number().int().min(0).max(MAX_TIME_MS),
+    frame_width: pixels.refine((v) => v > 0, 'must be positive'),
+    frame_height: pixels.refine((v) => v > 0, 'must be positive'),
+    x: pixels,
+    y: pixels,
+    w: pixels.refine((v) => v >= 8, 'must be at least 8'),
+    h: pixels.refine((v) => v >= 8, 'must be at least 8'),
+  })
+  .strict()
+  .refine((m) => m.x + m.w <= m.frame_width && m.y + m.h <= m.frame_height, {
+    message: 'the region must lie inside the frame',
+    path: ['w'],
+  });
+export type WatermarkMeta = z.infer<typeof watermarkMetaSchema>;

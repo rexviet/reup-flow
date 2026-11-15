@@ -26,6 +26,7 @@ MIGRATIONS=(
   services/downloader/migrations/261115-outbox-bypass-skips.sql
   services/localization/migrations/261115-outbox-bypass-skips-grant.sql
   services/localization/migrations/261115-final-renders-state-idx.sql
+  services/downloader/migrations/261115-collection-watermarks.sql
 )
 psql_() {
   docker compose exec -T -e MIGRATION_TEST_DATABASE="${MIGRATION_TEST_DATABASE:-}" postgres sh -c \

@@ -11,6 +11,7 @@ import { Readable } from 'node:stream';
 import type { Pool } from 'pg';
 import request from 'supertest';
 import { ApiKeyGuard } from '../../src/auth/api-key.guard';
+import { CollectionWatermarksService } from '../../src/collections/collection-watermarks';
 import { CollectionsController } from '../../src/collections/collections.controller';
 import { CollectionsService } from '../../src/collections/collections.service';
 import { CoverPreviewService } from '../../src/collections/cover-preview';
@@ -19,6 +20,8 @@ import type { Env } from '../../src/config/env';
 import { DashboardMediaService, MEDIA_READER, type MediaReader } from '../../src/dashboard/dashboard.media';
 import { verifyMediaToken } from '../../src/dashboard/media-token';
 import { PG_POOL } from '../../src/db/db.module';
+import type { Storage } from '../../src/storage/storage.interface';
+import { STORAGE } from '../../src/storage/storage.module';
 import { channelCollection } from '../support/collections';
 import { fixedEnv } from '../support/fixed-env';
 import { createScratchDatabase, type ScratchDatabase } from '../support/localization-db';
@@ -39,6 +42,34 @@ const reader: MediaReader = {
   },
 };
 
+/** Writes under the downloader's prefix into the same map, like the S3 backend. */
+let failNextPut = false;
+const storage: Storage = {
+  async put(key: string, stream: NodeJS.ReadableStream) {
+    if (failNextPut) {
+      failNextPut = false;
+      throw new Error('storage down');
+    }
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) chunks.push(Buffer.from(chunk as Buffer));
+    const data = Buffer.concat(chunks);
+    objects.set(`source/${key}`, data);
+    return { path: `s3://${BUCKET}/source/${key}`, bytes: data.length };
+  },
+  async exists(key: string) {
+    return objects.has(`source/${key}`);
+  },
+  async freeBytes() {
+    return Infinity;
+  },
+  async remove(key: string) {
+    objects.delete(`source/${key}`);
+  },
+  async removeStaleTemp() {
+    return [];
+  },
+} as Storage;
+
 let scratch: ScratchDatabase;
 let pool: Pool;
 let app: INestApplication;
@@ -53,6 +84,8 @@ let app: INestApplication;
   providers: [
     CollectionsService,
     CoverPreviewService,
+    CollectionWatermarksService,
+    { provide: STORAGE, useValue: storage },
     { provide: PG_POOL, useFactory: () => pool },
     { provide: MEDIA_READER, useValue: reader },
     {
@@ -80,6 +113,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   objects.clear();
+  failNextPut = false;
   await pool.query(
     `TRUNCATE localization.runs, localization.glossary, folder_exports, dashboard_actions, videos, jobs, collections, profiles
        RESTART IDENTITY CASCADE`,
@@ -120,6 +154,10 @@ describe('API key', () => {
     ['delete', `/api/collections/${MISSING}`],
     ['get', `/api/collections/${MISSING}/glossary`],
     ['get', `/api/collections/${MISSING}/cover-preview`],
+    ['get', `/api/collections/${MISSING}/watermarks`],
+    ['post', `/api/collections/${MISSING}/watermarks`],
+    ['get', `/api/collections/${MISSING}/watermarks/${MISSING}/image`],
+    ['delete', `/api/collections/${MISSING}/watermarks/${MISSING}`],
     ['put', `/api/collections/${MISSING}/glossary/x`],
     ['delete', `/api/collections/${MISSING}/glossary/x`],
   ] as const)('%s %s needs it', async (method, path) => {
@@ -640,5 +678,142 @@ describe('GET /api/collections/:id/cover-preview', () => {
     const head = JSON.parse((objects.get('review/100/g1/head.json') as Buffer).toString());
     objects.set('review/100/g1/head.json', Buffer.from(JSON.stringify({ ...head, manifest_key: `review/999/g1/r${REV}/manifest.json` })));
     expect((await send('get', `/api/collections/${a}/cover-preview`)).status).toBe(502);
+  });
+});
+
+/** The signature and IHDR of a `width`×`height` PNG, plus some bytes: all the API reads of it. */
+function png(width: number, height: number, extra = 64): Buffer {
+  const ihdr = Buffer.alloc(25);
+  ihdr.writeUInt32BE(13, 0);
+  ihdr.write('IHDR', 4, 'latin1');
+  ihdr.writeUInt32BE(width, 8);
+  ihdr.writeUInt32BE(height, 12);
+  ihdr[16] = 8;
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), ihdr, Buffer.alloc(extra, 7)]);
+}
+
+describe('collection watermarks', () => {
+  let a: string;
+  let b: string;
+  const META = { aweme_id: '7001', time_ms: 1500, frame_width: 1080, frame_height: 1920, x: 40, y: 60, w: 200, h: 48 };
+  const upload = (collectionId: string, body: Buffer, meta: Record<string, unknown> = META, type = 'image/png') =>
+    http()
+      .post(`/api/collections/${collectionId}/watermarks`)
+      .query(meta)
+      .set('X-Api-Key', API_KEY)
+      .set('Content-Type', type)
+      .send(body);
+  const rows = async (collectionId: string) =>
+    (await pool.query(`SELECT * FROM collection_watermarks WHERE collection_id = $1 ORDER BY created_at, id`, [collectionId]))
+      .rows;
+
+  beforeEach(async () => {
+    a = await channelCollection(pool, 'chA');
+    b = await channelCollection(pool, 'chB');
+    await video('7001', a);
+    await video('7002', b, 'chB');
+  });
+
+  it('stores the PNG under the downloader prefix and lists it with where it was cut', async () => {
+    const image = png(200, 48);
+    const res = await upload(a, image);
+    expect(res.status).toBe(201);
+    const sha = createHash('sha256').update(image).digest('hex');
+    expect(res.body).toMatchObject({ ...META, image_sha256: sha });
+    const id = res.body.id as string;
+    expect(res.body.image_url).toBe(`/api/collections/${a}/watermarks/${id}/image`);
+
+    const [row] = await rows(a);
+    expect(row.image_key).toBe(`source/collections/${a}/watermarks/${id}.png`);
+    expect(objects.get(row.image_key)).toEqual(image);
+
+    const list = await send('get', `/api/collections/${a}/watermarks`);
+    expect(list.status).toBe(200);
+    expect(list.body.items).toEqual([res.body]);
+    expect((await send('get', `/api/collections/${b}/watermarks`)).body.items).toEqual([]);
+  });
+
+  it('serves the image as PNG behind the API key, only under its own collection', async () => {
+    const image = png(200, 48);
+    const id = (await upload(a, image)).body.id as string;
+    const res = await http()
+      .get(`/api/collections/${a}/watermarks/${id}/image`)
+      .set('X-Api-Key', API_KEY)
+      .buffer(true)
+      .parse((r, done) => {
+        const chunks: Buffer[] = [];
+        r.on('data', (c: Buffer) => chunks.push(c));
+        r.on('end', () => done(null, Buffer.concat(chunks)));
+      });
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toBe('image/png');
+    expect(res.headers['x-content-type-options']).toBe('nosniff');
+    expect(res.body).toEqual(image);
+    expect((await http().get(`/api/collections/${a}/watermarks/${id}/image`)).status).toBe(401);
+    expect((await send('get', `/api/collections/${b}/watermarks/${id}/image`)).status).toBe(404);
+  });
+
+  it('refuses what is not a PNG of the region size, or not image/png, and stores nothing', async () => {
+    expect((await upload(a, Buffer.from('not a png at all, just some text bytes'))).status).toBe(400);
+    expect((await upload(a, png(201, 48))).status).toBe(400);
+    expect((await upload(a, png(200, 48), META, 'application/octet-stream')).status).toBe(415);
+    expect((await upload(a, png(200, 48, 1_000_000))).status).toBe(413);
+    expect(await rows(a)).toEqual([]);
+    expect(objects.size).toBe(0);
+  });
+
+  it.each([
+    ['a region past the right edge', { x: 900, w: 200 }],
+    ['a region past the bottom edge', { y: 1900, h: 48 }],
+    ['a region under 8 px', { w: 7 }],
+    ['a negative time', { time_ms: -1 }],
+    ['a video id that is not one', { aweme_id: '../x' }],
+    ['an unknown field', { generation: 1 }],
+  ])('answers 400 for %s', async (_name, change) => {
+    const meta = { ...META, ...change };
+    const res = await upload(a, png(meta.w, meta.h), meta);
+    expect(res.status).toBe(400);
+    expect(await rows(a)).toEqual([]);
+  });
+
+  it('answers 400 for a video of another collection and 404 for a collection that does not exist', async () => {
+    expect((await upload(a, png(200, 48), { ...META, aweme_id: '7002' })).status).toBe(400);
+    expect((await upload(MISSING, png(200, 48))).status).toBe(404);
+    expect((await send('get', `/api/collections/${MISSING}/watermarks`)).status).toBe(404);
+    expect(objects.size).toBe(0);
+  });
+
+  it('holds at most 10 images per collection', async () => {
+    for (let i = 0; i < 10; i++) expect((await upload(a, png(200, 48))).status).toBe(201);
+    const res = await upload(a, png(200, 48));
+    expect(res.status).toBe(409);
+    expect(await rows(a)).toHaveLength(10);
+    expect(objects.size).toBe(10);
+  });
+
+  it('stores no row when the image cannot be written', async () => {
+    failNextPut = true;
+    expect((await upload(a, png(200, 48))).status).toBe(500);
+    expect(await rows(a)).toEqual([]);
+  });
+
+  it('DELETE removes the row and its image, only in its own collection', async () => {
+    const id = (await upload(a, png(200, 48))).body.id as string;
+    expect((await send('delete', `/api/collections/${b}/watermarks/${id}`)).status).toBe(404);
+    expect((await send('delete', `/api/collections/${a}/watermarks/${id}`)).status).toBe(204);
+    expect(await rows(a)).toEqual([]);
+    expect(objects.size).toBe(0);
+    expect((await send('delete', `/api/collections/${a}/watermarks/${id}`)).status).toBe(404);
+    expect((await send('delete', `/api/collections/${a}/watermarks/not-a-uuid`)).status).toBe(400);
+  });
+
+  it('goes with its collection when the collection is deleted', async () => {
+    const manualId = (await send('post', '/api/collections', { name: 'Có watermark' })).body.id as string;
+    await pool.query(`UPDATE videos SET collection_id = $1 WHERE aweme_id = '7001'`, [manualId]);
+    expect((await upload(manualId, png(200, 48))).status).toBe(201);
+    await pool.query(`UPDATE videos SET collection_id = $1 WHERE aweme_id = '7001'`, [a]);
+    expect((await send('delete', `/api/collections/${manualId}`)).status).toBe(204);
+    expect(await rows(manualId)).toEqual([]);
+    expect(objects.size).toBe(0);
   });
 });
