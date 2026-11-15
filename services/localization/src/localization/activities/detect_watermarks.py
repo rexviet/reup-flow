@@ -21,6 +21,7 @@ from localization.activities.ffmpeg import probe_video, run_blocking
 from localization.activities.ingest import download_source
 from localization.activities.persist import put_json
 from localization.contracts import (
+    BBox,
     LocalizationInput,
     SubtitleDocument,
     SubtitleTrack,
@@ -48,6 +49,28 @@ def load_template(store: ObjectStore, template: WatermarkTemplate) -> template_m
     return template_match.Template(image=image, frame_height=template.frame_height)
 
 
+def find_on_video(
+    store: ObjectStore,
+    video: Path,
+    templates: Sequence[WatermarkTemplate],
+    subtitle_region: BBox | None,
+    cancel: threading.Event | None = None,
+) -> tuple[Watermark, ...]:
+    """The watermarks `templates` show as on the local file `video`; shared with the review
+    worker, which finds them again on a project already made."""
+    loaded = [load_template(store, t) for t in templates]
+    info = probe_video(video)
+    return template_match.find(
+        video,
+        loaded,
+        subtitle_region,
+        width=info.width,
+        height=info.height,
+        duration_ms=info.duration_ms,
+        cancel=cancel,
+    )
+
+
 def find_on_source(
     store: ObjectStore,
     source_key: str,
@@ -56,21 +79,10 @@ def find_on_source(
     root: Path,
     cancel: threading.Event | None = None,
 ) -> tuple[Watermark, ...]:
-    """Downloads the source and the images into `root` and searches them; shared with the
-    review worker, which finds them again on a project already made."""
-    loaded = [load_template(store, t) for t in templates]
+    """Downloads the source into `root` and searches it."""
     video = root / "source.mp4"
     download_source(store, source_key, video)
-    info = probe_video(video)
-    return template_match.find(
-        video,
-        loaded,
-        document.region,
-        width=info.width,
-        height=info.height,
-        duration_ms=info.duration_ms,
-        cancel=cancel,
-    )
+    return find_on_video(store, video, templates, document.region, cancel)
 
 
 class DetectWatermarksActivity:

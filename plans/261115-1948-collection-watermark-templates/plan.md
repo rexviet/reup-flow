@@ -1,6 +1,6 @@
 # Collection watermark templates
 
-Status: phases 1–2 committed and migrated; phase 3 built (uncommitted, with the blur it uses); phases 4–5 not started · Branch: `feat/localization-dubber-code-mode`
+Status: phases 1–4 committed (1 migrated); phase 5 not started · Branch: `feat/localization-dubber-code-mode`
 
 ## Outcome
 A collection holds zero to a few watermark images, each cut by a person as a region on a frame
@@ -88,9 +88,9 @@ Deleting an image or its collection removes the object after the commit (best ef
 | # | Phase | Owner files | Depends |
 |---|---|---|---|
 | 1 | Schema + API — **done** | migration (+ down), `db/schema.ts`, `collections/collection-watermarks.ts`, controller/schemas/module, collection delete cleanup, `scripts/apply-migrations.sh`, `scripts/migration-evidence.sql`, `scripts/tests/apply-migrations.test.sh` | — |
-| 2 | Dashboard picker — **built** | web `api/client.ts`, `api/types.ts`, new `WatermarkPicker.tsx`, `CollectionsPanel.tsx` | 1 |
-| 3 | Matcher + pipeline — **built** | `watermarks/template_match.py`, `activities/detect_watermarks.py`, starter `VIDEO_SQL` + snapshot, workflow call behind `workflow.patched`, worker registration, `pyproject.toml` | contract |
-| 4 | Existing videos | `review_worker/watermark_relayout.py`, scan loop wiring, `repository.prepare` (watermarks argument) | 3, 1 (grant) |
+| 2 | Dashboard picker — **done** | web `api/client.ts`, `api/types.ts`, new `WatermarkPicker.tsx`, `CollectionsPanel.tsx` | 1 |
+| 3 | Matcher + pipeline — **done** | `watermarks/template_match.py`, `activities/detect_watermarks.py`, starter `VIDEO_SQL` + snapshot, workflow call behind `workflow.patched`, worker registration, `pyproject.toml` | contract |
+| 4 | Existing videos — **done** | `review_worker/watermark_relayout.py`, scan loop wiring, `repository.prepare` (watermarks argument) | 3, 1 (grant) |
 | 5 | Deploy + check | rebuild web/downloader/workers, host worker deps; check 7680110974204365681 (left and right) and 7704493353806728448 (intermittent) | 1–4 |
 
 ### Phase 2 detail
@@ -140,6 +140,17 @@ On each review-worker scan, one video per scan at most (detection takes minutes)
    A folder export already written keeps the old file; exporting again picks up the new one.
 3. **Returned** videos are left alone.
 Removing every template from a collection makes the next pass commit a revision without blur.
+
+Built as `review_worker/watermark_relayout.py` (`WatermarkRelayout.run_pass`), started every
+60 s by the review worker on its own thread, never beside a render. `find_on_video` (split from
+`find_on_source`) searches the project's own `video` asset with its `source_region`.
+`Repository.prepare` takes `watermarks` and `watermark_templates`. The approval move locks the
+run row (as the dashboard's approve and return do), checks the approval is still on the old
+revision and no render runs, moves HEAD, then `review_decisions` and `final_renders` in one
+transaction. If HEAD moved but the transaction did not commit, the next pass sees HEAD (made by
+`watermark-relayout`, parent = the approved revision) and only moves the approval. An approved
+video whose HEAD was edited after its approval is left alone. Projects found in line are
+remembered per (images, approved revision) so their manifests are not read every pass.
 
 ## Tests
 - Matcher: the spike's cases as fixtures-free unit tests on generated frames (a template drawn
