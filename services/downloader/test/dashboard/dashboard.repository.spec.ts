@@ -171,6 +171,23 @@ describe('DashboardRepository (real downloader and localization schemas)', () =>
     ]);
   });
 
+  it('counts each rendered video once and every LLM request of it, reruns included', async () => {
+    for (const [id, ms] of [['7', 90_000], ['8', 30_000], ['9', 600_000]] as const) {
+      await video(id, 'chA', null, '2026-11-01T00:00:00Z');
+      await pool.query('UPDATE videos SET duration_ms = $2 WHERE aweme_id = $1', [id, ms]);
+    }
+    await pool.query(
+      `INSERT INTO localization.final_renders (aweme_id, generation, approved_revision, state) VALUES
+         ('7', 1, 'r', 'rendered'), ('7', 2, 'r', 'rendered'), ('8', 1, 'r', 'rendered'), ('9', 1, 'r', 'failed')`,
+    );
+    await pool.query(
+      `INSERT INTO localization.llm_calls (generation_id, aweme_id, generation, stage, cost_usd) VALUES
+         ('c-1','7',1,'agent__localizer',0.1), ('c-2','7',3,'agent__localizer',0.2),
+         ('c-3','8',1,'agent__dubber',NULL), ('c-4','9',1,'agent__dubber',5)`,
+    );
+    expect(await repo.renderCost()).toEqual({ videos: 2, durationMs: 120_000, costUsd: expect.closeTo(0.3, 8) });
+  });
+
   it('returns the verdict of each run', async () => {
     await pool.query(
       `INSERT INTO localization.runs (aweme_id, generation, workflow_id, status, verdict)

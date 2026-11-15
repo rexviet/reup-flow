@@ -7,6 +7,7 @@ import type {
   ChannelListResponse,
   CollectionItem,
   CollectionListResponse,
+  RenderCostReport,
   CookieStatus,
   CoverPreview,
   CreateCollectionBody,
@@ -165,6 +166,10 @@ export async function getChannels(): Promise<ChannelListResponse> {
 
 export async function getHealth(): Promise<HealthReport> {
   return request<HealthReport>('/api/dashboard/health');
+}
+
+export async function getRenderCost(): Promise<RenderCostReport> {
+  return request<RenderCostReport>('/api/dashboard/render-cost');
 }
 
 export async function getAutoQueue(): Promise<AutoQueueStatus> {

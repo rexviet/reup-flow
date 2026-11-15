@@ -206,6 +206,17 @@ export interface HealthItem {
   reason: string;
   pollers?: number;
 }
+/** GET /api/dashboard/render-cost: every number is null when Postgres is down. */
+export interface RenderCostReport {
+  videos: number | null;
+  duration_ms: number | null;
+  /** Every LLM request of the rendered videos, reruns included. */
+  llm_cost_usd: number | null;
+  /** null until something is rendered. */
+  usd_per_minute: number | null;
+  sources: { postgres: 'ok' | 'down' };
+}
+
 export interface HealthReport {
   generatedAt: string;
   postgres: HealthItem;

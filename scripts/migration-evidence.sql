@@ -119,6 +119,7 @@ BEGIN
       'public.collections.cover_height_pct:smallint'];
     WHEN '261115-outbox-bypass-skips.sql' THEN expected := ARRAY[
       'public.localization_outbox.bypass_skips:boolean'];
+    WHEN '261115-final-renders-state-idx.sql' THEN expected := ARRAY['localization.final_renders_state_idx'];
     WHEN '261115-outbox-bypass-skips-grant.sql' THEN
       -- Idempotent grants are safe to actually apply, never infer them from tables.
       RETURN false;

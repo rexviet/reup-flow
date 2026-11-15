@@ -53,6 +53,7 @@ function store(records: VideoRecord[] | Error, extra: Partial<DashboardStore> = 
       ),
     video: async (id) => (await read(records instanceof Error ? records : records.find((r) => r.awemeId === id) ?? null)),
     llmCosts: async () => [],
+    renderCost: async () => ({ videos: 0, durationMs: 0, costUsd: 0 }),
     runDetails: async () => [],
     recentActions: async () => [],
     latestStudioRequest: async () => null,
@@ -346,5 +347,25 @@ describe('DashboardService.detail', () => {
     expect(out.timeline).toBeNull();
     expect(out.sources.temporal).toBe('down');
     expect(out.stage).toBe('run_failed');
+  });
+});
+
+describe('DashboardService.renderCost', () => {
+  it('averages the LLM cost over the rendered minutes', async () => {
+    const service = new DashboardService(store([], { renderCost: async () => ({ videos: 2, durationMs: 150_000, costUsd: 0.5 }) }), temporal(), 30);
+    expect(await service.renderCost()).toEqual({
+      videos: 2,
+      duration_ms: 150_000,
+      llm_cost_usd: 0.5,
+      usd_per_minute: 0.2,
+      sources: { postgres: 'ok' },
+    });
+  });
+
+  it('has no average before anything is rendered, and no numbers with postgres down', async () => {
+    const empty = new DashboardService(store([]), temporal(), 30);
+    expect(await empty.renderCost()).toMatchObject({ videos: 0, duration_ms: 0, usd_per_minute: null });
+    const down = new DashboardService(store([], { renderCost: async () => { throw new Error('down'); } }), temporal(), 30);
+    expect(await down.renderCost()).toEqual({ videos: null, duration_ms: null, llm_cost_usd: null, usd_per_minute: null, sources: { postgres: 'down' } });
   });
 });

@@ -1,6 +1,6 @@
 import { Icon, type IconName } from '../components/Icon';
-import { formatClock, formatDateTime, UPDATE_RENDER_MACHINE } from './format';
-import type { HealthItem, HealthReport, HealthState, HostWorkerView } from '../api/types';
+import { formatClock, formatDateTime, formatHoursMinutes, formatUsd, UPDATE_RENDER_MACHINE } from './format';
+import type { HealthItem, HealthReport, HealthState, HostWorkerView, RenderCostReport } from '../api/types';
 
 const TONE: Record<HealthState, { box: string; dot: string; text: string; word: string; icon: IconName }> = {
   ok: { box: 'bg-surface-container-low', dot: 'bg-health-ok', text: 'text-status-success-text', word: 'Ổn', icon: 'check-circle' },
@@ -93,7 +93,32 @@ function HostWorkers({ workers, nowMs }: { workers: HostWorkerView[]; nowMs: num
   );
 }
 
-export function HealthBar({ health, error }: { health: HealthReport | null; error: Error | null }) {
+/** Rendered length and the average LLM cost of one rendered minute, reruns included. */
+function RenderCostTile({ cost }: { cost: RenderCostReport | null | undefined }) {
+  const known = cost && cost.duration_ms !== null && cost.videos !== null;
+  const perMinute = cost?.usd_per_minute;
+  const title = known
+    ? `${cost.videos} video đã render. Tổng chi phí LLM ${formatUsd(cost.llm_cost_usd ?? 0)}, tính cả các lần chạy lại.`
+    : 'Chưa đọc được chi phí render.';
+  return (
+    <li data-testid="render-cost" title={title} className="flex min-w-0 items-center gap-2 rounded bg-surface-container-low px-2 py-1.5">
+      <Icon name="clock" size={13} className="shrink-0 text-text-muted" />
+      <span className="flex min-w-0 flex-col">
+        <span className="truncate text-xs font-medium text-text-primary">
+          Đã render{known ? ` · ${cost.videos} video` : ''}
+        </span>
+        <span className="truncate font-mono text-[11px] font-semibold text-text-secondary">
+          {known ? formatHoursMinutes(cost.duration_ms ?? 0) : '--:--'}
+          {' · '}
+          {perMinute !== null && perMinute !== undefined ? `${formatUsd(perMinute)}/phút` : '—'}
+          <span className="sr-only">. {title}</span>
+        </span>
+      </span>
+    </li>
+  );
+}
+
+export function HealthBar({ health, error, cost }: { health: HealthReport | null; error: Error | null; cost?: RenderCostReport | null }) {
   if (!health) {
     return (
       <div data-testid="health-bar" className="card text-xs text-text-secondary">
@@ -127,6 +152,7 @@ export function HealthBar({ health, error }: { health: HealthReport | null; erro
               </li>
             );
           })}
+          <RenderCostTile cost={cost} />
         </ul>
         <p className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs text-text-muted">
           <span className="inline-flex items-center gap-1">

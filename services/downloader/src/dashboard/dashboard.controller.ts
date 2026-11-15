@@ -35,6 +35,11 @@ export class DashboardController {
     return this.dashboard.channels();
   }
 
+  @Get('render-cost')
+  renderCost() {
+    return this.dashboard.renderCost();
+  }
+
   @Get('health')
   healthReport() {
     return this.health.report();

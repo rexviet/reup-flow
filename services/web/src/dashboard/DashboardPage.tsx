@@ -10,7 +10,7 @@ import { ChannelsPanel } from './ChannelsPanel';
 import { CollectionsPanel } from './CollectionsPanel';
 import { HealthBar } from './HealthBar';
 import { EMPTY_FILTERS, PAGE_SIZE, PipelineTable, type PipelineFilters } from './PipelineTable';
-import { useAttention, useChannels, useCollections, useHealth, useJobs, useVideoList } from './useDashboard';
+import { useAttention, useChannels, useCollections, useHealth, useJobs, useRenderCost, useVideoList } from './useDashboard';
 import { useVideoActions } from './useVideoActions';
 
 function queryOf(f: PipelineFilters): VideoListQuery {
@@ -31,6 +31,7 @@ export function DashboardPage() {
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
 
   const health = useHealth();
+  const renderCost = useRenderCost();
   const list = useVideoList(useMemo(() => queryOf(filters), [filters]));
   const attention = useAttention();
   const channels = useChannels();
@@ -122,7 +123,7 @@ export function DashboardPage() {
     <div className="flex flex-col gap-3 sm:gap-4">
       <header className="flex flex-col gap-3">
         <h1 className="text-xl font-bold tracking-tight text-text-primary">Bảng điều khiển</h1>
-        <HealthBar health={health.data} error={health.error} />
+        <HealthBar health={health.data} error={health.error} cost={renderCost.data} />
         <AutoQueueSwitch />
       </header>
 

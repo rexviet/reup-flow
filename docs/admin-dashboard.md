@@ -4,12 +4,17 @@ Một trang trong `services/web` cho một admin trên máy này: mỗi video l�
 giai đoạn từ tải tới phát hành. Mở `http://localhost:5173`; chi tiết một video ở
 `#/video/<aweme_id>`. Dữ liệu ghép từ bảng của downloader, `localization.*`, Temporal (chỉ đọc)
 và heartbeat của worker review trên máy ([review-companion](review-companion.md#render-bản-cuối-trên-máy-reup-review-worker)).
-API: `GET /api/dashboard/{videos,videos/:awemeId,attention,channels,health}`,
+API: `GET /api/dashboard/{videos,videos/:awemeId,attention,channels,health,render-cost}`,
 `POST /api/dashboard/actions`, `POST /api/dashboard/media-links`, `GET /api/dashboard/media/:token`.
 
 Giao diện là theme tối (token màu, font Inter và JetBrains Mono nằm trong `services/web/tailwind.config.js`;
 font được đóng gói bằng npm, icon là SVG nội tuyến nên không tải gì từ CDN). Thanh bên chỉ có các route
 thật: bảng điều khiển và video đang mở.
+
+Ô **Đã render** ở thanh sức khỏe hiện tổng thời lượng các video đã có bản render cuối (`hh:mm`, mỗi
+video tính một lần dù render nhiều generation) và chi phí LLM trung bình cho mỗi phút đó. Chi phí là
+mọi request trong `localization.llm_calls` của các video ấy, tính cả các lần chạy lại và các run
+không tới được bản render; di chuột vào ô để xem tổng tiền.
 
 ## Giai đoạn
 

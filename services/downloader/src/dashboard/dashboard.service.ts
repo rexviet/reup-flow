@@ -30,6 +30,7 @@ export type DashboardStore = Pick<
   | 'videos'
   | 'video'
   | 'llmCosts'
+  | 'renderCost'
   | 'runDetails'
   | 'recentActions'
   | 'latestStudioRequest'
@@ -263,6 +264,19 @@ export class DashboardService {
       })),
       items: (videos ?? []).filter((v) => v.attention.length > 0).map(listItem),
       sources: { ...sources, postgres: sources.postgres === 'ok' && jobs !== undefined ? 'ok' : 'down' },
+    };
+  }
+
+  /** Rendered minutes and the average LLM cost of one of them; null fields when Postgres is down. */
+  async renderCost() {
+    const row = await attempt(() => this.store.renderCost());
+    const minutes = row ? row.durationMs / 60_000 : 0;
+    return {
+      videos: row?.videos ?? null,
+      duration_ms: row?.durationMs ?? null,
+      llm_cost_usd: row ? roundUsd(row.costUsd) : null,
+      usd_per_minute: row && minutes > 0 ? roundUsd(row.costUsd / minutes) : null,
+      sources: { postgres: row ? 'ok' : 'down' } as const,
     };
   }
 

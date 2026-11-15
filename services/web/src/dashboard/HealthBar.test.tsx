@@ -30,6 +30,21 @@ describe('HealthBar', () => {
     expect(screen.getByTestId('health-temporal')).toHaveTextContent('Ổn');
   });
 
+  it('shows the rendered length as hh:mm and the LLM cost of one rendered minute', () => {
+    const cost = { videos: 36, duration_ms: 248.15 * 60_000, llm_cost_usd: 5.578, usd_per_minute: 0.02248, sources: { postgres: 'ok' as const } };
+    render(<HealthBar health={health()} error={null} cost={cost} />);
+    const tile = screen.getByTestId('render-cost');
+    expect(tile).toHaveTextContent('Đã render · 36 video');
+    expect(tile).toHaveTextContent('04:08 · $0.0225/phút');
+    expect(tile).toHaveAttribute('title', '36 video đã render. Tổng chi phí LLM $5.5780, tính cả các lần chạy lại.');
+  });
+
+  it('shows no figures for the render cost before it is read or with postgres down', () => {
+    const down = { videos: null, duration_ms: null, llm_cost_usd: null, usd_per_minute: null, sources: { postgres: 'down' as const } };
+    render(<HealthBar health={health()} error={null} cost={down} />);
+    expect(screen.getByTestId('render-cost')).toHaveTextContent('--:-- · —');
+  });
+
   it('keeps the last report and says the connection dropped when a later poll fails', () => {
     render(<HealthBar health={health()} error={new Error('x')} />);
     expect(screen.getByTestId('health-cookie')).toBeInTheDocument();
