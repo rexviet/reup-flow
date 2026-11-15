@@ -7,7 +7,7 @@ import { DASHBOARD_TEMPORAL } from '../workspace/workspace.tokens';
 import { DashboardRepository, stageFactsOf, type VideoRecord } from './dashboard.repository';
 import { resolveRenderKey } from './dashboard.media';
 import type { ActionBody, MoveCollectionBody } from './dashboard.schemas';
-import { computeStage, currentGeneration, type OpenGeneration } from './dashboard.stage';
+import { BYPASSABLE_SKIPS, computeStage, currentGeneration, type OpenGeneration } from './dashboard.stage';
 import { localize } from './intake.repository';
 
 export interface ActionSkip {
@@ -180,6 +180,8 @@ export class DashboardActionsService {
     switch (body.action) {
       case 'resume':
         return this.resume(record, gen, openKnown, open ?? [], state);
+      case 'bypass_skip':
+        return this.bypassSkip(record, gen, openKnown, open ?? [], state);
       case 'rerun':
         return this.rerun(record, gen, openKnown, open ?? [], state);
       case 'approve':
@@ -319,6 +321,41 @@ export class DashboardActionsService {
     });
   }
 
+  /**
+   * Goes on from a run the localization skipped on purpose (an advertisement, say), with its skip
+   * checks set aside. Like "go on" it keeps the generation and only puts the outbox row back to
+   * `pending`, now with `bypass_skips`; the starter resets the finished run to the check that
+   * skipped it, so what was prepared is kept, and the check lets the video through. A file with
+   * no video stream is not a skip that can be set aside.
+   */
+  private async bypassSkip(
+    record: VideoRecord,
+    gen: number,
+    openKnown: boolean,
+    open: OpenGeneration[],
+    state: { temporalFailed: boolean },
+  ): Promise<string | null> {
+    const outbox = record.outbox;
+    if (!outbox || outbox.state !== 'dispatched') return 'Video không có lần chạy nào để chạy tiếp.';
+    if (outbox.generation !== gen) return SKIP.changed;
+    const run = record.runs.find((r) => r.generation === gen);
+    if (!run || !BYPASSABLE_SKIPS.has(run.status)) return 'Chỉ chạy tiếp được lần chạy bị bỏ qua vì bộ lọc.';
+    const blocked = await this.noLiveWork(record, gen, openKnown, open, state);
+    if (blocked !== null) return blocked;
+
+    return this.tx(async (c) => {
+      const moved = await c.query(
+        `UPDATE localization_outbox
+            SET state = 'pending', bypass_skips = true, next_attempt_at = now(),
+                dispatch_attempts = 0, last_error = NULL
+          WHERE aweme_id = $1 AND generation = $2 AND state = 'dispatched'`,
+        [record.awemeId, gen],
+      );
+      if (moved.rowCount !== 1) throw new Skip(SKIP.changed);
+      await this.log(c, record.awemeId, 'bypass_skip', { generation: gen, skipped: run.status });
+    });
+  }
+
   private async rerun(
     record: VideoRecord,
     gen: number,
@@ -340,7 +377,7 @@ export class DashboardActionsService {
       const moved = await c.query(
         `UPDATE localization_outbox
             SET generation = $2, state = 'pending', next_attempt_at = now(),
-                dispatch_attempts = 0, last_error = NULL, workflow_id = NULL
+                dispatch_attempts = 0, last_error = NULL, workflow_id = NULL, bypass_skips = false
           WHERE aweme_id = $1 AND generation = $3 AND state IN ('dispatched', 'dead')`,
         [record.awemeId, gen + 1, readGeneration],
       );

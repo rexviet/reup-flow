@@ -117,6 +117,11 @@ BEGIN
     WHEN '261114-collection-cover-geometry.sql' THEN expected := ARRAY[
       'public.collections.cover_offset_pct:smallint','public.collections.cover_width_pct:smallint',
       'public.collections.cover_height_pct:smallint'];
+    WHEN '261115-outbox-bypass-skips.sql' THEN expected := ARRAY[
+      'public.localization_outbox.bypass_skips:boolean'];
+    WHEN '261115-outbox-bypass-skips-grant.sql' THEN
+      -- Idempotent grants are safe to actually apply, never infer them from tables.
+      RETURN false;
     ELSE RAISE EXCEPTION 'Unknown migration %, reconcile manually', migration;
   END CASE;
   -- After the glossary moved to collections, the core migration's glossary is

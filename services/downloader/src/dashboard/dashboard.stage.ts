@@ -73,6 +73,12 @@ export interface StageResult {
 
 const AWAITING = new Set(['ready_for_review', 'needs_human']);
 const SKIPPED = new Set(['skipped_ad', 'skipped_no_video']);
+/**
+ * The skips an operator may set aside ("Chạy tiếp, bỏ qua lọc"): the run is reset to the check
+ * that ended it and the check lets the video through. A file with no video stream is not one of
+ * them: there is nothing to localize. A new skip reason the localization adds is listed here.
+ */
+export const BYPASSABLE_SKIPS: ReadonlySet<string> = new Set(['skipped_ad']);
 const FINISHED_LEGACY = new Set(['published', 'published_original']);
 
 /**

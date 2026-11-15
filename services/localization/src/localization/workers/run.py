@@ -44,6 +44,7 @@ from localization.activities.render import RenderActivity
 from localization.activities.review_project import ReviewProjectActivity
 from localization.activities.review_render import ReviewRenderActivity
 from localization.activities.revoice_caption import RevoiceActivities
+from localization.activities.skip_bypass import SkipBypasses
 from localization.activities.slot_script import SlotScriptActivity
 from localization.activities.source_evidence import SourceEvidenceActivity
 from localization.activities.synthesize import SynthesizeActivities, Synthesizer
@@ -226,6 +227,7 @@ def queue_specs(
             threshold=settings.ad_gate_threshold,
             enabled=settings.ad_gate_enabled,
             recorder=recorder,
+            bypassed=SkipBypasses(database_url),
         )
         publish = PublishActivity(
             store, RunStore(database_url), LangfuseScores.from_settings(settings)

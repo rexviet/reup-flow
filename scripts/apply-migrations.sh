@@ -23,6 +23,8 @@ MIGRATIONS=(
   services/downloader/migrations/261114-collections.sql
   services/localization/migrations/261114-glossary-collection-scope.sql
   services/downloader/migrations/261114-collection-cover-geometry.sql
+  services/downloader/migrations/261115-outbox-bypass-skips.sql
+  services/localization/migrations/261115-outbox-bypass-skips-grant.sql
 )
 psql_() {
   docker compose exec -T -e MIGRATION_TEST_DATABASE="${MIGRATION_TEST_DATABASE:-}" postgres sh -c \

@@ -12,6 +12,8 @@ NO_RETRY = RetryPolicy(maximum_attempts=1)
 
 calls: dict[str, int] = {}
 broken = {"transcribe": True}
+# What the stand-in skip check answers: True ends the run as skipped, unless set aside.
+skip_check = {"skip": True, "bypassed": False}
 
 
 @activity.defn(name="ingest")
@@ -26,6 +28,25 @@ async def transcribe(source: str) -> str:
     if broken["transcribe"]:
         raise ApplicationError("stt: unexpected response shape", non_retryable=True)
     return f"transcript of {source}"
+
+
+@activity.defn(name="classify_video")
+async def classify_video(source: str) -> bool:
+    calls["classify_video"] = calls.get("classify_video", 0) + 1
+    return skip_check["skip"] and not skip_check["bypassed"]
+
+
+@workflow.defn(name="GatedRun")
+class GatedRun:
+    """Prepares, then asks a skip check, the way the localization asks about advertisements."""
+
+    @workflow.run
+    async def run(self) -> str:
+        opts = {"start_to_close_timeout": timedelta(seconds=30), "retry_policy": NO_RETRY}
+        source = await workflow.execute_activity("ingest", result_type=str, **opts)
+        if await workflow.execute_activity("classify_video", source, result_type=bool, **opts):
+            return "skipped"
+        return await workflow.execute_activity("transcribe", source, result_type=str, **opts)
 
 
 @workflow.defn(name="ActivityRun")

@@ -14,13 +14,21 @@ from psycopg import sql
 REPO = Path(__file__).resolve().parents[4]
 MIGRATIONS = REPO / "services" / "downloader" / "migrations"
 INIT = (MIGRATIONS / "260824-init-schema.sql").read_text()
-OUTBOX = (MIGRATIONS / "261026-localization-outbox.sql").read_text()
+# The outbox as the code reads it: the table and the columns added to it since.
+OUTBOX = "\n".join(
+    (MIGRATIONS / name).read_text()
+    for name in ("261026-localization-outbox.sql", "261115-outbox-bypass-skips.sql")
+)
 DASHBOARD_INTAKE = (MIGRATIONS / "261112-dashboard-intake.sql").read_text()
 # The collections table as the code reads it: the table and the columns added to it since.
 COLLECTIONS = "\n".join(
     (MIGRATIONS / name).read_text()
     for name in ("261114-collections.sql", "261114-collection-cover-geometry.sql")
 )
+# The localization role's read of the operator's flag that sets a run's skip checks aside.
+BYPASS_SKIPS_GRANT = (
+    REPO / "services" / "localization" / "migrations" / "261115-outbox-bypass-skips-grant.sql"
+).read_text()
 
 
 def add_channel_collection(

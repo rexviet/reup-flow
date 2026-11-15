@@ -7,11 +7,14 @@ localized, and so does every video while the check is switched off.
 The activity answers True to skip the video. A failure is the provider's, classified like the
 review's (permanent or transient); the workflow lets a video through when no answer could be
 had, so a Jev outage never costs a localization.
+
+An operator can set the check aside for one run (the dashboard's "go on, skips set aside"):
+the run is reset to this check, which then answers False without asking Jev.
 """
 
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 
 from temporalio import activity
 
@@ -35,7 +38,9 @@ class ClassifyVideoActivity:
         threshold: float,
         enabled: bool = True,
         recorder: Recorder | None = None,
+        bypassed: Callable[[str, int], Awaitable[bool]] | None = None,
     ) -> None:
+        self._bypassed = bypassed
         self._store = store
         self._jev = jev
         self._threshold = threshold
@@ -47,6 +52,9 @@ class ClassifyVideoActivity:
         """True when the transcript promotes a product: the video is not localized."""
         tag_session(spec.aweme_id)
         if not self._enabled or transcript.segment_count == 0:
+            return False
+        if self._bypassed is not None and await self._bypassed(spec.aweme_id, spec.generation):
+            log.info("ad check: set aside by the operator, localize")
             return False
         doc = await asyncio.to_thread(
             read_transcript_document, self._store, transcript.transcript_key

@@ -229,6 +229,8 @@ export const localizationOutbox = pgTable(
     workflowId: text('workflow_id'),
     dispatchAttempts: integer('dispatch_attempts').notNull().default(0),
     lastError: text('last_error'),
+    /** Set by the dashboard to go on from a skipped run with its skip checks set aside. */
+    bypassSkips: boolean('bypass_skips').notNull().default(false),
   },
   (table) => [
     index('localization_outbox_due_idx')

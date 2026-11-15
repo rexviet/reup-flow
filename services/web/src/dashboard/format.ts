@@ -74,6 +74,7 @@ export const ACTION_LABELS: Record<DashboardActionName, string> = {
   localize: 'Đưa vào localization',
   retry_download: 'Tải lại',
   resume: 'Chạy tiếp từ bước lỗi',
+  bypass_skip: 'Chạy tiếp, bỏ qua lọc',
   rerun: 'Chạy lại',
   approve: 'Duyệt',
   return: 'Trả về',
@@ -91,6 +92,7 @@ export const ACTIONS_BY_STAGE: Partial<Record<Stage, DashboardActionName[]>> = {
   dispatch_failed: ['rerun'],
   run_failed: ['resume', 'rerun'],
   queued: ['rerun'],
+  skipped: ['bypass_skip'],
   awaiting_review: ['open_studio', 'approve', 'return'],
   returned: ['open_studio', 'approve', 'rerun'],
   render_failed: ['rerender'],
@@ -98,8 +100,20 @@ export const ACTIONS_BY_STAGE: Partial<Record<Stage, DashboardActionName[]>> = {
   published: ['mark_unpublished'],
 };
 
+/**
+ * The skips "Chạy tiếp, bỏ qua lọc" can set aside; the server keeps the same list. A file with
+ * no video stream (`skipped_no_video`) is not one: there is nothing to localize.
+ */
+export const BYPASSABLE_SKIPS: readonly string[] = ['skipped_ad'];
+
+/** The buttons worth showing for a video: its stage's, less a skip bypass its skip does not allow. */
+export function actionsFor(stage: Stage, runStatus: string | null | undefined): DashboardActionName[] {
+  const actions = ACTIONS_BY_STAGE[stage] ?? [];
+  return actions.filter((a) => a !== 'bypass_skip' || (runStatus != null && BYPASSABLE_SKIPS.includes(runStatus)));
+}
+
 /** Actions that spend GPU time or LLM money and so ask first, naming how many videos. */
-export const CONFIRMED_ACTIONS: readonly DashboardActionName[] = ['localize', 'resume', 'rerun', 'approve', 'rerender'];
+export const CONFIRMED_ACTIONS: readonly DashboardActionName[] = ['localize', 'resume', 'bypass_skip', 'rerun', 'approve', 'rerender'];
 
 export function relativeTime(iso: string | null | undefined, nowMs: number = Date.now()): string {
   if (!iso) return '-';

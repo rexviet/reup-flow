@@ -87,6 +87,7 @@ export const ACTIONS = [
   'localize',
   'retry_download',
   'resume',
+  'bypass_skip',
   'rerun',
   'approve',
   'return',

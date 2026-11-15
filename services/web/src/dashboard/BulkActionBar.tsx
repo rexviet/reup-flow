@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import type { CollectionItem, DashboardActionName, VideoListItem } from '../api/types';
 import { Icon, type IconName } from '../components/Icon';
-import { ACTION_LABELS, ACTIONS_BY_STAGE, COLLECTION_KIND_LABELS, FINAL_STAGES } from './format';
+import { ACTION_LABELS, actionsFor, COLLECTION_KIND_LABELS, FINAL_STAGES } from './format';
 
-const BULK_ACTIONS: DashboardActionName[] = ['retry_download', 'localize', 'resume', 'rerun', 'approve', 'rerender', 'mark_published'];
+const BULK_ACTIONS: DashboardActionName[] = ['retry_download', 'localize', 'resume', 'bypass_skip', 'rerun', 'approve', 'rerender', 'mark_published'];
 
 const ACTION_ICONS: Partial<Record<DashboardActionName, IconName>> = {
   retry_download: 'refresh',
   resume: 'play',
+  bypass_skip: 'play',
   localize: 'play',
   rerun: 'refresh',
   approve: 'check-circle',
@@ -17,6 +18,7 @@ const ACTION_ICONS: Partial<Record<DashboardActionName, IconName>> = {
 
 const ACTION_HINTS: Partial<Record<DashboardActionName, string>> = {
   resume: 'Giữ các bước đã xong, chạy lại từ bước bị lỗi.',
+  bypass_skip: 'Giữ các bước đã xong, chạy tiếp từ bước lọc đã bỏ qua video và cho video đi tiếp.',
   rerun: 'Chạy lại từ đầu, tạo một lượt xử lý mới.',
 };
 
@@ -52,7 +54,7 @@ function saveState(selected: VideoListItem[], collections: CollectionItem[]): { 
 
 /** An action is offered when at least one selected video is at a stage where it makes sense. */
 function offered(selected: VideoListItem[], action: DashboardActionName): boolean {
-  return selected.some((v) => ACTIONS_BY_STAGE[v.stage]?.includes(action));
+  return selected.some((v) => actionsFor(v.stage, v.run_status).includes(action));
 }
 
 /**

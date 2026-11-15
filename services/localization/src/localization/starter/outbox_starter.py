@@ -70,7 +70,7 @@ UPDATE localization_outbox
                     WHERE state = 'pending' AND next_attempt_at <= now()
                     ORDER BY next_attempt_at
                     LIMIT 1 FOR UPDATE SKIP LOCKED)
-RETURNING aweme_id, generation, dispatch_attempts
+RETURNING aweme_id, generation, dispatch_attempts, bypass_skips
 """
 
 # The video and its collection's settings, read in one statement when the run is
@@ -104,10 +104,23 @@ UPDATE localization_outbox
 """
 
 
-# A resumed run is a new run of the same workflow, so the failure the old one recorded is no
-# longer its outcome. Only a `failed` row is removed: anything else there is not ours to drop.
+# The activities whose answer can end a run early on purpose (`skipped_ad`), and the run
+# statuses they leave. When the operator sets the skips aside, a finished run is reset to the
+# last of these checks, which then lets the video through (it reads `bypass_skips`). A new
+# check of this kind is added to both. `check_voice` is not one: a file without a video stream
+# has nothing to localize, and its check comes before any of these.
+SKIP_CHECKS = frozenset({"classify_video"})
+BYPASSABLE_SKIPS = ("skipped_ad",)
+
+# A resumed run is a new run of the same workflow, so the failure (or the skip) the old one
+# recorded is no longer its outcome. Only such a row is removed: anything else there is not
+# ours to drop.
 CLEAR_FAILED_RUN_SQL = """
 DELETE FROM localization.runs WHERE aweme_id = %s AND generation = %s AND status = 'failed'
+"""
+CLEAR_SKIPPED_RUN_SQL = """
+DELETE FROM localization.runs
+ WHERE aweme_id = %s AND generation = %s AND status = ANY(%s)
 """
 NOT_RESUMABLE_SQL = """
 UPDATE localization_outbox SET last_error = %s
@@ -166,6 +179,19 @@ def reset_point(events: Sequence[HistoryEvent]) -> int | None:
     return None
 
 
+def skip_check_point(events: Sequence[HistoryEvent]) -> int | None:
+    """Where to reset a run that a skip check ended, so the check is asked again: the workflow
+    task that scheduled the last of them. What was prepared before it is kept. None when the
+    run scheduled no such check."""
+    for event in reversed(events):
+        if event.event_type != EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED:
+            continue
+        scheduled = event.activity_task_scheduled_event_attributes
+        if scheduled.activity_type.name in SKIP_CHECKS:
+            return scheduled.workflow_task_completed_event_id
+    return None
+
+
 class Start(enum.Enum):
     STARTED = "started"
     # The id is already a dispatch of this generation (a previous attempt got as far as
@@ -173,7 +199,10 @@ class Start(enum.Enum):
     DUPLICATE = "duplicate"
     # The id was a run that failed; it goes on from the step that failed.
     RESUMED = "resumed"
-    # The id failed, but not in an activity: it can only be run again as a new generation.
+    # The id was a run a skip check ended; it goes on from that check, which lets it through.
+    UNSKIPPED = "unskipped"
+    # The id failed, but not in an activity (or was skipped by no check that can be set
+    # aside): it can only be run again as a new generation.
     NOT_RESUMABLE = "not_resumable"
 
 
@@ -237,6 +266,7 @@ class Claimed:
     aweme_id: str
     generation: int
     dispatch_attempts: int
+    bypass_skips: bool = False
 
 
 def source_key(storage_path: str | None, bucket: str) -> str:
@@ -401,7 +431,12 @@ class OutboxStarter:
             row = await self._claim(conn)
             if row is None:
                 return Outcome.IDLE
-            claimed = Claimed(row["aweme_id"], row["generation"], row["dispatch_attempts"])
+            claimed = Claimed(
+                row["aweme_id"],
+                row["generation"],
+                row["dispatch_attempts"],
+                bool(row.get("bypass_skips")),
+            )
             return await self._dispatch(conn, settings, voice, claimed)
 
     @staticmethod
@@ -421,7 +456,12 @@ class OutboxStarter:
             if video is None:
                 raise Rejected("the video row does not exist")
             spec = self._start_input(settings, voice, claimed, video)
-            started = await self._start(spec, id_, WORKFLOW_TYPES[settings.localization_pipeline])
+            started = await self._start(
+                spec,
+                id_,
+                WORKFLOW_TYPES[settings.localization_pipeline],
+                bypass_skips=claimed.bypass_skips,
+            )
         except Rejected as exc:
             await conn.execute(REJECTED_SQL, (str(exc), claimed.aweme_id, claimed.generation))
             log.warning("rejected %s: %s", id_, exc)
@@ -456,8 +496,18 @@ class OutboxStarter:
         if started is Start.RESUMED:
             await conn.execute(CLEAR_FAILED_RUN_SQL, (claimed.aweme_id, claimed.generation))
             log.info("resumed %s from the step that failed", id_)
+        elif started is Start.UNSKIPPED:
+            await conn.execute(
+                CLEAR_SKIPPED_RUN_SQL,
+                (claimed.aweme_id, claimed.generation, list(BYPASSABLE_SKIPS)),
+            )
+            log.info("resumed %s from the check that skipped it, with skips set aside", id_)
         elif started is Start.NOT_RESUMABLE:
-            reason = "cannot go on: the run did not fail in a step; run it again"
+            reason = (
+                "cannot go on: no skip check of the run can be set aside; run it again"
+                if claimed.bypass_skips
+                else "cannot go on: the run did not fail in a step; run it again"
+            )
             await conn.execute(NOT_RESUMABLE_SQL, (reason, claimed.aweme_id, claimed.generation))
             log.warning("%s: %s", id_, reason)
         else:
@@ -471,6 +521,7 @@ class OutboxStarter:
         workflow_type: str = WORKFLOW_TYPE,
         *,
         ignore_duplicate: bool = True,
+        bypass_skips: bool = False,
     ) -> Start:
         tracer = trace.get_tracer("localization.starter")
         with tracer.start_as_current_span("localization.start"):
@@ -490,19 +541,32 @@ class OutboxStarter:
                 # The id carries the generation, so the same id is the same dispatch: a
                 # previous attempt got as far as starting it, unless that run failed and the
                 # row was put back to pending on purpose (the dashboard's "go on").
-                return await self.resume_if_failed(id_)
+                return await self.resume_if_failed(id_, bypass_skips=bypass_skips)
             return Start.STARTED
 
-    async def resume_if_failed(self, id_: str) -> Start:
+    async def resume_if_failed(self, id_: str, *, bypass_skips: bool = False) -> Start:
         """Resets a failed run to the step that failed, so Temporal replays the finished steps
-        from its history and runs the failed one again. Any other state of the id is a
-        duplicate dispatch."""
+        from its history and runs the failed one again. With `bypass_skips`, a run that
+        completed is reset to the skip check that ended it instead (the check then reads the
+        flag and lets the video through). Any other state of the id is a duplicate dispatch."""
         handle = self._client.get_workflow_handle(id_)
         description = await handle.describe()
-        if description.status != WorkflowExecutionStatus.FAILED:
+        if description.status == WorkflowExecutionStatus.FAILED:
+            find, reason, outcome = (
+                reset_point,
+                "gone on from the step that failed (dashboard)",
+                Start.RESUMED,
+            )
+        elif bypass_skips and description.status == WorkflowExecutionStatus.COMPLETED:
+            find, reason, outcome = (
+                skip_check_point,
+                "gone on from the check that skipped it, skips set aside (dashboard)",
+                Start.UNSKIPPED,
+            )
+        else:
             return Start.DUPLICATE
         events = [event async for event in handle.fetch_history_events()]
-        point = reset_point(events)
+        point = find(events)
         if point is None:
             return Start.NOT_RESUMABLE
         await self._client.workflow_service.reset_workflow_execution(
@@ -511,13 +575,13 @@ class OutboxStarter:
                 workflow_execution=WorkflowExecution(
                     workflow_id=id_, run_id=description.run_id or ""
                 ),
-                reason="gone on from the step that failed (dashboard)",
+                reason=reason,
                 workflow_task_finish_event_id=point,
                 request_id=str(uuid.uuid4()),
                 reset_reapply_type=ResetReapplyType.RESET_REAPPLY_TYPE_NONE,
             )
         )
-        return Start.RESUMED
+        return outcome
 
     async def run_forever(self, stop: asyncio.Event | None = None) -> None:
         stop = stop or asyncio.Event()

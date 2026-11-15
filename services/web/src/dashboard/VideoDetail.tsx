@@ -5,7 +5,7 @@ import { ActionNotice } from './ActionNotice';
 import { Icon } from '../components/Icon';
 import {
   ACTION_LABELS,
-  ACTIONS_BY_STAGE,
+  actionsFor,
   COLLECTION_KIND_LABELS,
   collectionText,
   formatDateTime,
@@ -167,7 +167,7 @@ function Loaded({
     revision: d.review_status?.revision ?? null,
     mismatch_count: d.review_status?.mismatchCount ?? null,
   };
-  const available = ACTIONS_BY_STAGE[stage] ?? [];
+  const available = actionsFor(stage, d.generations?.find((g) => g.generation === gen)?.run?.status);
   const has = (a: (typeof available)[number]) => available.includes(a);
   const busy = actions.runner.busy;
   const validPostUrl = /^https?:\/\/\S+$/.test(postUrl.trim());
@@ -297,6 +297,17 @@ function Loaded({
               className="btn btn-neutral"
             >
               {ACTION_LABELS.resume}
+            </button>
+          ) : null}
+          {has('bypass_skip') ? (
+            <button
+              type="button"
+              disabled={busy}
+              title="Giữ các bước đã xong, chạy tiếp từ bước lọc đã bỏ qua video và cho video đi tiếp."
+              onClick={() => void actions.perform('bypass_skip', [target])}
+              className="btn btn-neutral"
+            >
+              {ACTION_LABELS.bypass_skip}
             </button>
           ) : null}
           {has('rerun') ? (

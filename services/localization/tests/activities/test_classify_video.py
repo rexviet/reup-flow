@@ -6,6 +6,7 @@ sent (the text of the transcript and the one question) is what the provider woul
 
 import dataclasses
 import json
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 import httpx2
@@ -45,12 +46,14 @@ async def classify(
     *,
     threshold: float = 0.8,
     enabled: bool = True,
+    bypassed: Callable[[str, int], Awaitable[bool]] | None = None,
 ) -> bool:
     act = ClassifyVideoActivity(
         store,
         lambda: jev,  # type: ignore[arg-type,return-value]
         threshold=threshold,
         enabled=enabled,
+        bypassed=bypassed,
     )
     return await ActivityEnvironment().run(act.classify_video, SPEC, transcript)
 
@@ -81,6 +84,31 @@ async def test_the_threshold_of_the_settings_decides(
 ) -> None:
     jev = FakeJev(score=score)
     assert await classify(store, put(store, AD_LINES), jev, threshold=threshold) is skip
+
+
+async def test_a_run_whose_skips_are_set_aside_is_localized_without_asking(
+    store: ObjectStore,
+) -> None:
+    asked_for: list[tuple[str, int]] = []
+
+    async def bypassed(aweme_id: str, generation: int) -> bool:
+        asked_for.append((aweme_id, generation))
+        return True
+
+    jev = FakeJev(score=0.99)
+    assert await classify(store, put(store, AD_LINES), jev, bypassed=bypassed) is False
+    assert jev.asked == []
+    # The flag is read for this run's video and generation, not another's.
+    assert asked_for == [(SPEC.aweme_id, SPEC.generation)]
+
+
+async def test_a_run_whose_skips_are_not_set_aside_is_asked_as_usual(store: ObjectStore) -> None:
+    async def bypassed(aweme_id: str, generation: int) -> bool:
+        return False
+
+    jev = FakeJev(score=0.99)
+    assert await classify(store, put(store, AD_LINES), jev, bypassed=bypassed) is True
+    assert len(jev.asked) == 1
 
 
 async def test_switched_off_nothing_is_read_or_asked(store: ObjectStore) -> None:

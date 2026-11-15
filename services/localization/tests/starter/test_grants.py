@@ -17,6 +17,7 @@ from localization.starter.outbox_starter import (
     VIDEO_SQL,
 )
 from tests.support.scratch_db import (
+    BYPASS_SKIPS_GRANT,
     COLLECTIONS,
     INIT,
     OUTBOX,
@@ -31,7 +32,7 @@ GRANTS = (
 
 @pytest.fixture
 def db() -> Iterator[psycopg.Connection]:
-    for _, conn in scratch_database(INIT, OUTBOX, GRANTS, COLLECTIONS):
+    for _, conn in scratch_database(INIT, OUTBOX, GRANTS, BYPASS_SKIPS_GRANT, COLLECTIONS):
         collection = add_channel_collection(
             conn,
             "c",
@@ -93,7 +94,7 @@ def test_the_starter_can_do_nothing_else(db: psycopg.Connection, statement: str)
 
 @pytest.fixture
 def collections_db() -> Iterator[psycopg.Connection]:
-    for _, conn in scratch_database(INIT, OUTBOX, GRANTS, COLLECTIONS):
+    for _, conn in scratch_database(INIT, OUTBOX, GRANTS, BYPASS_SKIPS_GRANT, COLLECTIONS):
         conn.execute("INSERT INTO profiles (sec_user_id) VALUES ('c')")
         conn.execute(
             "INSERT INTO collections (kind, external_id, sec_user_id, name, save_subdir) "

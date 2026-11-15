@@ -202,6 +202,70 @@ describe('DashboardActionsService (real downloader and localization schemas)', (
     });
   });
 
+  describe('bypass_skip', () => {
+    beforeEach(async () => {
+      await video('30');
+    });
+    const outboxRow = () =>
+      one('SELECT generation, state, bypass_skips, dispatch_attempts, last_error, workflow_id FROM localization_outbox');
+
+    it('puts a run skipped as an advertisement back to pending under the same generation with skips set aside, once', async () => {
+      await outbox('30', 2, 'dispatched');
+      await run('30', 2, 'skipped_ad', null);
+      await pool.query(`UPDATE localization_outbox SET workflow_id = 'video-30-g2', dispatch_attempts = 2, last_error = 'x' WHERE aweme_id = '30'`);
+      const res = await svc.run(body('bypass_skip', ['30']));
+      expect(res).toEqual({ done: ['30'], skipped: [] });
+      // Same generation and workflow id: the starter resets that run to the check that skipped it.
+      expect(await outboxRow()).toEqual({
+        generation: 2,
+        state: 'pending',
+        bypass_skips: true,
+        dispatch_attempts: 0,
+        last_error: null,
+        workflow_id: 'video-30-g2',
+      });
+      expect(await one(`SELECT detail FROM dashboard_actions WHERE aweme_id = '30'`)).toEqual({
+        detail: { generation: 2, skipped: 'skipped_ad' },
+      });
+      const again = await svc.run(body('bypass_skip', ['30']));
+      expect(again.done).toEqual([]);
+      expect(await logged('30')).toEqual(['bypass_skip']);
+    });
+
+    it('refuses a file with no video stream, a run that was not skipped, and a dispatch with no run', async () => {
+      await outbox('30', 1, 'dispatched');
+      await run('30', 1, 'skipped_no_video', null);
+      expect((await svc.run(body('bypass_skip', ['30']))).skipped[0].reason).toContain('bỏ qua vì bộ lọc');
+
+      await pool.query(`UPDATE localization.runs SET status = 'failed'`);
+      expect((await svc.run(body('bypass_skip', ['30']))).skipped[0].reason).toContain('bỏ qua vì bộ lọc');
+
+      await pool.query(`DELETE FROM localization.runs`);
+      expect((await svc.run(body('bypass_skip', ['30']))).skipped[0].reason).toContain('bỏ qua vì bộ lọc');
+      expect(await outboxRow()).toMatchObject({ state: 'dispatched', bypass_skips: false });
+    });
+
+    it('refuses while the workflow is running or Temporal cannot be read', async () => {
+      await outbox('30', 1, 'dispatched');
+      await run('30', 1, 'skipped_ad', null);
+      temporal.statuses.set('video-30-g1', 'running');
+      expect((await svc.run(body('bypass_skip', ['30']))).skipped[0].reason).toContain('đang chạy');
+
+      temporal.statuses.delete('video-30-g1');
+      temporal.down = true;
+      expect((await svc.run(body('bypass_skip', ['30']))).skipped[0].reason).toContain('Temporal');
+      expect(await outboxRow()).toMatchObject({ state: 'dispatched', bypass_skips: false });
+    });
+
+    it('a rerun after it starts the new generation with skips checked again', async () => {
+      await outbox('30', 1, 'dispatched');
+      await run('30', 1, 'skipped_ad', null);
+      await pool.query(`UPDATE localization_outbox SET bypass_skips = true`);
+      expect((await svc.run(body('rerun', ['30']))).done).toEqual(['30']);
+      expect(await outboxRow()).toMatchObject({ generation: 2, state: 'pending', bypass_skips: false });
+    });
+  });
+
   describe('rerun', () => {
     beforeEach(async () => {
       await video('10');

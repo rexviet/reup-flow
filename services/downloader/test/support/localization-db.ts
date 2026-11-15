@@ -14,6 +14,7 @@ const LOCALIZATION_MIGRATIONS = [
   '261113-sequential-queue',
   '261114-auto-queue-switch',
   '261114-glossary-collection-scope',
+  '261115-outbox-bypass-skips-grant',
 ].map((n) => resolve(__dirname, '../../../localization/migrations', `${n}.sql`));
 
 export interface ScratchDatabase {

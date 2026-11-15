@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatDuration, STAGE_TONES, TONE_ICONS } from './format';
+import { actionsFor, formatDuration, STAGE_TONES, TONE_ICONS } from './format';
 import { STAGES } from '../api/types';
 
 describe('formatDuration', () => {
@@ -19,5 +19,19 @@ describe('formatDuration', () => {
 describe('stage tones', () => {
   it('every stage has a tone and every tone an icon, so status is never colour-only', () => {
     for (const stage of STAGES) expect(TONE_ICONS[STAGE_TONES[stage]]).toBeTruthy();
+  });
+});
+
+describe('actionsFor', () => {
+  it('offers to go on past a skip only for a skip that can be set aside', () => {
+    expect(actionsFor('skipped', 'skipped_ad')).toEqual(['bypass_skip']);
+    // A file with no video stream (an image post) has nothing to localize.
+    expect(actionsFor('skipped', 'skipped_no_video')).toEqual([]);
+    expect(actionsFor('skipped', null)).toEqual([]);
+  });
+
+  it('leaves the other stages as they were', () => {
+    expect(actionsFor('run_failed', 'failed')).toEqual(['resume', 'rerun']);
+    expect(actionsFor('held', null)).toEqual(['localize']);
   });
 });
