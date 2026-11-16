@@ -1,6 +1,6 @@
 # Collection watermark templates
 
-Status: phases 1–4 committed (1 migrated); phase 5 not started · Branch: `feat/localization-dubber-code-mode`
+Status: phases 1–5 done; deployed 2026-11-16, existing videos being relaid out by the review worker · Branch: `feat/localization-dubber-code-mode`
 
 ## Outcome
 A collection holds zero to a few watermark images, each cut by a person as a region on a frame
@@ -91,7 +91,7 @@ Deleting an image or its collection removes the object after the commit (best ef
 | 2 | Dashboard picker — **done** | web `api/client.ts`, `api/types.ts`, new `WatermarkPicker.tsx`, `CollectionsPanel.tsx` | 1 |
 | 3 | Matcher + pipeline — **done** | `watermarks/template_match.py`, `activities/detect_watermarks.py`, starter `VIDEO_SQL` + snapshot, workflow call behind `workflow.patched`, worker registration, `pyproject.toml` | contract |
 | 4 | Existing videos — **done** | `review_worker/watermark_relayout.py`, scan loop wiring, `repository.prepare` (watermarks argument) | 3, 1 (grant) |
-| 5 | Deploy + check | rebuild web/downloader/workers, host worker deps; check 7680110974204365681 (left and right) and 7704493353806728448 (intermittent) | 1–4 |
+| 5 | Deploy + check — **done** | rebuild web/downloader/workers, host worker deps; check 7680110974204365681 (left and right) and 7704493353806728448 (intermittent) | 1–4 |
 
 ### Phase 2 detail
 Built as a "Watermark" tab of the collection dialog (`WatermarkPicker.tsx`); the region is cut at
@@ -167,3 +167,20 @@ remembered per (images, approved revision) so their manifests are not read every
   Optimise later (search the frame borders, a downscaled frame) after measuring in production.
 - A style no one cut is not blurred (by decision).
 - Re-rendering approved videos replaces delivered files; exported folders keep the old ones.
+
+## Deploy (2026-11-16)
+- The Demucs weights downloaded again (HTTP 200), so the localization images were rebuilt as
+  they are; OpenCV 5.0 in the image and in the host venv.
+- Restarted: `localization-starter`, `worker-agents`, `worker-media`, `review-bridge` and the
+  host `reup-review-worker` (pm2). Web and downloader already ran phases 1–2.
+- Check found three defects, fixed in the same deploy: a watermark on a background close to its
+  colour was missed for 1–2.5 s and showed through; one watermark became dozens of overlapping
+  blurs (several images and sizes); an approved video whose blur came out unchanged was queued
+  for a pointless re-render. Now same-spot watermarks are one, gaps up to 3 s are bridged, the
+  search records `watermark_method` (projects found by an earlier search are found again), and
+  an unchanged blur keeps the render.
+- Results: 7677937301649142961 is one blur over the whole video, covering the handle;
+  7704493353806728448 has the disclaimer at 160–166.5 s and 232.5–238.5 s, which is where it
+  shows; none missed at 30, 100 and 200 s.
+- About 41 videos in 5 collections have images; at about 10 min a video the review worker takes
+  several hours. The re-renders wait for the Windows render worker, which was offline.
