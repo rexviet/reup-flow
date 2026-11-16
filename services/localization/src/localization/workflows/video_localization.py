@@ -70,6 +70,10 @@ MEDIA_QUEUE = "media"
 # the GPU. A run that began before this queue existed keeps asking the `media` queue.
 INGEST_QUEUE = "ingest"
 INGEST_QUEUE_PATCH = "ingest-queue"
+# The watermark search, on the host worker where it has the CPU to itself. A run that
+# began before this queue existed keeps asking the `media` queue.
+WATERMARK_QUEUE = "watermarks"
+WATERMARK_QUEUE_PATCH = "watermark-queue"
 STT_QUEUE = "stt"
 IO_QUEUE = "io"
 TTS_QUEUE = "tts"
@@ -587,12 +591,16 @@ class VideoLocalizationWorkflow:
         if not workflow.patched(WATERMARK_PATCH):
             return subtitles
 
+        options = DETECT_WATERMARKS
+        if workflow.patched(WATERMARK_QUEUE_PATCH):
+            options = {**DETECT_WATERMARKS, "task_queue": WATERMARK_QUEUE}
+
         def start() -> workflow.ActivityHandle:
             return workflow.start_activity(
                 "detect_watermarks",
                 args=[spec, subtitles],
                 result_type=SubtitleTrack,
-                **DETECT_WATERMARKS,
+                **options,
             )
 
         return await self._settle(start(), start, spec)

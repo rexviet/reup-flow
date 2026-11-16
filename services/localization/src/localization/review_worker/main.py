@@ -65,7 +65,9 @@ class Worker:
         self.export_thread: threading.Thread | None = None
         self.thumb_thread: threading.Thread | None = None
         self.marks_thread: threading.Thread | None = None
-        self.marks = watermark_relayout.WatermarkRelayout(self.repo, store, cfg.work_root / "marks")
+        self.marks = watermark_relayout.WatermarkRelayout(
+            self.repo, store, cfg.work_root / "marks", threads=cfg.watermark_threads
+        )
         self.thumbs = thumbnails.Thumbnailer(
             store, cfg.work_root / "thumbs", min_free_gb=cfg.min_free_gb,
             ffmpeg_bin=cfg.ffmpeg_bin,

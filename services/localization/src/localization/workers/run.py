@@ -89,6 +89,7 @@ from localization.workflows.video_localization import (
     INGEST_QUEUE,
     RENDER_QUEUE,
     VOICE_CHECK_QUEUE,
+    WATERMARK_QUEUE,
     VideoLocalizationWorkflow,
 )
 
@@ -141,7 +142,12 @@ def queue_specs(
     if role == "ingest":
         # The separation on its own, for a worker on the host where Demucs can use the GPU.
         ingest = IngestActivity(store, providers.demucs)
-        return [QueueSpec(INGEST_QUEUE, settings.ingest_concurrency, activities=[ingest.ingest])]
+        marks = DetectWatermarksActivity(store, threads=settings.watermark_threads)
+        return [
+            QueueSpec(INGEST_QUEUE, settings.ingest_concurrency, activities=[ingest.ingest]),
+            # One search at a time, on WATERMARK_THREADS of the host's cores.
+            QueueSpec(WATERMARK_QUEUE, 1, activities=[marks.detect_watermarks]),
+        ]
     if role == "media":
         ingest = IngestActivity(store, providers.demucs)
         assemble_audio = AssembleAudioActivity(
@@ -169,6 +175,7 @@ def queue_specs(
                 settings.media_concurrency,
                 activities=[
                     ingest.ingest,
+                    # For runs recorded before the search moved to the host.
                     DetectWatermarksActivity(store).detect_watermarks,
                     assemble_audio.assemble_audio,
                     layout.layout_captions,

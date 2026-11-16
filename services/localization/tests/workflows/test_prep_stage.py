@@ -1244,7 +1244,7 @@ async def test_a_collection_with_images_has_its_watermarks_found_after_the_subti
     assert fakes.calls["detect_watermarks"] == 1
     assert result.prep.subtitles.watermarks == (MARK,)
     scheduled = await _scheduled(handle)
-    assert ("detect_watermarks", "media") in scheduled
+    assert ("detect_watermarks", "watermarks") in scheduled
     names = [n for n, _ in scheduled]
     assert names.index("detect_subtitles") < names.index("detect_watermarks")
 

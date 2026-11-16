@@ -21,11 +21,16 @@ drops out for up to `BRIDGE_MS` is kept blurred through the gap: on a background
 its colour a watermark that never left is missed for a second or two.
 
 `METHOD` names this way of finding them; a project found by an earlier one is found again.
+
+Frames are matched on `threads` threads at once (OpenCV lets go of the GIL while it
+matches), in order: the result is the same on one thread or many.
 """
 
 import subprocess
 import threading
+from collections import deque
 from collections.abc import Callable, Iterable, Iterator, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 import cv2
@@ -124,24 +129,51 @@ def frames(
         decode.wait(timeout=DECODE_TIMEOUT_S)
 
 
+def _in_order(items: Iterable, work: Callable, threads: int) -> Iterator:
+    """`work` of each item, on `threads` threads, in the items' order; a few items ahead at
+    most, so a long video is never held in memory."""
+    if threads <= 1:
+        yield from map(work, items)
+        return
+    with ThreadPoolExecutor(threads, thread_name_prefix="watermarks") as pool:
+        pending: deque = deque()
+        for item in items:
+            pending.append(pool.submit(work, item))
+            if len(pending) >= 2 * threads:
+                yield pending.popleft().result()
+        while pending:
+            yield pending.popleft().result()
+
+
 def _calibrate(
-    pictures: Iterable[np.ndarray], templates: Sequence[Template], height: int, every: int
+    pictures: Iterable[np.ndarray],
+    templates: Sequence[Template],
+    height: int,
+    every: int,
+    threads: int = 1,
 ) -> list[list[float]]:
     """The scales each template is searched at in this video (see the module doc)."""
     variants = [
         {f: edges(_resized(t.image, height / t.frame_height * f)) for f in SCALES}
         for t in templates
     ]
-    best: list[dict[float, float]] = [{} for _ in templates]
-    for i, frame in enumerate(pictures):
-        if i % every:
-            continue
+
+    def scored(frame: np.ndarray) -> list[dict[float, float]]:
         picture = edges(frame)
-        for n, by_factor in enumerate(variants):
-            for factor, template in by_factor.items():
-                if not _fits(template, picture):
-                    continue
-                score = float(cv2.matchTemplate(picture, template, cv2.TM_CCOEFF_NORMED).max())
+        return [
+            {
+                factor: float(cv2.matchTemplate(picture, template, cv2.TM_CCOEFF_NORMED).max())
+                for factor, template in by_factor.items()
+                if _fits(template, picture)
+            }
+            for by_factor in variants
+        ]
+
+    sampled = (frame for i, frame in enumerate(pictures) if i % every == 0)
+    best: list[dict[float, float]] = [{} for _ in templates]
+    for frame_scores in _in_order(sampled, scored, threads):
+        for n, by_factor in enumerate(frame_scores):
+            for factor, score in by_factor.items():
                 best[n][factor] = max(best[n].get(factor, 0.0), score)
     kept = []
     for t, scores in zip(templates, best, strict=True):
@@ -291,6 +323,7 @@ def find(
     duration_ms: int,
     cancel: threading.Event | None = None,
     progress: Callable[[int], None] | None = None,
+    threads: int = 1,
 ) -> tuple[Watermark, ...]:
     """The watermarks `templates` show as on `video`, which is `width`×`height` and
     lasts `duration_ms`. No template, nothing found."""
@@ -302,6 +335,7 @@ def find(
         width=width,
         duration_ms=duration_ms,
         progress=progress,
+        threads=threads,
     )
     return () if cancel is not None and cancel.is_set() else found
 
@@ -315,6 +349,7 @@ def find_in_frames(
     height: int,
     duration_ms: int,
     progress: Callable[[int], None] | None = None,
+    threads: int = 1,
 ) -> tuple[Watermark, ...]:
     """`find` over the frames `open_frames` yields, each time it is called: once to
     calibrate the sizes, once to search."""
@@ -322,7 +357,7 @@ def find_in_frames(
         return ()
     expected = max(1, duration_ms * SAMPLE_FPS // 1000)
     every = max(1, expected // CALIBRATION_FRAMES)
-    scales = _calibrate(open_frames(), templates, height, every)
+    scales = _calibrate(open_frames(), templates, height, every, threads)
     variants = []
     for n, (template, kept) in enumerate(zip(templates, scales, strict=True)):
         for scale in kept:
@@ -332,8 +367,9 @@ def find_in_frames(
     if not variants:
         return ()
     per_frame = []
-    for i, frame in enumerate(open_frames()):
-        per_frame.append(_search(frame, variants, subtitle_region))
+    hits = _in_order(open_frames(), lambda f: _search(f, variants, subtitle_region), threads)
+    for i, frame_hits in enumerate(hits):
+        per_frame.append(frame_hits)
         if progress is not None:
             progress(i)
     return watermarks_of(per_frame, width, height, duration_ms)

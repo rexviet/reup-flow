@@ -109,11 +109,14 @@ async def prep_workers(
                         activities=[
                             dub["assemble_audio"],
                             review["layout_captions"],
-                            acts["detect_watermarks"],
                         ],  # type: ignore[list-item]
                     ),
                 ),
                 build_worker(client, QueueSpec("ingest", activities=[acts["ingest"]])),  # type: ignore[list-item]
+                build_worker(
+                    client,
+                    QueueSpec("watermarks", activities=[acts["detect_watermarks"]]),  # type: ignore[list-item]
+                ),
                 build_worker(client, QueueSpec("stt", activities=[acts["transcribe"]])),  # type: ignore[list-item]
                 build_worker(
                     client,

@@ -107,8 +107,11 @@ class _Abandoned(Exception):
 
 
 class WatermarkRelayout:
-    def __init__(self, repo, store, work_root: Path, *, finder: Finder | None = None) -> None:
+    def __init__(
+        self, repo, store, work_root: Path, *, finder: Finder | None = None, threads: int = 1
+    ) -> None:
         self.repo = repo
+        self.threads = threads
         self.store = store
         self.work_root = work_root
         self.finder = finder or self._find
@@ -121,7 +124,9 @@ class WatermarkRelayout:
         with tempfile.TemporaryDirectory(prefix="marks-", dir=self.work_root) as tmp:
             video = Path(tmp) / "source.mp4"
             self.store.download_file(project.video.key, video, produced_by="review_project")
-            return find_on_video(self.store, video, templates, project.source_region, cancel)
+            return find_on_video(
+                self.store, video, templates, project.source_region, cancel, self.threads
+            )
 
     def run_pass(self, conn, stopping: threading.Event) -> int:
         """Returns how many projects got a new revision; one broken project never stops

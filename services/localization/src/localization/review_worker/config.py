@@ -64,6 +64,8 @@ class WorkerConfig:
     export_root: Path | None = None
     # Absolute path of ffmpeg for posters and thumbnails; None looks it up on PATH.
     ffmpeg_bin: str | None = None
+    # Threads a watermark search matches frames on (WATERMARK_THREADS).
+    watermark_threads: int = 4
 
     @classmethod
     def from_environ(cls, env: Mapping[str, str] | None = None) -> "WorkerConfig":
@@ -113,4 +115,5 @@ class WorkerConfig:
             voicestudio_url=env.get("VOICESTUDIO_URL"),
             export_root=Path(export) if export else None,
             ffmpeg_bin=ffmpeg or None,
+            watermark_threads=settings.watermark_threads,
         )

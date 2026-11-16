@@ -55,9 +55,11 @@ def find_on_video(
     templates: Sequence[WatermarkTemplate],
     subtitle_region: BBox | None,
     cancel: threading.Event | None = None,
+    threads: int = 1,
 ) -> tuple[Watermark, ...]:
-    """The watermarks `templates` show as on the local file `video`; shared with the review
-    worker, which finds them again on a project already made."""
+    """The watermarks `templates` show as on the local file `video`, matched on `threads`
+    threads; shared with the review worker, which finds them again on a project already
+    made."""
     loaded = [load_template(store, t) for t in templates]
     info = probe_video(video)
     return template_match.find(
@@ -68,6 +70,7 @@ def find_on_video(
         height=info.height,
         duration_ms=info.duration_ms,
         cancel=cancel,
+        threads=threads,
     )
 
 
@@ -78,17 +81,21 @@ def find_on_source(
     document: SubtitleDocument,
     root: Path,
     cancel: threading.Event | None = None,
+    threads: int = 1,
 ) -> tuple[Watermark, ...]:
     """Downloads the source into `root` and searches it."""
     video = root / "source.mp4"
     download_source(store, source_key, video)
-    return find_on_video(store, video, templates, document.region, cancel)
+    return find_on_video(store, video, templates, document.region, cancel, threads)
 
 
 class DetectWatermarksActivity:
-    def __init__(self, store: ObjectStore, *, tmp_root: Path | None = None) -> None:
+    def __init__(
+        self, store: ObjectStore, *, tmp_root: Path | None = None, threads: int = 1
+    ) -> None:
         self._store = store
         self._tmp_root = tmp_root
+        self._threads = threads
 
     @activity.defn(name="detect_watermarks")
     async def detect_watermarks(
@@ -114,6 +121,7 @@ class DetectWatermarksActivity:
                     document,
                     Path(tmp),
                     cancel,
+                    self._threads,
                 ),
                 cancel=cancel,
             )

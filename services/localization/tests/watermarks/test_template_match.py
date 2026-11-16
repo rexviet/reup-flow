@@ -149,6 +149,16 @@ def test_another_text_is_not_the_watermark() -> None:
     assert _search(video) == ()
 
 
+def test_many_threads_find_what_one_finds() -> None:
+    video = _video(30, lambda i: [(16, 50)] if i < 14 else [(W - 190, 50)] if i > 16 else [])
+    one = _search(video)
+    many = find_in_frames(
+        lambda: iter(video), [_template()], None,
+        width=W, height=H, duration_ms=len(video) * FRAME_MS, threads=4,
+    )  # fmt: skip
+    assert len(one) == 2 and many == one
+
+
 def test_no_image_finds_nothing_without_reading_a_frame() -> None:
     def never():
         raise AssertionError("read")
