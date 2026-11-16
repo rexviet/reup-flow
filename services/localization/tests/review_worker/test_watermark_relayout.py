@@ -274,3 +274,33 @@ def test_an_approved_video_edited_after_its_approval_is_left_alone(db, project) 
     assert run(db, relayout(repo, finder)) == 0
     assert head(repo).revision_id == edited.revision_id and finder.calls == []
     assert db.render_row()["approved_revision"] == revision
+
+
+def test_an_approved_video_whose_blur_came_out_as_it_was_keeps_its_render(db, project) -> None:
+    repo, revision = project
+    add_image(db, awaiting(db))
+    db.approve("7001", 1, revision)
+    db.admin.execute("UPDATE localization.final_renders SET state = 'rendered', attempts = 1")
+    assert run(db, relayout(repo, lambda project, templates, cancel: ())) == 1
+    after = head(repo)
+    render = db.render_row()
+    assert (render["state"], render["attempts"], render["approved_revision"]) == (
+        "rendered", 1, after.revision_id,
+    )  # fmt: skip
+    decision = db.admin.execute("SELECT approved_revision FROM review_decisions").fetchone()
+    assert decision["approved_revision"] == after.revision_id
+
+
+def test_a_project_found_by_an_earlier_search_is_found_again(db, project) -> None:
+    repo, _ = project
+    sha = add_image(db, awaiting(db))
+    _, base, etag = repo.current("7001", 1)
+    earlier = repo.prepare(
+        base, base.cues, {}, watermarks=(MARK,), watermark_templates=(sha,), watermark_method=1
+    )
+    repo.activate(earlier, etag)
+    finder = Finder()
+    assert run(db, relayout(repo, finder)) == 1
+    assert (
+        finder.calls == [("7001", (sha,))] and head(repo).parent_revision_id == earlier.revision_id
+    )

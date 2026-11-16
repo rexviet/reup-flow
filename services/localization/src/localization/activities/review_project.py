@@ -471,6 +471,7 @@ class ReviewProjectActivity:
                 source_cues=tuple((c.start_ms, c.end_ms) for c in source_subs.cues),
                 watermarks=source_subs.watermarks,
                 watermark_templates=source_subs.watermark_templates,
+                watermark_method=source_subs.watermark_method,
                 **settings,
             )
             data = manifest.model_dump_json().encode()

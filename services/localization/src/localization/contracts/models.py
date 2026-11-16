@@ -164,8 +164,9 @@ class SubtitleDocument(Contract):
     document written before they existed has neither.
 
     `watermarks` are the collection's watermarks found on the source, to be blurred, and
-    `watermark_templates` the sha256 of the images they were looked for with. A document
-    written before watermarks were looked for has neither."""
+    `watermark_templates` the sha256 of the images they were looked for with, by the
+    search `watermark_method` names. A document written before watermarks were looked for
+    has none of them."""
 
     width: PositiveInt
     height: PositiveInt
@@ -176,6 +177,7 @@ class SubtitleDocument(Contract):
     unusable_frames: tuple[NonNegativeInt, ...] = ()
     watermarks: tuple[Watermark, ...] = ()
     watermark_templates: tuple[Sha256, ...] = ()
+    watermark_method: NonNegativeInt = 0
 
 
 # --- Preparation ------------------------------------------------------------

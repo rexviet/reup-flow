@@ -4,12 +4,14 @@ A run looks for its collection's images when it is made, so an image added (or r
 afterwards would leave its videos as they were. Each pass compares a project's images
 (`watermark_templates`) with the collection's current ones and, where they differ, finds
 the watermarks again on the project's source and commits a new revision: the same cues,
-the same Studio visual edits, the new blur. With no image left, the new revision has no
-blur and nothing is searched.
+the same Studio visual edits, the new blur. A project found by an earlier version of the
+search (`template_match.METHOD`) is found again too. With no image left, the new revision
+has no blur and nothing is searched.
 
 - A video awaiting review gets the revision as its HEAD, as a cover relayout does.
 - An approved video gets it from the approved revision; in one transaction the approval
-  moves to it and the final render is queued again, so the delivered file is replaced.
+  moves to it and the final render is queued again, so the delivered file is replaced;
+  when the blur came out as it was, the render is kept and only follows the approval.
   Never while that render runs; the next pass tries again.
 - A returned video is left alone, and so is one whose Studio folder holds unsaved edits
   or whose HEAD moved meanwhile (the next pass looks again).
@@ -27,6 +29,7 @@ from localization.activities.detect_watermarks import find_on_video
 from localization.contracts import Watermark, WatermarkTemplate
 from localization.review_bridge.repository import Conflict
 from localization.review_bridge.visual import capture_visual
+from localization.watermarks.template_match import METHOD
 
 log = logging.getLogger("review_worker.watermark_relayout")
 
@@ -73,6 +76,15 @@ UPDATE review_decisions SET approved_revision = %(new)s
    AND decision = 'approved' AND approved_revision = %(old)s
 """
 
+# The blur came out as it was: the render already made stays, on the new revision.
+RETARGET_SQL = """
+INSERT INTO localization.final_renders (aweme_id, generation, approved_revision, state)
+VALUES (%(aweme)s, %(gen)s, %(new)s, 'queued')
+ON CONFLICT (aweme_id, generation) DO UPDATE
+   SET approved_revision = EXCLUDED.approved_revision
+ WHERE localization.final_renders.state <> 'rendering'
+"""
+
 REQUEUE_SQL = """
 INSERT INTO localization.final_renders (aweme_id, generation, approved_revision, state)
 VALUES (%(aweme)s, %(gen)s, %(new)s, 'queued')
@@ -83,6 +95,11 @@ ON CONFLICT (aweme_id, generation) DO UPDATE
 """
 
 Finder = Callable[[object, tuple[WatermarkTemplate, ...], threading.Event], tuple[Watermark, ...]]
+
+
+def _in_line(project, shas: tuple[str, ...]) -> bool:
+    """Found with the collection's current images, by the current search."""
+    return project.watermark_templates == shas and (not shas or project.watermark_method == METHOD)
 
 
 class _Abandoned(Exception):
@@ -145,14 +162,16 @@ class WatermarkRelayout:
         elif (
             head.parent_revision_id == approved
             and head.operation_id == OPERATION
-            and head.watermark_templates == shas
+            and _in_line(head, shas)
         ):
             # HEAD was made by a pass whose approval move did not commit: move it now.
-            self._move_approval(conn, aweme, generation, approved, head, None)
+            parent = self.repo.manifest(aweme, generation, approved)
+            rerender = head.watermarks != parent.watermarks
+            self._move_approval(conn, aweme, generation, approved, head, None, rerender)
             return "moved"
         else:
             return "settled"  # edited after the approval: the dashboard asks for a new one
-        if base.watermark_templates == shas:
+        if _in_line(base, shas):
             return "settled"
         if approved is not None and row["render_state"] == "rendering":
             return "busy"
@@ -168,12 +187,14 @@ class WatermarkRelayout:
             operation=OPERATION,
             watermarks=found,
             watermark_templates=shas,
+            watermark_method=METHOD if shas else 0,
         )
         try:
             if approved is None:
                 self.repo.activate(candidate, etag)
             else:
-                self._move_approval(conn, aweme, generation, approved, candidate, etag)
+                rerender = tuple(found) != base.watermarks
+                self._move_approval(conn, aweme, generation, approved, candidate, etag, rerender)
         except (Conflict, _Abandoned):
             return "lost"
         log.info(
@@ -183,9 +204,10 @@ class WatermarkRelayout:
         )  # fmt: skip
         return "made"
 
-    def _move_approval(self, conn, aweme, generation, old, candidate, etag) -> None:
+    def _move_approval(self, conn, aweme, generation, old, candidate, etag, rerender) -> None:
         """HEAD, the approval and the final render move to `candidate` together; `etag`
-        None when HEAD already is `candidate`."""
+        None when HEAD already is `candidate`. `rerender`: the final video is made again,
+        else the one already made stays."""
         ids = {"aweme": aweme, "gen": generation, "old": old, "new": candidate.revision_id}
         with conn.transaction():
             conn.execute(LOCK_SQL, ids)
@@ -195,7 +217,9 @@ class WatermarkRelayout:
                 self.repo.activate(candidate, etag)
             if conn.execute(MOVE_APPROVAL_SQL, ids).rowcount != 1:
                 raise _Abandoned
-            if conn.execute(REQUEUE_SQL, ids).rowcount != 1:
+            if conn.execute(REQUEUE_SQL if rerender else RETARGET_SQL, ids).rowcount != 1:
                 raise _Abandoned
-        log.info("approval of %s/g%s moved %s -> %s; final render queued again",
-                 aweme, generation, old, candidate.revision_id)  # fmt: skip
+        log.info("approval of %s/g%s moved %s -> %s; %s",
+                 aweme, generation, old, candidate.revision_id,
+                 "final render queued again" if rerender else "blur unchanged, render kept",
+                 )  # fmt: skip

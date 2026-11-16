@@ -121,6 +121,7 @@ class DetectWatermarksActivity:
             update={
                 "watermarks": found,
                 "watermark_templates": tuple(t.sha256 for t in templates),
+                "watermark_method": template_match.METHOD,
             }
         )
         await asyncio.to_thread(put_json, self._store, subtitles.subtitle_key, updated)

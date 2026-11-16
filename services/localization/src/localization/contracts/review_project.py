@@ -106,11 +106,13 @@ class ReviewProjectManifest(Contract):
     cues: tuple[ReviewCue, ...]
     source_region: BBox | None
     source_cues: tuple[tuple[NonNegativeInt, NonNegativeInt], ...]
-    # Source watermarks every revision blurs, and the sha256 of the collection images they
-    # were found with: a collection whose images changed since has its project found
-    # again. A project written before them has neither.
+    # Source watermarks every revision blurs, the sha256 of the collection images they
+    # were found with and the search that found them: a collection whose images changed
+    # since, or a project found by an earlier search, is found again. A project written
+    # before them has none.
     watermarks: tuple[Watermark, ...] = ()
     watermark_templates: tuple[Sha256, ...] = ()
+    watermark_method: NonNegativeInt = 0
     # The run's collection settings, so every revision (a Studio save, a revoice) is
     # drawn and mixed as the first was. A project written before them has none: its
     # captions are yellow and its source mask the white blur it always had.

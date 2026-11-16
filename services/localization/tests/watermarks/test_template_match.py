@@ -73,6 +73,29 @@ def test_the_watermark_is_found_where_and_while_it_shows() -> None:
     assert mark.region.x + mark.region.w >= 16 + 150 and mark.region.y + mark.region.h >= 50
 
 
+def test_a_watermark_missed_for_a_moment_stays_blurred_through_the_gap() -> None:
+    """On a background close to its colour the watermark is missed for a few frames."""
+    video = _video(30, lambda i: [] if 10 <= i < 15 else [(16, 50)])
+    (mark,) = _search(video)
+    assert (mark.start_ms, mark.end_ms) == (0, 30 * FRAME_MS)
+
+
+def test_a_watermark_gone_for_longer_is_two() -> None:
+    video = _video(30, lambda i: [] if 8 <= i < 16 else [(16, 50)])
+    first, second = _search(video)
+    assert (first.end_ms, second.start_ms) == (8 * FRAME_MS, 16 * FRAME_MS)
+
+
+def test_two_images_of_one_watermark_are_one() -> None:
+    """The same watermark cut twice, at two sizes: both match, one blur."""
+    video = _video(12, lambda i: [(16, 50)])
+    marks = find_in_frames(
+        lambda: iter(video), [_template(), _template(1.1, frame_height=int(H * 1.1))], None,
+        width=W, height=H, duration_ms=len(video) * FRAME_MS,
+    )  # fmt: skip
+    assert len(marks) == 1
+
+
 def test_a_watermark_that_moves_is_one_per_place() -> None:
     video = _video(20, lambda i: [(16, 50)] if i < 10 else [(W - 190, 50)])
     left, right = sorted(_search(video), key=lambda m: m.region.x)

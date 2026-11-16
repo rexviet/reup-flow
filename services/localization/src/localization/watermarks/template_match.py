@@ -15,7 +15,12 @@ plain grey matching does not. The method and its constants are the spike's
   `MAX_GAP` frames bridged.
 
 Each run of frames at one place becomes one `Watermark`: the union of its matches, from
-the first frame of the run to the end of the last.
+the first frame of the run to the end of the last. Then the watermarks that cover the same
+spot (one image matched at two sizes, or two images of one watermark) are one, and one that
+drops out for up to `BRIDGE_MS` is kept blurred through the gap: on a background close to
+its colour a watermark that never left is missed for a second or two.
+
+`METHOD` names this way of finding them; a project found by an earlier one is found again.
 """
 
 import subprocess
@@ -40,6 +45,10 @@ MIN_INK = 0.5
 INSIDE_SUBTITLE = 0.5
 MIN_RUN = 4  # 2 s at 2 fps
 MAX_GAP = 2
+BRIDGE_MS = 3000
+# A watermark covering this share of the smaller of two is the same one.
+SAME_SPOT = 0.5
+METHOD = 2
 CANNY_LOW, CANNY_HIGH = 80, 200
 SOFTEN = (7, 7)
 # Longest the decoder may take for the whole video before the search gives up.
@@ -231,7 +240,45 @@ def watermarks_of(
                 continue
             region = _union([b for _, b in run], width, height)
             found.append(Watermark(region=region, start_ms=start, end_ms=end))
-    return tuple(sorted(found, key=lambda w: (w.start_ms, w.region.x, w.region.y)))
+    return tuple(
+        sorted(_merged(found, width, height), key=lambda w: (w.start_ms, w.region.x, w.region.y))
+    )
+
+
+def _same_spot(a: BBox, b: BBox) -> bool:
+    ix = max(0, min(a.x + a.w, b.x + b.w) - max(a.x, b.x))
+    iy = max(0, min(a.y + a.h, b.y + b.h) - max(a.y, b.y))
+    return ix * iy >= SAME_SPOT * min(a.w * a.h, b.w * b.h)
+
+
+def _merged(found: list[Watermark], width: int, height: int) -> list[Watermark]:
+    """Watermarks on the same spot as one, gaps of up to `BRIDGE_MS` bridged."""
+    spots: list[list[Watermark]] = []
+    for mark in sorted(found, key=lambda w: w.start_ms):
+        spot = next((s for s in spots if any(_same_spot(mark.region, o.region) for o in s)), None)
+        if spot is None:
+            spots.append([mark])
+        else:
+            spot.append(mark)
+    merged = []
+    for spot in spots:
+        group = [spot[0]]
+        for mark in spot[1:]:
+            if mark.start_ms - max(w.end_ms for w in group) <= BRIDGE_MS:
+                group.append(mark)
+                continue
+            merged.append(_joined(group, width, height))
+            group = [mark]
+        merged.append(_joined(group, width, height))
+    return merged
+
+
+def _joined(group: list[Watermark], width: int, height: int) -> Watermark:
+    return Watermark(
+        region=_union([w.region for w in group], width, height),
+        start_ms=min(w.start_ms for w in group),
+        end_ms=max(w.end_ms for w in group),
+    )
 
 
 def find(

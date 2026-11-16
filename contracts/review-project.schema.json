@@ -647,6 +647,12 @@
     "voice": {
       "$ref": "#/$defs/VoiceRef"
     },
+    "watermark_method": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Watermark Method",
+      "type": "integer"
+    },
     "watermark_templates": {
       "default": [],
       "items": {
