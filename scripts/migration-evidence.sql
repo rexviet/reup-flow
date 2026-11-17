@@ -119,6 +119,21 @@ BEGIN
       'public.collections.cover_height_pct:smallint'];
     WHEN '261115-outbox-bypass-skips.sql' THEN expected := ARRAY[
       'public.localization_outbox.bypass_skips:boolean'];
+    WHEN '261115-final-renders-state-idx.sql' THEN expected := ARRAY['localization.final_renders_state_idx'];
+    WHEN '261115-collection-watermarks.sql' THEN expected := ARRAY[
+      'public.collection_watermarks.id:uuid','public.collection_watermarks.collection_id:uuid',
+      'public.collection_watermarks.image_key:text','public.collection_watermarks.image_sha256:text',
+      'public.collection_watermarks.frame_width:integer','public.collection_watermarks.frame_height:integer',
+      'public.collection_watermarks.aweme_id:text','public.collection_watermarks.time_ms:integer',
+      'public.collection_watermarks.x:integer','public.collection_watermarks.y:integer',
+      'public.collection_watermarks.w:integer','public.collection_watermarks.h:integer',
+      'public.collection_watermarks.created_at:timestamp with time zone',
+      'public.collection_watermarks_pkey','public.collection_watermarks_collection_idx',
+      'public.collection_watermarks@collection_watermarks_image_key_key',
+      'public.collection_watermarks@collection_watermarks_region_check'];
+    WHEN '261115-collection-watermark-uploads.sql' THEN
+      -- Only drops NOT NULL and replaces a check, both idempotent in effect; apply it.
+      RETURN false;
     WHEN '261115-outbox-bypass-skips-grant.sql' THEN
       -- Idempotent grants are safe to actually apply, never infer them from tables.
       RETURN false;

@@ -25,9 +25,16 @@ COVER_COLOR, COVER_OPACITY = "#101010", 0.92
 
 
 def project_inputs(
-    store, tmp_path: Path, generation=1, text="Xin chào", segment_id=17, collection=None
+    store,
+    tmp_path: Path,
+    generation=1,
+    text="Xin chào",
+    segment_id=17,
+    collection=None,
+    watermarks=(),
 ):
-    """`collection`: the CollectionSnapshot the run was dispatched with, if any."""
+    """`collection`: the CollectionSnapshot the run was dispatched with, if any.
+    `watermarks`: what the subtitle detector found to blur on the source."""
     spec = make_input(generation=generation).model_copy(
         update={"delivery_mode": "review_project", "collection": collection}
     )
@@ -87,6 +94,7 @@ def project_inputs(
         height=360,
         region=BBox(x=20, y=290, w=600, h=40),
         cues=(SubtitleCue(start_ms=0, end_ms=1200),),
+        watermarks=tuple(watermarks),
     )
     store.put_bytes(subs_key, subs.model_dump_json().encode())
     font = tmp_path / "font.ttf"
@@ -113,4 +121,6 @@ def project_inputs(
         height=360,
         fps=25,
     )
-    return builder, spec, dub, ingest, SubtitleTrack(subtitle_key=subs_key, region=subs.region)
+    return builder, spec, dub, ingest, SubtitleTrack(
+        subtitle_key=subs_key, region=subs.region, watermarks=subs.watermarks
+    )

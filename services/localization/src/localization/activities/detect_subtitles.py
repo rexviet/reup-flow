@@ -1,4 +1,10 @@
-"""Step 2b: find the burned-in subtitle band with a vision model."""
+"""Step 2b: find the burned-in subtitle band with a vision model.
+
+A subtitle stays on one row for the whole video, so the row is found from a sparse grid
+of frames, not from every frame: a coarse grid first, halved until the row it gives
+agrees with a coarser grid's. On 44 approved renders this asked about 3% of the frames
+production read at 2 fps and found every region within 1.5% of the frame's height
+(`eval/subtitle_sampling_gepa.py`)."""
 
 import asyncio
 import math
@@ -11,7 +17,7 @@ from pathlib import Path
 from temporalio import activity
 
 from localization.activities.errors import provider_errors
-from localization.activities.ffmpeg import extract_frames, probe_video, run_blocking
+from localization.activities.ffmpeg import extract_frame, probe_video, run_blocking
 from localization.activities.ingest import download_source
 from localization.activities.persist import put_json
 from localization.contracts import (
@@ -31,8 +37,20 @@ from localization.providers.errors import (
 from localization.storage.object_store import ObjectStore, source_video_key, work_key, work_key_for
 
 SAMPLE_FPS = 2
-BATCH_SIZE = 8
 FRAME_INTERVAL_MS = 1000 // SAMPLE_FPS
+# Frames of the 2 fps grid between two frames asked on the finest grid: one every 4 s.
+FINEST_STEP = 8
+# The finest grid holds at least this many frames: a short video is sampled more densely.
+MIN_FINEST_FRAMES = 16
+# The coarsest grid holds about this many frames.
+COARSEST_FRAMES = 8
+# A grid settles the region when it found a box on at least this many frames and its
+# region's top and bottom are within this fraction of the frame's height of a coarser
+# grid's: a third of the 1.5% the cover can be off by unseen.
+SETTLED_BOXES = 10
+SETTLED_ROWS = 0.005
+# Frames read and asked about at once.
+DETECT_CONCURRENCY = 16
 # Two boxes are the same line of text when they overlap vertically by at least this
 # fraction of the shorter one's height.
 SAME_LINE_OVERLAP = 0.5
@@ -65,8 +83,6 @@ OCR_MAX_SIDE = 1024
 # once threw away every frame read before it.
 FRAME_ATTEMPTS = 3
 FRAME_RETRY_SECONDS = 2.0
-# Frames extracted to disk at once: four OCR batches.
-CHUNK_FRAMES = 4 * BATCH_SIZE
 
 
 def subtitles_key(aweme_id: str) -> str:
@@ -163,6 +179,23 @@ def _cue(first: int, last: int, duration_ms: int, interval_ms: int) -> SubtitleC
     return SubtitleCue(start_ms=start, end_ms=max(start, end))
 
 
+def grid_steps(frames: int) -> list[int]:
+    """The steps, in frames of the 2 fps grid, of the grids a video of `frames` frames
+    is sampled on, coarsest first. Each is twice the next, so a finer grid holds every
+    frame of the coarser ones."""
+    step = max(1, min(FINEST_STEP, frames // MIN_FINEST_FRAMES))
+    steps = [step]
+    while frames // (steps[-1] * 2) >= COARSEST_FRAMES:
+        steps.append(steps[-1] * 2)
+    return steps[::-1]
+
+
+def same_rows(a: BBox, b: BBox, height: int) -> bool:
+    """Whether two regions' tops and bottoms agree within `SETTLED_ROWS` of the height."""
+    tolerance = SETTLED_ROWS * height
+    return abs(a.y - b.y) <= tolerance and abs(a.y + a.h - b.y - b.h) <= tolerance
+
+
 def ocr_size(width: int, height: int) -> tuple[int, int]:
     """Frames are sent at this size, not the source's: it bounds both the bytes on
     disk and the bytes sent to the vision model."""
@@ -187,13 +220,11 @@ class DetectSubtitlesActivity:
         store: ObjectStore,
         ocr: OcrProvider,
         *,
-        chunk_frames: int = CHUNK_FRAMES,
         tmp_root: Path | None = None,
         retry_seconds: float = FRAME_RETRY_SECONDS,
     ) -> None:
         self._store = store
         self._ocr = ocr
-        self._chunk_frames = chunk_frames
         self._retry_seconds = retry_seconds
         self._tmp_root = tmp_root
 
@@ -218,8 +249,11 @@ class DetectSubtitlesActivity:
     @activity.defn(name="detect_subtitles")
     async def detect_subtitles(self, spec: LocalizationInput) -> SubtitleTrack:
         tag_session(spec.aweme_id)
-        boxes: list[BBox | None] = []
-        unusable: list[int] = []
+        # What each frame asked about answered, by its index on the 2 fps grid.
+        answers: dict[int, BBox | None] = {}
+        unusable: set[int] = set()
+        # The frames actually asked about.
+        read: set[int] = set()
         with (
             provider_errors(),
             tempfile.TemporaryDirectory(prefix="subs-", dir=self._tmp_root) as tmp,
@@ -230,52 +264,73 @@ class DetectSubtitlesActivity:
             info = await run_blocking(probe_video, video)
             source = (info.width, info.height)
             scaled = ocr_size(*source)
-            frames_dir = root / "frames"
-            frames_dir.mkdir()
-            while True:
-                # One chunk of frames on disk at a time, however long the video is.
-                frames = await run_blocking(
-                    partial(
-                        extract_frames,
-                        video,
-                        frames_dir,
-                        start_s=len(boxes) / SAMPLE_FPS,
-                        count=self._chunk_frames,
-                        fps=SAMPLE_FPS,
-                        width=scaled[0],
-                        height=scaled[1],
-                        # After the first chunk, a seek that yields nothing is the end
-                        # of the video, whatever the container's duration claims.
-                        at_end=bool(boxes),
+            frames = max(1, math.ceil(info.duration_ms / FRAME_INTERVAL_MS))
+            limit = asyncio.Semaphore(DETECT_CONCURRENCY)
+
+            async def frame(index: int) -> bytes | None:
+                async with limit:
+                    return await run_blocking(
+                        partial(
+                            extract_frame,
+                            video,
+                            root / f"frame-{index:06d}.jpg",
+                            time_s=index / SAMPLE_FPS,
+                            width=scaled[0],
+                            height=scaled[1],
+                        )
                     )
+
+            async def ask(image: bytes) -> tuple[BBox | None, bool]:
+                async with limit:
+                    return await self._read(image, scaled)
+
+            seen: list[BBox] = []
+            for step in grid_steps(frames):
+                new = [i for i in range(0, frames, step) if i not in answers]
+                images = await asyncio.gather(*(frame(i) for i in new))
+                # A frame the video does not have (past the end of its video stream)
+                # shows nothing; it is not asked about.
+                shown = [(i, image) for i, image in zip(new, images, strict=True) if image]
+                found = await asyncio.gather(*(ask(image) for _, image in shown))
+                answers.update(dict.fromkeys(new))
+                for (i, _), (box, bad) in zip(shown, found, strict=True):
+                    read.add(i)
+                    answers[i] = to_source(box, scaled, source)
+                    if bad:
+                        unusable.add(i)
+                activity.heartbeat(len(answers))
+                grid = list(range(0, frames, step))
+                boxes = [answers[i] for i in grid]
+                region, cues = locate(
+                    boxes, info.width, info.height, info.duration_ms, FRAME_INTERVAL_MS * step
                 )
-                if not frames:
+                hits = sum(box is not None for box in boxes)
+                if (
+                    region
+                    and hits >= SETTLED_BOXES
+                    and any(same_rows(region, other, info.height) for other in seen)
+                ):
                     break
-                for start in range(0, len(frames), BATCH_SIZE):
-                    batch = frames[start : start + BATCH_SIZE]
-                    images = [await asyncio.to_thread(p.read_bytes) for p in batch]
-                    found = await asyncio.gather(*(self._read(img, scaled) for img in images))
-                    unusable += [len(boxes) + i for i, (_, bad) in enumerate(found) if bad]
-                    boxes.extend(to_source(box, scaled, source) for box, _ in found)
-                    for path in batch:
-                        path.unlink()
-                    activity.heartbeat(len(boxes))
-                if len(frames) < self._chunk_frames:
-                    break
-            if len(boxes) >= MIN_FRAMES_TO_JUDGE and len(unusable) * 2 > len(boxes):
+                if region:
+                    seen.append(region)
+            if not read:
+                raise PermanentProviderError("ffmpeg: the video has no frame to read")
+            if len(read) >= MIN_FRAMES_TO_JUDGE and len(unusable) * 2 > len(read):
                 raise PermanentProviderError(
-                    f"ocr: {len(unusable)} of {len(boxes)} sampled frames had an unusable answer; "
+                    f"ocr: {len(unusable)} of {len(read)} sampled frames had an unusable answer; "
                     "check OCR_MODEL, OCR_BBOX_FORMAT and the provider key"
                 )
-        region, cues = locate(boxes, info.width, info.height, info.duration_ms)
+        # The document keeps the finest grid sampled: its boxes are what the region and
+        # the cues were built from.
         document = SubtitleDocument(
             width=info.width,
             height=info.height,
+            duration_ms=info.duration_ms,
             region=region,
             cues=cues,
-            frame_interval_ms=FRAME_INTERVAL_MS,
+            frame_interval_ms=FRAME_INTERVAL_MS * step,
             frame_boxes=tuple(boxes),
-            unusable_frames=tuple(unusable),
+            unusable_frames=tuple(k for k, i in enumerate(grid) if i in unusable),
         )
         key = work_key_for(spec, 0, "subtitles.json")
         await asyncio.to_thread(put_json, self._store, key, document)

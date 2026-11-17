@@ -1,9 +1,11 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
-import { createCollection, updateCollection } from '../api/client';
+import { createCollection, deleteCollection, updateCollection } from '../api/client';
 import type { CollectionItem, UpdateCollectionBody } from '../api/types';
 import { Modal } from '../components/Modal';
 import { CollectionGlossary } from './CollectionGlossary';
+import { useConfirm } from './ConfirmDialog';
 import { CoverPreview } from './CoverPreview';
+import { WatermarkPicker } from './WatermarkPicker';
 import { COLLECTION_KIND_LABELS, fieldErrorsOf, SAVE_ROOT_LABEL } from './format';
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -54,15 +56,36 @@ export interface CollectionsPanelProps {
   activeId?: string;
   /** Show this collection's videos in the pipeline list. */
   onOpen?: (id: string) => void;
+  /** After a collection is deleted, so the page can stop showing it. */
+  onDeleted?: (id: string) => void;
 }
 
-/** Every collection with its kind, size and folder; create one by name, edit its settings and glossary. */
-export function CollectionsPanel({ collections, error = null, onChanged, activeId = '', onOpen }: CollectionsPanelProps) {
+/** Every collection with its kind, size and folder; create one by name, edit its settings and glossary, delete an empty one. */
+export function CollectionsPanel({ collections, error = null, onChanged, activeId = '', onOpen, onDeleted }: CollectionsPanelProps) {
   const [editing, setEditing] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const { ask, dialog } = useConfirm();
   const current = collections?.find((c) => c.id === editing) ?? null;
+
+  async function handleDelete(c: CollectionItem) {
+    if (!(await ask(`Xoá collection «${c.name}»? Glossary của nó cũng bị xoá.`))) return;
+    setDeleting(c.id);
+    setDeleteError(null);
+    try {
+      await deleteCollection(c.id);
+      if (editing === c.id) setEditing(null);
+      onDeleted?.(c.id);
+      onChanged();
+    } catch (err) {
+      setDeleteError(`Không xoá được «${c.name}»: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setDeleting(null);
+    }
+  }
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
@@ -111,6 +134,11 @@ export function CollectionsPanel({ collections, error = null, onChanged, activeI
         </p>
       ) : null}
 
+      {deleteError ? (
+        <p role="alert" className="text-xs text-status-error-text">
+          {deleteError}
+        </p>
+      ) : null}
       {error ? (
         <p role="alert" className="text-xs text-status-warning-text">
           Không tải được collection: {error.message}
@@ -154,32 +182,62 @@ export function CollectionsPanel({ collections, error = null, onChanged, activeI
               >
                 Sửa
               </button>
+              {/* Only an empty collection can go; the server checks again. */}
+              {c.video_count === 0 ? (
+                <button
+                  type="button"
+                  aria-label={`Xoá ${c.name}`}
+                  disabled={deleting !== null}
+                  onClick={() => void handleDelete(c)}
+                  className="btn btn-ghost text-status-error-text"
+                >
+                  {deleting === c.id ? 'Đang xoá…' : 'Xoá'}
+                </button>
+              ) : null}
             </li>
           ))}
         </ul>
       )}
 
+      {dialog}
       {current ? <CollectionEditor key={current.id} collection={current} onSaved={onChanged} onClose={() => setEditing(null)} /> : null}
     </section>
   );
 }
 
+type Tab = 'settings' | 'glossary' | 'watermark';
+const TABS: ReadonlyArray<[Tab, string]> = [
+  ['settings', 'Setting'],
+  ['glossary', 'Glossary'],
+  ['watermark', 'Watermark'],
+];
+
 /** Opens over the page where the admin is, so a long list never pushes it out of sight. */
 function CollectionEditor({ collection, onSaved, onClose }: { collection: CollectionItem; onSaved: () => void; onClose: () => void }) {
-  const [tab, setTab] = useState<'settings' | 'glossary'>('settings');
+  const [tab, setTab] = useState<Tab>('settings');
   const tabClass = (on: boolean) => `btn ${on ? 'btn-neutral' : 'btn-ghost'}`;
   return (
     <Modal title={`Sửa «${collection.name}»`} onClose={onClose}>
       <div role="tablist" aria-label="Phần cần sửa" className="flex gap-1.5">
-        <button type="button" role="tab" id="tab-settings" aria-selected={tab === 'settings'} aria-controls="panel-collection" onClick={() => setTab('settings')} className={tabClass(tab === 'settings')}>
-          Setting
-        </button>
-        <button type="button" role="tab" id="tab-glossary" aria-selected={tab === 'glossary'} aria-controls="panel-collection" onClick={() => setTab('glossary')} className={tabClass(tab === 'glossary')}>
-          Glossary
-        </button>
+        {TABS.map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            id={`tab-${id}`}
+            aria-selected={tab === id}
+            aria-controls="panel-collection"
+            onClick={() => setTab(id)}
+            className={tabClass(tab === id)}
+          >
+            {label}
+          </button>
+        ))}
       </div>
-      <div role="tabpanel" id="panel-collection" aria-labelledby={tab === 'settings' ? 'tab-settings' : 'tab-glossary'}>
-        {tab === 'settings' ? <SettingsForm collection={collection} onSaved={onSaved} /> : <CollectionGlossary collectionId={collection.id} />}
+      <div role="tabpanel" id="panel-collection" aria-labelledby={`tab-${tab}`}>
+        {tab === 'settings' ? <SettingsForm collection={collection} onSaved={onSaved} /> : null}
+        {tab === 'glossary' ? <CollectionGlossary collectionId={collection.id} /> : null}
+        {tab === 'watermark' ? <WatermarkPicker collectionId={collection.id} /> : null}
       </div>
     </Modal>
   );

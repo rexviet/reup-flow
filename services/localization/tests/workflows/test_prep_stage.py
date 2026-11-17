@@ -17,9 +17,10 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from localization.activities.detect_subtitles import (
-    BATCH_SIZE,
+    DETECT_CONCURRENCY,
     DetectSubtitlesActivity,
     _consensus,
+    grid_steps,
     locate,
     subtitles_key,
     to_source,
@@ -857,7 +858,7 @@ class FakeOcr:
         return self.answers.get(index)
 
 
-async def test_detect_subtitles_samples_two_frames_a_second_in_batches_of_eight(
+async def test_a_short_video_is_sampled_at_two_frames_a_second(
     store: ObjectStore, video: Path
 ) -> None:
     spec = make_input()
@@ -868,13 +869,55 @@ async def test_detect_subtitles_samples_two_frames_a_second_in_batches_of_eight(
         DetectSubtitlesActivity(store, ocr).detect_subtitles, spec
     )
     assert ocr.calls == 6  # 3 s at 2 frames per second
-    assert 1 < ocr.max_running <= BATCH_SIZE
+    assert 1 < ocr.max_running <= DETECT_CONCURRENCY
     assert result.region is not None  # fitted to the frames' pixels, see subtitle_pixels
     # The review reads the document at the same key, derived from the video alone.
     assert result.subtitle_key == subtitles_key(spec.aweme_id)
     stored = json.loads(store.get_bytes(result.subtitle_key, produced_by="detect_subtitles"))
     assert stored["region"] == result.region.model_dump()
     assert stored["cues"] == [{"start_ms": 500, "end_ms": 2500}]
+    assert stored["duration_ms"] == 3000
+
+
+def test_grids_halve_from_about_eight_frames_down_to_one_frame_every_four_seconds() -> None:
+    assert grid_steps(6) == [1]  # 3 s: every frame
+    assert grid_steps(40) == [4, 2]  # 20 s: at least 16 frames on the finest grid
+    assert grid_steps(240) == [16, 8]  # 2 min
+    assert grid_steps(1200) == [128, 64, 32, 16, 8]  # 10 min
+    for frames in (6, 40, 240, 1200):
+        steps = grid_steps(frames)
+        assert frames // steps[0] >= 8 or len(steps) == 1
+
+
+@pytest.fixture
+def two_minute_video(tmp_path: Path) -> Path:
+    path = tmp_path / "two-minutes.mp4"
+    _ffmpeg(
+        "-f", "lavfi", "-i", "testsrc=size=320x240:rate=2:duration=130",
+        "-pix_fmt", "yuv420p", str(path),
+    )  # fmt: skip
+    return path
+
+
+async def test_a_long_video_stops_at_the_first_grid_that_agrees_with_a_coarser_one(
+    store: ObjectStore, two_minute_video: Path
+) -> None:
+    """260 frames: grids every 32, 16 and 8 frames. The coarsest finds the row on 9
+    frames, too few to settle it; the next agrees with it on 17, so the finest grid is
+    never asked about."""
+    spec = make_input()
+    store.put_file(spec.video_key, two_minute_video)
+    region = BBox(x=10, y=200, w=300, h=30)
+    ocr = FakeOcr({i: region for i in range(300)})
+    result = await ActivityEnvironment().run(
+        DetectSubtitlesActivity(store, ocr).detect_subtitles, spec
+    )
+    assert grid_steps(260) == [32, 16, 8]
+    assert ocr.calls == 17  # 9 on the coarsest grid, 8 more on the next
+    assert result.region is not None
+    stored = json.loads(store.get_bytes(result.subtitle_key, produced_by="detect_subtitles"))
+    assert stored["frame_interval_ms"] == 8000
+    assert len(stored["frame_boxes"]) == 17
 
 
 async def test_every_frames_own_answer_is_kept_so_the_region_can_be_rebuilt(
@@ -989,7 +1032,7 @@ class DiskWatchingOcr(FakeOcr):
         return await super().detect_region(frame_png, width, height)
 
 
-async def test_frames_on_disk_never_exceed_one_chunk_however_long_the_video(
+async def test_no_frame_stays_on_disk_however_long_the_video(
     store: ObjectStore, long_video: Path, tmp_path: Path
 ) -> None:
     spec = make_input()
@@ -998,12 +1041,12 @@ async def test_frames_on_disk_never_exceed_one_chunk_however_long_the_video(
     scratch.mkdir()
     ocr = DiskWatchingOcr(scratch)
     await ActivityEnvironment().run(
-        DetectSubtitlesActivity(store, ocr, chunk_frames=8, tmp_root=scratch).detect_subtitles,
+        DetectSubtitlesActivity(store, ocr, tmp_root=scratch).detect_subtitles,
         spec,
     )
-    assert ocr.calls == 40  # 20 s at 2 frames per second: five times the chunk
-    assert max(ocr.on_disk) <= 8, ocr.on_disk
-    assert max(ocr.on_disk) > 1, "the watcher saw no frames, so it proves nothing"
+    assert ocr.calls == 20  # 20 s: every 2 s, then every 1 s; nothing seen settles sooner
+    # A frame's file is read and removed before the frame is asked about.
+    assert max(ocr.on_disk) == 0, ocr.on_disk
     assert list(scratch.iterdir()) == []  # and nothing is left behind
 
 
@@ -1045,9 +1088,8 @@ async def test_ingest_heartbeats_while_the_stems_upload(
 async def test_a_container_longer_than_its_video_stream_does_not_fail_the_last_chunk(
     store: ObjectStore, tmp_path: Path
 ) -> None:
-    """4 s of video is exactly one 8-frame chunk, and the 8 s audio track makes the
-    container claim twice that: the next chunk seeks past the last frame, which
-    ffmpeg reports as a failure, and that is just the end of the video."""
+    """4 s of video, and the 8 s audio track makes the container claim twice that: the
+    frames after the 4th second are not there, which is just the end of the video."""
     path = tmp_path / "tail.mp4"
     _ffmpeg(
         "-f", "lavfi", "-i", "testsrc=size=320x240:rate=10:duration=4",
@@ -1057,9 +1099,7 @@ async def test_a_container_longer_than_its_video_stream_does_not_fail_the_last_c
     spec = make_input()
     store.put_file(spec.video_key, path)
     ocr = FakeOcr({})
-    await ActivityEnvironment().run(
-        DetectSubtitlesActivity(store, ocr, chunk_frames=8).detect_subtitles, spec
-    )
+    await ActivityEnvironment().run(DetectSubtitlesActivity(store, ocr).detect_subtitles, spec)
     assert ocr.calls == 8
 
 
@@ -1205,3 +1245,55 @@ async def test_one_bad_gateway_is_asked_again_instead_of_failing_the_activity(
     assert ocr.failed and result.region is not None
     stored = json.loads(store.get_bytes(result.subtitle_key, produced_by="detect_subtitles"))
     assert len(stored["frame_boxes"]) == 10 and stored["unusable_frames"] == []
+
+
+# --- the watermark search ------------------------------------------------------
+
+
+def _with_images(spec: LocalizationInput) -> LocalizationInput:
+    from localization.contracts import CollectionSnapshot, WatermarkTemplate
+
+    image = WatermarkTemplate(
+        key="source/collections/c/watermarks/w.png", sha256="a" * 64, frame_height=1080
+    )
+    collection = CollectionSnapshot(
+        id="00000000-0000-4000-8000-000000000001", name="Kênh", watermarks=(image,)
+    )
+    return spec.model_copy(update={"collection": collection})
+
+
+async def _run_input(client: Client, fakes: PrepFakes, spec: LocalizationInput):
+    async with prep_workers(client, fakes):
+        handle = await client.start_workflow(
+            "VideoLocalizationWorkflow",
+            spec,
+            id=f"video-7001-g1-{uuid.uuid4()}",
+            task_queue="workflows",
+            result_type=LocalizationResult,
+        )
+        return handle, await asyncio.wait_for(handle.result(), timeout=10)
+
+
+async def test_a_collection_with_images_has_its_watermarks_found_after_the_subtitles(
+    temporal_client: Client,
+) -> None:
+    from tests.support.prep_fakes import MARK
+
+    fakes = PrepFakes()
+    handle, result = await _run_input(temporal_client, fakes, _with_images(make_input()))
+    assert fakes.calls["detect_watermarks"] == 1
+    assert result.prep.subtitles.watermarks == (MARK,)
+    scheduled = await _scheduled(handle)
+    assert ("detect_watermarks", "watermarks") in scheduled
+    names = [n for n, _ in scheduled]
+    assert names.index("detect_subtitles") < names.index("detect_watermarks")
+
+
+async def test_a_collection_without_images_looks_for_no_watermark(
+    temporal_client: Client,
+) -> None:
+    fakes = PrepFakes()
+    handle, result = await _run_input(temporal_client, fakes, make_input())
+    assert fakes.calls["detect_watermarks"] == 0
+    assert result.prep.subtitles.watermarks == ()
+    assert "detect_watermarks" not in [n for n, _ in await _scheduled(handle)]

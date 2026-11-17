@@ -220,6 +220,46 @@ def extract_frames(
     return frames
 
 
+def extract_frame(
+    video: Path, output: Path, *, time_s: float, width: int, height: int
+) -> bytes | None:
+    """The JPEG frame shown at `time_s`, scaled to `width` x `height`; None when the
+    video has no frame there (a container that claims more than its video stream
+    holds). The file is removed once read: only the bytes are kept."""
+    result = _run(
+        [
+            "ffmpeg",
+            "-nostdin",
+            "-y",
+            "-v",
+            "error",
+            "-ss",
+            f"{time_s:.3f}",
+            "-i",
+            str(video),
+            "-frames:v",
+            "1",
+            "-an",
+            "-vf",
+            f"scale={width}:{height}",
+            "-q:v",
+            "4",
+            str(output),
+        ],  # fmt: skip
+        what="ffmpeg",
+        timeout=60,
+    )
+    if not output.exists():
+        # Seeking past the last frame writes nothing; a failure that does is not that.
+        return None
+    try:
+        if result.returncode != 0:
+            raise PermanentProviderError("ffmpeg: a frame could not be extracted")
+        return output.read_bytes()
+    finally:
+        output.unlink(missing_ok=True)
+
+
 def to_stt_audio(source: Path, out_wav: Path) -> None:
     """16 kHz mono: what speech models consume, about a tenth of a 44.1 kHz stereo
     stem, so a long video stays under a server's upload limit."""

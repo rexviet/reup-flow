@@ -47,7 +47,12 @@ from typing import Any
 import httpx
 from common import load_env
 
-from localization.activities.detect_subtitles import BATCH_SIZE, OCR_MAX_SIDE, locate, to_source
+from localization.activities.detect_subtitles import (
+    DETECT_CONCURRENCY,
+    OCR_MAX_SIDE,
+    locate,
+    to_source,
+)
 from localization.activities.ffmpeg import extract_frames, probe_video
 from localization.contracts import BBox
 from localization.observability.llm_usage import parse_usage
@@ -225,7 +230,7 @@ class CostMeter:
 
 
 # As many requests in flight as the activity sends at once.
-_LIMIT = asyncio.Semaphore(BATCH_SIZE)
+_LIMIT = asyncio.Semaphore(DETECT_CONCURRENCY)
 
 
 async def _ask(ocr: VisionOcr, image: bytes, scaled: tuple[int, int]) -> tuple[BBox | None, bool]:

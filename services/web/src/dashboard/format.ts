@@ -150,6 +150,12 @@ export function formatUsd(n: number): string {
   return `$${n.toFixed(4)}`;
 }
 
+/** `hh:mm` of a total length, hours not capped at 24: 248 minutes is `04:08`. */
+export function formatHoursMinutes(ms: number): string {
+  const minutes = Math.floor(Math.max(0, ms) / 60_000);
+  return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+}
+
 /** `m:ss` or `h:mm:ss` for a video length; null when the length is unknown. */
 export function formatDuration(ms: number | null | undefined): string | null {
   if (ms === null || ms === undefined || !Number.isFinite(ms) || ms < 0) return null;

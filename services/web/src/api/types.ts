@@ -206,6 +206,17 @@ export interface HealthItem {
   reason: string;
   pollers?: number;
 }
+/** GET /api/dashboard/render-cost: every number is null when Postgres is down. */
+export interface RenderCostReport {
+  videos: number | null;
+  duration_ms: number | null;
+  /** Every LLM request of the rendered videos, reruns included. */
+  llm_cost_usd: number | null;
+  /** null until something is rendered. */
+  usd_per_minute: number | null;
+  sources: { postgres: 'ok' | 'down' };
+}
+
 export interface HealthReport {
   generatedAt: string;
   postgres: HealthItem;
@@ -480,4 +491,42 @@ export interface GlossaryTerm {
 
 export interface GlossaryResponse {
   items: GlossaryTerm[];
+}
+
+/** A watermark image of a collection: a region cut from a frame of one of its videos. */
+export interface CollectionWatermark {
+  id: string;
+  /** The PNG, behind the API key: fetch it with `getWatermarkImage`, not as an `<img src>`. */
+  image_url: string;
+  image_sha256: string;
+  /** Size of the frame it was cut from, in pixels. */
+  frame_width: number;
+  frame_height: number;
+  /** Where it was cut; all four null for an uploaded file. */
+  aweme_id: string | null;
+  time_ms: number | null;
+  x: number | null;
+  y: number | null;
+  w: number;
+  h: number;
+  created_at: string;
+}
+
+export interface CollectionWatermarkListResponse {
+  items: CollectionWatermark[];
+}
+
+/**
+ * What is sent with a PNG of `w`×`h`: the frame it belongs to, and for a region cut on the
+ * dashboard where it was cut. An uploaded file leaves the four cut fields out.
+ */
+export interface WatermarkMeta {
+  frame_width: number;
+  frame_height: number;
+  w: number;
+  h: number;
+  aweme_id?: string;
+  time_ms?: number;
+  x?: number;
+  y?: number;
 }

@@ -6,6 +6,7 @@ import html
 import json
 import tempfile
 import uuid
+from collections.abc import Sequence
 from pathlib import Path
 
 from temporalio import activity
@@ -38,6 +39,7 @@ from localization.contracts import (
     SourceSnapshot,
     SubtitleDocument,
     SubtitleTrack,
+    Watermark,
 )
 from localization.contracts.voice import REVIEW_PROVIDERS
 from localization.storage.object_store import (
@@ -62,6 +64,21 @@ STUDIO_SCRIPT_HASHES = (
     "sha256-wtEn1rpV5DbEVJ/gCdI8hx5LwJqDV8xii8bCgjbnHO8=",
     "sha256-m/Ec/hWgpgEFw7vdX1OqVjN4hYw91Db05P5gkOtgNdw=",
 )
+
+
+# How strongly a source watermark is blurred in the review project and its render.
+WATERMARK_BLUR_PX = 14
+
+
+def _watermark_style(watermarks: Sequence[Watermark]) -> str:
+    """The blur over a source watermark; a project without any keeps the markup it had."""
+    if not watermarks:
+        return ""
+    blur = f"blur({WATERMARK_BLUR_PX}px)"
+    return (
+        ".watermark-mask{position:absolute;box-sizing:border-box;background:rgba(0,0,0,.01);"
+        f"backdrop-filter:{blur};-webkit-backdrop-filter:{blur}}}\n"
+    )
 
 
 def checksum(data: bytes) -> str:
@@ -90,11 +107,13 @@ def project_html(
     cover_color: str | None = None,
     cover_opacity_pct: int | None = None,
     geometry: CoverGeometry | None = None,
+    watermarks: Sequence[Watermark] = (),
 ) -> bytes:
     """Escaped text and fixed markup; no caption/reason becomes executable script. The
     colours are the collection's, validated as `HexColor` by the manifest; a project
     without them is drawn as before (yellow text, white blur). `geometry` is where the
-    collection puts the cover box; without it the box is the one found from the source."""
+    collection puts the cover box; without it the box is the one found from the source.
+    `watermarks` are blurred in place while each shows."""
     duration = ingest.duration_ms / 1000
     video_name, mix_name, font_name = (Path(a.key).name for a in (video, mixed, font))
     # The caption and source mask share one vertical box. Measure the actual bundled
@@ -152,7 +171,7 @@ display:flex;align-items:center;justify-content:center;font:{px}px/{gap}px Revie
 color:{text_color};text-align:center;white-space:pre;-webkit-text-stroke:{stroke}px #000;
 paint-order:stroke fill}}
 .source-mask{{{_mask_style(cover_color, cover_opacity_pct)}}}
-{cue_boxes}
+{_watermark_style(watermarks)}{cue_boxes}
 """
     # Contiguous spans keep the box visible through gaps. Only a long caption's
     # own span expands; a long line elsewhere must not widen every other caption.
@@ -176,6 +195,14 @@ paint-order:stroke fill}}
         f'data-start="{start / 1000}" data-duration="{(end - start) / 1000}" data-track-index="1" '
         f'style="{box}"></div>'
         for i, (start, end, box) in enumerate(merged)
+    ]
+    # One track each: a watermark on the left and one on the right can show at once.
+    blurs = [
+        f'<div data-hf-id="hf-wm-{i}" id="wm-{i}" class="clip watermark-mask" '
+        f'data-start="{w.start_ms / 1000}" data-duration="{(w.end_ms - w.start_ms) / 1000}" '
+        f'data-track-index="{4 + i}" style="left:{w.region.x}px;top:{w.region.y}px;'
+        f'width:{w.region.w}px;height:{w.region.h}px"></div>'
+        for i, w in enumerate(watermarks)
     ]
     captions = [
         f'<div data-hf-id="hf-cue-{c.id}" id="cue-{c.id}" class="clip caption" '
@@ -204,7 +231,7 @@ data-start="0" data-duration="{duration}"
 data-track-index="0" muted playsinline></video>
 <audio data-hf-id="hf-mix" id="mix" src="{mix_name}" data-start="0" data-duration="{duration}"
 data-track-index="3"></audio>
-{"".join(masks)}{"".join(captions)}</main>
+{"".join(blurs)}{"".join(masks)}{"".join(captions)}</main>
 <script type="application/json" id="cue-data">{data}</script>
 </body></html>'''.encode()
 
@@ -434,6 +461,7 @@ class ReviewProjectActivity:
                             width_pct=settings.get("cover_width_pct"),
                             height_pct=settings.get("cover_height_pct"),
                         ),
+                        watermarks=source_subs.watermarks,
                     ),
                     ".html",
                 ),
@@ -441,6 +469,9 @@ class ReviewProjectActivity:
                 cues=tuple(cues),
                 source_region=source_subs.region,
                 source_cues=tuple((c.start_ms, c.end_ms) for c in source_subs.cues),
+                watermarks=source_subs.watermarks,
+                watermark_templates=source_subs.watermark_templates,
+                watermark_method=source_subs.watermark_method,
                 **settings,
             )
             data = manifest.model_dump_json().encode()

@@ -24,6 +24,7 @@ dependencies = [
   "torch==2.5.1",
   "starlette==0.52.1",
   "uvicorn==0.40.0",
+  "opencv-python-headless>=4.10",
 ]
 
 [dependency-groups]

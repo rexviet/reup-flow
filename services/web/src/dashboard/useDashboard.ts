@@ -5,6 +5,7 @@ import {
   getDashboardVideo,
   getDashboardVideos,
   getHealth,
+  getRenderCost,
   listCollections,
   listJobs,
   runAction,
@@ -14,10 +15,16 @@ import { usePolling } from '../hooks/usePolling';
 
 export const HEALTH_POLL_MS = 10_000;
 export const LIST_POLL_MS = 3_000;
+export const RENDER_COST_POLL_MS = 60_000;
 
 export function useHealth() {
   const fetcher = useCallback(() => getHealth(), []);
   return usePolling(fetcher, HEALTH_POLL_MS, { pauseWhenHidden: true });
+}
+
+export function useRenderCost() {
+  const fetcher = useCallback(() => getRenderCost(), []);
+  return usePolling(fetcher, RENDER_COST_POLL_MS, { pauseWhenHidden: true });
 }
 
 export function useVideoList(query: VideoListQuery) {

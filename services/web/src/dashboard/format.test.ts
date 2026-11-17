@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { actionsFor, formatDuration, STAGE_TONES, TONE_ICONS } from './format';
+import { actionsFor, formatDuration, formatHoursMinutes, STAGE_TONES, TONE_ICONS } from './format';
 import { STAGES } from '../api/types';
 
 describe('formatDuration', () => {
@@ -33,5 +33,13 @@ describe('actionsFor', () => {
   it('leaves the other stages as they were', () => {
     expect(actionsFor('run_failed', 'failed')).toEqual(['resume', 'rerun']);
     expect(actionsFor('held', null)).toEqual(['localize']);
+  });
+});
+
+describe('formatHoursMinutes', () => {
+  it('shows hours and minutes of a total, past a day too', () => {
+    expect(formatHoursMinutes(0)).toBe('00:00');
+    expect(formatHoursMinutes(248.9 * 60_000)).toBe('04:08');
+    expect(formatHoursMinutes(26 * 3_600_000 + 5 * 60_000)).toBe('26:05');
   });
 });

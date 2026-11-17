@@ -10,9 +10,9 @@ docker compose exec -T postgres sh -c 'createdb -U "$POSTGRES_USER" "$1"' sh "$n
 run() { MIGRATION_TEST_DATABASE="$name" bash scripts/apply-migrations.sh; }
 assert_sql() { local got; got=$(printf '%s\n' "$1" | psql_); [ "$got" = "$2" ] || { echo "assertion failed: expected $2 got $got" >&2; exit 1; }; }
 run
-assert_sql 'SELECT count(*) FROM public.applied_migrations' 16
+assert_sql 'SELECT count(*) FROM public.applied_migrations' 19
 run
-assert_sql 'SELECT count(*) FROM public.applied_migrations' 16
+assert_sql 'SELECT count(*) FROM public.applied_migrations' 19
 
 # Dashboard migrations: outbox accepts 'held' only, and a down/up round trip works.
 printf "INSERT INTO public.profiles(sec_user_id) VALUES ('p'); INSERT INTO public.collections(kind,external_id,sec_user_id,name) VALUES ('channel','p','p','p'); INSERT INTO public.videos(aweme_id,sec_user_id,create_time,collection_id) SELECT a,'p',now(),c.id FROM unnest(ARRAY['h0','h1','h2']) a, public.collections c;\n" | psql_
@@ -26,6 +26,9 @@ if psql_ -1 < services/downloader/migrations/261112-dashboard-intake.down.sql 2>
   echo 'down unexpectedly passed with held rows' >&2; exit 1
 fi
 printf "DELETE FROM public.localization_outbox;\n" | psql_
+psql_ -1 < services/downloader/migrations/261115-collection-watermark-uploads.down.sql >/dev/null 2>&1
+psql_ -1 < services/downloader/migrations/261115-collection-watermarks.down.sql >/dev/null 2>&1
+psql_ -1 < services/localization/migrations/261115-final-renders-state-idx.down.sql >/dev/null 2>&1
 psql_ -1 < services/localization/migrations/261115-outbox-bypass-skips-grant.down.sql >/dev/null 2>&1
 psql_ -1 < services/downloader/migrations/261115-outbox-bypass-skips.down.sql >/dev/null 2>&1
 psql_ -1 < services/downloader/migrations/261114-collection-cover-geometry.down.sql >/dev/null 2>&1
@@ -35,11 +38,11 @@ psql_ -1 < services/localization/migrations/261114-auto-queue-switch.down.sql >/
 psql_ -1 < services/localization/migrations/261113-sequential-queue.down.sql >/dev/null 2>&1
 psql_ -1 < services/localization/migrations/261112-review-delivery.down.sql >/dev/null 2>&1
 psql_ -1 < services/downloader/migrations/261112-dashboard-intake.down.sql >/dev/null 2>&1
-assert_sql "SELECT count(*) FROM pg_tables WHERE (schemaname,tablename) IN (('public','review_decisions'),('localization','final_renders'),('public','auto_queue_inflight'),('public','collections'),('public','folder_exports'),('public','auto_queue_settings'))" 0
+assert_sql "SELECT count(*) FROM pg_tables WHERE (schemaname,tablename) IN (('public','review_decisions'),('localization','final_renders'),('public','auto_queue_inflight'),('public','collections'),('public','folder_exports'),('public','auto_queue_settings'),('public','collection_watermarks'))" 0
 assert_sql "SELECT channel_id || ':' || term_vi FROM localization.glossary" 'p:Apple'
-printf "DELETE FROM public.applied_migrations WHERE name IN ('261112-dashboard-intake.sql','261112-review-delivery.sql','261113-sequential-queue.sql','261114-auto-queue-switch.sql','261114-collections.sql','261114-glossary-collection-scope.sql','261114-collection-cover-geometry.sql','261115-outbox-bypass-skips.sql','261115-outbox-bypass-skips-grant.sql');\n" | psql_
+printf "DELETE FROM public.applied_migrations WHERE name IN ('261112-dashboard-intake.sql','261112-review-delivery.sql','261113-sequential-queue.sql','261114-auto-queue-switch.sql','261114-collections.sql','261114-glossary-collection-scope.sql','261114-collection-cover-geometry.sql','261115-outbox-bypass-skips.sql','261115-outbox-bypass-skips-grant.sql','261115-final-renders-state-idx.sql','261115-collection-watermarks.sql','261115-collection-watermark-uploads.sql');\n" | psql_
 run
-assert_sql 'SELECT count(*) FROM public.applied_migrations' 16
+assert_sql 'SELECT count(*) FROM public.applied_migrations' 19
 # The re-applied backfill gives the existing videos their channel collection again.
 assert_sql "SELECT count(*) FROM public.videos v JOIN public.collections c ON c.id = v.collection_id WHERE c.kind = 'channel' AND c.external_id = 'p'" 3
 assert_sql "SELECT c.external_id || ':' || g.term_vi FROM localization.glossary g JOIN public.collections c ON c.id = g.collection_id" 'p:Apple'
@@ -57,10 +60,15 @@ INSERT INTO localization.host_workers(name,info) VALUES ('host','{}') ON CONFLIC
 UPDATE public.studio_open_requests SET state='done', error=NULL, handled_at=now() WHERE state='pending';
 SQL
 assert_sql "SET ROLE localization; SELECT decision FROM public.review_decisions WHERE aweme_id='h1'" approved
+# Moving an approval onto a new revision is the one change the worker makes to a decision.
+assert_sql "SET ROLE localization; UPDATE public.review_decisions SET approved_revision='rev2' WHERE aweme_id='h1' AND approved_revision='rev1' RETURNING approved_revision" rev2
+assert_sql "SET ROLE localization; SELECT count(*) FROM public.collection_watermarks" 0
 for denied in \
   "INSERT INTO public.review_decisions(aweme_id,generation,decision) VALUES ('h1',2,'approved')" \
   "UPDATE public.review_decisions SET decision='returned'" \
   "DELETE FROM public.review_decisions" \
+  "INSERT INTO public.collection_watermarks(collection_id,image_key,image_sha256,frame_width,frame_height,aweme_id,time_ms,x,y,w,h) SELECT id,'k','0000000000000000000000000000000000000000000000000000000000000000',10,10,'h1',0,0,0,8,8 FROM public.collections" \
+  "DELETE FROM public.collection_watermarks" \
   "UPDATE public.studio_open_requests SET aweme_id='x'" \
   "INSERT INTO public.studio_open_requests(aweme_id,generation) VALUES ('h1',3)" \
   "SELECT * FROM public.publications"; do

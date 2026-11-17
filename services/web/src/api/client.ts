@@ -7,6 +7,9 @@ import type {
   ChannelListResponse,
   CollectionItem,
   CollectionListResponse,
+  CollectionWatermark,
+  CollectionWatermarkListResponse,
+  RenderCostReport,
   CookieStatus,
   CoverPreview,
   CreateCollectionBody,
@@ -21,6 +24,7 @@ import type {
   VideoDetailResponse,
   VideoListQuery,
   VideoListResponse,
+  WatermarkMeta,
 } from './types';
 
 /**
@@ -167,6 +171,10 @@ export async function getHealth(): Promise<HealthReport> {
   return request<HealthReport>('/api/dashboard/health');
 }
 
+export async function getRenderCost(): Promise<RenderCostReport> {
+  return request<RenderCostReport>('/api/dashboard/render-cost');
+}
+
 export async function getAutoQueue(): Promise<AutoQueueStatus> {
   return request<AutoQueueStatus>('/api/dashboard/auto-queue');
 }
@@ -219,10 +227,46 @@ export async function updateCollection(id: string, body: UpdateCollectionBody): 
   return request<CollectionItem>(`/api/collections/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
+/** Only an empty collection; a 409 says what still uses it. Its glossary goes with it. */
+export async function deleteCollection(id: string): Promise<void> {
+  await request<void>(`/api/collections/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
 /** A frame of one of the collection's videos to preview the cover box on; 404 when it has none with a review project. */
 export async function getCoverPreview(id: string): Promise<CoverPreview> {
   const res = await request<CoverPreview>(`/api/collections/${encodeURIComponent(id)}/cover-preview`);
   return res.source_url ? { ...res, source_url: `${baseUrl()}${res.source_url}` } : res;
+}
+
+const watermarksPath = (collectionId: string): string => `/api/collections/${encodeURIComponent(collectionId)}/watermarks`;
+
+export async function listWatermarks(collectionId: string): Promise<CollectionWatermarkListResponse> {
+  return request<CollectionWatermarkListResponse>(watermarksPath(collectionId));
+}
+
+/** Sends the PNG as the body and `meta` as the query. At most 10 per collection (409). */
+export async function addWatermark(collectionId: string, meta: WatermarkMeta, png: Blob): Promise<CollectionWatermark> {
+  const query = new URLSearchParams(
+    Object.entries(meta)
+      .filter(([, v]) => v !== undefined)
+      .map(([k, v]) => [k, String(v)]),
+  );
+  return request<CollectionWatermark>(`${watermarksPath(collectionId)}?${query}`, {
+    method: 'POST',
+    body: png,
+    headers: { 'Content-Type': 'image/png' },
+  });
+}
+
+export async function deleteWatermark(collectionId: string, watermarkId: string): Promise<void> {
+  await request<void>(`${watermarksPath(collectionId)}/${encodeURIComponent(watermarkId)}`, { method: 'DELETE' });
+}
+
+/** The PNG of `image_url`, fetched with the API key (an `<img src>` cannot send it). */
+export async function getWatermarkImage(imageUrl: string): Promise<Blob> {
+  const res = await fetch(`${baseUrl()}${imageUrl}`, { headers: { 'X-Api-Key': import.meta.env.VITE_API_KEY } });
+  if (!res.ok) throw new ApiError(res.status, res.statusText || `HTTP ${res.status}`);
+  return res.blob();
 }
 
 const glossaryPath = (collectionId: string): string => `/api/collections/${encodeURIComponent(collectionId)}/glossary`;

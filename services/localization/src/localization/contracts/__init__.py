@@ -44,6 +44,7 @@ from localization.contracts.models import (
     Transcript,
     TranscriptDocument,
     VoiceProfile,
+    Watermark,
 )
 from localization.contracts.voice import ProviderSettings, VoiceRef, VoiceStudioSettings
 
@@ -89,6 +90,8 @@ __all__ = [
     "SubtitleCue",
     "SubtitleDocument",
     "SubtitleTrack",
+    "Watermark",
+    "WatermarkTemplate",
     "SynthClip",
     "SynthesisPlan",
     "Transcript",
@@ -98,7 +101,11 @@ __all__ = [
     "VoiceStudioSettings",
 ]
 
-from localization.contracts.collection import DEFAULT_CAPTION_COLOR, CollectionSnapshot
+from localization.contracts.collection import (
+    DEFAULT_CAPTION_COLOR,
+    CollectionSnapshot,
+    WatermarkTemplate,
+)
 from localization.contracts.review_project import (
     MixLevels,
     ProjectRef,

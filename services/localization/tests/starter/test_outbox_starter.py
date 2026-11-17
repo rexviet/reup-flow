@@ -27,6 +27,7 @@ from tests.support.scratch_db import (
     DASHBOARD_INTAKE,
     INIT,
     OUTBOX,
+    WATERMARKS,
     add_channel_collection,
     scratch_database,
 )
@@ -37,7 +38,7 @@ BUCKET = "reup-media"
 
 @pytest.fixture
 def db() -> Iterator[tuple[str, psycopg.Connection]]:
-    yield from scratch_database(INIT, OUTBOX, COLLECTIONS)
+    yield from scratch_database(INIT, OUTBOX, DASHBOARD_INTAKE, COLLECTIONS, WATERMARKS)
 
 
 def add_video(
@@ -327,7 +328,7 @@ async def test_a_row_without_a_video_is_rejected(
 
 
 async def test_a_held_row_is_never_claimed() -> None:
-    for info, conn in scratch_database(INIT, OUTBOX, DASHBOARD_INTAKE, COLLECTIONS):
+    for info, conn in scratch_database(INIT, OUTBOX, DASHBOARD_INTAKE, COLLECTIONS, WATERMARKS):
         add_video(conn, "7100")
         conn.execute("UPDATE localization_outbox SET state = 'held' WHERE aweme_id = '7100'")
         before = row(conn, "7100")
@@ -511,6 +512,7 @@ async def test_the_input_carries_the_collection_settings_read_at_dispatch(
         "cover_offset_pct": -4,
         "cover_width_pct": 100,
         "cover_height_pct": 12,
+        "watermarks": [],
     }
     assert (await started_input(temporal_client, workflow_id("7001", 1)))["collection"] == expected
     # Editing the collection afterwards changes runs dispatched afterwards, never this one.
@@ -523,6 +525,34 @@ async def test_the_input_carries_the_collection_settings_read_at_dispatch(
     assert (await started_input(temporal_client, workflow_id("7001", 1)))["collection"] == expected
     later = (await started_input(temporal_client, workflow_id("7002", 1)))["collection"]
     assert (later["caption_color"], later["bgm_offset_db"]) == ("#ffffff", 3.0)
+
+
+def _add_watermark(conn: psycopg.Connection, collection: str, n: int) -> dict:
+    key = f"source/collections/{collection}/watermarks/{n}.png"
+    conn.execute(
+        "INSERT INTO collection_watermarks (collection_id, image_key, image_sha256, "
+        "frame_width, frame_height, aweme_id, time_ms, x, y, w, h, created_at) "
+        "VALUES (%s, %s, %s, 1080, 1920, '7001', 0, 0, 0, 100, 40, "
+        "now() - make_interval(secs => %s))",
+        (collection, key, f"{n:x}" * 64, 10 - n),
+    )
+    return {"key": key, "sha256": f"{n:x}" * 64, "frame_height": 1920}
+
+
+async def test_a_run_carries_its_collections_watermark_images_in_the_order_they_were_added(
+    db: tuple[str, psycopg.Connection], temporal_client: Client, env: Env
+) -> None:
+    info, conn = db
+    collection = add_channel_collection(conn, "chan_1")
+    images = [_add_watermark(conn, collection, n) for n in (1, 2)]
+    add_video(conn, "7001", collection=collection)
+    assert await starter(info, temporal_client, env).run_once() == Outcome.DISPATCHED
+    got = await started_input(temporal_client, workflow_id("7001", 1))
+    assert got["collection"]["watermarks"] == images
+    # An image deleted afterwards leaves the run already started as it was.
+    conn.execute("DELETE FROM collection_watermarks")
+    got = await started_input(temporal_client, workflow_id("7001", 1))
+    assert got["collection"]["watermarks"] == images
 
 
 async def test_a_collection_without_settings_leaves_every_setting_to_the_default(
@@ -541,6 +571,7 @@ async def test_a_collection_without_settings_leaves_every_setting_to_the_default
         "cover_offset_pct": None,
         "cover_width_pct": None,
         "cover_height_pct": None,
+        "watermarks": [],
     }
 
 

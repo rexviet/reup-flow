@@ -112,14 +112,22 @@ class Repository:
         levels=None,
         studio_files=None,
         geometry: CoverGeometry | None = None,
+        watermarks=None,
+        watermark_templates=None,
+        watermark_method=0,
     ):
         """`geometry` replaces the cover box `base` keeps (a cover relayout); without it the
-        new revision draws the box as `base` does."""
+        new revision draws the box as `base` does. `watermarks`, with the sha256 of the
+        images they were found with and the search that found them, replace the blur `base`
+        keeps (a watermark relayout)."""
         # Source masks and native timing stay generated, while visual edits use cue IDs.
         from localization.review_bridge.visual import apply_visual
 
         mixed = mixed or base.mixed_audio
         geometry = CoverGeometry.of(base) if geometry is None else geometry
+        if watermarks is None:
+            watermarks, watermark_templates = base.watermarks, base.watermark_templates
+            watermark_method = base.watermark_method
         subtitles = SimpleNamespace(
             region=base.source_region,
             cues=[SimpleNamespace(start_ms=s, end_ms=e) for s, e in base.source_cues],
@@ -141,6 +149,7 @@ class Repository:
                     cover_color=base.cover_color,
                     cover_opacity_pct=base.cover_opacity_pct,
                     geometry=geometry,
+                    watermarks=watermarks,
                 ),
                 visual,
             )
@@ -158,6 +167,9 @@ class Repository:
                 "cover_offset_pct": geometry.offset_pct,
                 "cover_width_pct": geometry.width_pct,
                 "cover_height_pct": geometry.height_pct,
+                "watermarks": tuple(watermarks),
+                "watermark_templates": tuple(watermark_templates or ()),
+                "watermark_method": watermark_method,
             }
         )
         candidate = ReviewProjectManifest.model_validate(candidate.model_dump())

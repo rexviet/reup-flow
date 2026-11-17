@@ -1,10 +1,10 @@
 """python -m localization.review_worker.main
 
 One loop every 5 seconds: heartbeat, Studio open requests, every 60 seconds a cover
-relayout and a scan of the videos awaiting review, save-to-folder requests, a thumbnail of
-one downloaded video and, when the disk allows, one final render at a time. Studio requests,
-folder exports, thumbnails and the render each run on their own thread, so none of them holds
-up the heartbeat or another.
+relayout, a scan of the videos awaiting review and a watermark relayout, save-to-folder
+requests, a thumbnail of one downloaded video and, when the disk allows, one final render at
+a time. Studio requests, the watermark relayout, folder exports, thumbnails and the render
+each run on their own thread, so none of them holds up the heartbeat or another.
 
 `REVIEW_WORKER_ROLES` splits this between machines: a Windows PC that only renders runs
 `render` (no Studio, no scan of its empty `data/review`); the Mac then runs `studio`.
@@ -33,6 +33,7 @@ from localization.review_worker import (
     studio_requests,
     thumbnails,
     version,
+    watermark_relayout,
 )
 from localization.review_worker.config import WorkerConfig
 from localization.storage.object_store import ObjectStore
@@ -63,6 +64,10 @@ class Worker:
         self.studio_thread: threading.Thread | None = None
         self.export_thread: threading.Thread | None = None
         self.thumb_thread: threading.Thread | None = None
+        self.marks_thread: threading.Thread | None = None
+        self.marks = watermark_relayout.WatermarkRelayout(
+            self.repo, store, cfg.work_root / "marks", threads=cfg.watermark_threads
+        )
         self.thumbs = thumbnails.Thumbnailer(
             store, cfg.work_root / "thumbs", min_free_gb=cfg.min_free_gb,
             ffmpeg_bin=cfg.ffmpeg_bin,
@@ -120,6 +125,17 @@ class Worker:
             # A refused query or an unreachable store holds for every video: wait, say it once.
             self.thumbs.idle()
             self.thumbs.warn_once("video thumbnails failed: %s", type(exc).__name__)
+        finally:
+            if conn is not None:
+                conn.close()
+
+    def _marks_thread(self) -> None:
+        conn = None
+        try:
+            conn = self.connector(self.cfg)
+            self.marks.run_pass(conn, self.stopping)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("watermark relayout failed: %s", type(exc).__name__)
         finally:
             if conn is not None:
                 conn.close()
@@ -192,6 +208,19 @@ class Worker:
             # Before the scan, so that the status it records is the new revision's.
             cover_relayout.relayout(conn, self.repo)
             review_scan.scan(conn, self.repo)
+            self._marks_work()
+
+    def _marks_work(self) -> None:
+        # Finding watermarks again takes minutes of CPU: never on the loop, never beside a
+        # render, one pass at a time.
+        if self.marks_thread is not None and self.marks_thread.is_alive():
+            return
+        if self.rendering():
+            return
+        self.marks_thread = threading.Thread(
+            target=self._marks_thread, name="watermark-relayout", daemon=True
+        )
+        self.marks_thread.start()
 
     def _export_work(self) -> None:
         # A copy of hundreds of MB must not hold up the heartbeat or a Studio request.
@@ -253,6 +282,9 @@ class Worker:
                 self.thread.join(30)
         if self.studio_thread is not None:
             self.studio_thread.join(5)
+        if self.marks_thread is not None:
+            # A search stops at the next frame once `stopping` is set.
+            self.marks_thread.join(30)
         if self.thumb_thread is not None:
             # It checks `stopping` between videos; one cut is bounded by the ffmpeg timeout,
             # and its temp files are removed by the next start if the process ends first.

@@ -334,6 +334,32 @@
       "title": "VoiceStudioSettings",
       "type": "object"
     },
+    "Watermark": {
+      "additionalProperties": false,
+      "description": "Text burned into the source that is not its subtitle and stays in one place: a\nchannel name, a disclaimer in a corner. It is blurred over `region` from `start_ms`\nto `end_ms`. One that moves (a corner on the left, later one on the right) is one\nwatermark per place.",
+      "properties": {
+        "end_ms": {
+          "minimum": 0,
+          "title": "End Ms",
+          "type": "integer"
+        },
+        "region": {
+          "$ref": "#/$defs/BBox"
+        },
+        "start_ms": {
+          "minimum": 0,
+          "title": "Start Ms",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "region",
+        "start_ms",
+        "end_ms"
+      ],
+      "title": "Watermark",
+      "type": "object"
+    },
     "ZeroTtsSettings": {
       "additionalProperties": false,
       "description": "ZeroTTS has no speed control: how fast a voice speaks is part of the voice.",
@@ -620,6 +646,29 @@
     },
     "voice": {
       "$ref": "#/$defs/VoiceRef"
+    },
+    "watermark_method": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Watermark Method",
+      "type": "integer"
+    },
+    "watermark_templates": {
+      "default": [],
+      "items": {
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
+      },
+      "title": "Watermark Templates",
+      "type": "array"
+    },
+    "watermarks": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Watermark"
+      },
+      "title": "Watermarks",
+      "type": "array"
     },
     "width": {
       "exclusiveMinimum": 0,

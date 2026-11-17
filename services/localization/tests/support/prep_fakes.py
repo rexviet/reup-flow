@@ -20,11 +20,14 @@ from localization.contracts import (
     SingingCheck,
     SubtitleTrack,
     Transcript,
+    Watermark,
 )
 from localization.storage.object_store import ArtifactMissingError, work_key
 from tests.support.rendezvous import Rendezvous
 
 REGION = BBox(x=100, y=900, w=800, h=80)
+# What the stand-in watermark search finds, whatever images it is given.
+MARK = Watermark(region=BBox(x=20, y=40, w=200, h=40), start_ms=0, end_ms=3000)
 
 
 @dataclass
@@ -104,8 +107,16 @@ class PrepFakes:
                 subtitle_key=work_key(spec.aweme_id, 0, "subtitles.json"), region=fakes.region
             )
 
+        @activity.defn(name="detect_watermarks")
+        async def detect_watermarks(
+            spec: LocalizationInput, subtitles: SubtitleTrack
+        ) -> SubtitleTrack:
+            fakes.calls["detect_watermarks"] += 1
+            assert spec.collection is not None and spec.collection.watermarks
+            return subtitles.model_copy(update={"watermarks": (MARK,)})
+
         completion = completion_activities(fakes.calls, fakes.sung)
-        return [ingest, transcribe, detect_subtitles, *completion]
+        return [ingest, transcribe, detect_subtitles, detect_watermarks, *completion]
 
 
 def completion_activities(

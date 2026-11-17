@@ -116,6 +116,13 @@ export function stageFactsOf(r: VideoRecord): StageFacts {
   };
 }
 
+/** Videos with at least one finished render, their length, and every LLM request ever made for them. */
+export interface RenderCostRow {
+  videos: number;
+  durationMs: number;
+  costUsd: number;
+}
+
 export interface LlmCostRow {
   generation: number;
   stage: string;
@@ -300,6 +307,26 @@ export class DashboardRepository {
       calls: r.calls,
       costUsd: Number(r.cost),
     }));
+  }
+
+  /**
+   * Each rendered video counts its length once, however many generations were rendered.
+   * The cost is every LLM request of those videos, reruns and runs that never rendered
+   * included: that is what the rendered minutes really cost.
+   */
+  async renderCost(): Promise<RenderCostRow> {
+    const { rows } = await this.pool.query(
+      `WITH rendered AS (
+         SELECT DISTINCT aweme_id FROM localization.final_renders WHERE state = 'rendered'
+       )
+       SELECT (SELECT COUNT(*)::int FROM rendered) AS videos,
+              (SELECT COALESCE(SUM(v.duration_ms), 0)::bigint
+                 FROM rendered r JOIN videos v ON v.aweme_id = r.aweme_id) AS duration_ms,
+              (SELECT COALESCE(SUM(c.cost_usd), 0)
+                 FROM localization.llm_calls c WHERE c.aweme_id IN (SELECT aweme_id FROM rendered)) AS cost`,
+    );
+    const r = rows[0];
+    return { videos: r.videos, durationMs: Number(r.duration_ms), costUsd: Number(r.cost) };
   }
 
   async runDetails(awemeId: string): Promise<RunDetailRow[]> {

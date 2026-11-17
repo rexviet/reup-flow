@@ -81,6 +81,50 @@ describe('CollectionsPanel list', () => {
   });
 });
 
+describe('CollectionsPanel delete', () => {
+  const empty = collection({ id: 'c-empty', name: 'Trống', kind: 'manual', channel: null, video_count: 0 });
+
+  it('offers delete only on a collection with no video', () => {
+    render(<CollectionsPanel collections={[mix, empty]} onChanged={() => {}} />);
+    expect(screen.queryByRole('button', { name: 'Xoá Phim A' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Xoá Trống' })).toBeInTheDocument();
+  });
+
+  it('deletes after the admin confirms, then refreshes and reports it', async () => {
+    const onChanged = vi.fn();
+    const onDeleted = vi.fn();
+    vi.mocked(client.deleteCollection).mockResolvedValue();
+    render(<CollectionsPanel collections={[empty]} onChanged={onChanged} onDeleted={onDeleted} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Xoá Trống' }));
+    const confirm = screen.getByRole('alertdialog');
+    expect(confirm).toHaveTextContent('Xoá collection «Trống»?');
+    await userEvent.click(within(confirm).getByRole('button', { name: 'Xác nhận' }));
+    await flush();
+    expect(client.deleteCollection).toHaveBeenCalledWith('c-empty');
+    expect(onDeleted).toHaveBeenCalledWith('c-empty');
+    expect(onChanged).toHaveBeenCalled();
+  });
+
+  it('sends nothing when the admin cancels', async () => {
+    render(<CollectionsPanel collections={[empty]} onChanged={() => {}} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Xoá Trống' }));
+    await userEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Hủy' }));
+    await flush();
+    expect(client.deleteCollection).not.toHaveBeenCalled();
+  });
+
+  it('shows why the server refused', async () => {
+    const onChanged = vi.fn();
+    vi.mocked(client.deleteCollection).mockRejectedValue(new Error('Còn 1 job tải về collection này và có thể chạy lại.'));
+    render(<CollectionsPanel collections={[empty]} onChanged={onChanged} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Xoá Trống' }));
+    await userEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Xác nhận' }));
+    await flush();
+    expect(screen.getByRole('alert')).toHaveTextContent('Không xoá được «Trống»: Còn 1 job');
+    expect(onChanged).not.toHaveBeenCalled();
+  });
+});
+
 describe('CollectionsPanel settings', () => {
   async function openEditor() {
     render(<CollectionsPanel collections={[mix]} onChanged={() => {}} />);
@@ -229,5 +273,16 @@ describe('CollectionsPanel settings', () => {
     await flush();
     expect(client.getGlossary).toHaveBeenCalledWith(COLLECTION_ID);
     expect(within(screen.getByRole('tabpanel')).getByLabelText('Lọc thuật ngữ')).toBeInTheDocument();
+  });
+
+  it('has a Watermark tab that lists the collection\'s images and cuts new ones', async () => {
+    vi.mocked(client.listWatermarks).mockResolvedValue({ items: [] });
+    await openEditor();
+    await userEvent.click(screen.getByRole('tab', { name: 'Watermark' }));
+    await flush();
+    expect(client.listWatermarks).toHaveBeenCalledWith(COLLECTION_ID);
+    const panel = within(screen.getByRole('tabpanel'));
+    expect(panel.getByLabelText('Video để cắt ảnh watermark')).toBeInTheDocument();
+    expect(panel.getByText('Ảnh mẫu (0/10)')).toBeInTheDocument();
   });
 });

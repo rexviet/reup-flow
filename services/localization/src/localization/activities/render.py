@@ -6,7 +6,8 @@ object appears whole or not at all, so there is no half-written state to find. E
 else runs in a throw-away directory that is always removed.
 
 The picture is what the spec says and nothing more: the source, muted, scaled to cover the
-frame and black where it has no picture; the cover painted over the burned-in subtitle;
+frame and black where it has no picture; the source's watermarks blurred while they show;
+the cover painted over the burned-in subtitle;
 each caption, drawn once as an image (see `caption_images`), shown on exactly its frames;
 the dubbed track as the only sound.
 
@@ -43,7 +44,7 @@ from localization.activities.caption_images import (
 from localization.activities.errors import provider_errors
 from localization.activities.ffmpeg import HEARTBEAT_SECONDS, _child_env, run_blocking
 from localization.activities.layout_captions import FontMeter
-from localization.contracts import EditSpec, RenderInput, RenderResult
+from localization.contracts import BBox, EditSpec, RenderInput, RenderResult
 from localization.contracts.spec_hash import spec_sha256
 from localization.observability.tracing import tag_session
 from localization.providers.errors import PermanentProviderError, TransientProviderError
@@ -136,6 +137,37 @@ def _cover_windows(spec: EditSpec) -> list[tuple[int, int]]:
     return windows
 
 
+# Strongest box blur on a watermark, in pixels, applied twice.
+MAX_BLUR_RADIUS = 20
+
+
+def _even_box(region: BBox, width: int, height: int) -> tuple[int, int, int, int]:
+    """`region` grown to even edges inside the frame: the picture is 4:2:0, so a crop or
+    an overlay at an odd pixel would be moved by one."""
+    x, y = region.x - region.x % 2, region.y - region.y % 2
+    right = min(width - width % 2, region.x + region.w + (region.x + region.w) % 2)
+    bottom = min(height - height % 2, region.y + region.h + (region.y + region.h) % 2)
+    w, h = max(8, right - x), max(8, bottom - y)
+    return min(x, width - w), min(y, height - h), w, h
+
+
+def _blurs(spec: EditSpec) -> str:
+    """Each watermark blurred in place while it shows: a copy of the picture is cut to
+    its box, blurred and laid back over it. The radius stays inside what the box blur
+    accepts for the half-size chroma planes."""
+    graph = ""
+    for k, mark in enumerate(spec.blurs):
+        x, y, w, h = _even_box(mark.region, spec.width, spec.height)
+        radius = max(1, min(MAX_BLUR_RADIUS, min(w, h) // 4 - 1))
+        start, end = mark.start_ms / 1000, mark.end_ms / 1000
+        graph += (
+            f"[wm{k}];[wm{k}]split[wm{k}a][wm{k}b];"
+            f"[wm{k}b]crop={w}:{h}:{x}:{y},boxblur={radius}:2[wm{k}c];"
+            f"[wm{k}a][wm{k}c]overlay=x={x}:y={y}:enable='between(t,{start:.3f},{end:.3f})'"
+        )
+    return graph
+
+
 def _filter_graph(spec: EditSpec, *, captions_at: tuple[int, int] | None) -> str:
     w, h, fps = spec.width, spec.height, spec.fps
     seconds = spec.duration_ms / 1000
@@ -145,6 +177,7 @@ def _filter_graph(spec: EditSpec, *, captions_at: tuple[int, int] | None) -> str
         f"scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1,"
         f"tpad=stop_mode=add:stop_duration={seconds:.3f}:color=black"
     )
+    video += _blurs(spec)
     if spec.cover is not None:
         windows = _cover_windows(spec) if spec.cover.only_with_captions else None
         if windows is None or windows:

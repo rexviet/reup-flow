@@ -133,6 +133,9 @@ class Settings(BaseSettings):
     # all).
     ingest_concurrency: Concurrency = 1
     render_concurrency: Concurrency = 1
+    # Threads one watermark search matches frames on (WATERMARK_THREADS); the search runs on
+    # the host, one video at a time.
+    watermark_threads: Concurrency = 4
     llm_concurrency: Concurrency = 8
     io_concurrency: Concurrency = 2
     voice_check_concurrency: Concurrency = 2
