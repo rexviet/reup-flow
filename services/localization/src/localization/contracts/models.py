@@ -163,6 +163,10 @@ class SubtitleDocument(Contract):
     a wrong region came from the model or from the consensus built on its answers. A
     document written before they existed has neither.
 
+    `duration_ms` is the video's length as probed: the cues come from a sparse grid of
+    frames, so they alone do not say where the video ends (a document written before it
+    was kept has None).
+
     `watermarks` are the collection's watermarks found on the source, to be blurred, and
     `watermark_templates` the sha256 of the images they were looked for with, by the
     search `watermark_method` names. A document written before watermarks were looked for
@@ -172,6 +176,7 @@ class SubtitleDocument(Contract):
     height: PositiveInt
     region: BBox | None
     cues: tuple[SubtitleCue, ...]
+    duration_ms: NonNegativeInt | None = None
     frame_interval_ms: PositiveInt | None = None
     frame_boxes: tuple[BBox | None, ...] = ()
     unusable_frames: tuple[NonNegativeInt, ...] = ()
