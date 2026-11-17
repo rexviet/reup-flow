@@ -1,0 +1,203 @@
+<title>Chi phí tìm phụ đề</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column. Verdict first, then the cost bars, the scoreboard by split, each holdout video, the method and the code. */
+:root {
+  --bg: #f5f6f4; --panel: #ffffff; --ink: #1c2024; --muted: #5b646d; --rule: #dde0e3;
+  --today: #8a94a0; --hand: #c2410c; --gepa: #1f6feb; --combo: #15803d;
+  --good: #1a7f37; --bad: #cf222e; --track: #eceee9;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #121417; --panel: #1a1d21; --ink: #e6e8ea; --muted: #9aa3ad; --rule: #2c3036;
+  --today: #8b949e; --hand: #f0883e; --gepa: #58a6ff; --combo: #3fb950;
+  --good: #3fb950; --bad: #f85149; --track: #22262b; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #121417; --panel: #1a1d21; --ink: #e6e8ea; --muted: #9aa3ad; --rule: #2c3036;
+  --today: #8b949e; --hand: #f0883e; --gepa: #58a6ff; --combo: #3fb950;
+  --good: #3fb950; --bad: #f85149; --track: #22262b; color-scheme: dark }
+body { background: var(--bg); color: var(--ink); font: 15px/1.55 var(--sans); }
+main {
+  max-width: 980px; margin: 0 auto; padding-block: 32px 64px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 36px;
+}
+h1 { font-size: 26px; font-weight: 600; margin: 0; text-wrap: balance; }
+h2 { font-size: 18px; font-weight: 600; margin: 0 0 12px; text-wrap: balance; }
+p { margin: 0; max-width: 68ch; }
+.lede { display: grid; gap: 10px; }
+.muted, .note { color: var(--muted); }
+.note { font-size: 13px; }
+.num, .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; background: var(--panel); border: 1px solid var(--rule); }
+th, td { padding: 8px 12px; border-bottom: 1px solid var(--rule); text-align: left; vertical-align: top; }
+th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 500; }
+td.num { text-align: right; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+.key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; }
+.ok { color: var(--good); } .bad { color: var(--bad); }
+.bars { display: grid; gap: 14px; background: var(--panel); border: 1px solid var(--rule); padding: 16px; }
+.bar { display: grid; grid-template-columns: 210px minmax(0, 1fr) 96px; gap: 12px; align-items: center; }
+.bar .track { height: 22px; background: var(--track); border-radius: 3px; position: relative; overflow: hidden; }
+.bar .fill { position: absolute; inset: 0 auto 0 0; display: flex; }
+.bar .fill span { height: 100%; }
+.bar .fill .read { opacity: .45; }
+@media (max-width: 640px) { .bar { grid-template-columns: minmax(0, 1fr) 80px; } .bar .track { grid-column: 1 / -1; grid-row: 2; } }
+.tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+.tabs button {
+  font: 500 13px var(--sans); color: var(--ink); background: var(--panel);
+  border: 1px solid var(--rule); border-radius: 4px; padding: 4px 10px; cursor: pointer;
+}
+.tabs button[aria-pressed="true"] { border-color: var(--ink); }
+.tabs button:focus-visible, summary:focus-visible { outline: 2px solid var(--gepa); outline-offset: 2px; }
+details { background: var(--panel); border: 1px solid var(--rule); }
+summary { cursor: pointer; padding: 10px 14px; font-weight: 500; }
+pre { font: 12.5px/1.5 var(--mono); margin: 0; padding: 0 14px 14px; white-space: pre-wrap; overflow-x: auto; }
+ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; max-width: 72ch; }
+</style>
+<main>
+  <header class="lede">
+    <h1>Chi phí tìm phụ đề</h1>
+    <p id="verdict"></p>
+    <p class="note">Chấm lại trên dữ liệu production đã lưu của các video đã duyệt và render. Không gọi model nào khi chấm: mỗi frame chiến lược "hỏi" trả về đúng câu trả lời production đã nhận ở frame đó, và được tính tiền theo giá thật trong <span class="mono">llm_calls</span>.</p>
+  </header>
+
+  <section id="trial" hidden>
+    <h2>Chạy thật trên workflow</h2>
+    <p class="note" style="margin-bottom:10px">Code production đã sửa theo cách "làm tay + mẹo tìm box của GEPA", deploy lên worker, rồi bấm "Chạy lại" để tạo generation mới. So với generation trước của cùng video: tiền lấy từ <span class="mono">llm_calls</span>, thời gian lấy từ lịch sử Temporal của từng bước (tính cả lần thử lại), độ chính xác so box và các câu được bổ sung.</p>
+    <div class="lede" style="margin-bottom:14px">
+      <p><b>Bản đang chạy:</b> tìm phụ đề theo cách mới (lấy frame thưa rồi dày dần), đọc câu bổ sung giữ cách cũ (chỉ đọc lúc có phụ đề và không ai nói).</p>
+      <p><b>Tiền và thời gian OCR:</b> rẻ hơn 11–14 lần, nhanh hơn 15–24 lần. Box lệch dưới 0,6% chiều cao.</p>
+      <p><b>Câu bổ sung:</b> gần với bản cũ. Một lần thử trước đó đọc cả video thì thêm 37 câu, phần lớn là rác, nên đã bỏ. Mốc phụ đề giờ thô hơn (một frame mỗi 32–64 giây), nên có vài câu bản cũ đọc được mà bản mới bỏ lỡ, và ngược lại.</p>
+      <p class="note">ASR được chạy lại ở generation mới nên transcript hơi khác: một số câu "chỉ có ở g1" là câu ASR mới đã tự nghe được, không phải câu bị mất.</p>
+    </div>
+    <div id="trialvids" style="display:grid;gap:18px"></div>
+  </section>
+
+  <section>
+    <h2>Tiền mỗi video, trên 10 video kiểm tra</h2>
+    <div class="bars" id="bars"></div>
+    <p class="note" style="margin-top:8px">Phần đậm là tiền tìm phụ đề (<span class="mono">detect_subtitles</span>), phần nhạt là tiền đọc chữ để bổ sung câu ASR nghe sót (<span class="mono">complete_transcript</span>).</p>
+  </section>
+
+  <section>
+    <h2>Bảng điểm</h2>
+    <div class="tabs" id="tabs" role="group" aria-label="Tập video"></div>
+    <div class="scroll"><table id="board"></table></div>
+    <p class="note" style="margin-top:8px" id="splitnote"></p>
+  </section>
+
+  <section>
+    <h2>Từng video kiểm tra</h2>
+    <div class="scroll"><table id="videos"></table></div>
+  </section>
+
+  <section>
+    <h2>Cách chấm</h2>
+    <ul>
+      <li><b>Câu bị sót</b>: câu mà <span class="mono">complete_transcript</span> đã bổ sung trong production, nhưng chiến lược không còn đọc frame nào rơi vào lúc câu đó hiện. Đọc theo đúng cách production lấy frame (<span class="mono">sample_times</span>: tối đa 8 frame mỗi khoảng, chừa 300 ms ở hai đầu). Mỗi câu sót bị phạt 0,01 USD.</li>
+      <li><b>Vị trí box</b>: cạnh trên và cạnh dưới vùng phụ đề so với production, tính theo chiều cao khung hình. Lệch quá 1,5% bị phạt 0,05 USD. Bề rộng không tính, vì box hiện lấy bề rộng theo phụ đề Việt.</li>
+      <li><b>Chưa đo được</b>: câu thêm nhầm khi đọc ở chỗ production chưa từng đọc, ví dụ chữ trong cảnh lọt vào dải phụ đề. Phải chạy thật chiến lược thắng một lần trước khi đưa vào production.</li>
+      <li><b>GEPA học theo cách chấm</b>: bản GEPA gộp nhiều khoảng im lặng vào một lần đọc, rồi canh vị trí để 8 frame của lần đọc rơi đúng vào các "cửa sổ" mà mô phỏng dùng để chấm. Một lần đọc như vậy trải qua cả đoạn có tiếng nói, nên dễ thêm nhầm câu trùng với ASR, mà mô phỏng không đo được. Nó cũng sót nhiều hơn trên tập học (8 câu so với 4). Phần tiết kiệm thêm so với bản làm tay chỉ khoảng 0,009 USD mỗi video.</li>
+      <li>Ngay cả cách hiện tại cũng "sót" 1 câu trong mô phỏng: đó là sai số của cách tính, không phải câu production thật sự bỏ qua.</li>
+    </ul>
+  </section>
+
+  <section id="code"><h2>Code các chiến lược</h2><div style="display:grid;gap:10px" id="codes"></div></section>
+</main>
+<script type="application/json" id="data">__DATA__</script>
+<script>
+const D = JSON.parse(document.getElementById("data").textContent);
+const NAMES = { today: "Hiện tại: 2 frame/giây", hand: "Làm tay: 1 frame/4 giây + đọc mọi khoảng im lặng", gepa: "GEPA", combo: "Làm tay + mẹo tìm box của GEPA" };
+const COLOR = { today: "var(--today)", hand: "var(--hand)", gepa: "var(--gepa)", combo: "var(--combo)" };
+const order = ["today", "hand", "gepa", "combo"].filter(k => D.strategies[k]);
+const usd = v => v == null ? "–" : "$" + v.toFixed(4);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const key = k => `<span class="key" style="background:${COLOR[k]}"></span>`;
+
+const H = k => D.strategies[k].holdout;
+const best = order.slice(1).filter(k => H(k).lost_lines === 0).reduce((a, k) => !a || H(k).usd_per_video < H(a).usd_per_video ? k : a, null);
+if (best) {
+  const t = H("today"), b = H(best);
+  document.getElementById("verdict").innerHTML =
+    `Trên 10 video kiểm tra, <b>${esc(NAMES[best])}</b> tốn <b class="num">${usd(b.usd_per_video)}</b> mỗi video, so với <span class="num">${usd(t.usd_per_video)}</span> hiện tại: rẻ hơn <b>${(t.usd_per_video / b.usd_per_video).toFixed(1)} lần</b>. Sót ${b.lost_lines}/${b.recovered_lines} câu ASR nghe sót, box lệch tối đa ${(b.region_error_max * 100).toFixed(1)}% chiều cao.`;
+}
+
+const max = Math.max(...order.map(k => H(k).usd_per_video));
+document.getElementById("bars").innerHTML = order.map(k => {
+  const s = H(k);
+  return `<div class="bar"><span>${key(k)}${esc(NAMES[k])}</span>
+    <div class="track"><div class="fill" style="width:${s.usd_per_video / max * 100}%">
+      <span style="flex:${s.detect_usd_per_video};background:${COLOR[k]}"></span>
+      <span class="read" style="flex:${s.read_usd_per_video};background:${COLOR[k]}"></span></div></div>
+    <span class="num" style="text-align:right">${usd(s.usd_per_video)}</span></div>`;
+}).join("");
+
+const SPLITS = { holdout: "10 video kiểm tra", val: "Tập chọn (GEPA dùng để chọn bản tốt nhất)", train: "Tập học (GEPA xem lỗi trên tập này)" };
+const ROWS = [
+  ["Tiền mỗi video", s => usd(s.usd_per_video)],
+  ["· tìm phụ đề", s => usd(s.detect_usd_per_video)],
+  ["· đọc chữ bổ sung câu", s => usd(s.read_usd_per_video)],
+  ["Tỷ lệ frame phải hỏi", s => (s.frames_asked_share * 100).toFixed(1) + "%"],
+  ["Câu ASR nghe sót bị bỏ lỡ", s => `<span class="${s.lost_lines > 1 ? "bad" : "ok"}">${s.lost_lines} / ${s.recovered_lines}</span>`],
+  ["Video có box lệch > 1,5%", s => `<span class="${s.videos_region_off ? "bad" : "ok"}">${s.videos_region_off}</span>`],
+  ["Box lệch tối đa", s => (s.region_error_max * 100).toFixed(2) + "%"],
+];
+function board(split) {
+  document.getElementById("board").innerHTML =
+    `<tr><th></th>${order.map(k => `<th>${key(k)}${esc(NAMES[k])}</th>`).join("")}</tr>` +
+    ROWS.map(([n, f]) => `<tr><td>${n}</td>${order.map(k => `<td class="num">${f(D.strategies[k][split])}</td>`).join("")}</tr>`).join("");
+  document.getElementById("splitnote").textContent = `${SPLITS[split]}: ${D.strategies.today[split].videos} video.`;
+  document.querySelectorAll("#tabs button").forEach(b => b.setAttribute("aria-pressed", b.dataset.split === split));
+}
+document.getElementById("tabs").innerHTML = Object.entries(SPLITS).map(([k, n]) => `<button type="button" data-split="${k}">${esc(n)}</button>`).join("");
+document.getElementById("tabs").addEventListener("click", e => { const b = e.target.closest("button"); if (b) board(b.dataset.split); });
+board("holdout");
+
+const vids = D.strategies.today.holdout.per_video;
+document.getElementById("videos").innerHTML =
+  `<tr><th>Video</th><th>Frame</th><th>Câu bổ sung</th>${order.map(k => `<th>${key(k)}Tiền · sót · lệch box</th>`).join("")}</tr>` +
+  vids.map((v, i) => `<tr><td class="mono">${v.video}</td><td class="num">${v.frames}</td><td class="num">${v.recovered_lines}</td>${order.map(k => {
+    const r = D.strategies[k].holdout.per_video[i];
+    return `<td class="num">${usd(r.detect_usd + r.read_usd)} · <span class="${r.lost_lines ? "bad" : ""}">${r.lost_lines}</span> · ${(r.region_error_of_height * 100).toFixed(1)}%</td>`;
+  }).join("")}</tr>`).join("");
+
+const secs = v => v == null ? "–" : v >= 90 ? (v / 60).toFixed(1) + " phút" : Math.round(v) + " giây";
+if (D.generations && D.generations.length) {
+  document.getElementById("trial").hidden = false;
+  const sum = (o, f) => Object.values(o).reduce((t, x) => t + (x[f] || 0), 0);
+  const z = { usd: 0, calls: 0 };
+  document.getElementById("trialvids").innerHTML = D.generations.map(g => {
+    const cb = g.stages.before, ca = g.stages.after, tb = cb, ta = ca;
+    const oldUsd = sum(cb, "usd"), newUsd = sum(ca, "usd"), oldS = sum(tb, "seconds"), newS = sum(ta, "seconds");
+    const before = g.lines.before, after = g.lines.after;
+    const found = before.filter(l => l.found).length, extra = after.filter(l => !l.in_before);
+    const row = (n, a, b) => `<tr><td>${n}</td><td class="num">${a}</td><td class="num">${b}</td></tr>`;
+    const st = (t, k) => t[k] ? `${secs(t[k].seconds)}${t[k].attempts > 1 ? ` · ${t[k].attempts} lần chạy` : ""}` : "–";
+    const diff = [...before.filter(l => !l.found).map(l => `chỉ g${g.before}  ${l.start_ms}-${l.end_ms} ms  ${l.text}`),
+                  ...extra.map(l => `chỉ g${g.after}  ${l.start_ms}-${l.end_ms} ms  ${l.text}`)];
+    return `<div><h3 style="font-size:15px;margin:0 0 6px" class="mono">${esc(g.aweme_id)} · ${secs(g.duration_ms / 1000)}</h3>
+      <div class="scroll"><table>
+      <tr><th></th><th>g${g.before} (code cũ)</th><th>g${g.after} (code mới)</th></tr>
+      ${row("Tiền OCR", usd(oldUsd), `<b>${usd(newUsd)}</b> (rẻ hơn ${(oldUsd / newUsd).toFixed(1)} lần)`)}
+      ${row("· tìm phụ đề", `${usd((cb.detect_subtitles || z).usd)} · ${(cb.detect_subtitles || z).calls} lần gọi`, `${usd((ca.detect_subtitles || z).usd)} · ${(ca.detect_subtitles || z).calls} lần gọi`)}
+      ${row("· đọc câu bị sót", `${usd((cb.complete_transcript || z).usd)} · ${(cb.complete_transcript || z).calls} lần gọi`, `${usd((ca.complete_transcript || z).usd)} · ${(ca.complete_transcript || z).calls} lần gọi`)}
+      ${row("Thời gian OCR", secs(oldS), `<b>${secs(newS)}</b> (nhanh hơn ${(oldS / newS).toFixed(1)} lần)`)}
+      ${row("· tìm phụ đề", st(tb, "detect_subtitles"), st(ta, "detect_subtitles"))}
+      ${row("· đọc câu bị sót", st(tb, "complete_transcript"), st(ta, "complete_transcript"))}
+      ${row("Box lệch so với g" + g.before, "–", g.region.error == null ? "không so được" : `<span class="${g.region.error > 0.015 ? "bad" : "ok"}">${(g.region.error * 100).toFixed(1)}%</span> chiều cao`)}
+      ${row("Câu bổ sung từ phụ đề", `${before.length} câu`, `${after.length} câu · <span class="${found < before.length ? "bad" : "ok"}">trùng ${found}/${before.length}</span> · ${extra.length} câu mới`)}
+      </table></div>
+      ${diff.length ? `<details style="margin-top:8px"><summary>Xem các câu khác nhau giữa hai generation</summary><pre>${esc(diff.join("\n"))}</pre></details>` : ""}
+    </div>`;
+  }).join("");
+}
+
+document.getElementById("codes").innerHTML = order.map(k =>
+  `<details><summary>${key(k)}${esc(NAMES[k])}</summary><pre>${esc(D.strategies[k].code)}</pre></details>`).join("");
+</script>
