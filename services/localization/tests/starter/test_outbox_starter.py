@@ -844,3 +844,61 @@ async def test_canary_rejects_invalid_identity_before_loading_settings(aweme, ge
     s = OutboxStarter("unused", object(), load=must_not_load)
     with pytest.raises(Rejected):
         await s.start_canary(aweme, generation)
+
+
+def _subtitles_input(settings: Settings, provider: str = "voicestudio", **row: object):
+    from localization.contracts import VoiceRef
+    from localization.starter.outbox_starter import Claimed
+
+    voice = VoiceRef.model_validate(dict(provider=provider, voice_id="voice", settings={}))
+    return OutboxStarter._start_input(
+        settings,
+        voice,
+        Claimed("7001", 2, 1),
+        dict(
+            sec_user_id="channel",
+            storage_path=f"s3://{settings.s3_bucket}/source/7001.mp4",
+            **NO_SETTINGS,
+            **row,
+        ),
+    )
+
+
+def test_the_input_carries_the_mode_the_video_was_queued_with():
+    settings = Settings(localization_delivery_mode="review_project")
+    spec = _subtitles_input(settings, localize_mode="subtitles_only")
+    assert spec.localize_mode == "subtitles_only"
+    assert _subtitles_input(settings, localize_mode="full").localize_mode == "full"
+
+
+@pytest.mark.parametrize(
+    "delivery,provider", [("legacy_render", "voicestudio"), ("review_project", "vbee")]
+)
+def test_a_subtitles_only_video_without_a_review_project_is_rejected_with_why(delivery, provider):
+    from localization.starter.outbox_starter import Rejected
+
+    settings = Settings(localization_delivery_mode=delivery)
+    with pytest.raises(Rejected, match="subtitles only"):
+        _subtitles_input(settings, provider, localize_mode="subtitles_only")
+
+
+async def test_a_video_queued_for_its_subtitles_only_starts_a_subtitles_only_run(
+    db: tuple[str, psycopg.Connection], temporal_client: Client, env: Env
+) -> None:
+    info, conn = db
+    add_video(conn, "7001")
+    conn.execute("UPDATE videos SET localize_mode = 'subtitles_only' WHERE aweme_id = '7001'")
+    env.settings = env.settings.model_copy(update={"localization_delivery_mode": "review_project"})
+    assert await starter(info, temporal_client, env).run_once() == Outcome.DISPATCHED
+    got = await started_input(temporal_client, workflow_id("7001", 1))
+    assert (got["localize_mode"], got["delivery_mode"]) == ("subtitles_only", "review_project")
+
+
+async def test_a_subtitles_only_video_the_delivery_cannot_carry_is_rejected(
+    db: tuple[str, psycopg.Connection], temporal_client: Client, env: Env
+) -> None:
+    info, conn = db
+    add_video(conn, "7001")
+    conn.execute("UPDATE videos SET localize_mode = 'subtitles_only' WHERE aweme_id = '7001'")
+    assert await starter(info, temporal_client, env).run_once() == Outcome.REJECTED
+    assert "subtitles only" in row(conn, "7001")["last_error"]

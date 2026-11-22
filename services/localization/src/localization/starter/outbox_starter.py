@@ -78,7 +78,8 @@ RETURNING aweme_id, generation, dispatch_attempts, bypass_skips
 # run already started. Every video has a collection (`collection_id` is NOT NULL). Its
 # watermark images come in the order they were added, so one set is always one list.
 VIDEO_SQL = """
-SELECT v.storage_path, v.sec_user_id, c.id::text AS collection_id, c.name AS collection_name,
+SELECT v.storage_path, v.sec_user_id, v.localize_mode,
+       c.id::text AS collection_id, c.name AS collection_name,
        c.bgm_offset_db, c.caption_text_color, c.cover_color, c.cover_opacity_pct,
        c.cover_offset_pct, c.cover_width_pct, c.cover_height_pct,
        COALESCE((SELECT json_agg(json_build_object('key', w.image_key,
@@ -340,13 +341,22 @@ class OutboxStarter:
     def _start_input(
         settings: Settings, voice: VoiceRef, claimed: Claimed, row: dict
     ) -> LocalizationInput:
+        mode = row.get("localize_mode") or "full"
+        delivery = (
+            settings.localization_delivery_mode
+            if voice.provider in REVIEW_PROVIDERS
+            else "legacy_render"
+        )
+        if mode == "subtitles_only" and delivery != "review_project":
+            # Only a review project keeps the source's sound under the captions.
+            raise Rejected(
+                "subtitles only needs the review project delivery with a VoiceStudio or "
+                "ZeroTTS voice"
+            )
         try:
             return LocalizationInput(
-                delivery_mode=(
-                    settings.localization_delivery_mode
-                    if voice.provider in REVIEW_PROVIDERS
-                    else "legacy_render"
-                ),
+                localize_mode=mode,
+                delivery_mode=delivery,
                 collection=CollectionSnapshot(
                     id=row["collection_id"],
                     name=row["collection_name"],

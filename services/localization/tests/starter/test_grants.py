@@ -17,8 +17,8 @@ from localization.starter.outbox_starter import (
     VIDEO_SQL,
 )
 from tests.support.scratch_db import (
-    BYPASS_SKIPS_GRANT,
     COLLECTIONS,
+    COLUMN_GRANTS,
     DASHBOARD_INTAKE,
     INIT,
     OUTBOX,
@@ -35,7 +35,7 @@ GRANTS = (
 @pytest.fixture
 def db() -> Iterator[psycopg.Connection]:
     for _, conn in scratch_database(
-        INIT, OUTBOX, GRANTS, BYPASS_SKIPS_GRANT, DASHBOARD_INTAKE, COLLECTIONS, WATERMARKS
+        INIT, OUTBOX, GRANTS, COLUMN_GRANTS, DASHBOARD_INTAKE, COLLECTIONS, WATERMARKS
     ):
         collection = add_channel_collection(
             conn,
@@ -59,9 +59,11 @@ def test_the_starter_can_run_every_statement_it_uses(db: psycopg.Connection) -> 
     assert db.execute(CLAIM_SQL, {"minutes": 5}).fetchone() is not None
     video = db.execute(VIDEO_SQL, ("1",)).fetchone()
     assert video is not None
-    assert video[:2] == ("s3://b/source/1.mp4", "c")
+    # What the video's localization makes of it is read too: a video queued without a
+    # choice is dubbed in full.
+    assert video[:3] == ("s3://b/source/1.mp4", "c", "full")
     # The collection's settings are read by the same role, in the same statement.
-    assert video[3:] == ("Kênh", None, "#00ff88", None, 80, None, 100, None, [])
+    assert video[4:] == ("Kênh", None, "#00ff88", None, 80, None, 100, None, [])
     db.execute(DISPATCHED_SQL, ("video-1-g1", "1", 1))
     db.execute(REJECTED_SQL, ("x", "1", 1))
     db.execute(RELEASED_SQL, {"error": "e", "delay": 30, "aweme_id": "1", "generation": 1})
@@ -99,7 +101,7 @@ def test_the_starter_can_do_nothing_else(db: psycopg.Connection, statement: str)
 @pytest.fixture
 def collections_db() -> Iterator[psycopg.Connection]:
     for _, conn in scratch_database(
-        INIT, OUTBOX, GRANTS, BYPASS_SKIPS_GRANT, DASHBOARD_INTAKE, COLLECTIONS, WATERMARKS
+        INIT, OUTBOX, GRANTS, COLUMN_GRANTS, DASHBOARD_INTAKE, COLLECTIONS, WATERMARKS
     ):
         conn.execute("INSERT INTO profiles (sec_user_id) VALUES ('c')")
         conn.execute(

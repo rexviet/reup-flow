@@ -13,7 +13,10 @@ from psycopg import sql
 
 REPO = Path(__file__).resolve().parents[4]
 MIGRATIONS = REPO / "services" / "downloader" / "migrations"
-INIT = (MIGRATIONS / "260824-init-schema.sql").read_text()
+INIT = "\n".join(
+    (MIGRATIONS / name).read_text()
+    for name in ("260824-init-schema.sql", "261122-video-localize-mode.sql")
+)
 # The outbox as the code reads it: the table and the columns added to it since.
 OUTBOX = "\n".join(
     (MIGRATIONS / name).read_text()
@@ -31,10 +34,12 @@ WATERMARKS = "\n".join(
     (MIGRATIONS / name).read_text()
     for name in ("261115-collection-watermarks.sql", "261115-collection-watermark-uploads.sql")
 )
-# The localization role's read of the operator's flag that sets a run's skip checks aside.
-BYPASS_SKIPS_GRANT = (
-    REPO / "services" / "localization" / "migrations" / "261115-outbox-bypass-skips-grant.sql"
-).read_text()
+# The localization role's reads of columns added since its first grants: the operator's flag
+# that sets a run's skip checks aside, and what a video's localization makes of it.
+COLUMN_GRANTS = "\n".join(
+    (REPO / "services" / "localization" / "migrations" / name).read_text()
+    for name in ("261115-outbox-bypass-skips-grant.sql", "261122-video-localize-mode-grant.sql")
+)
 
 
 def add_channel_collection(

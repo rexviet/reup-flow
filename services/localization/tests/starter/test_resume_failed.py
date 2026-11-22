@@ -34,7 +34,7 @@ from tests.starter.resume_workflows import (
 )
 from tests.starter.test_sequential_queue import CORE
 from tests.support.scratch_db import (
-    BYPASS_SKIPS_GRANT,
+    COLUMN_GRANTS,
     DASHBOARD_INTAKE,
     INIT,
     OUTBOX,
@@ -210,7 +210,7 @@ def test_a_resume_removes_only_the_failed_run_row(db: psycopg.Connection) -> Non
 def bypass_db() -> Iterator[psycopg.Connection]:
     for _, conn in scratch_database(INIT, OUTBOX, DASHBOARD_INTAKE, CORE):
         conn.execute(OUTBOX_GRANTS)
-        conn.execute(BYPASS_SKIPS_GRANT)
+        conn.execute(COLUMN_GRANTS)
         conn.execute("INSERT INTO profiles (sec_user_id) VALUES ('c')")
         conn.execute(
             "INSERT INTO videos (aweme_id, sec_user_id, create_time, storage_path, status) "

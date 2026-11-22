@@ -28,6 +28,8 @@ MIGRATIONS=(
   services/localization/migrations/261115-final-renders-state-idx.sql
   services/downloader/migrations/261115-collection-watermarks.sql
   services/downloader/migrations/261115-collection-watermark-uploads.sql
+  services/downloader/migrations/261122-video-localize-mode.sql
+  services/localization/migrations/261122-video-localize-mode-grant.sql
 )
 psql_() {
   docker compose exec -T -e MIGRATION_TEST_DATABASE="${MIGRATION_TEST_DATABASE:-}" postgres sh -c \
