@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: done
 branch: feat/localization-dubber-code-mode
 ---
 
@@ -97,3 +97,18 @@ không remix từ stem khi project chỉ sub.
 
 - Localizer theo ngữ cảnh có thể giả định có transcript speech hoặc voice rate. Kiểm tra ở phase 3.
 - OCR đọc chữ toàn bộ video tốn hơn chỉ đọc khoảng trống. Đo chi phí trên video thật ở phase 8.
+
+## Chạy thật (2026-11-22)
+
+Video `7701648680104758554` (54 giây, sub cháy tiếng Trung), bấm nút Sub trên extension.
+
+| Lượt | Thay đổi | Số câu | Kết quả |
+|---|---|---|---|
+| g1 | luồng chỉ sub như thiết kế | 7 | thiếu dòng nằm ngoài cue thưa; mọi câu `inferred` |
+| g2 | đọc toàn dải sub, 2 frame/giây | 13 | đủ dòng, nhưng hai câu giống 0.6 bị gộp |
+| g3 | ngưỡng nối dòng 0.8 | 14 | đủ dòng; một câu dịch thành câu trước |
+| g4 | dòng bắt đầu ở frame đầu tiên đọc được | 14 | đúng cả 14 câu, `ready_for_review`, $0.0074 |
+
+Quyết định của người dùng: đọc OCR 2 frame/giây thay vì STT; câu đọc từ màn hình là nguồn
+chính thức của run chỉ sub, không đánh `inferred`.
+
