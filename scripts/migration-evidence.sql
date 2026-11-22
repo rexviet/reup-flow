@@ -134,7 +134,9 @@ BEGIN
     WHEN '261115-collection-watermark-uploads.sql' THEN
       -- Only drops NOT NULL and replaces a check, both idempotent in effect; apply it.
       RETURN false;
-    WHEN '261115-outbox-bypass-skips-grant.sql' THEN
+    WHEN '261122-video-localize-mode.sql' THEN expected := ARRAY[
+      'public.videos.localize_mode:text', 'public.videos@videos_localize_mode_check'];
+    WHEN '261115-outbox-bypass-skips-grant.sql', '261122-video-localize-mode-grant.sql' THEN
       -- Idempotent grants are safe to actually apply, never infer them from tables.
       RETURN false;
     ELSE RAISE EXCEPTION 'Unknown migration %, reconcile manually', migration;
