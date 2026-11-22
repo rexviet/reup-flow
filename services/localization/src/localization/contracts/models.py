@@ -12,7 +12,7 @@ from localization.contracts.base import Contract
 from localization.contracts.collection import CollectionSnapshot, HexColor, OpacityPct
 from localization.contracts.geometry import BBox, NonNegativeInt, PositiveInt, Watermark
 from localization.contracts.ids import AwemeId, ChannelId, Sha256, SourceKey, StorageKey
-from localization.contracts.review_project import MixLevels, SourceSnapshot
+from localization.contracts.review_project import LocalizeMode, MixLevels, SourceSnapshot
 from localization.contracts.voice import REVIEW_PROVIDERS, VoiceRef
 
 Key = StorageKey
@@ -56,6 +56,19 @@ class LocalizationInput(Contract):
     video_key: SourceKey
     target_lang: Annotated[str, Field(pattern=r"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?$")]
     voice: VoiceRef
+    # Read from the video row when the run is dispatched; an input written before the
+    # mode existed localizes in full.
+    localize_mode: LocalizeMode = "full"
+
+    @model_validator(mode="after")
+    def _subtitles_only_is_a_review_project(self) -> "LocalizationInput":
+        """Only a review project can carry a video without a voice made for it: the legacy
+        render has no way to keep the source's sound under the captions."""
+        if self.localize_mode == "subtitles_only" and (
+            self.delivery_mode != "review_project" or self.voice.provider not in REVIEW_PROVIDERS
+        ):
+            raise ValueError("subtitles_only runs require a review project")
+        return self
 
     @model_validator(mode="after")
     def _captured_source_matches_input(self) -> "LocalizationInput":

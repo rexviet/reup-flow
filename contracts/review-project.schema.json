@@ -521,6 +521,15 @@
     "html": {
       "$ref": "#/$defs/ReviewAsset"
     },
+    "localize_mode": {
+      "default": "full",
+      "enum": [
+        "full",
+        "subtitles_only"
+      ],
+      "title": "Localize Mode",
+      "type": "string"
+    },
     "mix_levels": {
       "anyOf": [
         {

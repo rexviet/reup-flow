@@ -18,6 +18,9 @@ from localization.contracts.ids import AwemeId, Sha256, SourceKey, StorageKey
 from localization.contracts.voice import VoiceRef
 
 RevisionId = Annotated[str, Field(pattern=r"^[0-9a-f]{32}$")]
+# What a run makes of a video: `full` dubs it; `subtitles_only` only translates its burned-in
+# subtitles and lays them over the original picture and sound, with no voice made.
+LocalizeMode = Literal["full", "subtitles_only"]
 
 
 class SourceSnapshot(Contract):
@@ -126,6 +129,9 @@ class ReviewProjectManifest(Contract):
     cover_offset_pct: CoverOffsetPct | None = None
     cover_width_pct: CoverWidthPct | None = None
     cover_height_pct: CoverHeightPct | None = None
+    # A `subtitles_only` project has no voice: its audio is the source's own, and it is
+    # never revoiced or remixed. A project written before the mode existed is `full`.
+    localize_mode: LocalizeMode = "full"
 
     @model_validator(mode="after")
     def _closed_dependencies(self) -> "ReviewProjectManifest":

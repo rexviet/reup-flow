@@ -107,6 +107,7 @@ from localization.contracts.collection import (
     WatermarkTemplate,
 )
 from localization.contracts.review_project import (
+    LocalizeMode,
     MixLevels,
     ProjectRef,
     ReviewAsset,
@@ -117,6 +118,7 @@ from localization.contracts.review_project import (
 )
 
 __all__ += [
+    "LocalizeMode",
     "MixLevels",
     "ProjectRef",
     "ReviewAsset",
