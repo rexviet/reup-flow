@@ -271,3 +271,34 @@ def test_a_line_read_from_the_screen_is_flagged_for_review_in_a_review_project()
     # A run published without a person keeps the line as translated: dubbed like the rest.
     legacy, _ = build_script(make_input(), transcript, (), given)
     assert [s.status for s in legacy.segments] == ["translated", "translated"]
+
+
+def test_a_subtitles_only_run_takes_the_screen_as_its_source() -> None:
+    """Every line of a subtitles-only run is read from the screen: that is its source, not a
+    guess, so a translated line stays translated and a clean run is ready for review. A
+    line the Localizer itself marks inferred keeps its own flag."""
+    from localization.activities.assemble_script import build_script
+
+    transcript = TranscriptDocument(
+        language=None,
+        duration_ms=10_000,
+        words=(),
+        segments=tuple(seg(i).model_copy(update={"source": "subtitle"}) for i in (0, 1)),
+    )
+    given = lines((0, "một"), (1, "hai"))
+    given = given.model_copy(
+        update={
+            "lines": (
+                given.lines[0],
+                given.lines[1].model_copy(update={"status": "inferred", "reason": "blurred"}),
+            )
+        }
+    )
+    spec = make_input().model_copy(
+        update={"delivery_mode": "review_project", "localize_mode": "subtitles_only"}
+    )
+    script, _ = build_script(spec, transcript, (), given)
+    assert [(s.status, s.reason) for s in script.segments] == [
+        ("translated", None),
+        ("inferred", "blurred"),
+    ]

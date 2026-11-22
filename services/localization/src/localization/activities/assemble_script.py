@@ -75,8 +75,15 @@ def build_script(
         if contacts_missing_from_source(text, seg.text):
             flagged.append(seg.id)
         status, reason = line.status, line.reason
-        if contextual and seg.source == "subtitle" and status == "translated":
-            # The Studio flags inferred lines for a person to check.
+        # The Studio flags inferred lines for a person to check. A subtitles-only run
+        # hears nothing: the screen is its source, so its lines are not flagged for it.
+        screen_is_source = spec.localize_mode == "subtitles_only"
+        if (
+            contextual
+            and seg.source == "subtitle"
+            and status == "translated"
+            and not screen_is_source
+        ):
             status, reason = "inferred", SUBTITLE_REASON
         segments.append(
             LocalizedSegment(
