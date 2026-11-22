@@ -33,13 +33,19 @@ class Service:
 
     def project(self, aweme, generation):
         _, project, etag = self.repo.current(aweme, generation)
+        # A subtitles-only project has no voice for a line to be out of sync with.
+        voiced_project = project.localize_mode != "subtitles_only"
         return {
             "aweme_id": aweme,
             "generation": generation,
             "revision": project.revision_id,
             "headETag": etag,
             "duration_ms": project.duration_ms,
-            "cues": [dict(c.model_dump(mode="json"), mismatch=mismatch(c)) for c in project.cues],
+            "localizeMode": project.localize_mode,
+            "cues": [
+                dict(c.model_dump(mode="json"), mismatch=voiced_project and mismatch(c))
+                for c in project.cues
+            ],
         }
 
     def save(self, aweme, generation, cue_id, command: SaveCue):
@@ -129,6 +135,8 @@ class Service:
             _, base, etag = self.repo.current(aweme, generation)
             if base.revision_id != command.baseRevision:
                 raise Conflict(base.revision_id)
+            if base.localize_mode == "subtitles_only":
+                raise ValueError("a subtitles-only project has no voice to make again")
             cue = next((c for c in base.cues if c.id == command.cueId), None)
             if cue is None:
                 raise ValueError("unknown cue")

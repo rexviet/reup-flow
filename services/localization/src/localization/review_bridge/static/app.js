@@ -72,17 +72,22 @@ function changedEdits() {
   }
   return changed;
 }
+// A subtitles-only project has no voice: its lines are saved, never revoiced.
+function subtitlesOnly() {
+  return Boolean(project) && project.localizeMode === 'subtitles_only';
+}
 function updateBatch() {
   const count = changedEdits().length;
   const pending = project && localStorage.getItem(jobKey());
-  batchButton.textContent = count
-    ? `Lưu & tạo lại giọng (${count} câu đã sửa)`
-    : 'Lưu & tạo lại giọng';
+  const verb = subtitlesOnly() ? 'Lưu phụ đề' : 'Lưu & tạo lại giọng';
+  batchButton.textContent = count ? `${verb} (${count} câu đã sửa)` : verb;
   batchButton.disabled = busy || !count || Boolean(pending);
   batchHint.textContent = pending
     ? 'Đang có yêu cầu tạo giọng. Chờ kết quả rồi bấm tiếp.'
     : count
-      ? 'Chỉ những câu đã sửa được lưu và tạo lại giọng.'
+      ? subtitlesOnly()
+        ? 'Chỉ những câu đã sửa được lưu.'
+        : 'Chỉ những câu đã sửa được lưu và tạo lại giọng.'
       : 'Sửa phụ đề bên phải, rồi bấm một lần cho tất cả.';
   for (const article of cues.querySelectorAll('.cue'))
     article.classList.toggle(
@@ -105,11 +110,13 @@ function render() {
     article.dataset.cue = `cue-${cue.id}`;
     const title = element('h3', `Câu #${cue.id} `);
     title.append(
-      element(
-        'span',
-        cue.mismatch ? '· Giọng chưa đồng bộ' : '· Đã đồng bộ',
-        cue.mismatch ? 'state mismatch' : 'state',
-      ),
+      subtitlesOnly()
+        ? element('span', '· Chỉ phụ đề, giữ tiếng gốc', 'state')
+        : element(
+            'span',
+            cue.mismatch ? '· Giọng chưa đồng bộ' : '· Đã đồng bộ',
+            cue.mismatch ? 'state mismatch' : 'state',
+          ),
     );
     article.append(title);
     const values = edits.get(cue.id) || {
@@ -133,13 +140,14 @@ function render() {
         save.textContent = 'Lưu phụ đề *';
         updateBatch();
       });
-    article.append(
-      element(
-        'p',
-        `Giọng đang phát: ${cue.spoken_text || '(trống)'}`,
-        'spoken',
-      ),
-    );
+    if (!subtitlesOnly())
+      article.append(
+        element(
+          'p',
+          `Giọng đang phát: ${cue.spoken_text || '(trống)'}`,
+          'spoken',
+        ),
+      );
     if (cue.reason) article.append(element('p', cue.reason, 'reason'));
     const actions = element('div', undefined, 'actions');
     const save = element('button', 'Lưu phụ đề', 'primary');
@@ -165,7 +173,9 @@ function render() {
         edits.delete(cue.id);
         preview.src = `/preview?revision=${project.revision}`;
         message(
-          project.cues.find((c) => c.id === cue.id)?.text_vi.trim()
+          subtitlesOnly()
+            ? 'Đã lưu phụ đề.'
+            : project.cues.find((c) => c.id === cue.id)?.text_vi.trim()
             ? 'Đã lưu phụ đề. Giọng cũ được giữ cho tới khi tạo lại giọng.'
             : 'Đã lưu phụ đề trống. Giọng cũ vẫn phát cho tới khi bấm "Xoá giọng".',
         );
@@ -193,7 +203,8 @@ function render() {
         await submit(command);
       }),
     );
-    actions.append(save, voice);
+    if (subtitlesOnly()) actions.append(save);
+    else actions.append(save, voice);
     article.append(actions);
     cues.append(article);
   }
