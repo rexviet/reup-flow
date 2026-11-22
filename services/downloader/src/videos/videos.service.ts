@@ -8,7 +8,8 @@ import {
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { ENV } from '../config/config.module';
 import type { Env } from '../config/env';
-import { localize, setLocalizeOnDone } from '../dashboard/intake.repository';
+import { localize, setLocalizeMode, setLocalizeOnDone } from '../dashboard/intake.repository';
+import type { LocalizeMode } from '../db/schema';
 import { DB } from '../db/db.module';
 import * as jobsRepository from '../db/jobs.repository';
 import * as schema from '../db/schema';
@@ -56,6 +57,7 @@ export class VideosService {
     url: string,
     localizeFlag?: boolean,
     collectionId?: string,
+    mode?: LocalizeMode,
   ): Promise<EnqueuedVideo> {
     const awemeId = extractAwemeId(url);
     if (awemeId === null) throw new BadGatewayException('url does not name a video');
@@ -92,6 +94,7 @@ export class VideosService {
           await videosRepository.placeByHand(tx, awemeId, collectionId);
         }
         if (localizeFlag !== undefined) await setLocalizeOnDone(tx, awemeId, localizeFlag);
+        if (mode !== undefined) await setLocalizeMode(tx, awemeId, mode);
       });
     } catch (err) {
       if (err instanceof CollectionNotFoundError) throw new BadRequestException(err.message);

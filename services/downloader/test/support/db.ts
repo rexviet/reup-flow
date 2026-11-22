@@ -26,6 +26,7 @@ const MIGRATION_NAMES = [
   '261115-outbox-bypass-skips',
   '261115-collection-watermarks',
   '261115-collection-watermark-uploads',
+  '261122-video-localize-mode',
 ];
 export const FORWARD_MIGRATIONS = MIGRATION_NAMES.map((n) => resolve(MIGRATIONS_DIR, `${n}.sql`));
 export const ROLLBACK_MIGRATIONS = MIGRATION_NAMES.map((n) =>

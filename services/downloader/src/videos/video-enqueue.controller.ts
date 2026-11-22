@@ -23,6 +23,7 @@ export class VideoEnqueueController {
         body.url,
         body.localize,
         body.collection_id,
+        body.mode,
       );
       return { aweme_id: awemeId, status };
     } catch (err) {

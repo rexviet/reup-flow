@@ -17,6 +17,10 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
+/** What a video's localization makes of it (CHECK videos_localize_mode_check). */
+export const LOCALIZE_MODES = ['full', 'subtitles_only'] as const;
+export type LocalizeMode = (typeof LOCALIZE_MODES)[number];
+
 /**
  * Phase 1 schema (solution design §6, plan phase-01 §1.1).
  *
@@ -181,6 +185,9 @@ export const videos = pgTable(
     leaseExpiresAt: tstz('lease_expires_at'),
     /** Per-video override of the channel switch; NULL follows the channel. */
     localizeOnDone: boolean('localize_on_done'),
+    /** What its localization makes of it: `full` dubs it, `subtitles_only` only translates
+     * its burned-in subtitles over the original sound. Read by the starter at dispatch. */
+    localizeMode: text('localize_mode', { enum: LOCALIZE_MODES }).notNull().default('full'),
     collectionId: uuid('collection_id')
       .notNull()
       .references(() => collections.id),

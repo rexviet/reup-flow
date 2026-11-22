@@ -299,6 +299,35 @@ describe('POST /api/videos', () => {
     });
   });
 
+  it('records the subtitles-only mode, and omitted leaves the mode the video has', async () => {
+    fakeParser.respondWithEnvelope({ aweme_detail: videoAweme() });
+    const mode = async (): Promise<string> =>
+      (await db.select().from(videos).where(eq(videos.awemeId, VIDEO_ID)))[0]!.localizeMode;
+    await post({ url: videoUrl(VIDEO_ID) });
+    expect(await mode()).toBe('full');
+
+    await post({ url: videoUrl(VIDEO_ID), mode: 'subtitles_only' });
+    expect(await mode()).toBe('subtitles_only');
+    await post({ url: videoUrl(VIDEO_ID) });
+    expect(await mode()).toBe('subtitles_only');
+    await post({ url: videoUrl(VIDEO_ID), mode: 'full' });
+    expect(await mode()).toBe('full');
+  });
+
+  it('a new video queued for its subtitles only is stored with that mode', async () => {
+    fakeParser.respondWithEnvelope({ aweme_detail: videoAweme() });
+    const res = await post({ url: videoUrl(VIDEO_ID), localize: true, mode: 'subtitles_only' });
+    expect(res.status).toBe(202);
+    const [row] = await db.select().from(videos).where(eq(videos.awemeId, VIDEO_ID));
+    expect(row!.localizeMode).toBe('subtitles_only');
+  });
+
+  it('rejects an unknown mode with 400 and never calls the parser', async () => {
+    const res = await post({ url: videoUrl(VIDEO_ID), mode: 'captions' });
+    expect(res.status).toBe(400);
+    expect(fakeParser.requests).toHaveLength(0);
+  });
+
   it('rejects a non-boolean localize with 400 and never calls the parser', async () => {
     const res = await post({ url: videoUrl(VIDEO_ID), localize: 'now' });
     expect(res.status).toBe(400);

@@ -1,6 +1,7 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { Executor } from '../db/executor';
 import { dashboardActions, localizationOutbox, profiles, videos } from '../db/schema';
+import type { LocalizeMode } from '../db/schema';
 
 export type LocalizeSkipReason = 'no_outbox_row' | 'not_held';
 
@@ -87,4 +88,14 @@ export async function setLocalizeOnDone(
   localizeOnDone: boolean,
 ): Promise<void> {
   await exec.update(videos).set({ localizeOnDone }).where(eq(videos.awemeId, awemeId));
+}
+
+/** Records what the video's localization makes of it, read by the starter at dispatch. A run
+ * already started keeps the mode it was started with. */
+export async function setLocalizeMode(
+  exec: Executor,
+  awemeId: string,
+  localizeMode: LocalizeMode,
+): Promise<void> {
+  await exec.update(videos).set({ localizeMode }).where(eq(videos.awemeId, awemeId));
 }

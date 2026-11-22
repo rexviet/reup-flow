@@ -1,3 +1,4 @@
+import { LOCALIZE_MODES } from '../db/schema';
 import { z } from 'zod';
 import { isAllowedJobUrl } from '../jobs/jobs.schemas';
 import { extractAwemeId } from './video-url';
@@ -46,5 +47,8 @@ export const createVideoSchema = z.object({
   localize: z.boolean().optional(),
   /** A collection picked by hand; it must exist. Omitted: the video's 合集, else its channel. */
   collection_id: z.string().uuid('collection_id must be a valid UUID').optional(),
+  /** `subtitles_only`: translate the burned-in subtitles over the original sound, no dub.
+   * Omitted leaves the mode the video already has (`full` for a new one). */
+  mode: z.enum(LOCALIZE_MODES).optional(),
 });
 export type CreateVideoDto = z.infer<typeof createVideoSchema>;
