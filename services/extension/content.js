@@ -12,14 +12,14 @@
   const INSET = 12;
   const MESSAGE_MS = 4000;
 
-  const COLORS = { idle: '#fe2c55', ok: '#1f9d55', error: '#c0392b' };
+  const COLORS = { idle: '#fe2c55', sub: '#2d7ff9', ok: '#1f9d55', error: '#c0392b' };
   const ICON =
     '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#fff" stroke-width="2.2" ' +
     'stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="M7 11l5 5 5-5"/>' +
     '<path d="M5 20h14"/></svg>';
 
   let wrapper = null;
-  let button = null;
+  let buttons = [];
   let note = null;
   let busy = false;
   let noteTimer = null;
@@ -35,18 +35,39 @@
     note.style.cssText =
       'display:none;max-width:260px;padding:6px 10px;border-radius:6px;color:#fff;background:#333;';
 
-    button = document.createElement('button');
-    button.type = 'button';
-    button.title = 'Download this video';
-    button.innerHTML = ICON;
-    button.style.cssText =
-      'width:32px;height:32px;padding:0;border:0;border-radius:50%;cursor:pointer;display:flex;' +
-      `align-items:center;justify-content:center;background:${COLORS.idle};` +
-      'box-shadow:0 1px 4px rgba(0,0,0,.4);';
-    button.addEventListener('click', onClick);
+    // "Sub": translate the burned-in subtitles over the original sound, no dub.
+    const sub = makeButton('Download and translate its subtitles only (no dub)', COLORS.sub, () =>
+      onClick('subtitles_only'),
+    );
+    sub.textContent = 'Sub';
+    sub.style.color = '#fff';
+    sub.style.font = '600 11px/1 system-ui,sans-serif';
+    const full = makeButton('Download this video', COLORS.idle, () => onClick('full'));
+    full.innerHTML = ICON;
+    buttons = [sub, full];
 
-    wrapper.append(note, button);
+    wrapper.append(note, sub, full);
     document.documentElement.appendChild(wrapper);
+  }
+
+  function makeButton(title, color, handler) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.title = title;
+    b.style.cssText =
+      'width:32px;height:32px;padding:0;border:0;border-radius:50%;cursor:pointer;display:flex;' +
+      `align-items:center;justify-content:center;background:${color};` +
+      'box-shadow:0 1px 4px rgba(0,0,0,.4);';
+    b.addEventListener('click', handler);
+    return b;
+  }
+
+  function setBusy(on) {
+    busy = on;
+    for (const b of buttons) {
+      b.style.opacity = on ? '0.6' : '1';
+      b.style.cursor = on ? 'progress' : 'pointer';
+    }
   }
 
   function show(text, kind) {
@@ -59,20 +80,16 @@
     }, MESSAGE_MS);
   }
 
-  function onClick() {
+  function onClick(mode) {
     if (busy) return;
-    busy = true;
-    button.style.opacity = '0.6';
-    button.style.cursor = 'progress';
+    setBusy(true);
     const finish = (reply) => {
-      busy = false;
-      button.style.opacity = '1';
-      button.style.cursor = 'pointer';
+      setBusy(false);
       const view = describeEnqueueResult(reply);
-      show(view.text, view.kind);
+      show(mode === 'subtitles_only' && reply && reply.ok ? `${view.text} · subtitles only` : view.text, view.kind);
     };
     try {
-      chrome.runtime.sendMessage({ type: 'download-video', url: location.href }, (reply) => {
+      chrome.runtime.sendMessage({ type: 'download-video', url: location.href, mode }, (reply) => {
         // lastError is read so Chrome does not log "Unchecked runtime.lastError"
         // when the worker did not answer; the empty reply then reads as an error.
         void chrome.runtime.lastError;

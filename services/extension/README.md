@@ -59,6 +59,16 @@ the downloader and the same download lane as profile jobs fetches it into
 storage. The button answers "Queued", "Already downloading", "Already
 downloaded", "Earlier download failed" or "Skipped (image post or
 cancelled)". It uses the backend URL and API key from the options page.
+
+The blue **Sub** button beside it queues the video the same way, for its
+subtitles only (`mode: "subtitles_only"`): the run finds the burned-in
+subtitles, translates them and lays them over the original picture and sound
+in a review project, with no dub, no music separation and no singing check.
+A video with no burned-in subtitles goes to a person. The plain button always
+asks for the full dub (`mode: "full"`), so clicking it on a video once queued
+with **Sub** switches it back for its next run. A run already started keeps
+the mode it was started with.
+
 Not covered: short links (`v.douyin.com/...`) and the main feed, whose URL
 does not carry the current video's id.
 

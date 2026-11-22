@@ -151,9 +151,59 @@ describe('sw.js wiring', () => {
 
     expect(response).toEqual({ ok: true, status: 'pending', message: 'queued' });
     expect(lastFetchCall.url).toBe('http://backend/api/videos');
+    // The plain button asks for the full dub, even for a video once queued with "Sub".
     expect(JSON.parse(lastFetchCall.init.body)).toEqual({
       url: 'https://www.douyin.com/video/1',
       localize: true,
+      mode: 'full',
+    });
+  });
+
+  test('onMessage "download-video" with the subtitles-only mode asks the backend for it', async () => {
+    global.fetch = async (url, init) => {
+      lastFetchCall = { url, init };
+      return {
+        ok: true,
+        status: 202,
+        json: async () => ({ aweme_id: '1', status: 'pending' }),
+        text: async () => '',
+      };
+    };
+    await new Promise((resolve) => {
+      onMessageListener(
+        { type: 'download-video', url: 'https://www.douyin.com/video/1', mode: 'subtitles_only' },
+        {},
+        resolve,
+      );
+    });
+    expect(JSON.parse(lastFetchCall.init.body)).toEqual({
+      url: 'https://www.douyin.com/video/1',
+      localize: true,
+      mode: 'subtitles_only',
+    });
+  });
+
+  test('onMessage "download-video" reads a mode the backend does not know as the full dub', async () => {
+    global.fetch = async (url, init) => {
+      lastFetchCall = { url, init };
+      return {
+        ok: true,
+        status: 202,
+        json: async () => ({ aweme_id: '1', status: 'pending' }),
+        text: async () => '',
+      };
+    };
+    await new Promise((resolve) => {
+      onMessageListener(
+        { type: 'download-video', url: 'https://www.douyin.com/video/1', mode: 'everything' },
+        {},
+        resolve,
+      );
+    });
+    expect(JSON.parse(lastFetchCall.init.body)).toEqual({
+      url: 'https://www.douyin.com/video/1',
+      localize: true,
+      mode: 'full',
     });
   });
 });

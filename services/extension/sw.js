@@ -75,6 +75,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     performEnqueue({
       storageArea: chrome.storage.local,
       url: message.url,
+      // Each button says what it asks for: "Sub" its subtitles only, the plain one the full
+      // dub, even for a video queued with "Sub" before. Nothing else reaches the backend.
+      mode: message.mode === 'subtitles_only' ? 'subtitles_only' : 'full',
     }).then(sendResponse);
     return true;
   }

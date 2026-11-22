@@ -112,8 +112,10 @@ async function getCookieStatus({ baseUrl, apiKey, fetchImpl }) {
  * Queues ONE video by its page URL via `POST {baseUrl}/api/videos` (asking for
  * immediate localization) and returns
  * the parsed `{ aweme_id, status }` body. Throws CookiePushApiError otherwise.
+ * `mode: 'subtitles_only'` asks for its burned-in subtitles to be translated over the
+ * original sound, with no dub; omitted, the backend keeps the mode the video has.
  */
-async function enqueueVideo({ baseUrl, apiKey, url, fetchImpl }) {
+async function enqueueVideo({ baseUrl, apiKey, url, mode, fetchImpl }) {
   const response = await doRequest(
     `${normalizeBaseUrl(baseUrl)}/api/videos`,
     {
@@ -124,7 +126,7 @@ async function enqueueVideo({ baseUrl, apiKey, url, fetchImpl }) {
       },
       // The extension button is an explicit "do this now": it bypasses the
       // hold that channel downloads get by default.
-      body: JSON.stringify({ url, localize: true }),
+      body: JSON.stringify(mode ? { url, localize: true, mode } : { url, localize: true }),
     },
     fetchImpl,
   );

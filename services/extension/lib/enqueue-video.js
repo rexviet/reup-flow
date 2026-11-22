@@ -2,14 +2,15 @@
 
 /**
  * One "download this video" click: read the saved backend settings, POST the
- * page URL to `/api/videos`, and answer `{ ok, status?, message }`.
+ * page URL to `/api/videos`, and answer `{ ok, status?, message }`. `mode` is the
+ * button's: `subtitles_only` for "Sub", nothing for the plain download.
  *
  * Never rejects -- sw.js hands the result straight back to the content script
  * that asked, and a rejected promise there would leave the button spinning.
  * Nothing here touches a cookie; the backend already has the session cookie
  * the other half of this extension pushed.
  */
-async function performEnqueue({ storageArea, url, fetchImpl }) {
+async function performEnqueue({ storageArea, url, mode, fetchImpl }) {
   const root = typeof self !== 'undefined' ? self : globalThis;
   try {
     const settings = await root.getSettings(storageArea);
@@ -20,6 +21,7 @@ async function performEnqueue({ storageArea, url, fetchImpl }) {
       baseUrl: settings.backendUrl,
       apiKey: settings.apiKey,
       url,
+      mode,
       fetchImpl,
     });
     if (!body || typeof body.status !== 'string') {

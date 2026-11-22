@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Douyin Cookie Pusher",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "Reads Douyin's HttpOnly session cookies via chrome.cookies and pushes them to the downloader backend every 20 minutes, and adds a download button on Douyin video pages.",
   "permissions": ["cookies", "alarms", "storage"],
   "host_permissions": ["*://*.douyin.com/*"],

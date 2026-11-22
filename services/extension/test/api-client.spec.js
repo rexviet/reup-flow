@@ -163,6 +163,26 @@ describe('enqueueVideo', () => {
     });
   });
 
+  test('asks for the subtitles only when the mode is given', async () => {
+    const calls = [];
+    const fetchImpl = async (url, init) => {
+      calls.push({ url, init });
+      return fakeResponse({ ok: true, status: 202, jsonBody: { aweme_id: '1', status: 'pending' } });
+    };
+    await enqueueVideo({
+      baseUrl: 'http://b',
+      apiKey: 'k',
+      url: 'https://www.douyin.com/video/1',
+      mode: 'subtitles_only',
+      fetchImpl,
+    });
+    expect(JSON.parse(calls[0].init.body)).toEqual({
+      url: 'https://www.douyin.com/video/1',
+      localize: true,
+      mode: 'subtitles_only',
+    });
+  });
+
   test('throws CookiePushApiError carrying the status for a non-2xx reply', async () => {
     const fetchImpl = async () => fakeResponse({ ok: false, status: 404, textBody: 'video not found' });
     await expect(

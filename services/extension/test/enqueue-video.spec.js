@@ -46,6 +46,26 @@ describe('performEnqueue', () => {
     expect(JSON.parse(calls[0].init.body)).toEqual({ url: URL_ON_PAGE, localize: true });
   });
 
+  test('passes the subtitles-only mode on to the backend', async () => {
+    const calls = [];
+    const fetchImpl = async (url, init) => {
+      calls.push({ url, init });
+      return response(202, { aweme_id: '7481199234537033018', status: 'pending' });
+    };
+    const result = await performEnqueue({
+      storageArea: storageWith({ backendUrl: 'http://backend/', apiKey: 'k' }),
+      url: URL_ON_PAGE,
+      mode: 'subtitles_only',
+      fetchImpl,
+    });
+    expect(result).toEqual({ ok: true, status: 'pending', message: 'queued' });
+    expect(JSON.parse(calls[0].init.body)).toEqual({
+      url: URL_ON_PAGE,
+      localize: true,
+      mode: 'subtitles_only',
+    });
+  });
+
   test.each([
     ['backend URL', { apiKey: 'k' }],
     ['API key', { backendUrl: 'http://backend' }],
