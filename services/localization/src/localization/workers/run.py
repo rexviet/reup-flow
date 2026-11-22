@@ -47,6 +47,7 @@ from localization.activities.review_render import ReviewRenderActivity
 from localization.activities.revoice_caption import RevoiceActivities
 from localization.activities.skip_bypass import SkipBypasses
 from localization.activities.slot_script import SlotScriptActivity
+from localization.activities.source_audio import SourceAudioActivities
 from localization.activities.source_evidence import SourceEvidenceActivity
 from localization.activities.synthesize import SynthesizeActivities, Synthesizer
 from localization.activities.transcribe import TranscribeActivity
@@ -178,6 +179,8 @@ def queue_specs(
                     # For runs recorded before the search moved to the host.
                     DetectWatermarksActivity(store).detect_watermarks,
                     assemble_audio.assemble_audio,
+                    # A subtitles-only run's track: the source's sound, decoded once.
+                    SourceAudioActivities(store).source_audio,
                     layout.layout_captions,
                     revoice.mix,
                     revoice.mix_batch,
@@ -332,6 +335,9 @@ def queue_specs(
                     SlotScriptActivity(store).write_slot_script,
                     dub.clip_durations,
                     review.review_dub,
+                    # A subtitles-only run's steps that are not shared with the others.
+                    SourceAudioActivities(store).empty_transcript,
+                    SourceAudioActivities(store).keep_original_dub,
                 ],
                 plugins=agents,
             ),

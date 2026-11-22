@@ -550,3 +550,13 @@ def test_the_media_role_is_never_split() -> None:
 
     specs = [QueueSpec("media", 1), QueueSpec("render", 1)]
     assert split_voice_queues("media", specs, True) == specs
+
+
+def test_the_subtitles_only_steps_are_served_on_the_queues_the_workflow_sends_them_to() -> None:
+    served = _registered(Settings())
+    assert {"empty_transcript", "keep_original_dub"} <= served["io"]
+    media = {
+        s.name: {fn.__temporal_activity_definition.name for fn in s.activities}  # type: ignore[attr-defined]
+        for s in runnable(queue_specs("media", Settings(), STORE, PROVIDERS))  # type: ignore[arg-type]
+    }
+    assert "source_audio" in media["media"]
