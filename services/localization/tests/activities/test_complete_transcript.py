@@ -241,3 +241,112 @@ async def test_completing_a_completed_transcript_adds_nothing(review_store, fram
         SubtitleTrack(subtitle_key=SUBTITLE_KEY, region=None),
     )
     assert again == first
+
+
+# --- subtitles only: the whole subtitle band is read ----------------------------------------
+
+SUBTITLES_ONLY = SPEC.model_copy(
+    update={"delivery_mode": "review_project", "localize_mode": "subtitles_only"}
+)
+
+
+def timeline(*lines: tuple[int, int, str]):
+    """The text on screen at `t`, from (start, end, text) lines; blank elsewhere."""
+    return lambda t: next((text for a, b, text in lines if a <= t < b), "")
+
+
+def test_a_line_runs_from_the_frame_it_is_first_read_on_to_the_last() -> None:
+    from localization.activities.complete_transcript import FULL_STEP_MS, lines_from_readings
+
+    text_at = timeline((8000, 10_000, "权时宪…"), (10_000, 12_000, "啊…你干嘛？"))
+    readings = [reading(t, text_at(t)) for t in range(250, 14_000, FULL_STEP_MS)]
+    half = FULL_STEP_MS // 2
+    assert lines_from_readings(readings, 14_000) == [
+        (8250 - half, 9750 + half, "权时宪…"),
+        (10_250 - half, 11_750 + half, "啊…你干嘛？"),
+    ]
+
+
+def test_a_misread_character_does_not_split_a_line() -> None:
+    from localization.activities.complete_transcript import lines_from_readings
+
+    texts = ["你刚才那样很不礼貌", "你刚才那样很不礼貌", "你刚才那样很不礼猊", "你刚才那样很不礼貌"]
+    readings = [reading(250 + 500 * i, text) for i, text in enumerate(texts)]
+    assert [text for *_, text in lines_from_readings(readings, 5000)] == ["你刚才那样很不礼貌"]
+
+
+def test_the_same_line_after_a_blank_is_shown_again() -> None:
+    from localization.activities.complete_transcript import lines_from_readings
+
+    texts = ["张知安", "", "张知安"]
+    readings = [reading(250 + 500 * i, text) for i, text in enumerate(texts)]
+    assert len(lines_from_readings(readings, 2000)) == 2
+
+
+def test_a_line_never_runs_past_the_video() -> None:
+    from localization.activities.complete_transcript import lines_from_readings
+
+    # Half a step either side of its frames, but never before 0 or past the end (1.9 s).
+    assert lines_from_readings([reading(100, "开头"), reading(1750, "结尾")], 1900) == [
+        (0, 350, "开头"),
+        (1500, 1900, "结尾"),
+    ]
+
+
+def put_subtitles_only(store, cues, duration_ms=20_000, region=REGION) -> None:
+    doc = TranscriptDocument(language=None, duration_ms=None, segments=(), words=())
+    store.put_bytes(TRANSCRIPT_KEY, doc.model_dump_json().encode())
+    subs = SubtitleDocument(
+        width=1080, height=1920, region=region, cues=cues, duration_ms=duration_ms
+    )
+    store.put_bytes(SUBTITLE_KEY, subs.model_dump_json().encode())
+    store.put_bytes(SPEC.video_key, b"source video")
+
+
+def run_subtitles_only(store, reader):
+    activity = CompleteTranscriptActivity(store, reader)
+    return ActivityEnvironment().run(
+        activity.complete_transcript,
+        SUBTITLES_ONLY,
+        Transcript(transcript_key=TRANSCRIPT_KEY, segment_count=0),
+        SubtitleTrack(subtitle_key=SUBTITLE_KEY, region=REGION),
+    )
+
+
+async def test_a_subtitles_only_run_reads_lines_the_sparse_cues_missed(review_store, frames):
+    # 7701648680104758554: the cues, from a frame every 4 s, start at 9 s and 15 s; the
+    # lines shown from 8 s to 9 s and from 13.5 s to 15 s lie wholly outside them.
+    put_subtitles_only(review_store, (cue(9000, 12_000), cue(15_000, 18_000)))
+    reader = Reader(
+        text_at=timeline(
+            (8000, 9000, "权时宪…"),
+            (9000, 12_000, "啊…你干嘛？"),
+            (13_500, 15_000, "你刚才那样很不礼貌"),
+            (15_000, 18_000, "我同学"),
+        )
+    )
+    result = await run_subtitles_only(review_store, reader)
+    doc = read_transcript_document(review_store, result.transcript_key)
+    assert [s.text for s in doc.segments] == [
+        "权时宪…",
+        "啊…你干嘛？",
+        "你刚才那样很不礼貌",
+        "我同学",
+    ]
+    assert {s.source for s in doc.segments} == {"subtitle"}
+    assert result.segment_count == 4
+
+
+async def test_the_whole_band_is_read_two_frames_a_second_eight_to_a_request(review_store, frames):
+    put_subtitles_only(review_store, (cue(9000, 12_000),), duration_ms=20_000)
+    reader = Reader(text_at=lambda t: "")
+    await run_subtitles_only(review_store, reader)
+    assert sorted(frames) == list(range(250, 20_000, 500))
+    assert all(1 <= len(call) <= 8 for call in reader.calls)
+    assert len(reader.calls) == 5
+
+
+async def test_a_dubbed_run_still_reads_only_where_nobody_speaks(review_store, frames) -> None:
+    put_inputs(review_store, (seg(0, 0, 1000),), (cue(0, 5000),))
+    await run(review_store, Reader())
+    assert frames and all(1000 <= t < 5000 for t in frames)

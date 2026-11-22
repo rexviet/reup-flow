@@ -54,6 +54,11 @@ EDGE_MS = 300
 # Spans read at once: each is a few ffmpeg seeks and one vision request.
 READ_CONCURRENCY = 4
 DOCUMENT_NAME = "transcript.subtitles.json"
+# A subtitles-only run hears nothing, so every line comes from the frames, and the cues
+# (from a frame every 4 s) cannot say where they are. The whole band is read instead: a
+# frame every FULL_STEP_MS, at the middle of its slot, READ_BATCH frames to a request.
+FULL_STEP_MS = 500
+READ_BATCH = 8
 # A reading this alike to a spoken neighbour's text (ASR and OCR of one line differ by a
 # character or two) is that neighbour's subtitle.
 SAME_LINE_RATIO = 0.6
@@ -115,6 +120,36 @@ def segments_from_readings(
     ]
 
 
+def full_band_times(duration_ms: int) -> list[int]:
+    """The middle of every FULL_STEP_MS slot of the video."""
+    return list(range(FULL_STEP_MS // 2, max(1, duration_ms), FULL_STEP_MS))
+
+
+def lines_from_readings(
+    readings: Sequence[SubtitleReading], duration_ms: int
+) -> list[tuple[int, int, str]]:
+    """(start, end, text) of each line read across the whole video, in order. A line runs
+    from half a step before the first frame it is read on to half a step after the last,
+    within the video. A blank frame ends it; a reading close enough to it (one misread
+    character) continues it."""
+    half = FULL_STEP_MS // 2
+    lines: list[list] = []
+    current: list | None = None
+    for reading in sorted(readings, key=lambda r: r.time_ms):
+        text = " ".join(reading.text.split())
+        if not text:
+            current = None
+            continue
+        if current is not None and _repeats(text, [current[2]]):
+            current[1] = reading.time_ms
+            continue
+        current = [reading.time_ms, reading.time_ms, text]
+        lines.append(current)
+    return [
+        (max(0, first - half), min(duration_ms, last + half), text) for first, last, text in lines
+    ]
+
+
 def _neighbours(span: tuple[int, int], segments: Sequence[SttSegment]) -> list[str]:
     before = [s for s in segments if s.end_ms <= span[0]]
     after = [s for s in segments if s.start_ms >= span[1]]
@@ -160,19 +195,47 @@ class CompleteTranscriptActivity:
         )
         subs = await asyncio.to_thread(read_subtitle_document, self._store, subtitles.subtitle_key)
         band = subtitle_band(subs)
+        if spec.localize_mode == "subtitles_only":
+            if band is None:
+                return transcript
+            return await self._read_whole_band(spec, transcript, doc, subs, band)
         spans = uncovered_spans(subs.cues, doc.segments) if band is not None else []
         if not spans:
             return transcript
+        plans = [(span, sample_times(span[0] + EDGE_MS, span[1] - EDGE_MS)) for span in spans]
+        results = await self._read(spec, transcript, band, plans)
+        added = [
+            line
+            for (span, _), result in zip(plans, results, strict=True)
+            for line in segments_from_readings(
+                span, result.readings, _neighbours(span, doc.segments)
+            )
+        ]
+        return await self._commit(spec, transcript, doc, added)
+
+    async def _read_whole_band(self, spec, transcript, doc, subs, band) -> Transcript:
+        """A subtitles-only run's transcript: every line read across the whole video."""
+        duration = subs.duration_ms or max((c.end_ms for c in subs.cues), default=0)
+        times = full_band_times(duration)
+        batches = [times[i : i + READ_BATCH] for i in range(0, len(times), READ_BATCH)]
+        plans = [((batch[0], batch[-1]), batch) for batch in batches]
+        results = await self._read(spec, transcript, band, plans)
+        readings = [r for result in results for r in result.readings]
+        return await self._commit(spec, transcript, doc, lines_from_readings(readings, duration))
+
+    async def _read(self, spec, transcript, band, plans) -> list[SubtitleReadings]:
+        """The readings of each (span, times) plan, in order: each read once, from the
+        frames' subtitle band, and kept beside the transcript so a retry reads nothing
+        again."""
         video_key = source_video_key(spec)
         prefix = transcript.transcript_key.rsplit("/", 1)[0] + "/"
-        plans = []
-        for span in spans:
-            times = sample_times(span[0] + EDGE_MS, span[1] - EDGE_MS)
+        keyed = []
+        for span, times in plans:
             identity = json.dumps(
                 [PROMPT_VERSION, self._reader.model_id, video_key, span, times, band]
             ).encode()
             key = prefix + "subtitle-speech/" + hashlib.sha256(identity).hexdigest() + ".json"
-            plans.append((span, times, key))
+            keyed.append((span, times, key))
         with provider_errors(), tempfile.TemporaryDirectory(prefix="subtitle-speech-") as temp:
             root = Path(temp)
             video = root / "source.mp4"
@@ -209,18 +272,16 @@ class CompleteTranscriptActivity:
 
             async with background_heartbeat():
                 results = await asyncio.gather(
-                    *(read(*plan) for plan in plans), return_exceptions=True
+                    *(read(*plan) for plan in keyed), return_exceptions=True
                 )
             for result in results:
                 if isinstance(result, BaseException):
                     raise result
-        added = [
-            line
-            for (span, _, _), result in zip(plans, results, strict=True)
-            for line in segments_from_readings(
-                span, result.readings, _neighbours(span, doc.segments)
-            )
-        ]
+        return results
+
+    async def _commit(self, spec, transcript, doc, added) -> Transcript:
+        """`transcript` with the `added` subtitle lines, as a new document; `transcript`
+        itself when there is none."""
         if not added:
             return transcript
         activity.logger.info(
