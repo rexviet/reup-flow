@@ -362,18 +362,24 @@ class ReviewProjectActivity:
             mixed = copy_asset(dub.audio_key, ".wav", "assemble_audio")
             if mixed.sha256 != dub.audio_sha256:
                 raise ValueError("mixed audio checksum mismatch")
-            try:
-                bgm = copy_asset(ingest.bgm_key, ".wav", "ingest")
-            except ArtifactMissingError:
-                if any(s.status != "unresolved" for s in script.segments):
-                    raise
-                # The assembler already emitted BGM or silence with no spoken clips.
-                bgm = mixed
-            try:
-                vocals = copy_asset(ingest.vocals_key, ".wav", "ingest")
-            except ArtifactMissingError:
-                # A revoice then mixes without the original voice, as before.
-                vocals = None
+            subtitles_only = spec.localize_mode == "subtitles_only"
+            if subtitles_only:
+                # The track is the source's own sound, and nothing was separated from it:
+                # no music stem, and no voice stem a revoice could mix back.
+                bgm, vocals = mixed, None
+            else:
+                try:
+                    bgm = copy_asset(ingest.bgm_key, ".wav", "ingest")
+                except ArtifactMissingError:
+                    if any(s.status != "unresolved" for s in script.segments):
+                        raise
+                    # The assembler already emitted BGM or silence with no spoken clips.
+                    bgm = mixed
+                try:
+                    vocals = copy_asset(ingest.vocals_key, ".wav", "ingest")
+                except ArtifactMissingError:
+                    # A revoice then mixes without the original voice, as before.
+                    vocals = None
             font = asset_file(Path(self._font_path), ".ttf")
             by_id = {s.id: s for s in doc.segments}
             spans = {
@@ -435,6 +441,7 @@ class ReviewProjectActivity:
                 bgm=bgm,
                 vocals=vocals,
                 mix_levels=dub.levels,
+                localize_mode=spec.localize_mode,
                 font=font,
                 script=asset_bytes(script.model_dump_json().encode(), ".json"),
                 dub=asset_bytes(

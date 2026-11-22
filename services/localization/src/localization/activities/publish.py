@@ -140,9 +140,12 @@ class PublishActivity:
                 or request.project_key != project_head_key(spec.aweme_id, spec.generation)
             ):
                 raise _refuse("invalid review project publication")
+            # A subtitles-only run made no voice: the data review (a dubbed track's loudness,
+            # lines that fit their slot) has nothing to look at, and is not asked.
+            unreviewed = spec.localize_mode == "subtitles_only" and request.verdict is None
             if request.outcome == "ready_for_review" and (
-                request.verdict is None
-                or not request.verdict.passed
+                (request.verdict is None and not unreviewed)
+                or (request.verdict is not None and not request.verdict.passed)
                 or request.reasons
                 or request.safety_flag
             ):
@@ -150,15 +153,29 @@ class PublishActivity:
             _, manifest, _ = await asyncio.to_thread(
                 resolve_project, self._store, request.project_key
             )
-            if manifest.source != spec.source_snapshot or manifest.voice != spec.voice:
+            if (
+                manifest.source != spec.source_snapshot
+                or manifest.voice != spec.voice
+                or manifest.localize_mode != spec.localize_mode
+            ):
                 raise _refuse("project provenance differs from workflow input")
             if request.outcome == "ready_for_review" and (
                 any(c.status != "translated" or c.overflow_unresolved for c in manifest.cues)
-                or request.verdict.issues
+                or (request.verdict is not None and request.verdict.issues)
             ):
                 raise _refuse("flagged project requires human review")
         elif request.outcome == "ready_for_review":
             raise _refuse("ready_for_review needs a durable project HEAD")
+        elif (
+            request.outcome == "needs_human"
+            and spec.localize_mode == "subtitles_only"
+            and request.render_key is None
+            and request.reasons
+            and request.dub is None
+        ):
+            # A subtitles-only run with nothing to translate (no burned-in subtitles, none
+            # read) made nothing: it leaves its reason on the row, for a person to decide.
+            pass
         elif request.outcome in ("failed", "skipped_ad", "skipped_no_video", "published_original"):
             if request.render_key is not None:
                 raise _refuse(f"a {request.outcome} run has no render to keep")

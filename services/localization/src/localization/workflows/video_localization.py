@@ -123,6 +123,13 @@ SINGING_PATCH = "keep-original-singing"
 # Marks a run that, once the subtitle band is known, looks for its collection's watermark
 # images on the source and blurs them. A run recorded before blurred nothing.
 WATERMARK_PATCH = "blur-collection-watermarks"
+# Marks a run that only translates the burned-in subtitles (`localize_mode="subtitles_only"`).
+# Only such an input ever asks for it, and none existed before it.
+SUBTITLES_ONLY_PATCH = "subtitles-only"
+
+# The rate a subtitles-only run's captions are written to: nothing is spoken, so the voice's
+# rate is never measured; a caption still has to be read in the time it is shown.
+CAPTION_READING_RATE = 6.0
 
 # Reviews of one run: the first looks at the first layout, the second at the one made after
 # the one rerun a failed review sends the run back for.
@@ -239,6 +246,12 @@ SYNTHESIZE = dict(
     # so a worker that died is noticed in seconds, not after the full timeout.
     heartbeat_timeout=timedelta(seconds=20),
     retry_policy=_retry(8, 5, 300),
+)
+# Decoding the source's sound for a subtitles-only run: one ffmpeg pass.
+SOURCE_AUDIO = dict(
+    task_queue=MEDIA_QUEUE,
+    start_to_close_timeout=timedelta(minutes=20),
+    retry_policy=_retry(3, 10, 120),
 )
 ASSEMBLE_AUDIO = dict(
     task_queue=MEDIA_QUEUE,
@@ -413,6 +426,8 @@ class VideoLocalizationWorkflow:
         self._contextual = spec.delivery_mode == "review_project" and workflow.patched(
             CONTEXTUAL_LOCALIZER_PATCH
         )
+        if spec.localize_mode == "subtitles_only" and workflow.patched(SUBTITLES_ONLY_PATCH):
+            return await self._subtitles_only(spec)
         if self._checks_for_voice():
             outcome = await self._unprepared_end(spec)
             if outcome is not None:
@@ -439,6 +454,82 @@ class VideoLocalizationWorkflow:
             return LocalizationResult(prep=prep, script=script, dub=dub)
         script, dub, published = await self._review_and_publish(spec, prep, script, dub)
         return LocalizationResult(prep=prep, script=script, dub=dub, publish=published)
+
+    # --- subtitles only ----------------------------------------------------------------
+
+    async def _subtitles_only(self, spec: LocalizationInput) -> LocalizationResult:
+        """The burned-in subtitles read, translated and laid over the source's own picture
+        and sound, into a review project. Nothing is separated, heard, classified or
+        spoken, and there is no voice to check: a video of music alone has subtitles too.
+        A video with no subtitle to translate goes to a person."""
+        self._project = True
+        snapshot = await workflow.execute_activity(
+            "capture_review_source", spec, result_type=SourceSnapshot, **ASSEMBLE_SCRIPT
+        )
+        spec = spec.model_copy(update={"source_snapshot": snapshot})
+        prep = await self._prepare_subtitles(spec)
+        if prep.subtitles.region is None:
+            return LocalizationResult(
+                prep=prep,
+                script=None,
+                publish=await self._to_person(spec, "no burned-in subtitles to translate"),
+            )
+        transcript = await workflow.execute_activity(
+            "complete_transcript",
+            args=[spec, prep.transcript, prep.subtitles],
+            result_type=Transcript,
+            **COMPLETE_TRANSCRIPT,
+        )
+        prep = prep.model_copy(update={"transcript": transcript})
+        if transcript.segment_count == 0:
+            return LocalizationResult(
+                prep=prep,
+                script=None,
+                publish=await self._to_person(spec, "no subtitle line could be read"),
+            )
+        self._rate, self._rate_measured = CAPTION_READING_RATE, True
+        script = await self._localize_once(spec, prep)
+        dub = await workflow.execute_activity(
+            "keep_original_dub",
+            args=[spec, script.script, prep.ingest],
+            result_type=DubbedAudio,
+            **DUB_IO,
+        )
+        published = await self._deliver_project(spec, prep, script, dub, reviewed=False)
+        return LocalizationResult(prep=prep, script=script, dub=dub, publish=published)
+
+    async def _prepare_subtitles(self, spec: LocalizationInput) -> PrepResult:
+        """The source's sound, its subtitles and an empty transcript, side by side; the
+        first to fail stops the others."""
+        handles = [
+            workflow.start_activity("source_audio", spec, result_type=IngestResult, **SOURCE_AUDIO),
+            workflow.start_activity(
+                "detect_subtitles", spec, result_type=SubtitleTrack, **DETECT_SUBTITLES
+            ),
+            workflow.start_activity("empty_transcript", spec, result_type=Transcript, **DUB_IO),
+        ]
+        try:
+            await workflow.wait(handles, return_when=_FIRST_EXCEPTION)
+            for handle in sorted(handles, key=lambda h: not _failed(h)):
+                await handle
+        except BaseException:
+            for handle in handles:
+                if not handle.done():
+                    handle.cancel()
+            raise
+        ingest, detected, transcript = (h.result() for h in handles)
+        subtitles = await self._with_watermarks(spec, detected)
+        return PrepResult(ingest=ingest, transcript=transcript, subtitles=subtitles)
+
+    async def _to_person(self, spec: LocalizationInput, reason: str) -> PublishResult:
+        """Leaves a run that has nothing to make on a person's desk, with why: no project,
+        no render."""
+        return await workflow.execute_activity(
+            "publish",
+            args=[spec, PublishRequest(outcome="needs_human", reasons=(reason,))],
+            result_type=PublishResult,
+            **PUBLISH,
+        )
 
     def _delivers_project(self, spec: LocalizationInput) -> bool:
         return (
@@ -868,7 +959,10 @@ class VideoLocalizationWorkflow:
             return script, dub, await self._deliver_project(spec, prep, script, dub)
         return await self._rounds(spec, prep, script, dub)
 
-    async def _deliver_project(self, spec, prep, script, dub) -> PublishResult:
+    async def _deliver_project(self, spec, prep, script, dub, reviewed=True) -> PublishResult:
+        """`reviewed` False: a run with no voice made, whose data review (the loudness of a
+        dubbed track, lines that fit their slot) has nothing to look at. A person reviews
+        its project in the Studio."""
         final = LocalizedScriptRef(script_key=dub.script_key, version=dub.script_version)
         layout = await workflow.execute_activity(
             "layout_captions",
@@ -877,24 +971,7 @@ class VideoLocalizationWorkflow:
             **LAYOUT,
         )
         reasons = self._flags(script)
-        verdict = None
-        try:
-            verdict = await workflow.execute_activity(
-                "review_before_render",
-                args=[spec, final, dub, layout, 0],
-                result_type=ReviewVerdict | None,
-                **REVIEW,
-            )
-        except ActivityError as error:
-            reasons.append(f"the review could not be made: {_describe(error)}")
-        if verdict is None:
-            reasons.append("data-only reviewer unavailable; manual review required")
-        else:
-            self._reviews = 1
-            if not verdict.passed or verdict.issues:
-                reasons.extend(f"{i.stage}: {i.reason}" for i in verdict.issues)
-                if not verdict.issues:
-                    reasons.append("the automatic review did not pass")
+        verdict = await self._data_review(spec, final, dub, layout, reasons) if reviewed else None
         project = await workflow.execute_activity(
             "build_review_project",
             args=[spec, dub, prep.ingest, prep.subtitles, self._engine],
@@ -920,6 +997,29 @@ class VideoLocalizationWorkflow:
             result_type=PublishResult,
             **PUBLISH,
         )
+
+    async def _data_review(self, spec, final, dub, layout, reasons: list[str]):
+        """The data-only review of a project, before it is built; what stops it from going
+        out without a person looking is added to `reasons`."""
+        verdict = None
+        try:
+            verdict = await workflow.execute_activity(
+                "review_before_render",
+                args=[spec, final, dub, layout, 0],
+                result_type=ReviewVerdict | None,
+                **REVIEW,
+            )
+        except ActivityError as error:
+            reasons.append(f"the review could not be made: {_describe(error)}")
+        if verdict is None:
+            reasons.append("data-only reviewer unavailable; manual review required")
+        else:
+            self._reviews = 1
+            if not verdict.passed or verdict.issues:
+                reasons.extend(f"{i.stage}: {i.reason}" for i in verdict.issues)
+                if not verdict.issues:
+                    reasons.append("the automatic review did not pass")
+        return verdict
 
     async def _record_failure(
         self, spec: LocalizationInput, error: ActivityError | ApplicationError | AgentRunError

@@ -32,11 +32,18 @@ def project_inputs(
     segment_id=17,
     collection=None,
     watermarks=(),
+    subtitles_only=False,
 ):
     """`collection`: the CollectionSnapshot the run was dispatched with, if any.
-    `watermarks`: what the subtitle detector found to blur on the source."""
+    `watermarks`: what the subtitle detector found to blur on the source.
+    `subtitles_only`: a run with no voice made, as `source_audio` and `keep_original_dub`
+    leave it: no clip, and one file of the source's sound standing in for every track."""
     spec = make_input(generation=generation).model_copy(
-        update={"delivery_mode": "review_project", "collection": collection}
+        update={
+            "delivery_mode": "review_project",
+            "collection": collection,
+            "localize_mode": "subtitles_only" if subtitles_only else "full",
+        }
     )
     store.put_bytes(spec.video_key, f"source-{generation}".encode())
     snapshot = store.capture_source(spec.video_key, f"work/7001/g{generation}/r0/source.mp4")
@@ -63,7 +70,7 @@ def project_inputs(
     )
     script_key = work_key_for(spec, 0, "script.v2.json")
     store.put_bytes(script_key, script.model_dump_json().encode())
-    clip_key = "cache/tts/" + "a" * 64 + ".wav" if text else None
+    clip_key = "cache/tts/" + "a" * 64 + ".wav" if text and not subtitles_only else None
     if clip_key:
         store.put_bytes(clip_key, b"clip")
     doc = DubSegmentsDocument(
@@ -76,9 +83,10 @@ def project_inputs(
                 status=status,
                 reason=reason,
                 tts_key=clip_key,
-                duration_ms=800 if text else 0,
+                duration_ms=800 if clip_key else 0,
                 stretch_ratio=1,
                 overflow_unresolved=False,
+                keep_original=subtitles_only,
             ),
         ),
     )
@@ -88,6 +96,10 @@ def project_inputs(
     store.put_bytes(audio_key, b"mixed-track")
     bgm_key = work_key_for(spec, 0, "bgm.wav")
     store.put_bytes(bgm_key, b"bgm")
+    vocals_key = work_key_for(spec, 0, "vocals.wav")
+    if subtitles_only:
+        audio_key = bgm_key = vocals_key = work_key_for(spec, 0, "source-audio.wav")
+        store.put_bytes(audio_key, b"mixed-track")
     subs_key = work_key_for(spec, 0, "subtitles.json")
     subs = SubtitleDocument(
         width=640,
@@ -114,13 +126,17 @@ def project_inputs(
         segments_key=segments_key,
     )
     ingest = IngestResult(
-        vocals_key=work_key_for(spec, 0, "vocals.wav"),
+        vocals_key=vocals_key,
         bgm_key=bgm_key,
         duration_ms=2000,
         width=640,
         height=360,
         fps=25,
     )
-    return builder, spec, dub, ingest, SubtitleTrack(
-        subtitle_key=subs_key, region=subs.region, watermarks=subs.watermarks
+    return (
+        builder,
+        spec,
+        dub,
+        ingest,
+        SubtitleTrack(subtitle_key=subs_key, region=subs.region, watermarks=subs.watermarks),
     )

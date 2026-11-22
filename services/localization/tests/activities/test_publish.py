@@ -431,3 +431,75 @@ async def test_review_project_pointer_is_stored_in_the_real_table(
     assert conn.execute(
         "SELECT status,project_key,output_key,review_key FROM localization.runs"
     ).fetchall() == [(outcome, ref.project_key, None, None)]
+
+
+# --- subtitles only ---------------------------------------------------------------------
+
+SUBTITLES_ONLY = make_input("7001", 3).model_copy(
+    update={"delivery_mode": "review_project", "localize_mode": "subtitles_only"}
+)
+TO_PERSON = PublishRequest(outcome="needs_human", reasons=("no burned-in subtitles to translate",))
+
+
+async def test_a_subtitles_only_run_with_nothing_to_translate_goes_to_a_person(store):
+    runs = MemoryRuns()
+    act = publisher(store, runs)
+    result = await ActivityEnvironment().run(act.publish, SUBTITLES_ONLY, TO_PERSON)
+    assert (result.outcome, result.output_key, result.review_key) == ("needs_human", None, None)
+    row = runs.rows[("7001", 3)]
+    assert (row["status"], row["needs_human"], row["output"], row["review"]) == (
+        "needs_human",
+        True,
+        None,
+        None,
+    )
+    assert row["record"]["reasons"] == ["no burned-in subtitles to translate"]
+
+
+async def test_a_subtitles_only_run_goes_to_a_person_only_with_a_reason(store):
+    act = publisher(store, MemoryRuns())
+    with pytest.raises(ApplicationError, match="needs the render"):
+        await ActivityEnvironment().run(
+            act.publish, SUBTITLES_ONLY, PublishRequest(outcome="needs_human")
+        )
+
+
+async def test_a_dubbed_run_never_goes_to_a_person_without_its_render(store):
+    act = publisher(store, MemoryRuns())
+    with pytest.raises(ApplicationError, match="needs the render"):
+        await publish(act, TO_PERSON)
+
+
+async def test_a_subtitles_only_project_is_ready_without_a_data_review(review_store, tmp_path):
+    from tests.support.review_project import project_inputs
+
+    builder, spec, dub, ingest_, subs = project_inputs(review_store, tmp_path, subtitles_only=True)
+    ref = builder._build(spec, dub, ingest_, subs, None)
+    act = PublishActivity(review_store, MemoryRuns())
+    request = PublishRequest(outcome="ready_for_review", project_key=ref.project_key)
+    result = await ActivityEnvironment().run(act.publish, spec, request)
+    assert result.outcome == "ready_for_review" and result.project_key == ref.project_key
+
+
+async def test_a_dubbed_project_is_never_ready_without_a_data_review(review_store, tmp_path):
+    from tests.support.review_project import project_inputs
+
+    builder, spec, dub, ingest_, subs = project_inputs(review_store, tmp_path)
+    ref = builder._build(spec, dub, ingest_, subs, None)
+    act = PublishActivity(review_store, MemoryRuns())
+    request = PublishRequest(outcome="ready_for_review", project_key=ref.project_key)
+    with pytest.raises(ApplicationError, match="clean data review"):
+        await ActivityEnvironment().run(act.publish, spec, request)
+
+
+async def test_a_flagged_subtitles_only_project_is_never_ready(review_store, tmp_path):
+    from tests.support.review_project import project_inputs
+
+    builder, spec, dub, ingest_, subs = project_inputs(
+        review_store, tmp_path, subtitles_only=True, text=""
+    )
+    ref = builder._build(spec, dub, ingest_, subs, None)
+    act = PublishActivity(review_store, MemoryRuns())
+    request = PublishRequest(outcome="ready_for_review", project_key=ref.project_key)
+    with pytest.raises(ApplicationError, match="human review"):
+        await ActivityEnvironment().run(act.publish, spec, request)

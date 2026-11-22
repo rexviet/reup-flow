@@ -57,6 +57,7 @@ async def prep_workers(
     classifying: AdFakes | None = None,
     voicing: VoiceFakes | None = None,
     project_activities=(),
+    media_activities=(),
 ) -> AsyncIterator[None]:
     """The real workflow on the `workflows` queue, fake activities on the others.
     The Localizer stage runs for real (agent, validator, durable activities) on a
@@ -107,6 +108,7 @@ async def prep_workers(
                     QueueSpec(
                         "media",
                         activities=[
+                            *media_activities,
                             dub["assemble_audio"],
                             review["layout_captions"],
                         ],  # type: ignore[list-item]
