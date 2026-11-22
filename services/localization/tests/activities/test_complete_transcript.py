@@ -256,14 +256,16 @@ def timeline(*lines: tuple[int, int, str]):
 
 
 def test_a_line_runs_from_the_frame_it_is_first_read_on_to_the_last() -> None:
+    """A line holds only time it is known to be on screen: from its first frame to the frame
+    after its last. Starting it earlier reaches back into the line before, and a frame
+    taken there (the Localizer's evidence) reads that line instead."""
     from localization.activities.complete_transcript import FULL_STEP_MS, lines_from_readings
 
     text_at = timeline((8000, 10_000, "权时宪…"), (10_000, 12_000, "啊…你干嘛？"))
     readings = [reading(t, text_at(t)) for t in range(250, 14_000, FULL_STEP_MS)]
-    half = FULL_STEP_MS // 2
     assert lines_from_readings(readings, 14_000) == [
-        (8250 - half, 9750 + half, "权时宪…"),
-        (10_250 - half, 11_750 + half, "啊…你干嘛？"),
+        (8250, 10_250, "权时宪…"),
+        (10_250, 12_250, "啊…你干嘛？"),
     ]
 
 
@@ -299,10 +301,9 @@ def test_the_same_line_after_a_blank_is_shown_again() -> None:
 def test_a_line_never_runs_past_the_video() -> None:
     from localization.activities.complete_transcript import lines_from_readings
 
-    # Half a step either side of its frames, but never before 0 or past the end (1.9 s).
-    assert lines_from_readings([reading(100, "开头"), reading(1750, "结尾")], 1900) == [
-        (0, 350, "开头"),
-        (1500, 1900, "结尾"),
+    assert lines_from_readings([reading(250, "开头"), reading(1750, "结尾")], 1900) == [
+        (250, 750, "开头"),
+        (1750, 1900, "结尾"),
     ]
 
 

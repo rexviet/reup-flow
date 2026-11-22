@@ -133,10 +133,9 @@ def lines_from_readings(
     readings: Sequence[SubtitleReading], duration_ms: int
 ) -> list[tuple[int, int, str]]:
     """(start, end, text) of each line read across the whole video, in order. A line runs
-    from half a step before the first frame it is read on to half a step after the last,
-    within the video. A blank frame ends it; a reading close enough to it (one misread
-    character) continues it."""
-    half = FULL_STEP_MS // 2
+    from the first frame it is read on to the frame after its last, within the video: only
+    time it is known to be on screen, never time the line before may still hold. A blank
+    frame ends it; a reading close enough to it (one misread character) continues it."""
     lines: list[list] = []
     current: list | None = None
     for reading in sorted(readings, key=lambda r: r.time_ms):
@@ -149,9 +148,7 @@ def lines_from_readings(
             continue
         current = [reading.time_ms, reading.time_ms, text]
         lines.append(current)
-    return [
-        (max(0, first - half), min(duration_ms, last + half), text) for first, last, text in lines
-    ]
+    return [(first, min(duration_ms, last + FULL_STEP_MS), text) for first, last, text in lines]
 
 
 def _neighbours(span: tuple[int, int], segments: Sequence[SttSegment]) -> list[str]:
