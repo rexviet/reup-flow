@@ -6,13 +6,18 @@ payload). The `*Document` models describe what is stored under those keys.
 
 from typing import Annotated, Literal
 
-from pydantic import ConfigDict, Field, model_validator
+from pydantic import ConfigDict, Field, model_serializer, model_validator
 
 from localization.contracts.base import Contract
 from localization.contracts.collection import CollectionSnapshot, HexColor, OpacityPct
 from localization.contracts.geometry import BBox, NonNegativeInt, PositiveInt, Watermark
 from localization.contracts.ids import AwemeId, ChannelId, Sha256, SourceKey, StorageKey
-from localization.contracts.review_project import LocalizeMode, MixLevels, SourceSnapshot
+from localization.contracts.review_project import (
+    LocalizeMode,
+    MixLevels,
+    SourceSnapshot,
+    omit_full_mode,
+)
 from localization.contracts.voice import REVIEW_PROVIDERS, VoiceRef
 
 Key = StorageKey
@@ -59,6 +64,10 @@ class LocalizationInput(Contract):
     # Read from the video row when the run is dispatched; an input written before the
     # mode existed localizes in full.
     localize_mode: LocalizeMode = "full"
+
+    @model_serializer(mode="wrap")
+    def _omit_full_mode(self, handler):
+        return omit_full_mode(handler(self))
 
     @model_validator(mode="after")
     def _subtitles_only_is_a_review_project(self) -> "LocalizationInput":

@@ -25,9 +25,7 @@ def canonical_spec_json(spec: EditSpec) -> str:
     if not body["blurs"]:
         # Specs written before watermarks were blurred.
         body.pop("blurs")
-    return json.dumps(
-        body, sort_keys=True, ensure_ascii=False, separators=(",", ":")
-    )
+    return json.dumps(body, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
 
 
 def spec_sha256(spec: EditSpec) -> str:

@@ -43,3 +43,66 @@ def test_an_unknown_mode_is_refused():
 
 def test_a_manifest_written_before_the_mode_reads_as_full():
     assert ReviewProjectManifest.model_fields["localize_mode"].default == "full"
+
+
+# --- a dubbed run writes exactly what it wrote before the mode existed --------------------
+# Every contract forbids unknown fields, so a worker or render machine still on the code
+# before the mode would refuse an input or a manifest that carries it. A dubbed run leaves
+# it out; only a subtitles-only run, which such a machine could not handle anyway, has it.
+
+
+def _payload(spec: LocalizationInput) -> dict:
+    import json
+
+    from temporalio.contrib.pydantic import pydantic_data_converter
+
+    (payload,) = pydantic_data_converter.payload_converter.to_payloads([spec])
+    return json.loads(payload.data)
+
+
+def test_a_dubbed_input_reaches_temporal_without_the_mode():
+    assert "localize_mode" not in _payload(LocalizationInput.model_validate(_input()))
+
+
+def test_a_subtitles_only_input_reaches_temporal_with_the_mode_and_reads_back():
+    spec = LocalizationInput.model_validate(_input(localize_mode="subtitles_only"))
+    body = _payload(spec)
+    assert body["localize_mode"] == "subtitles_only"
+    assert LocalizationInput.model_validate(body) == spec
+
+
+def test_a_dubbed_input_reads_back_as_dubbed():
+    spec = LocalizationInput.model_validate(_input())
+    assert LocalizationInput.model_validate_json(spec.model_dump_json()) == spec
+
+
+def test_a_dubbed_manifest_is_written_without_the_mode(review_store, tmp_path):
+    import json
+
+    from tests.support.review_project import project_inputs
+
+    from localization.activities.review_project import resolve_project
+
+    builder, spec, dub, ingest, subs = project_inputs(review_store, tmp_path)
+    _, manifest, _ = resolve_project(
+        review_store, builder._build(spec, dub, ingest, subs, None).project_key
+    )
+    assert "localize_mode" not in json.loads(manifest.model_dump_json())
+    assert "localize_mode" not in manifest.model_dump()
+
+
+def test_a_subtitles_only_manifest_is_written_with_the_mode(review_store, tmp_path):
+    import json
+
+    from tests.support.review_project import project_inputs
+
+    from localization.activities.review_project import resolve_project
+
+    builder, spec, dub, ingest, subs = project_inputs(review_store, tmp_path, subtitles_only=True)
+    ref = builder._build(spec, dub, ingest, subs, None)
+    raw = review_store.get_bytes(
+        json.loads(review_store.get_bytes(ref.project_key, produced_by="t"))["manifest_key"],
+        produced_by="t",
+    )
+    assert json.loads(raw)["localize_mode"] == "subtitles_only"
+    assert resolve_project(review_store, ref.project_key)[1].localize_mode == "subtitles_only"

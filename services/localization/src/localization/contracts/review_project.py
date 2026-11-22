@@ -2,7 +2,7 @@
 
 from typing import Annotated, Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, model_serializer, model_validator
 
 from localization.contracts.base import Contract
 from localization.contracts.collection import (
@@ -21,6 +21,16 @@ RevisionId = Annotated[str, Field(pattern=r"^[0-9a-f]{32}$")]
 # What a run makes of a video: `full` dubs it; `subtitles_only` only translates its burned-in
 # subtitles and lays them over the original picture and sound, with no voice made.
 LocalizeMode = Literal["full", "subtitles_only"]
+
+
+def omit_full_mode(data: dict) -> dict:
+    """`data` without `localize_mode` when it is `full`. Every contract forbids unknown
+    fields, so a machine still on the code before the mode (a render worker updated by
+    hand) would refuse a dubbed run's input or manifest that carried it: a dubbed run writes
+    exactly what it wrote before. Read back, a missing mode is `full`."""
+    if data.get("localize_mode") == "full":
+        data.pop("localize_mode")
+    return data
 
 
 class SourceSnapshot(Contract):
@@ -132,6 +142,10 @@ class ReviewProjectManifest(Contract):
     # A `subtitles_only` project has no voice: its audio is the source's own, and it is
     # never revoiced or remixed. A project written before the mode existed is `full`.
     localize_mode: LocalizeMode = "full"
+
+    @model_serializer(mode="wrap")
+    def _omit_full_mode(self, handler):
+        return omit_full_mode(handler(self))
 
     @model_validator(mode="after")
     def _closed_dependencies(self) -> "ReviewProjectManifest":

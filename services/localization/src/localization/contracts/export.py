@@ -25,10 +25,12 @@ def main(argv: list[str]) -> int:
         EDIT_SPEC_SCHEMA_PATH: render_edit_spec_schema(),
         REPO_ROOT / "contracts" / "review-project.schema.json": json.dumps(
             ReviewProjectManifest.model_json_schema(), indent=2, sort_keys=True
-        ) + "\n",
+        )
+        + "\n",
         REPO_ROOT / "contracts" / "review-head.schema.json": json.dumps(
             ReviewHead.model_json_schema(), indent=2, sort_keys=True
-        ) + "\n",
+        )
+        + "\n",
     }
     for path, expected in schemas.items():
         if "--check" in argv:
