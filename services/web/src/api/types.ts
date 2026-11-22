@@ -11,6 +11,10 @@
  * package that always fills it in with a number is testing an easier world
  * than the real API -- see phase-08 instructions §"Bài học đã trả giá".
  */
+
+/** What a video's localization makes of it (the extension's Sub button: `subtitles_only`). */
+export type LocalizeMode = 'full' | 'subtitles_only';
+
 export interface JobResponse {
   job_id: string;
   sec_user_id: string;
@@ -130,6 +134,8 @@ export interface VideoListItem {
   collection: VideoCollectionRef;
   /** Episode number inside a 合集; null outside one. */
   mix_episode: number | null;
+  /** What the video's localization makes of it: dubbed in full, or its subtitles only. */
+  localize_mode: LocalizeMode;
 }
 
 export interface VideoListResponse {
@@ -319,6 +325,7 @@ export interface VideoDetailResponse {
     download_attempts: number;
     download_error: string | null;
     mix_episode: number | null;
+    localize_mode: LocalizeMode;
   } | null;
   collection?: VideoCollectionRef;
   channel?: { sec_user_id: string; nickname: string | null; auto_localize: boolean };

@@ -44,6 +44,15 @@ function Card({ item, thumb, checked, onToggle }: { item: VideoListItem; thumb: 
             {item.collection.name}
             {item.mix_episode !== null ? ` · Tập ${item.mix_episode}` : ''}
           </span>
+          {item.localize_mode === 'subtitles_only' ? (
+            <span
+              data-testid="subtitles-only"
+              title="Chỉ dịch và chèn phụ đề, giữ tiếng gốc, không lồng tiếng"
+              className="w-fit rounded bg-white/20 px-1.5 text-[11px] font-medium text-white"
+            >
+              Chỉ sub
+            </span>
+          ) : null}
           <span className="flex flex-wrap items-center gap-x-2 font-mono text-[11px] text-white/70">
             <span>{item.aweme_id}</span>
             {item.current_gen !== null ? <span>g{item.current_gen}</span> : null}

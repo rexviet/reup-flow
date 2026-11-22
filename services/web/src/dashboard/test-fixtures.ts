@@ -29,6 +29,7 @@ export function item(over: Partial<VideoListItem> = {}): VideoListItem {
     attention: [],
     collection: { id: COLLECTION_ID, name: 'Kênh A', kind: 'channel' },
     mix_episode: null,
+    localize_mode: 'full',
     ...over,
   };
 }
@@ -99,6 +100,7 @@ export function detail(over: Partial<VideoDetailResponse> = {}): VideoDetailResp
       download_attempts: 1,
       download_error: null,
       mix_episode: null,
+      localize_mode: 'full',
     },
     collection: { id: COLLECTION_ID, name: 'Kênh A', kind: 'channel' },
     channel: { sec_user_id: 'sec1', nickname: 'Kênh A', auto_localize: false },

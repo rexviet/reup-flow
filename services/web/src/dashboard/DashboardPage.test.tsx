@@ -509,6 +509,17 @@ describe('DashboardPage collections', () => {
     expect(cell).toHaveTextContent('Tập 3');
   });
 
+  it('marks a video queued for its subtitles only, and no other', async () => {
+    vi.mocked(client.getDashboardVideos).mockResolvedValue(
+      list([item({ aweme_id: '7008', localize_mode: 'subtitles_only' }), item({ aweme_id: '7009' })]),
+    );
+    render(<DashboardPage />);
+    await flush();
+    const [sub, full] = screen.getAllByTestId('video-card');
+    expect(within(sub).getByTestId('subtitles-only')).toHaveTextContent('Chỉ sub');
+    expect(within(full).queryByTestId('subtitles-only')).toBeNull();
+  });
+
   it('creates a job in the picked collection, and with none when left on the default', async () => {
     vi.mocked(client.createJob).mockResolvedValue({ job_id: 'j1' });
     render(<DashboardPage />);

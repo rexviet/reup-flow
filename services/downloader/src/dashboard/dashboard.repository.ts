@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import type { LocalizeMode } from '../db/schema';
 import type { Pool } from 'pg';
 import { PG_POOL } from '../db/db.module';
 import { escapeLike, type VideoFilter } from './dashboard.schemas';
@@ -87,6 +88,8 @@ export interface VideoRecord {
   collection: { id: string; name: string; kind: string };
   /** The episode within its 合集; kept when the video is moved out of it by hand. */
   mixEpisode: number | null;
+  /** What the video's localization makes of it: dubbed in full, or its subtitles only. */
+  localizeMode: LocalizeMode;
 }
 
 export function stageFactsOf(r: VideoRecord): StageFacts {
@@ -200,7 +203,7 @@ export interface HostWorkerRow {
 const SELECT_VIDEOS = `
   SELECT v.aweme_id, v.sec_user_id, v."desc", v.create_time, v.duration_ms,
          v.status AS video_status, v.attempts AS download_attempts, v.last_error AS download_error,
-         v.mix_episode, c.id AS collection_id, c.name AS collection_name, c.kind AS collection_kind,
+         v.mix_episode, v.localize_mode, c.id AS collection_id, c.name AS collection_name, c.kind AS collection_kind,
          p.nickname, COALESCE(p.auto_localize, false) AS auto_localize,
          CASE WHEN o.aweme_id IS NULL THEN NULL ELSE json_build_object(
            'generation', o.generation, 'state', o.state, 'dispatchedAt', o.dispatched_at,
@@ -258,6 +261,7 @@ function toRecord(r: Record<string, any>): VideoRecord {
     reviewStatus: r.review_status,
     collection: { id: r.collection_id, name: r.collection_name, kind: r.collection_kind },
     mixEpisode: r.mix_episode,
+    localizeMode: r.localize_mode,
   };
 }
 

@@ -277,6 +277,24 @@ const rendered = (generation: number, isCurrent: boolean) => ({
 });
 const OTHER_ID = '99999999-2222-4333-8444-555555555555';
 
+describe('VideoDetail localize mode', () => {
+  it('says a video is localized for its subtitles only', async () => {
+    vi.mocked(client.getDashboardVideo).mockResolvedValue(
+      detail({ video: { ...detail().video!, localize_mode: 'subtitles_only' } }),
+    );
+    render(<VideoDetail awemeId="7001" />);
+    await flush();
+    expect(screen.getByTestId('detail-subtitles-only')).toHaveTextContent('Chỉ dịch sub');
+  });
+
+  it('says nothing for a video dubbed in full', async () => {
+    vi.mocked(client.getDashboardVideo).mockResolvedValue(detail());
+    render(<VideoDetail awemeId="7001" />);
+    await flush();
+    expect(screen.queryByTestId('detail-subtitles-only')).toBeNull();
+  });
+});
+
 describe('VideoDetail collection and save to folder', () => {
   it('shows the collection with its episode and moves the video to another collection', async () => {
     vi.mocked(client.getDashboardVideo).mockResolvedValue(

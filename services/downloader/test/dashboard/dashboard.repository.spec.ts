@@ -104,6 +104,14 @@ describe('DashboardRepository (real downloader and localization schemas)', () =>
     expect(await ids('\\')).toEqual([]);
   });
 
+  it('gives each video the mode it was queued with', async () => {
+    await video('1', 'chA', 'a', '2026-11-01T00:00:00Z');
+    await video('2', 'chA', 'b', '2026-11-02T00:00:00Z');
+    await pool.query(`UPDATE videos SET localize_mode = 'subtitles_only' WHERE aweme_id = '2'`);
+    expect(await repo.video('2')).toMatchObject({ localizeMode: 'subtitles_only' });
+    expect(await repo.video('1')).toMatchObject({ localizeMode: 'full' });
+  });
+
   it('gives each video its collection and episode, and filters by collection', async () => {
     await video('1', 'chA', 'a', '2026-11-01T00:00:00Z');
     await video('2', 'chA', 'b', '2026-11-02T00:00:00Z');

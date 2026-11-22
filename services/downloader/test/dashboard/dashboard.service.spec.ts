@@ -26,6 +26,7 @@ const record = (awemeId: string, over: Partial<VideoRecord> = {}): VideoRecord =
   reviewStatus: [],
   collection: { id: 'col-a', name: 'Kênh A', kind: 'channel' },
   mixEpisode: null,
+  localizeMode: 'full',
   ...over,
 });
 
@@ -207,6 +208,15 @@ describe('DashboardService.list', () => {
     const s = svc(store([record('1')]), t);
     await Promise.all([s.list(query()), s.channels(), s.attention()]);
     expect(calls).toBe(1);
+  });
+
+  it('gives each row and the detail the mode the video was queued with', async () => {
+    const records = [record('1'), record('2', { localizeMode: 'subtitles_only' })];
+    const all = await svc(store(records), temporal()).list(query());
+    expect(all.items.find((i) => i.aweme_id === '2')).toMatchObject({ localize_mode: 'subtitles_only' });
+    expect(all.items.find((i) => i.aweme_id === '1')).toMatchObject({ localize_mode: 'full' });
+    const out = (await svc(store(records), temporal()).detail('2')) as Detail;
+    expect(out.video.localize_mode).toBe('subtitles_only');
   });
 
   it('gives each row its collection and episode, and filters by collection', async () => {

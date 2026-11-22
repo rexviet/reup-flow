@@ -203,6 +203,15 @@ function Loaded({
                 {collectionText(d.collection, video.mix_episode)}
               </span>
             ) : null}
+            {video.localize_mode === 'subtitles_only' ? (
+              <span
+                data-testid="detail-subtitles-only"
+                title="Không lồng tiếng: chỉ dịch phụ đề cháy, chèn lên hộp, giữ tiếng gốc"
+                className="inline-flex items-center gap-1 rounded bg-surface-container px-1.5 py-0.5 text-xs text-text-primary"
+              >
+                Chỉ dịch sub
+              </span>
+            ) : null}
           </div>
           <p className="text-sm text-text-primary">{video.desc ?? '(không có mô tả)'}</p>
           {stale ? <p className="text-xs text-status-warning-text">Mất kết nối, đang hiện dữ liệu cũ.</p> : null}
