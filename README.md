@@ -21,11 +21,16 @@ workflow nằm ở Temporal, trace và eval nằm ở Langfuse.
 
 ## Nền phụ đề
 
-Bản layout mới chỉ hiện hộp nền trong đúng các frame có caption Việt; khoảng
-trống giữa caption giữ nguyên hình gốc. Quy tắc nằm trong
-[`contracts/edit-spec.schema.json`](contracts/edit-spec.schema.json):
-`cover.only_with_captions=true`. Spec cũ thiếu cờ này giữ cách render và hash cũ;
-layout mới tạo hash khác để không lấy nhầm video đã cache với hộp nền suốt video.
+Ở chế độ `review_project` (luồng đang chạy thật), hộp nền che sub gốc hiện **xuyên suốt
+video**, kể cả khoảng trống giữa các caption Việt: review project nối các span của hộp
+liền nhau từ đầu đến cuối (`caption_spans`/`source-mask` trong
+`services/localization/src/localization/activities/review_project.py`). Một caption dài chỉ
+nới rộng hộp trong đúng span của nó.
+
+Cờ `cover.only_with_captions` trong
+[`contracts/edit-spec.schema.json`](contracts/edit-spec.schema.json) chỉ áp dụng cho chế độ
+`legacy_render`: ở đó hộp nền chỉ hiện trong các frame có caption. Spec cũ thiếu cờ này giữ
+cách render và hash cũ.
 
 ## Ngôn ngữ nguồn
 
