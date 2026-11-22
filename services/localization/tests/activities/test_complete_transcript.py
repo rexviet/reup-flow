@@ -275,6 +275,19 @@ def test_a_misread_character_does_not_split_a_line() -> None:
     assert [text for *_, text in lines_from_readings(readings, 5000)] == ["你刚才那样很不礼貌"]
 
 
+def test_two_lines_that_share_words_are_two_lines() -> None:
+    """7701648680104758554 at 18.75 s and 20.25 s: two lines, 0.6 alike, one after the
+    other with no blank between them."""
+    from localization.activities.complete_transcript import lines_from_readings
+
+    texts = ["你和他一起看的电影？"] * 3 + ["和同学不能一起看电影吗"] * 3
+    readings = [reading(250 + 500 * i, text) for i, text in enumerate(texts)]
+    assert [text for *_, text in lines_from_readings(readings, 5000)] == [
+        "你和他一起看的电影？",
+        "和同学不能一起看电影吗",
+    ]
+
+
 def test_the_same_line_after_a_blank_is_shown_again() -> None:
     from localization.activities.complete_transcript import lines_from_readings
 

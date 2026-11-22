@@ -59,6 +59,10 @@ DOCUMENT_NAME = "transcript.subtitles.json"
 # frame every FULL_STEP_MS, at the middle of its slot, READ_BATCH frames to a request.
 FULL_STEP_MS = 500
 READ_BATCH = 8
+# Two readings are one line misread when at least this alike: one wrong character in a
+# line of five. Lines that follow each other share words far more often than that
+# (0.6 for two lines of one real dialogue), so the neighbour test's ratio would merge them.
+SAME_READING_RATIO = 0.8
 # A reading this alike to a spoken neighbour's text (ASR and OCR of one line differ by a
 # character or two) is that neighbour's subtitle.
 SAME_LINE_RATIO = 0.6
@@ -90,13 +94,13 @@ def _plain(text: str) -> str:
     return _NOT_TEXT.sub("", unicodedata.normalize("NFKC", text)).lower()
 
 
+def _alike(a: str, b: str) -> float:
+    return difflib.SequenceMatcher(None, _plain(a), _plain(b)).ratio()
+
+
 def _repeats(text: str, neighbours: Sequence[str]) -> bool:
     """Whether a reading is the subtitle of a spoken neighbour still (or already) shown."""
-    plain = _plain(text)
-    return any(
-        difflib.SequenceMatcher(None, plain, _plain(other)).ratio() >= SAME_LINE_RATIO
-        for other in neighbours
-    )
+    return any(_alike(text, other) >= SAME_LINE_RATIO for other in neighbours)
 
 
 def segments_from_readings(
@@ -140,7 +144,7 @@ def lines_from_readings(
         if not text:
             current = None
             continue
-        if current is not None and _repeats(text, [current[2]]):
+        if current is not None and _alike(text, current[2]) >= SAME_READING_RATIO:
             current[1] = reading.time_ms
             continue
         current = [reading.time_ms, reading.time_ms, text]
